@@ -9,7 +9,7 @@
             <span>🟠 修改配置自动重启核心 (重新绑定系统端口)</span>
           </span>
         </div>
-        <p class="text-xs text-gray-400 mt-0.5">全可视化分层配置 Xray 入站代理节点，严格遵循官方传输组合兼容矩阵，保存后自动落盘并重启核心生效</p>
+        <p class="text-xs text-gray-400 mt-0.5">全可视化分层配置 Xray 入站代理节点，节点级专属 Flow 继承与双向批量用户关联</p>
       </div>
       <button
         @click="openCreateModal"
@@ -49,21 +49,21 @@
               </div>
             </div>
             <div class="flex justify-between py-1 border-b border-gray-800/60">
+              <span>节点流控 (Flow)</span>
+              <span class="text-cyan-300 font-mono font-semibold">{{ getNodeFlow(inb) }}</span>
+            </div>
+            <div class="flex justify-between py-1 border-b border-gray-800/60">
               <span>安全协议</span>
               <span class="text-gray-200 font-mono font-semibold uppercase">{{ getSecurityType(inb) }}</span>
             </div>
             <div class="flex justify-between py-1 border-b border-gray-800/60">
-              <span>监听地址</span>
-              <span class="text-gray-200 font-mono">{{ inb.listen || '0.0.0.0' }}</span>
-            </div>
-            <div class="flex justify-between py-1 border-b border-gray-800/60">
-              <span>累计上下行</span>
-              <span class="text-gray-200 font-mono">{{ formatBytes(inb.upBytes + inb.downBytes) }}</span>
+              <span>已授权用户数</span>
+              <span class="text-brand-300 font-mono font-bold">{{ getClientCount(inb) }} 人</span>
             </div>
             <div class="flex justify-between py-1">
               <span>运行状态</span>
               <span class="text-emerald-400 font-semibold flex items-center gap-1">
-                <span class="w-1.5 h-1.5 rounded-full bg-emerald-400"></span> 已启用且与文件同步
+                <span class="w-1.5 h-1.5 rounded-full bg-emerald-400"></span> 正常运行
               </span>
             </div>
           </div>
@@ -74,7 +74,7 @@
             @click="editInbound(inb)"
             class="text-xs text-brand-400 hover:text-brand-300 font-medium transition-colors"
           >
-            编辑参数
+            编辑参数与关联用户
           </button>
           <button
             @click="deleteInbound(inb.id)"
@@ -99,7 +99,7 @@
         <div class="flex items-center justify-between pb-2 border-b border-gray-800">
           <div>
             <h2 class="text-lg font-bold text-white">{{ isEditing ? '编辑入站节点' : '分层添加新节点' }}</h2>
-            <p class="text-xs text-gray-400 mt-0.5">参数将自动校验官方兼容性矩阵，热注入 Xray 并回写 config.json</p>
+            <p class="text-xs text-gray-400 mt-0.5">配置专属流控策略并双向批量分配授权用户</p>
           </div>
           <button @click="showModal = false" class="text-gray-400 hover:text-white text-lg">✕</button>
         </div>
@@ -160,10 +160,10 @@
             </div>
           </div>
 
-          <!-- 2. 协议与传输层设置（严格级联互斥） -->
+          <!-- 2. 协议与传输层设置（严格级联互斥 + 节点专属 Flow） -->
           <div class="space-y-3 bg-gray-900/50 p-4 rounded-2xl border border-gray-800/80">
             <h3 class="font-bold text-brand-400 uppercase tracking-wider text-[11px] flex items-center gap-1.5">
-              <span>② 入站协议与传输层 (智能兼容联动)</span>
+              <span>② 入站协议与传输层 (定义节点级流控)</span>
             </h3>
 
             <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
@@ -215,14 +215,12 @@
               ℹ️ 官方规范说明：当前传输协议 (<code>{{ form.network }}</code>) 不支持 REALITY，安全协议仅支持 TLS 或 None。
             </div>
 
-            <!-- VLESS/Trojan None 安全提示 -->
-            <div v-if="form.security === 'none' && (form.protocol === 'vless' || form.protocol === 'trojan')" class="p-2.5 rounded-xl bg-amber-500/10 border border-amber-500/20 text-amber-300 text-[11px]">
-              ⚠️ 官方安全提示: VLESS/Trojan 在无安全层 (None) 时仅允许连接私网，公网直接使用存在阻断风险，请确保处于 CDN 或前置反代后。
-            </div>
-
-            <!-- VLESS 流控选项（仅在 TCP/RAW 下支持 Vision） -->
+            <!-- 节点级 VLESS 流控选项（用户归属此节点时将自动继承此 Flow） -->
             <div v-if="form.protocol === 'vless'" class="pt-2 border-t border-gray-800">
-              <label class="block text-gray-400 mb-1 font-medium">VLESS 流控模式 (Flow)</label>
+              <div class="flex items-center justify-between mb-1">
+                <label class="text-gray-300 font-medium">节点默认流控模式 (Node Flow Policy)</label>
+                <span class="text-[11px] text-brand-400 font-mono">归属此节点的用户将自动继承该流控</span>
+              </div>
               <select
                 v-model="form.vlessFlow"
                 :disabled="form.network !== 'tcp'"
@@ -230,10 +228,10 @@
               >
                 <option v-if="form.network === 'tcp'" value="xtls-rprx-vision">xtls-rprx-vision (XTLS Vision 极速流控 - 推荐)</option>
                 <option v-if="form.network === 'tcp'" value="xtls-rprx-vision-udp443">xtls-rprx-vision-udp443</option>
-                <option value="">none (无流控 - 非 TCP 传输强制留空)</option>
+                <option value="">none (无流控 - 适用于 XHTTP / gRPC / WS 等)</option>
               </select>
               <p v-if="form.network !== 'tcp'" class="text-[11px] text-gray-500 mt-1">
-                * 官方速查表规定：Vision 流控仅适用于 TCP/RAW 载荷，当前 {{ form.network }} 传输层已自动禁用流控。
+                * Vision 流控仅适用于 TCP/RAW 传输层，当前传输协议已自动锁定为无流控。
               </p>
             </div>
 
@@ -444,6 +442,46 @@
             </div>
           </div>
 
+          <!-- 6. 关联授权用户 (双向批量用户绑定) -->
+          <div class="space-y-3 bg-gray-900/50 p-4 rounded-2xl border border-gray-800/80">
+            <div class="flex items-center justify-between">
+              <div>
+                <h3 class="font-bold text-gray-200 text-xs">⑥ 关联授权用户 (双向用户绑定)</h3>
+                <p class="text-[11px] text-gray-500">已勾选的用户将自动授权并同步注入至此节点（继承此节点 Flow 策略）</p>
+              </div>
+              <button
+                type="button"
+                @click="toggleSelectAllUsers"
+                class="text-brand-400 hover:text-brand-300 text-[11px] font-semibold"
+              >
+                {{ isAllUsersSelected ? '取消全选' : '全选所有用户' }}
+              </button>
+            </div>
+
+            <div class="space-y-1.5 max-h-40 overflow-y-auto bg-gray-900/80 p-3 rounded-xl border border-gray-800">
+              <label
+                v-for="u in usersList"
+                :key="u.email"
+                class="flex items-center justify-between p-2 rounded-lg hover:bg-gray-800/60 cursor-pointer transition-colors"
+              >
+                <div class="flex items-center gap-2.5">
+                  <input
+                    type="checkbox"
+                    :value="u.email"
+                    v-model="form.selectedUserEmails"
+                    class="rounded bg-gray-800 border-gray-700 text-brand-600 focus:ring-0"
+                  />
+                  <span class="font-mono text-white text-xs font-semibold">{{ u.email }}</span>
+                </div>
+                <span class="font-mono text-[10px] text-gray-500">{{ u.uuid?.substring(0, 8) }}...</span>
+              </label>
+
+              <div v-if="!usersList.length" class="text-center py-3 text-gray-500 text-[11px]">
+                暂无用户，可在「用户与订阅」中添加
+              </div>
+            </div>
+          </div>
+
           <!-- Modal Action Buttons -->
           <div class="flex justify-end gap-3 pt-2 border-t border-gray-800">
             <button
@@ -458,7 +496,7 @@
               :disabled="saving"
               class="px-5 py-2.5 bg-gradient-to-r from-brand-600 to-indigo-600 hover:from-brand-500 hover:to-indigo-500 text-white font-semibold text-xs rounded-xl transition-all shadow-lg shadow-brand-500/25 disabled:opacity-50"
             >
-              <span>{{ saving ? '保存中...' : '保存并应用' }}</span>
+              <span>{{ saving ? '保存中...' : '保存节点并自动重启核心' }}</span>
             </button>
           </div>
         </form>
@@ -473,6 +511,7 @@ import { Plus, Radio, Key, AlertTriangle } from 'lucide-vue-next'
 import api from '../api'
 
 const inbounds = ref<any[]>([])
+const usersList = ref<any[]>([])
 const showModal = ref(false)
 const isEditing = ref(false)
 const saving = ref(false)
@@ -486,6 +525,7 @@ const form = ref<any>({
   vlessFlow: 'xtls-rprx-vision',
   network: 'tcp',
   security: 'reality',
+  selectedUserEmails: [] as string[],
 
   // XHTTP
   xhttpPath: '/mbqyfa4grswh5ntz',
@@ -524,12 +564,23 @@ const isRealitySupported = computed(() => {
   return ['tcp', 'xhttp', 'grpc'].includes(form.value.network)
 })
 
+const isAllUsersSelected = computed(() => {
+  if (!usersList.value.length) return false
+  return form.value.selectedUserEmails.length === usersList.value.length
+})
+
+const toggleSelectAllUsers = () => {
+  if (isAllUsersSelected.value) {
+    form.value.selectedUserEmails = []
+  } else {
+    form.value.selectedUserEmails = usersList.value.map((u) => u.email)
+  }
+}
+
 const onNetworkChange = () => {
-  // 如果切换到不支持 Reality 的网络协议，自动纠错为 TLS
   if (!isRealitySupported.value && form.value.security === 'reality') {
     form.value.security = 'tls'
   }
-  // Vision 流控仅支持 TCP/RAW，切换到非 TCP 时自动清空
   if (form.value.network !== 'tcp') {
     form.value.vlessFlow = ''
   } else if (form.value.protocol === 'vless' && !form.value.vlessFlow) {
@@ -545,9 +596,11 @@ const onProtocolChange = () => {
   }
 }
 
-const fetchInbounds = async () => {
+const fetchAll = async () => {
   try {
-    inbounds.value = await api.get('/inbounds')
+    const [inbRes, uRes]: any = await Promise.all([api.get('/inbounds'), api.get('/users')])
+    inbounds.value = inbRes || []
+    usersList.value = uRes || []
   } catch (err) {
     console.error(err)
   }
@@ -564,6 +617,7 @@ const openCreateModal = () => {
     vlessFlow: 'xtls-rprx-vision',
     network: 'tcp',
     security: 'reality',
+    selectedUserEmails: usersList.value.map((u) => u.email), // 默认选中全部现有用户
     xhttpPath: '/' + Math.random().toString(36).substring(2, 12),
     xhttpMode: 'auto',
     wsPath: '/ws',
@@ -607,11 +661,27 @@ const editInbound = (inb: any) => {
   form.value.port = inb.port
   form.value.protocol = inb.protocol
 
-  // 解析 settings
   let settings: any = {}
   try {
     settings = JSON.parse(inb.settingsJson || '{}')
   } catch (e) {}
+
+  form.value.vlessFlow = settings.flow || (inb.protocol === 'vless' ? 'xtls-rprx-vision' : '')
+
+  // 提取已绑定此节点的用户
+  const assignedEmails: string[] = []
+  if (settings.clients?.length > 0) {
+    for (const c of settings.clients) {
+      if (c.email) assignedEmails.push(c.email)
+    }
+  }
+  for (const u of usersList.value) {
+    const tags = (u.inboundTags || u.inboundTag || '').split(',').map((s: string) => s.trim())
+    if (tags.includes(inb.tag) && !assignedEmails.includes(u.email)) {
+      assignedEmails.push(u.email)
+    }
+  }
+  form.value.selectedUserEmails = assignedEmails
 
   if (settings.fallbacks?.length > 0) {
     form.value.fallbacksEnabled = true
@@ -621,7 +691,6 @@ const editInbound = (inb: any) => {
     form.value.fallbacksEnabled = false
   }
 
-  // 解析 streamSettings
   let stream: any = {}
   try {
     stream = JSON.parse(inb.streamSettings || '{}')
@@ -654,7 +723,6 @@ const editInbound = (inb: any) => {
     }
   }
 
-  // 解析 sniffing
   let sniff: any = {}
   try {
     sniff = JSON.parse(inb.sniffingJson || '{}')
@@ -665,18 +733,29 @@ const editInbound = (inb: any) => {
   showModal.value = true
 }
 
-const buildSettingsJSON = (existingJSON?: string) => {
-  let settings: any = {}
-  try {
-    settings = JSON.parse(existingJSON || '{}')
-  } catch (e) {}
+const buildSettingsJSON = () => {
+  const settings: any = {}
 
-  if (!settings.clients) {
-    settings.clients = []
-  }
+  // 节点流控策略
+  settings.flow = form.value.vlessFlow || ''
   if (form.value.protocol === 'vless') {
     settings.decryption = 'none'
   }
+
+  // 构造关联用户列表，自动继承该节点的 Flow 配置
+  const clients: any[] = []
+  for (const email of form.value.selectedUserEmails) {
+    const userObj = usersList.value.find((u) => u.email === email)
+    if (userObj) {
+      clients.push({
+        id: userObj.uuid,
+        email: userObj.email,
+        flow: form.value.vlessFlow || '',
+        level: 0,
+      })
+    }
+  }
+  settings.clients = clients
 
   if (form.value.fallbacksEnabled && form.value.fallbackDest) {
     settings.fallbacks = [
@@ -685,8 +764,6 @@ const buildSettingsJSON = (existingJSON?: string) => {
         xver: form.value.fallbackXver || 0,
       },
     ]
-  } else {
-    delete settings.fallbacks
   }
 
   return JSON.stringify(settings, null, 2)
@@ -781,8 +858,22 @@ const saveInbound = async () => {
       await api.post('/inbounds', payload)
     }
 
+    // 同步更新用户的 InboundTags 关系
+    for (const u of usersList.value) {
+      const currentTags = (u.inboundTags || u.inboundTag || '').split(',').map((s: string) => s.trim()).filter((s: string) => s)
+      const shouldHave = form.value.selectedUserEmails.includes(u.email)
+      const has = currentTags.includes(form.value.tag)
+      if (shouldHave && !has) {
+        currentTags.push(form.value.tag)
+        await api.put(`/users/${u.id}`, { ...u, inboundTags: currentTags.join(','), inboundTag: currentTags[0] })
+      } else if (!shouldHave && has) {
+        const nextTags = currentTags.filter((t: string) => t !== form.value.tag)
+        await api.put(`/users/${u.id}`, { ...u, inboundTags: nextTags.join(','), inboundTag: nextTags[0] || '' })
+      }
+    }
+
     showModal.value = false
-    await fetchInbounds()
+    await fetchAll()
   } catch (err: any) {
     alert('保存失败: ' + err)
   } finally {
@@ -794,9 +885,34 @@ const deleteInbound = async (id: number) => {
   if (!confirm('确定删除该入站节点吗？')) return
   try {
     await api.delete(`/inbounds/${id}`)
-    await fetchInbounds()
+    await fetchAll()
   } catch (err: any) {
     alert('删除失败: ' + err)
+  }
+}
+
+const getNodeFlow = (inb: any) => {
+  try {
+    const s = JSON.parse(inb.settingsJson || '{}')
+    if (s.flow) return s.flow
+    if (inb.protocol === 'vless') {
+      const str = JSON.parse(inb.streamSettings || '{}')
+      if (str.network === 'tcp' && (str.security === 'reality' || str.security === 'tls')) {
+        return 'xtls-rprx-vision'
+      }
+    }
+    return 'none'
+  } catch (e) {
+    return 'none'
+  }
+}
+
+const getClientCount = (inb: any) => {
+  try {
+    const s = JSON.parse(inb.settingsJson || '{}')
+    return s.clients?.length || 0
+  } catch (e) {
+    return 0
   }
 }
 
@@ -835,15 +951,7 @@ const protocolBadgeColor = (proto: string) => {
   }
 }
 
-const formatBytes = (bytes: number) => {
-  if (!bytes || bytes <= 0) return '0 B'
-  const k = 1024
-  const sizes = ['B', 'KB', 'MB', 'GB', 'TB']
-  const i = Math.floor(Math.log(bytes) / Math.log(k))
-  return (bytes / Math.pow(k, i)).toFixed(2) + ' ' + sizes[i]
-}
-
 onMounted(() => {
-  fetchInbounds()
+  fetchAll()
 })
 </script>

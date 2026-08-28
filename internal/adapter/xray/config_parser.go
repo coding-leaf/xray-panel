@@ -185,8 +185,20 @@ func BuildShareLink(inbound *domain.Inbound, user *domain.User, hostDomain strin
 		v := url.Values{}
 		v.Set("type", network)
 		v.Set("security", security)
-		if user.Flow != "" {
-			v.Set("flow", user.Flow)
+		flow := ""
+		if network == "tcp" && (security == "reality" || security == "tls") {
+			var settingsMap map[string]interface{}
+			_ = json.Unmarshal([]byte(inbound.SettingsJSON), &settingsMap)
+			if f, ok := settingsMap["flow"].(string); ok && f != "" {
+				flow = f
+			} else if user.Flow != "" {
+				flow = user.Flow
+			} else {
+				flow = "xtls-rprx-vision"
+			}
+		}
+		if flow != "" {
+			v.Set("flow", flow)
 		}
 
 		if security == "reality" {

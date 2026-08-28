@@ -226,9 +226,16 @@ func (s *ConfigService) syncInboundToFile(ctx context.Context, inbound *domain.I
 				continue // 移除该 Inbound
 			}
 			// 更新现有 Inbound
-			ibMap["port"] = inbound.Port
-			ibMap["listen"] = inbound.Listen
-			ibMap["protocol"] = inbound.Protocol
+			var settingsObj map[string]interface{}
+			_ = json.Unmarshal([]byte(inbound.SettingsJSON), &settingsObj)
+			if settingsObj != nil {
+				if existingSettings, ok := ibMap["settings"].(map[string]interface{}); ok {
+					if _, hasClients := settingsObj["clients"]; !hasClients {
+						settingsObj["clients"] = existingSettings["clients"]
+					}
+				}
+				ibMap["settings"] = settingsObj
+			}
 
 			var streamObj map[string]interface{}
 			_ = json.Unmarshal([]byte(inbound.StreamSettings), &streamObj)
@@ -248,14 +255,18 @@ func (s *ConfigService) syncInboundToFile(ctx context.Context, inbound *domain.I
 	}
 
 	if !found && !isDelete {
+		var settingsObj map[string]interface{}
+		_ = json.Unmarshal([]byte(inbound.SettingsJSON), &settingsObj)
+		if settingsObj == nil {
+			settingsObj = map[string]interface{}{"clients": []interface{}{}}
+		}
+
 		newMap := map[string]interface{}{
 			"tag":      inbound.Tag,
 			"port":     inbound.Port,
 			"listen":   inbound.Listen,
 			"protocol": inbound.Protocol,
-			"settings": map[string]interface{}{
-				"clients": []interface{}{},
-			},
+			"settings": settingsObj,
 		}
 		var streamObj map[string]interface{}
 		_ = json.Unmarshal([]byte(inbound.StreamSettings), &streamObj)

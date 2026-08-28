@@ -5,24 +5,35 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"fmt"
+	"strings"
 	"time"
 
+	"panel/internal/adapter/xray"
 	"panel/internal/domain"
 
 	"github.com/google/uuid"
 )
 
+type CreateUserDTO struct {
+	Email       string   `json:"email" binding:"required"`
+	InboundTag  string   `json:"inboundTag"`
+	InboundTags []string `json:"inboundTags"`
+	Flow        string   `json:"flow"`
+	TotalBytes  int64    `json:"totalBytes"`
+	ExpireDays  int      `json:"expireDays"`
+}
+
 type UserService struct {
 	userRepo    domain.UserRepository
 	inboundRepo domain.InboundRepository
-	xrayManager domain.XrayManager
+	xrayManager *xray.Manager
 	configSvc   *ConfigService
 }
 
 func NewUserService(
 	userRepo domain.UserRepository,
 	inboundRepo domain.InboundRepository,
-	xrayManager domain.XrayManager,
+	xrayManager *xray.Manager,
 	configSvc *ConfigService,
 ) *UserService {
 	return &UserService{
@@ -33,26 +44,20 @@ func NewUserService(
 	}
 }
 
-type CreateUserDTO struct {
-	Email      string `json:"email"`
-	InboundTag string `json:"inboundTag"`
-	Flow       string `json:"flow"`
-	TotalBytes int64  `json:"totalBytes"`
-	ExpireDays int    `json:"expireDays"`
-}
-
 func (s *UserService) CreateUser(ctx context.Context, dto CreateUserDTO) (*domain.User, error) {
-	if dto.Email == "" || dto.InboundTag == "" {
-		return nil, fmt.Errorf("%w: email and inboundTag are required", domain.ErrInvalidInput)
+	existing, _ := s.userRepo.GetByEmail(ctx, dto.Email)
+	if existing != nil {
+		return nil, fmt.Errorf("%w: 用户名/邮箱已存在", domain.ErrAlreadyExists)
 	}
 
-	// 检查 Inbound 是否存在
-	inbound, err := s.inboundRepo.GetByTag(ctx, dto.InboundTag)
-	if err != nil {
-		return nil, fmt.Errorf("inbound not found: %w", err)
+	tags := dto.InboundTags
+	if len(tags) == 0 && dto.InboundTag != "" {
+		tags = []string{dto.InboundTag}
+	}
+	if len(tags) == 0 {
+		return nil, fmt.Errorf("请至少选择一个归属的入站节点")
 	}
 
-	// 生成安全 Token 与 UUID
 	tokenBytes := make([]byte, 16)
 	_, _ = rand.Read(tokenBytes)
 	subToken := hex.EncodeToString(tokenBytes)
@@ -64,29 +69,33 @@ func (s *UserService) CreateUser(ctx context.Context, dto CreateUserDTO) (*domai
 		expireTime = time.Now().AddDate(0, 0, dto.ExpireDays).UnixMilli()
 	}
 
+	tagsStr := strings.Join(tags, ",")
 	user := &domain.User{
-		UUID:       userUUID,
-		Email:      dto.Email,
-		InboundTag: inbound.Tag,
-		Flow:       dto.Flow,
-		SubToken:   subToken,
-		TotalBytes: dto.TotalBytes,
-		ExpireTime: expireTime,
-		Enabled:    true,
-		CreatedAt:  time.Now(),
-		UpdatedAt:  time.Now(),
+		UUID:        userUUID,
+		Email:       dto.Email,
+		InboundTag:  tags[0],
+		InboundTags: tagsStr,
+		Flow:        dto.Flow,
+		SubToken:    subToken,
+		TotalBytes:  dto.TotalBytes,
+		ExpireTime:  expireTime,
+		Enabled:     true,
+		CreatedAt:   time.Now(),
+		UpdatedAt:   time.Now(),
 	}
 
 	if err := s.userRepo.Create(ctx, user); err != nil {
 		return nil, fmt.Errorf("create user in db failed: %w", err)
 	}
 
-	// 1. gRPC 热同步到 Xray 核心内存
-	_ = s.xrayManager.AddUser(ctx, inbound.Tag, user)
+	// 1. gRPC 热同步到所有已选节点内存
+	for _, t := range tags {
+		_ = s.xrayManager.AddUser(ctx, t, user)
+	}
 
 	// 2. 双向同步持久化回写 config.json 物理文件
 	if s.configSvc != nil {
-		_ = s.configSvc.SyncUserToFile(ctx, inbound.Tag, user, false)
+		_ = s.configSvc.SyncUserToFile(ctx, tags, user, false)
 	}
 
 	return user, nil
@@ -98,16 +107,33 @@ func (s *UserService) UpdateUser(ctx context.Context, user *domain.User) error {
 		return err
 	}
 
-	// 如果状态发生改变，同步 Xray
-	if oldUser.Enabled != user.Enabled || oldUser.Flow != user.Flow {
-		_ = s.xrayManager.RemoveUser(ctx, oldUser.InboundTag, oldUser.Email)
-		if user.IsActive() {
-			_ = s.xrayManager.AddUser(ctx, user.InboundTag, user)
+	oldTags := oldUser.GetInboundTagList()
+	newTags := user.GetInboundTagList()
+
+	// 找出需要移除的节点
+	newTagSet := make(map[string]bool)
+	for _, t := range newTags {
+		newTagSet[t] = true
+	}
+	for _, oldT := range oldTags {
+		if !newTagSet[oldT] {
+			_ = s.xrayManager.RemoveUser(ctx, oldT, oldUser.Email)
+		}
+	}
+
+	// 注入/刷新新节点
+	if user.IsActive() {
+		for _, newT := range newTags {
+			_ = s.xrayManager.AddUser(ctx, newT, user)
+		}
+	} else {
+		for _, newT := range newTags {
+			_ = s.xrayManager.RemoveUser(ctx, newT, user.Email)
 		}
 	}
 
 	if s.configSvc != nil {
-		_ = s.configSvc.SyncUserToFile(ctx, user.InboundTag, user, false)
+		_ = s.configSvc.SyncUserToFile(ctx, newTags, user, false)
 	}
 
 	return s.userRepo.Update(ctx, user)
@@ -119,12 +145,14 @@ func (s *UserService) DeleteUser(ctx context.Context, id uint) error {
 		return err
 	}
 
-	// 1. gRPC 热移除
-	_ = s.xrayManager.RemoveUser(ctx, user.InboundTag, user.Email)
+	// 1. gRPC 热移除该用户在所有节点的内存状态
+	for _, t := range user.GetInboundTagList() {
+		_ = s.xrayManager.RemoveUser(ctx, t, user.Email)
+	}
 
 	// 2. 从物理 config.json 移除
 	if s.configSvc != nil {
-		_ = s.configSvc.SyncUserToFile(ctx, user.InboundTag, user, true)
+		_ = s.configSvc.SyncUserToFile(ctx, nil, user, true)
 	}
 
 	return s.userRepo.Delete(ctx, id)

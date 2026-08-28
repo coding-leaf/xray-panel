@@ -24,7 +24,7 @@ func NewSubService(userRepo domain.UserRepository, inboundRepo domain.InboundRep
 	}
 }
 
-func (s *SubService) GetSubscriptionByToken(ctx context.Context, token string) (*domain.SubscriptionPayload, error) {
+func (s *SubService) GetSubscriptionByToken(ctx context.Context, token string, tagFilter string) (*domain.SubscriptionPayload, error) {
 	if token == "" {
 		return nil, domain.ErrSubscriptionToken
 	}
@@ -37,14 +37,11 @@ func (s *SubService) GetSubscriptionByToken(ctx context.Context, token string) (
 	if !user.Enabled {
 		return nil, domain.ErrUserDisabled
 	}
-	if user.IsExpired() {
-		return nil, fmt.Errorf("%w: user expired", domain.ErrSubscriptionToken)
-	}
-	if user.IsTrafficExceeded() {
-		return nil, domain.ErrQuotaExceeded
+	if !user.IsActive() {
+		return nil, fmt.Errorf("%w: 用户已过期或流量已超额", domain.ErrQuotaExceeded)
 	}
 
-	// 获取用户绑定的 Inbound 或所有可用 Inbound
+	// 获取所有节点
 	inbounds, err := s.inboundRepo.ListAll(ctx)
 	if err != nil {
 		return nil, err
@@ -57,6 +54,15 @@ func (s *SubService) GetSubscriptionByToken(ctx context.Context, token string) (
 		if !in.Enabled {
 			continue
 		}
+		// 校验用户是否被授权属于该节点
+		if !user.HasInbound(in.Tag) {
+			continue
+		}
+		// 如果指定了单节点过滤参数，仅输出该节点
+		if tagFilter != "" && in.Tag != tagFilter {
+			continue
+		}
+
 		link := xray.BuildShareLink(&in, user, hostDomain)
 		if link != "" {
 			shareLinks = append(shareLinks, link)
@@ -84,15 +90,43 @@ func (s *SubService) GetSubscriptionByToken(ctx context.Context, token string) (
 	}, nil
 }
 
-func (s *SubService) GetUserShareLink(ctx context.Context, userID uint) (string, error) {
+func (s *SubService) GetUserShareInfo(ctx context.Context, userID uint, baseURL string) (*domain.UserShareResponse, error) {
 	user, err := s.userRepo.GetByID(ctx, userID)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
-	inbound, err := s.inboundRepo.GetByTag(ctx, user.InboundTag)
+
+	inbounds, err := s.inboundRepo.ListAll(ctx)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
+
 	hostDomain, _ := s.settingRepo.Get(ctx, "sub_domain")
-	return xray.BuildShareLink(inbound, user, hostDomain), nil
+	if hostDomain == "" && baseURL != "" {
+		hostDomain = baseURL
+	}
+
+	resp := &domain.UserShareResponse{
+		UserID:    user.ID,
+		Email:     user.Email,
+		SubToken:  user.SubToken,
+		AllSubURL: fmt.Sprintf("%s/api/sub/%s", baseURL, user.SubToken),
+		Nodes:     make([]domain.NodeShareInfo, 0),
+	}
+
+	for _, in := range inbounds {
+		if !in.Enabled || !user.HasInbound(in.Tag) {
+			continue
+		}
+		link := xray.BuildShareLink(&in, user, hostDomain)
+		resp.Nodes = append(resp.Nodes, domain.NodeShareInfo{
+			Tag:       in.Tag,
+			Protocol:  in.Protocol,
+			Remark:    in.Remark,
+			ShareLink: link,
+			SingleSub: fmt.Sprintf("%s/api/sub/%s?tag=%s", baseURL, user.SubToken, in.Tag),
+		})
+	}
+
+	return resp, nil
 }

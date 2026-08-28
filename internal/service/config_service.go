@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 
 	"panel/internal/adapter/xray"
@@ -100,7 +101,7 @@ func (s *ConfigService) SaveAndApplyRawConfig(ctx context.Context, rawJSON []byt
 					_ = s.inboundRepo.Create(ctx, newIn)
 				}
 
-				// 2. 解析每个 inbound 下的 clients（用户）反向同步至数据库
+				// 2. 收集每个 inbound 下的 clients（用户）
 				if settingsMap, ok := ib["settings"].(map[string]interface{}); ok {
 					if clientsRaw, ok := settingsMap["clients"].([]interface{}); ok {
 						for _, cRaw := range clientsRaw {
@@ -123,7 +124,11 @@ func (s *ConfigService) SaveAndApplyRawConfig(ctx context.Context, rawJSON []byt
 							if existingUser != nil {
 								existingUser.UUID = uuidStr
 								existingUser.Flow = flow
-								existingUser.InboundTag = tag
+								tags := existingUser.GetInboundTagList()
+								if !existingUser.HasInbound(tag) {
+									tags = append(tags, tag)
+									existingUser.InboundTags = strings.Join(tags, ",")
+								}
 								_ = s.userRepo.Update(ctx, existingUser)
 							} else {
 								tokenBytes := make([]byte, 16)
@@ -131,14 +136,15 @@ func (s *ConfigService) SaveAndApplyRawConfig(ctx context.Context, rawJSON []byt
 								subToken := hex.EncodeToString(tokenBytes)
 
 								newUser := &domain.User{
-									UUID:       uuidStr,
-									Email:      email,
-									InboundTag: tag,
-									Flow:       flow,
-									SubToken:   subToken,
-									Enabled:    true,
-									CreatedAt:  time.Now(),
-									UpdatedAt:  time.Now(),
+									UUID:        uuidStr,
+									Email:       email,
+									InboundTag:  tag,
+									InboundTags: tag,
+									Flow:        flow,
+									SubToken:    subToken,
+									Enabled:     true,
+									CreatedAt:   time.Now(),
+									UpdatedAt:   time.Now(),
 								}
 								_ = s.userRepo.Create(ctx, newUser)
 							}
@@ -273,7 +279,7 @@ func (s *ConfigService) syncInboundToFile(ctx context.Context, inbound *domain.I
 	return s.configMgr.WriteConfig(ctx, modifiedBytes)
 }
 
-func (s *ConfigService) SyncUserToFile(ctx context.Context, inboundTag string, user *domain.User, isDelete bool) error {
+func (s *ConfigService) SyncUserToFile(ctx context.Context, authorizedTags []string, user *domain.User, isDelete bool) error {
 	raw, err := s.configMgr.ReadRawConfig()
 	if err != nil {
 		return err
@@ -290,15 +296,17 @@ func (s *ConfigService) SyncUserToFile(ctx context.Context, inboundTag string, u
 		return nil
 	}
 
+	tagSet := make(map[string]bool)
+	for _, t := range authorizedTags {
+		tagSet[t] = true
+	}
+
 	for _, ibRaw := range inbounds {
 		ibMap, ok := ibRaw.(map[string]interface{})
 		if !ok {
 			continue
 		}
 		tag, _ := ibMap["tag"].(string)
-		if tag != inboundTag {
-			continue
-		}
 
 		settings, ok := ibMap["settings"].(map[string]interface{})
 		if !ok || settings == nil {
@@ -309,6 +317,7 @@ func (s *ConfigService) SyncUserToFile(ctx context.Context, inboundTag string, u
 		clientsRaw, _ := settings["clients"].([]interface{})
 		var newClients []interface{}
 		found := false
+		shouldHave := tagSet[tag] && !isDelete
 
 		for _, cRaw := range clientsRaw {
 			cMap, ok := cRaw.(map[string]interface{})
@@ -319,18 +328,18 @@ func (s *ConfigService) SyncUserToFile(ctx context.Context, inboundTag string, u
 			email, _ := cMap["email"].(string)
 			if email == user.Email {
 				found = true
-				if isDelete {
-					continue // 移除用户
+				if shouldHave {
+					cMap["id"] = user.UUID
+					cMap["flow"] = user.Flow
+					newClients = append(newClients, cMap)
 				}
-				cMap["id"] = user.UUID
-				cMap["flow"] = user.Flow
-				newClients = append(newClients, cMap)
+				// 否则从该 inbound 移除
 			} else {
 				newClients = append(newClients, cRaw)
 			}
 		}
 
-		if !found && !isDelete {
+		if !found && shouldHave {
 			newClient := map[string]interface{}{
 				"id":    user.UUID,
 				"email": user.Email,
@@ -341,7 +350,6 @@ func (s *ConfigService) SyncUserToFile(ctx context.Context, inboundTag string, u
 		}
 
 		settings["clients"] = newClients
-		break
 	}
 
 	root["inbounds"] = inbounds

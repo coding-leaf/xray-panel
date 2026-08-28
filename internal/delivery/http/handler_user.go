@@ -1,6 +1,7 @@
 package http
 
 import (
+	"fmt"
 	"net/http"
 	"strconv"
 
@@ -106,11 +107,17 @@ func (h *UserHandler) GetShareLink(c *gin.Context) {
 		return
 	}
 
-	link, err := h.subSvc.GetUserShareLink(c.Request.Context(), uint(id))
+	scheme := "http"
+	if c.Request.TLS != nil || c.GetHeader("X-Forwarded-Proto") == "https" {
+		scheme = "https"
+	}
+	baseURL := fmt.Sprintf("%s://%s", scheme, c.Request.Host)
+
+	shareInfo, err := h.subSvc.GetUserShareInfo(c.Request.Context(), uint(id), baseURL)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"shareLink": link})
+	c.JSON(http.StatusOK, shareInfo)
 }

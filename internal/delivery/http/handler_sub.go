@@ -24,7 +24,9 @@ func (h *SubHandler) GetSubscription(c *gin.Context) {
 		return
 	}
 
-	payload, err := h.subSvc.GetSubscriptionByToken(c.Request.Context(), token)
+	tagFilter := c.Query("tag")
+
+	payload, err := h.subSvc.GetSubscriptionByToken(c.Request.Context(), token, tagFilter)
 	if err != nil {
 		c.String(http.StatusForbidden, err.Error())
 		return

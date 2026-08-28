@@ -83,10 +83,12 @@ func (j *TrafficSyncJob) syncOnce(ctx context.Context) {
 		if s.Type == domain.TrafficStatTypeUser {
 			_ = j.userRepo.AddTraffic(ctx, s.Tag, up, down)
 
-			// 检查是否超出限额，超出则立即从 Xray 剔除
+			// 检查是否超出限额，超出则立即从 Xray 所有节点剔除
 			user, err := j.userRepo.GetByEmail(ctx, s.Tag)
 			if err == nil && user.IsTrafficExceeded() {
-				_ = j.xrayManager.RemoveUser(ctx, user.InboundTag, user.Email)
+				for _, t := range user.GetInboundTagList() {
+					_ = j.xrayManager.RemoveUser(ctx, t, user.Email)
+				}
 			}
 		} else if s.Type == domain.TrafficStatTypeInbound {
 			_ = j.inboundRepo.AddTraffic(ctx, s.Tag, up, down)

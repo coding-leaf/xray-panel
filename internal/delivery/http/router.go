@@ -67,6 +67,7 @@ func SetupRouter(handlers *Handlers, jwtSecret string, staticFS fs.FS) *gin.Engi
 			authGroup.PUT("/users/:id", handlers.User.Update)
 			authGroup.DELETE("/users/:id", handlers.User.Delete)
 			authGroup.POST("/users/:id/reset", handlers.User.ResetTraffic)
+			authGroup.POST("/users/:id/reset-traffic", handlers.User.ResetTraffic)
 			authGroup.GET("/users/:id/share", handlers.User.GetShareLink)
 			authGroup.GET("/users/:id/traffic-history", handlers.User.GetTrafficHistory)
 

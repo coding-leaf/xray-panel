@@ -67,7 +67,7 @@ func (r *GORMUserRepository) GetBySubToken(ctx context.Context, token string) (*
 
 func (r *GORMUserRepository) ListByInboundTag(ctx context.Context, tag string) ([]domain.User, error) {
 	var users []domain.User
-	err := r.db.WithContext(ctx).Where("inbound_tag = ?", tag).Find(&users).Error
+	err := r.db.WithContext(ctx).Where("inbound_tag = ? OR inbound_tags LIKE ?", tag, "%"+tag+"%").Find(&users).Error
 	return users, err
 }
 

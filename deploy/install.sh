@@ -37,12 +37,11 @@ else
     exit 1
 fi
 
-# 3. 配置 Systemd 服务
+# 3. 配置 Systemd 服务（如首次安装自动生成 32 位高熵随机 JWT 密钥）
 echo -e "${GREEN}[2/4] 配置 Systemd 后台服务 ${SERVICE_FILE} ...${PLAIN}"
-if [[ -f "./deploy/panel.service" ]]; then
-    cp -f ./deploy/panel.service "${SERVICE_FILE}"
-else
-    cat << 'EOF' > "${SERVICE_FILE}"
+if [[ ! -f "${SERVICE_FILE}" ]]; then
+    RANDOM_SECRET=$(head -c 64 /dev/urandom 2>/dev/null | tr -dc A-Za-z0-9 | head -c 32 || date +%s%N | md5sum | head -c 32)
+    cat << EOF > "${SERVICE_FILE}"
 [Unit]
 Description=Xray Decoupled Panel Daemon
 After=network.target xray.service
@@ -56,10 +55,12 @@ ExecStart=/usr/local/xray-panel/panel
 Restart=on-failure
 RestartSec=5s
 LimitNOFILE=65535
+Environment="PANEL_JWT_SECRET=${RANDOM_SECRET}"
 
 [Install]
 WantedBy=multi-user.target
 EOF
+    echo -e "${GREEN}  ✓ 首次安装已自动生成高熵随机 JWT 密钥并配置入 Service！${PLAIN}"
 fi
 
 # 4. 重载与启动服务

@@ -31,7 +31,7 @@ func Load() *Config {
 	flag.StringVar(&cfg.XrayConfigPath, "xray-config", getEnv("XRAY_CONFIG_PATH", defaultConfig), "Path to xray config.json")
 	flag.StringVar(&cfg.XrayBinPath, "xray-bin", getEnv("XRAY_BIN_PATH", defaultBin), "Path to xray binary")
 	flag.StringVar(&cfg.DBPath, "db", getEnv("DB_PATH", "data/panel.db"), "Path to SQLite database")
-	flag.StringVar(&cfg.JWTSecret, "jwt-secret", getEnv("JWT_SECRET", "super-secret-key-change-me"), "JWT secret key")
+	flag.StringVar(&cfg.JWTSecret, "jwt-secret", getEnv("PANEL_JWT_SECRET", getEnv("JWT_SECRET", "super-secret-key-change-me")), "JWT secret key")
 	flag.StringVar(&cfg.LogLevel, "log-level", getEnv("LOG_LEVEL", "info"), "Log level (debug, info, warn, error)")
 	flag.BoolVar(&cfg.LogJSON, "log-json", false, "Log in JSON format")
 	flag.StringVar(&cfg.ServiceName, "service", getEnv("SERVICE_NAME", "xray"), "Xray systemd service name")

@@ -3,6 +3,7 @@ import DashboardView from '../views/DashboardView.vue'
 import InboundsView from '../views/InboundsView.vue'
 import UsersView from '../views/UsersView.vue'
 import ConfigView from '../views/ConfigView.vue'
+import LogsView from '../views/LogsView.vue'
 import SettingsView from '../views/SettingsView.vue'
 import LoginView from '../views/LoginView.vue'
 
@@ -12,6 +13,7 @@ const routes = [
   { path: '/inbounds', component: InboundsView, meta: { requiresAuth: true } },
   { path: '/users', component: UsersView, meta: { requiresAuth: true } },
   { path: '/config', component: ConfigView, meta: { requiresAuth: true } },
+  { path: '/logs', component: LogsView, meta: { requiresAuth: true } },
   { path: '/settings', component: SettingsView, meta: { requiresAuth: true } },
 ]
 

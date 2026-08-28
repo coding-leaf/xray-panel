@@ -86,6 +86,7 @@ import {
   Radio,
   Users,
   FileCode2,
+  ScrollText,
   Settings,
   LogOut,
 } from 'lucide-vue-next'
@@ -101,6 +102,7 @@ const navItems = [
   { name: '节点管理', path: '/inbounds', icon: Radio },
   { name: '用户与订阅', path: '/users', icon: Users },
   { name: '配置编辑', path: '/config', icon: FileCode2 },
+  { name: '运行日志', path: '/logs', icon: ScrollText },
   { name: '系统设置', path: '/settings', icon: Settings },
 ]
 

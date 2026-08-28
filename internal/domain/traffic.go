@@ -5,16 +5,16 @@ import "time"
 type TrafficStatType string
 
 const (
-	TrafficStatTypeUser    TrafficStatType = "user"
-	TrafficStatTypeInbound TrafficStatType = "inbound"
+	TrafficStatTypeUser     TrafficStatType = "user"
+	TrafficStatTypeInbound  TrafficStatType = "inbound"
 	TrafficStatTypeOutbound TrafficStatType = "outbound"
 )
 
 type TrafficStat struct {
-	Type      TrafficStatType `json:"type"`
-	Tag       string          `json:"tag"`
-	IsUplink  bool            `json:"isUplink"`
-	Value     int64           `json:"value"` // byte count in delta query
+	Type     TrafficStatType `json:"type"`
+	Tag      string          `json:"tag"`
+	IsUplink bool            `json:"isUplink"`
+	Value    int64           `json:"value"` // byte count in delta query
 }
 
 type TrafficLog struct {
@@ -28,10 +28,10 @@ type TrafficLog struct {
 }
 
 type TrafficAlert struct {
-	Email       string  `json:"email"`
-	UsedBytes   int64   `json:"usedBytes"`
-	TotalBytes  int64   `json:"totalBytes"`
-	UsageRatio  float64 `json:"usageRatio"`
+	Email      string  `json:"email"`
+	UsedBytes  int64   `json:"usedBytes"`
+	TotalBytes int64   `json:"totalBytes"`
+	UsageRatio float64 `json:"usageRatio"`
 }
 
 type SystemAlert struct {
@@ -39,4 +39,11 @@ type SystemAlert struct {
 	CurrentVal  float64 `json:"currentVal"`
 	Threshold   float64 `json:"threshold"`
 	Description string  `json:"description"`
+}
+
+type CertAlert struct {
+	DomainName string `json:"domainName"`
+	DaysLeft   int    `json:"daysLeft"`
+	NotAfter   string `json:"notAfter"`
+	Path       string `json:"path"`
 }

@@ -123,3 +123,16 @@ func (b *BotAdapter) SendServiceStatusAlert(ctx context.Context, status domain.S
 	)
 	return b.SendMessage(ctx, text)
 }
+
+func (b *BotAdapter) SendCertAlert(ctx context.Context, alert domain.CertAlert) error {
+	text := fmt.Sprintf(
+		"🔒 <b>TLS 证书过期预警</b>\n\n"+
+			"🌐 <b>域名:</b> <code>%s</code>\n"+
+			"⏳ <b>剩余有效天数:</b> %d 天\n"+
+			"📅 <b>到期时间:</b> %s\n"+
+			"📁 <b>证书路径:</b> <code>%s</code>\n\n"+
+			"⚠️ 请尽快续签证书并重载 Xray 核心，以防客户端连接中断！",
+		alert.DomainName, alert.DaysLeft, alert.NotAfter, alert.Path,
+	)
+	return b.SendMessage(ctx, text)
+}

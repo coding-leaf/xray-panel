@@ -72,7 +72,8 @@ func main() {
 	subSvc := service.NewSubService(userRepo, inboundRepo, settingRepo)
 	configSvc := service.NewConfigService(configMgr, supervisor, inboundRepo)
 	monitorSvc := service.NewMonitorService(hostMonitor, xrayManager, userRepo, inboundRepo)
-	alertSvc := service.NewAlertService(botAdapter, userRepo, hostMonitor)
+	alertSvc := service.NewAlertService(botAdapter, userRepo, hostMonitor, configMgr)
+	logSvc := service.NewLogService(configMgr)
 
 	// 5. 初始化 HTTP API 处理器
 	handlers := &deliveryHTTP.Handlers{
@@ -83,6 +84,7 @@ func main() {
 		Config:    deliveryHTTP.NewConfigHandler(configSvc),
 		Sub:       deliveryHTTP.NewSubHandler(subSvc),
 		Setting:   deliveryHTTP.NewSettingHandler(settingRepo, botAdapter),
+		Log:       deliveryHTTP.NewLogHandler(logSvc),
 	}
 
 	staticFS := getStaticFS()

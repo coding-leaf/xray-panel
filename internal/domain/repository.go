@@ -65,5 +65,6 @@ type Notifier interface {
 	SendTrafficAlert(ctx context.Context, alert TrafficAlert) error
 	SendSystemAlert(ctx context.Context, alert SystemAlert) error
 	SendServiceStatusAlert(ctx context.Context, status ServiceStatus) error
+	SendCertAlert(ctx context.Context, alert CertAlert) error
 	SendMessage(ctx context.Context, text string) error
 }

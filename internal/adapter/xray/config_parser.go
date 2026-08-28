@@ -12,6 +12,7 @@ import (
 	"strings"
 
 	"panel/internal/domain"
+	"panel/internal/pkg/jsonc"
 	"panel/internal/pkg/logger"
 )
 
@@ -35,26 +36,29 @@ func (c *ConfigManager) ReadRawConfig() ([]byte, error) {
 	return os.ReadFile(c.configPath)
 }
 
-// ValidateConfig 使用 xray -test -config 校验配置合法性
+// ValidateConfig 使用 jsonc 清洗与 xray -test -config 校验配置合法性
 func (c *ConfigManager) ValidateConfig(ctx context.Context, rawJSON []byte) error {
-	// 1. JSON 基础语法校验
+	// 1. 先进行 JSONC 注释清洗
+	cleanedJSON := jsonc.StripJSONC(rawJSON)
+
+	// 2. JSON 基础语法校验
 	var js map[string]interface{}
-	if err := json.Unmarshal(rawJSON, &js); err != nil {
+	if err := json.Unmarshal(cleanedJSON, &js); err != nil {
 		return fmt.Errorf("%w: JSON syntax error: %v", domain.ErrInvalidConfig, err)
 	}
 
-	// 2. 检查 api 配置是否存在
+	// 3. 检查 api 配置是否存在
 	apiObj, ok := js["api"].(map[string]interface{})
 	if !ok || apiObj["tag"] == nil {
 		logger.FromContext(ctx).Warn("Xray config missing 'api' section or tag")
 	}
 
-	// 3. 写入临时文件并通过 xray -test 进行严格语法校验
+	// 4. 写入临时文件并通过 xray -test 进行严格语法校验
 	if c.xrayBinPath != "" {
 		if _, err := os.Stat(c.xrayBinPath); err == nil {
 			tmpDir := os.TempDir()
 			tmpFile := filepath.Join(tmpDir, fmt.Sprintf("xray_test_%d.json", os.Getpid()))
-			if err := os.WriteFile(tmpFile, rawJSON, 0600); err != nil {
+			if err := os.WriteFile(tmpFile, cleanedJSON, 0600); err != nil {
 				return fmt.Errorf("write temp config failed: %w", err)
 			}
 			defer os.Remove(tmpFile)
@@ -77,25 +81,81 @@ func (c *ConfigManager) ValidateConfig(ctx context.Context, rawJSON []byte) erro
 	return nil
 }
 
-// WriteConfig 写入经过校验的配置
+// WriteConfig 写入经过清洗与校验的配置
 func (c *ConfigManager) WriteConfig(ctx context.Context, rawJSON []byte) error {
 	if err := c.ValidateConfig(ctx, rawJSON); err != nil {
 		return err
 	}
 
+	cleanedJSON := jsonc.StripJSONC(rawJSON)
+
 	// 格式化美化 JSON
 	var buf bytes.Buffer
-	if err := json.Indent(&buf, rawJSON, "", "    "); err == nil {
-		rawJSON = buf.Bytes()
+	if err := json.Indent(&buf, cleanedJSON, "", "    "); err == nil {
+		cleanedJSON = buf.Bytes()
 	}
 
 	// 备份旧配置
 	if _, err := os.Stat(c.configPath); err == nil {
 		backupPath := c.configPath + ".bak"
-		_ = os.WriteFile(backupPath, rawJSON, 0644)
+		_ = os.WriteFile(backupPath, cleanedJSON, 0644)
 	}
 
-	return os.WriteFile(c.configPath, rawJSON, 0644)
+	return os.WriteFile(c.configPath, cleanedJSON, 0644)
+}
+
+// GetLogPaths 从配置文件中获取 access 和 error 日志路径
+func (c *ConfigManager) GetLogPaths() (accessLog, errorLog string) {
+	raw, err := c.ReadRawConfig()
+	if err != nil {
+		return "", ""
+	}
+	cleaned := jsonc.StripJSONC(raw)
+	var js struct {
+		Log struct {
+			Access string `json:"access"`
+			Error  string `json:"error"`
+		} `json:"log"`
+	}
+	if err := json.Unmarshal(cleaned, &js); err == nil {
+		return js.Log.Access, js.Log.Error
+	}
+	return "", ""
+}
+
+// GetCertificatePaths 获取配置中引用的所有 TLS 证书路径
+func (c *ConfigManager) GetCertificatePaths() []string {
+	raw, err := c.ReadRawConfig()
+	if err != nil {
+		return nil
+	}
+	cleaned := jsonc.StripJSONC(raw)
+	var js struct {
+		Inbounds []struct {
+			StreamSettings struct {
+				TLSSettings struct {
+					Certificates []struct {
+						CertificateFile string `json:"certificateFile"`
+					} `json:"certificates"`
+				} `json:"tlsSettings"`
+			} `json:"streamSettings"`
+		} `json:"inbounds"`
+	}
+	if err := json.Unmarshal(cleaned, &js); err != nil {
+		return nil
+	}
+
+	var paths []string
+	seen := make(map[string]bool)
+	for _, inb := range js.Inbounds {
+		for _, cert := range inb.StreamSettings.TLSSettings.Certificates {
+			if cert.CertificateFile != "" && !seen[cert.CertificateFile] {
+				seen[cert.CertificateFile] = true
+				paths = append(paths, cert.CertificateFile)
+			}
+		}
+	}
+	return paths
 }
 
 // BuildShareLink 生成标准 Xray 分享链接 (vless://, vmess://, trojan://)

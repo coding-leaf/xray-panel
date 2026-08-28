@@ -55,6 +55,7 @@ func (j *TrafficSyncJob) Start(ctx context.Context) {
 			case <-alertTicker.C:
 				_ = j.alertSvc.CheckTrafficQuotas(ctx)
 				_ = j.alertSvc.CheckSystemLoad(ctx)
+				_ = j.alertSvc.CheckCertificates(ctx)
 			}
 		}
 	}()

@@ -5,21 +5,24 @@ import (
 	"fmt"
 	"log/slog"
 
+	"panel/internal/adapter/xray"
 	"panel/internal/domain"
 	"panel/internal/pkg/logger"
 )
 
 type AlertService struct {
-	notifier domain.Notifier
-	userRepo domain.UserRepository
-	monitor  domain.HostMonitor
+	notifier  domain.Notifier
+	userRepo  domain.UserRepository
+	monitor   domain.HostMonitor
+	configMgr *xray.ConfigManager
 }
 
-func NewAlertService(notifier domain.Notifier, userRepo domain.UserRepository, monitor domain.HostMonitor) *AlertService {
+func NewAlertService(notifier domain.Notifier, userRepo domain.UserRepository, monitor domain.HostMonitor, configMgr *xray.ConfigManager) *AlertService {
 	return &AlertService{
-		notifier: notifier,
-		userRepo: userRepo,
-		monitor:  monitor,
+		notifier:  notifier,
+		userRepo:  userRepo,
+		monitor:   monitor,
+		configMgr: configMgr,
 	}
 }
 
@@ -88,5 +91,29 @@ func (s *AlertService) CheckSystemLoad(ctx context.Context) error {
 		})
 	}
 
+	return nil
+}
+
+func (s *AlertService) CheckCertificates(ctx context.Context) error {
+	if s.configMgr == nil {
+		return nil
+	}
+	certPaths := s.configMgr.GetCertificatePaths()
+	for _, p := range certPaths {
+		certInfo, err := xray.ParseCertFile(p)
+		if err != nil {
+			continue
+		}
+		// 剩余天数 <= 15 天时触发预警
+		if certInfo.DaysLeft <= 15 {
+			alert := domain.CertAlert{
+				DomainName: certInfo.DomainName,
+				DaysLeft:   certInfo.DaysLeft,
+				NotAfter:   certInfo.NotAfter.Format("2006-01-02 15:04:05"),
+				Path:       certInfo.Path,
+			}
+			_ = s.notifier.SendCertAlert(ctx, alert)
+		}
+	}
 	return nil
 }

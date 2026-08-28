@@ -18,6 +18,7 @@ type Handlers struct {
 	Config    *ConfigHandler
 	Sub       *SubHandler
 	Setting   *SettingHandler
+	Log       *LogHandler
 }
 
 func SetupRouter(handlers *Handlers, jwtSecret string, staticFS fs.FS) *gin.Engine {
@@ -75,6 +76,9 @@ func SetupRouter(handlers *Handlers, jwtSecret string, staticFS fs.FS) *gin.Engi
 			authGroup.GET("/config/raw", handlers.Config.GetRaw)
 			authGroup.POST("/config/validate", handlers.Config.ValidateRaw)
 			authGroup.POST("/config/save", handlers.Config.SaveAndApply)
+
+			// 运行日志查看
+			authGroup.GET("/logs", handlers.Log.GetLogs)
 
 			// 系统设置
 			authGroup.GET("/settings", handlers.Setting.GetSettings)

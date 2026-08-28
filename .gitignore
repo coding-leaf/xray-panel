@@ -1,0 +1,11 @@
+# Binaries
+*.exe
+panel
+
+# Database and runtime data
+data/
+*.db
+*.db-journal
+
+# Web Node modules and dist
+web/node_modules/

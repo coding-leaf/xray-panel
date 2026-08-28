@@ -87,6 +87,8 @@ import {
   Users,
   FileCode2,
   ScrollText,
+  Send,
+  Route as RouteIcon,
   Settings,
   LogOut,
 } from 'lucide-vue-next'
@@ -99,7 +101,9 @@ const username = computed(() => localStorage.getItem('username') || 'admin')
 
 const navItems = [
   { name: '运行监控', path: '/', icon: LayoutDashboard },
-  { name: '节点管理', path: '/inbounds', icon: Radio },
+  { name: '入站节点', path: '/inbounds', icon: Radio },
+  { name: '出站代理', path: '/outbounds', icon: Send },
+  { name: '路由分流', path: '/routing', icon: RouteIcon },
   { name: '用户与订阅', path: '/users', icon: Users },
   { name: '配置编辑', path: '/config', icon: FileCode2 },
   { name: '运行日志', path: '/logs', icon: ScrollText },

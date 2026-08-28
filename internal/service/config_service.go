@@ -242,7 +242,6 @@ func (s *ConfigService) syncInboundToFile(ctx context.Context, inbound *domain.I
 	}
 
 	if !found && !isDelete {
-		// 追加新 Inbound 对象
 		newMap := map[string]interface{}{
 			"tag":      inbound.Tag,
 			"port":     inbound.Port,
@@ -352,4 +351,200 @@ func (s *ConfigService) SyncUserToFile(ctx context.Context, inboundTag string, u
 	}
 
 	return s.configMgr.WriteConfig(ctx, modifiedBytes)
+}
+
+// === 出站管理 (Outbounds Management) ===
+
+func (s *ConfigService) ListOutbounds(ctx context.Context) ([]domain.Outbound, error) {
+	raw, err := s.configMgr.ReadRawConfig()
+	if err != nil {
+		return nil, err
+	}
+	cleaned := jsonc.StripJSONC(raw)
+
+	var root struct {
+		Outbounds []struct {
+			Tag            string          `json:"tag"`
+			Protocol       string          `json:"protocol"`
+			Settings       json.RawMessage `json:"settings"`
+			StreamSettings json.RawMessage `json:"streamSettings"`
+		} `json:"outbounds"`
+	}
+
+	if err := json.Unmarshal(cleaned, &root); err != nil {
+		return nil, err
+	}
+
+	var list []domain.Outbound
+	for _, ob := range root.Outbounds {
+		list = append(list, domain.Outbound{
+			Tag:            ob.Tag,
+			Protocol:       ob.Protocol,
+			SettingsJSON:   string(ob.Settings),
+			StreamSettings: string(ob.StreamSettings),
+		})
+	}
+	return list, nil
+}
+
+func (s *ConfigService) SaveOutbound(ctx context.Context, outbound domain.Outbound) error {
+	raw, err := s.configMgr.ReadRawConfig()
+	if err != nil {
+		return err
+	}
+	cleaned := jsonc.StripJSONC(raw)
+
+	var root map[string]interface{}
+	if err := json.Unmarshal(cleaned, &root); err != nil {
+		return err
+	}
+
+	outbounds, _ := root["outbounds"].([]interface{})
+	var newOutbounds []interface{}
+	found := false
+
+	for _, obRaw := range outbounds {
+		obMap, ok := obRaw.(map[string]interface{})
+		if !ok {
+			newOutbounds = append(newOutbounds, obRaw)
+			continue
+		}
+		tag, _ := obMap["tag"].(string)
+		if tag == outbound.Tag {
+			found = true
+			obMap["protocol"] = outbound.Protocol
+			var sObj map[string]interface{}
+			_ = json.Unmarshal([]byte(outbound.SettingsJSON), &sObj)
+			if sObj != nil {
+				obMap["settings"] = sObj
+			}
+			var strObj map[string]interface{}
+			_ = json.Unmarshal([]byte(outbound.StreamSettings), &strObj)
+			if strObj != nil {
+				obMap["streamSettings"] = strObj
+			}
+			newOutbounds = append(newOutbounds, obMap)
+		} else {
+			newOutbounds = append(newOutbounds, obRaw)
+		}
+	}
+
+	if !found {
+		newMap := map[string]interface{}{
+			"tag":      outbound.Tag,
+			"protocol": outbound.Protocol,
+		}
+		var sObj map[string]interface{}
+		_ = json.Unmarshal([]byte(outbound.SettingsJSON), &sObj)
+		if sObj != nil {
+			newMap["settings"] = sObj
+		}
+		var strObj map[string]interface{}
+		_ = json.Unmarshal([]byte(outbound.StreamSettings), &strObj)
+		if strObj != nil {
+			newMap["streamSettings"] = strObj
+		}
+		newOutbounds = append(newOutbounds, newMap)
+	}
+
+	root["outbounds"] = newOutbounds
+	data, err := json.Marshal(root)
+	if err != nil {
+		return err
+	}
+
+	if err := s.configMgr.WriteConfig(ctx, data); err != nil {
+		return err
+	}
+
+	return s.supervisor.Reload(ctx)
+}
+
+func (s *ConfigService) DeleteOutbound(ctx context.Context, tag string) error {
+	raw, err := s.configMgr.ReadRawConfig()
+	if err != nil {
+		return err
+	}
+	cleaned := jsonc.StripJSONC(raw)
+
+	var root map[string]interface{}
+	if err := json.Unmarshal(cleaned, &root); err != nil {
+		return err
+	}
+
+	outbounds, _ := root["outbounds"].([]interface{})
+	var newOutbounds []interface{}
+
+	for _, obRaw := range outbounds {
+		obMap, ok := obRaw.(map[string]interface{})
+		if !ok {
+			newOutbounds = append(newOutbounds, obRaw)
+			continue
+		}
+		t, _ := obMap["tag"].(string)
+		if t != tag {
+			newOutbounds = append(newOutbounds, obRaw)
+		}
+	}
+
+	root["outbounds"] = newOutbounds
+	data, err := json.Marshal(root)
+	if err != nil {
+		return err
+	}
+
+	if err := s.configMgr.WriteConfig(ctx, data); err != nil {
+		return err
+	}
+
+	return s.supervisor.Reload(ctx)
+}
+
+// === 路由设置 (Routing Management) ===
+
+func (s *ConfigService) GetRoutingConfig(ctx context.Context) (*domain.RoutingConfig, error) {
+	raw, err := s.configMgr.ReadRawConfig()
+	if err != nil {
+		return nil, err
+	}
+	cleaned := jsonc.StripJSONC(raw)
+
+	var root struct {
+		Routing domain.RoutingConfig `json:"routing"`
+	}
+
+	if err := json.Unmarshal(cleaned, &root); err != nil {
+		return nil, err
+	}
+
+	if root.Routing.DomainStrategy == "" {
+		root.Routing.DomainStrategy = "IPIfNonMatch"
+	}
+
+	return &root.Routing, nil
+}
+
+func (s *ConfigService) SaveRoutingConfig(ctx context.Context, cfg *domain.RoutingConfig) error {
+	raw, err := s.configMgr.ReadRawConfig()
+	if err != nil {
+		return err
+	}
+	cleaned := jsonc.StripJSONC(raw)
+
+	var root map[string]interface{}
+	if err := json.Unmarshal(cleaned, &root); err != nil {
+		return err
+	}
+
+	root["routing"] = cfg
+	data, err := json.Marshal(root)
+	if err != nil {
+		return err
+	}
+
+	if err := s.configMgr.WriteConfig(ctx, data); err != nil {
+		return err
+	}
+
+	return s.supervisor.Reload(ctx)
 }

@@ -3,8 +3,8 @@
     <!-- Header -->
     <div class="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
       <div>
-        <h1 class="text-2xl font-extrabold text-white tracking-tight">节点与入站管理</h1>
-        <p class="text-xs text-gray-400 mt-0.5">全可视化分层配置 Xray 入站代理节点，支持 Reality 密钥生成、XHTTP 扩展与非443端口智能预警</p>
+        <h1 class="text-2xl font-extrabold text-white tracking-tight">入站节点管理 (Inbounds)</h1>
+        <p class="text-xs text-gray-400 mt-0.5">全可视化分层配置 Xray 入站代理节点，支持 Reality 密钥生成、Vision 流控、XHTTP 扩展、回落分流与非443端口安全警报</p>
       </div>
       <button
         @click="openCreateModal"
@@ -24,7 +24,7 @@
       >
         <div>
           <div class="flex items-center justify-between mb-3">
-            <span class="text-base font-bold text-white tracking-tight">{{ inb.tag }}</span>
+            <span class="text-base font-bold text-white tracking-tight font-mono">{{ inb.tag }}</span>
             <div class="flex items-center gap-1.5">
               <span class="px-2 py-0.5 rounded-md text-[11px] font-mono font-bold uppercase" :class="protocolBadgeColor(inb.protocol)">
                 {{ inb.protocol }}
@@ -202,6 +202,19 @@
               </div>
             </div>
 
+            <!-- VLESS 流控选项 -->
+            <div v-if="form.protocol === 'vless'" class="pt-2 border-t border-gray-800">
+              <label class="block text-gray-400 mb-1 font-medium">VLESS 流控模式 (Flow)</label>
+              <select
+                v-model="form.vlessFlow"
+                class="w-full bg-gray-900 border border-gray-700 rounded-xl px-3 py-2 text-white focus:outline-none focus:border-brand-500"
+              >
+                <option value="xtls-rprx-vision">xtls-rprx-vision (XTLS Vision 极速流控 - 推荐)</option>
+                <option value="xtls-rprx-vision-udp443">xtls-rprx-vision-udp443</option>
+                <option value="">none (无流控 - 适用于 XHTTP/gRPC/WS)</option>
+              </select>
+            </div>
+
             <!-- XHTTP 专属配置项 -->
             <div v-if="form.network === 'xhttp'" class="pt-2 border-t border-gray-800 space-y-3">
               <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -351,16 +364,60 @@
             </div>
           </div>
 
-          <!-- 4. 流量嗅探 (Sniffing) -->
-          <div class="space-y-2 bg-gray-900/50 p-4 rounded-2xl border border-gray-800/80">
+          <!-- 4. 回落分流设置 (Fallbacks) -->
+          <div class="space-y-3 bg-gray-900/50 p-4 rounded-2xl border border-gray-800/80">
             <div class="flex items-center justify-between">
               <div>
-                <h3 class="font-bold text-gray-200 text-xs">④ 流量探测与域名嗅探 (Sniffing)</h3>
+                <h3 class="font-bold text-gray-200 text-xs">④ 网站回落伪装 (Fallbacks 分流)</h3>
+                <p class="text-[11px] text-gray-500">非代理流量自动无缝回落到本地 Web 服务或指定端口</p>
+              </div>
+              <label class="relative inline-flex items-center cursor-pointer">
+                <input type="checkbox" v-model="form.fallbacksEnabled" class="sr-only peer">
+                <div class="w-9 h-5 bg-gray-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-brand-600"></div>
+              </label>
+            </div>
+
+            <div v-if="form.fallbacksEnabled" class="pt-2 border-t border-gray-800 grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div>
+                <label class="block text-gray-400 mb-1">回落目标地址/端口 (dest)</label>
+                <input
+                  v-model="form.fallbackDest"
+                  type="text"
+                  placeholder="80 或 127.0.0.1:80"
+                  class="w-full bg-gray-900 border border-gray-700 rounded-xl px-3 py-2 text-white font-mono focus:outline-none focus:border-brand-500"
+                />
+              </div>
+              <div>
+                <label class="block text-gray-400 mb-1">PROXY Protocol (xver)</label>
+                <select
+                  v-model.number="form.fallbackXver"
+                  class="w-full bg-gray-900 border border-gray-700 rounded-xl px-3 py-2 text-white focus:outline-none focus:border-brand-500"
+                >
+                  <option :value="0">0 (关闭 PROXY 协议)</option>
+                  <option :value="1">1 (PROXY protocol v1)</option>
+                  <option :value="2">2 (PROXY protocol v2)</option>
+                </select>
+              </div>
+            </div>
+          </div>
+
+          <!-- 5. 流量嗅探 (Sniffing) -->
+          <div class="space-y-3 bg-gray-900/50 p-4 rounded-2xl border border-gray-800/80">
+            <div class="flex items-center justify-between">
+              <div>
+                <h3 class="font-bold text-gray-200 text-xs">⑤ 流量探测与域名嗅探 (Sniffing)</h3>
                 <p class="text-[11px] text-gray-500">自动探测连接真实域名并执行分流规则</p>
               </div>
               <label class="relative inline-flex items-center cursor-pointer">
                 <input type="checkbox" v-model="form.sniffingEnabled" class="sr-only peer">
                 <div class="w-9 h-5 bg-gray-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-brand-600"></div>
+              </label>
+            </div>
+
+            <div v-if="form.sniffingEnabled" class="pt-2 border-t border-gray-800 flex items-center gap-4 text-gray-400 text-[11px]">
+              <label class="flex items-center gap-1.5 cursor-pointer">
+                <input type="checkbox" v-model="form.sniffingRouteOnly" class="rounded bg-gray-800 border-gray-700 text-brand-600" />
+                <span>routeOnly (仅用于路由匹配，不篡改客户端真实目标地址 - 推荐)</span>
               </label>
             </div>
           </div>
@@ -404,6 +461,7 @@ const form = ref<any>({
   listen: '0.0.0.0',
   port: 443,
   protocol: 'vless',
+  vlessFlow: 'xtls-rprx-vision',
   network: 'xhttp',
   security: 'reality',
 
@@ -429,8 +487,14 @@ const form = ref<any>({
   tlsCertFile: '',
   tlsKeyFile: '',
 
+  // Fallbacks
+  fallbacksEnabled: false,
+  fallbackDest: '80',
+  fallbackXver: 0,
+
   // Sniffing
   sniffingEnabled: true,
+  sniffingRouteOnly: true,
 })
 
 const fetchInbounds = async () => {
@@ -449,6 +513,7 @@ const openCreateModal = () => {
     listen: '0.0.0.0',
     port: 443,
     protocol: 'vless',
+    vlessFlow: 'xtls-rprx-vision',
     network: 'xhttp',
     security: 'reality',
     xhttpPath: '/' + Math.random().toString(36).substring(2, 12),
@@ -463,7 +528,11 @@ const openCreateModal = () => {
     tlsServerName: '',
     tlsCertFile: '',
     tlsKeyFile: '',
+    fallbacksEnabled: false,
+    fallbackDest: '80',
+    fallbackXver: 0,
     sniffingEnabled: true,
+    sniffingRouteOnly: true,
   }
   generateRealityKey()
   showModal.value = true
@@ -489,6 +558,20 @@ const editInbound = (inb: any) => {
   form.value.listen = inb.listen || '0.0.0.0'
   form.value.port = inb.port
   form.value.protocol = inb.protocol
+
+  // 解析 settings
+  let settings: any = {}
+  try {
+    settings = JSON.parse(inb.settingsJson || '{}')
+  } catch (e) {}
+
+  if (settings.fallbacks?.length > 0) {
+    form.value.fallbacksEnabled = true
+    form.value.fallbackDest = settings.fallbacks[0].dest || '80'
+    form.value.fallbackXver = settings.fallbacks[0].xver || 0
+  } else {
+    form.value.fallbacksEnabled = false
+  }
 
   // 解析 streamSettings
   let stream: any = {}
@@ -529,8 +612,36 @@ const editInbound = (inb: any) => {
     sniff = JSON.parse(inb.sniffingJson || '{}')
   } catch (e) {}
   form.value.sniffingEnabled = sniff.enabled !== false
+  form.value.sniffingRouteOnly = sniff.routeOnly === true
 
   showModal.value = true
+}
+
+const buildSettingsJSON = (existingJSON?: string) => {
+  let settings: any = {}
+  try {
+    settings = JSON.parse(existingJSON || '{}')
+  } catch (e) {}
+
+  if (!settings.clients) {
+    settings.clients = []
+  }
+  if (form.value.protocol === 'vless') {
+    settings.decryption = 'none'
+  }
+
+  if (form.value.fallbacksEnabled && form.value.fallbackDest) {
+    settings.fallbacks = [
+      {
+        dest: form.value.fallbackDest,
+        xver: form.value.fallbackXver || 0,
+      },
+    ]
+  } else {
+    delete settings.fallbacks
+  }
+
+  return JSON.stringify(settings, null, 2)
 }
 
 const buildStreamSettingsJSON = () => {
@@ -594,6 +705,7 @@ const buildSniffingJSON = () => {
     {
       enabled: form.value.sniffingEnabled,
       destOverride: ['http', 'tls', 'quic'],
+      routeOnly: form.value.sniffingRouteOnly,
     },
     null,
     2
@@ -609,6 +721,7 @@ const saveInbound = async () => {
       port: form.value.port,
       listen: form.value.listen || '0.0.0.0',
       protocol: form.value.protocol,
+      settingsJson: buildSettingsJSON(),
       streamSettings: buildStreamSettingsJSON(),
       sniffingJson: buildSniffingJSON(),
       enabled: true,

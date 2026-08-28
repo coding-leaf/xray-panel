@@ -15,6 +15,8 @@ type Handlers struct {
 	Dashboard *DashboardHandler
 	User      *UserHandler
 	Inbound   *InboundHandler
+	Outbound  *OutboundHandler
+	Routing   *RoutingHandler
 	Config    *ConfigHandler
 	Sub       *SubHandler
 	Setting   *SettingHandler
@@ -72,6 +74,15 @@ func SetupRouter(handlers *Handlers, jwtSecret string, staticFS fs.FS) *gin.Engi
 			authGroup.PUT("/inbounds/:id", handlers.Inbound.Update)
 			authGroup.DELETE("/inbounds/:id", handlers.Inbound.Delete)
 			authGroup.GET("/inbounds/reality-keypair", handlers.Inbound.GenerateRealityKey)
+
+			// 出站管理
+			authGroup.GET("/outbounds", handlers.Outbound.List)
+			authGroup.POST("/outbounds", handlers.Outbound.Save)
+			authGroup.DELETE("/outbounds/:tag", handlers.Outbound.Delete)
+
+			// 路由分流规则管理
+			authGroup.GET("/routing", handlers.Routing.Get)
+			authGroup.POST("/routing", handlers.Routing.Save)
 
 			// 原始配置在线校验与保存
 			authGroup.GET("/config/raw", handlers.Config.GetRaw)

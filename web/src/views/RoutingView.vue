@@ -1,0 +1,468 @@
+<template>
+  <div class="space-y-6">
+    <!-- Header -->
+    <div class="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+      <div>
+        <h1 class="text-2xl font-extrabold text-white tracking-tight">路由与分流策略 (Routing)</h1>
+        <p class="text-xs text-gray-400 mt-0.5">自上而下匹配分流规则，支持 GeoIP/GeoSite、BT/广告一键拦截与 WARP 出站分流</p>
+      </div>
+
+      <div class="flex items-center gap-3">
+        <button
+          @click="openAddRuleModal"
+          class="px-4 py-2 bg-gradient-to-r from-brand-600 to-indigo-600 hover:from-brand-500 hover:to-indigo-500 text-white text-xs font-semibold rounded-xl transition-all shadow-lg shadow-brand-500/25 flex items-center gap-1.5"
+        >
+          <Plus class="w-4 h-4" />
+          <span>添加分流规则</span>
+        </button>
+
+        <button
+          @click="saveAllRouting"
+          :disabled="saving"
+          class="px-5 py-2 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold rounded-xl transition-all shadow-lg shadow-emerald-600/25 flex items-center gap-1.5"
+        >
+          <Check class="w-4 h-4" />
+          <span>{{ saving ? '保存中...' : '保存并应用' }}</span>
+        </button>
+      </div>
+    </div>
+
+    <!-- Domain Strategy & Presets Bar -->
+    <div class="grid grid-cols-1 lg:grid-cols-3 gap-5">
+      <!-- Strategy Selector -->
+      <div class="glass-panel p-5 rounded-2xl border border-gray-800/80 space-y-2">
+        <label class="block text-xs font-bold text-white uppercase tracking-wider">
+          🌐 域名解析策略 (domainStrategy)
+        </label>
+        <select
+          v-model="routingConfig.domainStrategy"
+          class="w-full bg-gray-900 border border-gray-700 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-brand-500 font-mono"
+        >
+          <option value="IPIfNonMatch">IPIfNonMatch (推荐：域名未匹配时解析为 IP 再次匹配)</option>
+          <option value="AsIs">AsIs (保持原样：仅匹配客户端直发域名)</option>
+          <option value="IPOnDemand">IPOnDemand (强制实时解析 IP 匹配)</option>
+        </select>
+        <p class="text-[11px] text-gray-500 leading-relaxed">
+          配合 Inbound 的 Sniffing（域名嗅探），可精准识别 TLS/HTTP 连接真实域名。
+        </p>
+      </div>
+
+      <!-- Presets quick buttons -->
+      <div class="glass-panel p-5 rounded-2xl border border-gray-800/80 lg:col-span-2 space-y-3">
+        <span class="text-xs font-bold text-gray-300 uppercase tracking-wider block">
+          ⚡ 快捷预设分流规则注入
+        </span>
+        <div class="flex flex-wrap gap-2">
+          <button
+            @click="addPresetRule('ads')"
+            class="px-3 py-1.5 rounded-xl bg-gray-900/80 hover:bg-rose-500/10 border border-gray-700 hover:border-rose-500/40 text-xs text-gray-300 hover:text-rose-300 transition-all flex items-center gap-1.5"
+          >
+            <span>🛡️ 拦截广告 (geosite:category-ads-all)</span>
+          </button>
+
+          <button
+            @click="addPresetRule('private_ip')"
+            class="px-3 py-1.5 rounded-xl bg-gray-900/80 hover:bg-rose-500/10 border border-gray-700 hover:border-rose-500/40 text-xs text-gray-300 hover:text-rose-300 transition-all flex items-center gap-1.5"
+          >
+            <span>🔒 屏蔽私有局域网 (geoip:private)</span>
+          </button>
+
+          <button
+            @click="addPresetRule('bt')"
+            class="px-3 py-1.5 rounded-xl bg-gray-900/80 hover:bg-rose-500/10 border border-gray-700 hover:border-rose-500/40 text-xs text-gray-300 hover:text-rose-300 transition-all flex items-center gap-1.5"
+          >
+            <span>🚫 拦截 BT 下载 (bittorrent)</span>
+          </button>
+
+          <button
+            @click="addPresetRule('smtp')"
+            class="px-3 py-1.5 rounded-xl bg-gray-900/80 hover:bg-rose-500/10 border border-gray-700 hover:border-rose-500/40 text-xs text-gray-300 hover:text-rose-300 transition-all flex items-center gap-1.5"
+          >
+            <span>📧 封禁邮件 25 端口 (port: 25)</span>
+          </button>
+
+          <button
+            @click="addPresetRule('cn_warp')"
+            class="px-3 py-1.5 rounded-xl bg-gray-900/80 hover:bg-cyan-500/10 border border-gray-700 hover:border-cyan-500/40 text-xs text-gray-300 hover:text-cyan-300 transition-all flex items-center gap-1.5"
+          >
+            <span>⚡ 国内域名与 IP 走 WARP</span>
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Rules List -->
+    <div class="glass-panel rounded-2xl border border-gray-800/80 overflow-hidden">
+      <div class="px-5 py-3.5 bg-gray-900/80 border-b border-gray-800 flex items-center justify-between text-xs font-bold text-gray-400">
+        <span>规则列表（按从上至下顺序优先匹配）</span>
+        <span>共 {{ routingConfig.rules?.length || 0 }} 条规则</span>
+      </div>
+
+      <div class="divide-y divide-gray-800/60 text-xs">
+        <div
+          v-for="(rule, idx) in routingConfig.rules"
+          :key="idx"
+          class="p-4 hover:bg-white/[0.02] transition-colors flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3"
+        >
+          <div class="flex items-start gap-3">
+            <span class="w-6 h-6 rounded-lg bg-gray-800 flex items-center justify-center font-mono font-bold text-gray-400 text-[11px] shrink-0 mt-0.5">
+              {{ Number(idx) + 1 }}
+            </span>
+
+            <div class="space-y-1">
+              <div class="flex flex-wrap items-center gap-2">
+                <span class="font-bold text-white">目标出站:</span>
+                <span class="px-2.5 py-0.5 rounded-md font-mono font-bold text-xs" :class="outboundBadgeColor(rule.outboundTag)">
+                  {{ rule.outboundTag }}
+                </span>
+                <span v-if="rule.inboundTag?.length" class="text-gray-500 font-mono text-[11px]">
+                  (来源入站: {{ rule.inboundTag.join(', ') }})
+                </span>
+              </div>
+
+              <!-- Rule conditions preview -->
+              <div class="flex flex-wrap gap-1.5 pt-1">
+                <span v-if="rule.domain?.length" class="px-2 py-0.5 rounded bg-blue-500/15 text-blue-300 font-mono text-[11px] border border-blue-500/20">
+                  域名: {{ rule.domain.join(', ') }}
+                </span>
+                <span v-if="rule.ip?.length" class="px-2 py-0.5 rounded bg-purple-500/15 text-purple-300 font-mono text-[11px] border border-purple-500/20">
+                  IP: {{ rule.ip.join(', ') }}
+                </span>
+                <span v-if="rule.protocol?.length" class="px-2 py-0.5 rounded bg-amber-500/15 text-amber-300 font-mono text-[11px] border border-amber-500/20">
+                  协议: {{ rule.protocol.join(', ') }}
+                </span>
+                <span v-if="rule.port" class="px-2 py-0.5 rounded bg-rose-500/15 text-rose-300 font-mono text-[11px] border border-rose-500/20">
+                  端口: {{ rule.port }}
+                </span>
+                <span v-if="rule.network" class="px-2 py-0.5 rounded bg-gray-800 text-gray-300 font-mono text-[11px]">
+                  网络: {{ rule.network }}
+                </span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Actions -->
+          <div class="flex items-center gap-1.5 self-end sm:self-center shrink-0">
+            <button
+              @click="moveRule(Number(idx), -1)"
+              :disabled="Number(idx) === 0"
+              class="p-1.5 rounded-lg bg-gray-800 hover:bg-gray-700 text-gray-300 disabled:opacity-30 transition-colors"
+              title="上移优先级"
+            >
+              <ArrowUp class="w-3.5 h-3.5" />
+            </button>
+            <button
+              @click="moveRule(Number(idx), 1)"
+              :disabled="Number(idx) === (routingConfig.rules?.length || 0) - 1"
+              class="p-1.5 rounded-lg bg-gray-800 hover:bg-gray-700 text-gray-300 disabled:opacity-30 transition-colors"
+              title="下移优先级"
+            >
+              <ArrowDown class="w-3.5 h-3.5" />
+            </button>
+            <button
+              @click="editRule(Number(idx))"
+              class="p-1.5 rounded-lg bg-gray-800 hover:bg-gray-700 text-brand-400 transition-colors"
+              title="编辑规则"
+            >
+              <Edit3 class="w-3.5 h-3.5" />
+            </button>
+            <button
+              @click="deleteRule(Number(idx))"
+              class="p-1.5 rounded-lg bg-gray-800 hover:bg-rose-500/20 text-rose-400 transition-colors"
+              title="删除规则"
+            >
+              <Trash2 class="w-3.5 h-3.5" />
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Rule Edit Modal -->
+    <div v-if="showModal" class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/75 backdrop-blur-sm overflow-y-auto">
+      <div class="glass-panel w-full max-w-xl p-6 sm:p-8 rounded-3xl border border-gray-800 shadow-2xl space-y-5 my-8">
+        <div class="flex items-center justify-between pb-2 border-b border-gray-800">
+          <div>
+            <h2 class="text-lg font-bold text-white">{{ isEditingRule ? '编辑分流规则' : '添加分流规则' }}</h2>
+            <p class="text-xs text-gray-400 mt-0.5">配置规则匹配条件与命中时的目标 Outbound</p>
+          </div>
+          <button @click="showModal = false" class="text-gray-400 hover:text-white text-lg">✕</button>
+        </div>
+
+        <form @submit.prevent="saveRuleInModal" class="space-y-4 text-xs">
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div>
+              <label class="block text-gray-300 mb-1 font-medium">目标出站标识 (OutboundTag)</label>
+              <input
+                v-model="ruleForm.outboundTag"
+                type="text"
+                required
+                placeholder="direct / block / warp-out"
+                class="w-full bg-gray-900 border border-gray-700 rounded-xl px-3 py-2 text-white font-mono focus:outline-none focus:border-brand-500"
+              />
+            </div>
+            <div>
+              <label class="block text-gray-300 mb-1 font-medium">来源入站标识 (InboundTag 可选)</label>
+              <input
+                v-model="ruleForm.inboundTagsStr"
+                type="text"
+                placeholder="api 或留空匹配全部入站"
+                class="w-full bg-gray-900 border border-gray-700 rounded-xl px-3 py-2 text-white font-mono focus:outline-none focus:border-brand-500"
+              />
+            </div>
+          </div>
+
+          <div>
+            <label class="block text-gray-300 mb-1 font-medium">域名匹配列表 (Domain，多个用逗号或换行隔开)</label>
+            <textarea
+              v-model="ruleForm.domainStr"
+              rows="3"
+              placeholder="geosite:category-ads-all, geosite:cn, domain:google.com"
+              class="w-full bg-gray-900 border border-gray-700 rounded-xl p-3 text-white font-mono text-[11px] focus:outline-none focus:border-brand-500"
+            ></textarea>
+          </div>
+
+          <div>
+            <label class="block text-gray-300 mb-1 font-medium">IP 匹配列表 (IP，多个用逗号或换行隔开)</label>
+            <textarea
+              v-model="ruleForm.ipStr"
+              rows="3"
+              placeholder="geoip:cn, geoip:private, 192.168.0.0/16"
+              class="w-full bg-gray-900 border border-gray-700 rounded-xl p-3 text-white font-mono text-[11px] focus:outline-none focus:border-brand-500"
+            ></textarea>
+          </div>
+
+          <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            <div>
+              <label class="block text-gray-300 mb-1 font-medium">端口 (Port)</label>
+              <input
+                v-model="ruleForm.port"
+                type="text"
+                placeholder="25 或 80,443 或 1-1024"
+                class="w-full bg-gray-900 border border-gray-700 rounded-xl px-3 py-2 text-white font-mono focus:outline-none focus:border-brand-500"
+              />
+            </div>
+
+            <div>
+              <label class="block text-gray-300 mb-1 font-medium">传输层协议 (Network)</label>
+              <select
+                v-model="ruleForm.network"
+                class="w-full bg-gray-900 border border-gray-700 rounded-xl px-3 py-2 text-white focus:outline-none focus:border-brand-500"
+              >
+                <option value="">全部 (TCP + UDP)</option>
+                <option value="tcp">仅 TCP</option>
+                <option value="udp">仅 UDP</option>
+              </select>
+            </div>
+
+            <div>
+              <label class="block text-gray-300 mb-1 font-medium">应用协议 (Protocol)</label>
+              <input
+                v-model="ruleForm.protocolStr"
+                type="text"
+                placeholder="bittorrent, http, tls"
+                class="w-full bg-gray-900 border border-gray-700 rounded-xl px-3 py-2 text-white font-mono focus:outline-none focus:border-brand-500"
+              />
+            </div>
+          </div>
+
+          <div class="flex justify-end gap-3 pt-2 border-t border-gray-800">
+            <button
+              type="button"
+              @click="showModal = false"
+              class="px-5 py-2 rounded-xl bg-gray-800 hover:bg-gray-700 text-gray-300 font-medium text-xs transition-colors"
+            >
+              取消
+            </button>
+            <button
+              type="submit"
+              class="px-5 py-2 bg-gradient-to-r from-brand-600 to-indigo-600 hover:from-brand-500 hover:to-indigo-500 text-white font-semibold text-xs rounded-xl transition-all shadow-lg shadow-brand-500/25"
+            >
+              确认并暂存
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+</template>
+
+<script setup lang="ts">
+import { ref, onMounted } from 'vue'
+import { Plus, Check, ArrowUp, ArrowDown, Edit3, Trash2 } from 'lucide-vue-next'
+import api from '../api'
+
+const routingConfig = ref<any>({
+  domainStrategy: 'IPIfNonMatch',
+  rules: [],
+})
+
+const showModal = ref(false)
+const isEditingRule = ref(false)
+const editingIndex = ref(-1)
+const saving = ref(false)
+
+const ruleForm = ref<any>({
+  outboundTag: 'direct',
+  inboundTagsStr: '',
+  domainStr: '',
+  ipStr: '',
+  port: '',
+  network: '',
+  protocolStr: '',
+})
+
+const fetchRouting = async () => {
+  try {
+    const res: any = await api.get('/routing')
+    routingConfig.value = res || { domainStrategy: 'IPIfNonMatch', rules: [] }
+  } catch (err) {
+    console.error(err)
+  }
+}
+
+const openAddRuleModal = () => {
+  isEditingRule.value = false
+  editingIndex.value = -1
+  ruleForm.value = {
+    outboundTag: 'block',
+    inboundTagsStr: '',
+    domainStr: '',
+    ipStr: '',
+    port: '',
+    network: '',
+    protocolStr: '',
+  }
+  showModal.value = true
+}
+
+const editRule = (idx: number) => {
+  isEditingRule.value = true
+  editingIndex.value = idx
+  const r = routingConfig.value.rules[idx]
+  ruleForm.value = {
+    outboundTag: r.outboundTag,
+    inboundTagsStr: (r.inboundTag || []).join(', '),
+    domainStr: (r.domain || []).join(',\n'),
+    ipStr: (r.ip || []).join(',\n'),
+    port: r.port || '',
+    network: r.network || '',
+    protocolStr: (r.protocol || []).join(', '),
+  }
+  showModal.value = true
+}
+
+const parseArray = (str: string) => {
+  if (!str) return undefined
+  const items = str
+    .split(/[\n,]/)
+    .map((s) => s.trim())
+    .filter((s) => s)
+  return items.length > 0 ? items : undefined
+}
+
+const saveRuleInModal = () => {
+  const newRule: any = {
+    outboundTag: ruleForm.value.outboundTag,
+  }
+  const inbounds = parseArray(ruleForm.value.inboundTagsStr)
+  if (inbounds) newRule.inboundTag = inbounds
+
+  const domains = parseArray(ruleForm.value.domainStr)
+  if (domains) newRule.domain = domains
+
+  const ips = parseArray(ruleForm.value.ipStr)
+  if (ips) newRule.ip = ips
+
+  if (ruleForm.value.port) newRule.port = ruleForm.value.port
+  if (ruleForm.value.network) newRule.network = ruleForm.value.network
+
+  const protos = parseArray(ruleForm.value.protocolStr)
+  if (protos) newRule.protocol = protos
+
+  if (isEditingRule.value && editingIndex.value >= 0) {
+    routingConfig.value.rules[editingIndex.value] = newRule
+  } else {
+    routingConfig.value.rules.push(newRule)
+  }
+  showModal.value = false
+}
+
+const deleteRule = (idx: number) => {
+  routingConfig.value.rules.splice(idx, 1)
+}
+
+const moveRule = (idx: number, step: number) => {
+  const target = idx + step
+  if (target < 0 || target >= routingConfig.value.rules.length) return
+  const temp = routingConfig.value.rules[idx]
+  routingConfig.value.rules[idx] = routingConfig.value.rules[target]
+  routingConfig.value.rules[target] = temp
+}
+
+const addPresetRule = (preset: string) => {
+  if (preset === 'ads') {
+    routingConfig.value.rules.push({
+      outboundTag: 'block',
+      domain: ['geosite:category-ads-all'],
+    })
+  } else if (preset === 'private_ip') {
+    routingConfig.value.rules.push({
+      outboundTag: 'block',
+      ip: ['geoip:private'],
+    })
+  } else if (preset === 'bt') {
+    routingConfig.value.rules.push({
+      outboundTag: 'block',
+      protocol: ['bittorrent'],
+    })
+  } else if (preset === 'smtp') {
+    routingConfig.value.rules.push({
+      outboundTag: 'block',
+      port: '25',
+      network: 'tcp',
+    })
+  } else if (preset === 'cn_warp') {
+    routingConfig.value.rules.push({
+      outboundTag: 'warp-out',
+      domain: ['geosite:cn'],
+    })
+    routingConfig.value.rules.push({
+      outboundTag: 'warp-out',
+      ip: ['geoip:cn'],
+    })
+  }
+}
+
+const saveAllRouting = async () => {
+  saving.value = true
+  try {
+    await api.post('/routing', routingConfig.value)
+    alert('路由分流配置已保存并平滑生效！')
+    await fetchRouting()
+  } catch (err: any) {
+    alert('保存失败: ' + err)
+  } finally {
+    saving.value = false
+  }
+}
+
+const outboundBadgeColor = (tag: string) => {
+  switch (tag?.toLowerCase()) {
+    case 'direct':
+      return 'bg-emerald-500/15 text-emerald-300 border border-emerald-500/20'
+    case 'block':
+      return 'bg-rose-500/15 text-rose-300 border border-rose-500/20'
+    case 'warp-out':
+      return 'bg-cyan-500/15 text-cyan-300 border border-cyan-500/20'
+    case 'api':
+      return 'bg-purple-500/15 text-purple-300 border border-purple-500/20'
+    default:
+      return 'bg-indigo-500/15 text-indigo-300 border border-indigo-500/20'
+  }
+}
+
+onMounted(() => {
+  fetchRouting()
+})
+</script>

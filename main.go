@@ -81,6 +81,8 @@ func main() {
 		Dashboard: deliveryHTTP.NewDashboardHandler(monitorSvc),
 		User:      deliveryHTTP.NewUserHandler(userSvc, subSvc),
 		Inbound:   deliveryHTTP.NewInboundHandler(configSvc),
+		Outbound:  deliveryHTTP.NewOutboundHandler(configSvc),
+		Routing:   deliveryHTTP.NewRoutingHandler(configSvc),
 		Config:    deliveryHTTP.NewConfigHandler(configSvc),
 		Sub:       deliveryHTTP.NewSubHandler(subSvc),
 		Setting:   deliveryHTTP.NewSettingHandler(settingRepo, botAdapter),

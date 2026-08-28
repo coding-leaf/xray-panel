@@ -42,10 +42,12 @@
 
           <div class="space-y-2 text-xs text-gray-400">
             <div class="flex justify-between py-1 border-b border-gray-800/60">
-              <span>监听端口</span>
-              <div class="flex items-center gap-1.5">
-                <span class="text-brand-400 font-mono font-semibold">{{ inb.port }}</span>
-                <span v-if="inb.port !== 443 && isReality(inb)" class="text-amber-400 font-semibold text-[10px]" title="非443端口Reality存在阻断风险">⚠️ 非443</span>
+              <span>端口映射 (内部:外部)</span>
+              <div class="flex items-center gap-1.5 font-mono">
+                <span class="text-gray-400">内部 :{{ inb.port }}</span>
+                <span class="text-gray-600">➔</span>
+                <span class="text-brand-300 font-bold">外部 :{{ inb.externalPort || 443 }}</span>
+                <span v-if="(inb.externalPort || inb.port) !== 443 && isReality(inb)" class="text-amber-400 font-semibold text-[10px]" title="非443端口Reality存在阻断风险">⚠️ 非443</span>
               </div>
             </div>
             <div class="flex justify-between py-1 border-b border-gray-800/60">
@@ -138,27 +140,53 @@
               </div>
 
               <div>
-                <label class="block text-gray-300 mb-1 font-medium">监听端口</label>
+                <label class="block text-gray-300 mb-1 font-medium">内部监听端口 (Port)</label>
                 <input
                   v-model.number="form.port"
                   type="number"
                   required
-                  placeholder="443"
+                  placeholder="4434"
                   class="w-full bg-gray-900 border border-gray-700 rounded-xl px-3 py-2 text-white font-mono focus:outline-none focus:border-brand-500"
                 />
               </div>
+
+              <div>
+                <label class="block text-gray-300 mb-1 font-medium">
+                  外部公网端口 (External Port)
+                </label>
+                <input
+                  v-model.number="form.externalPort"
+                  type="number"
+                  placeholder="443 (默认前置 Nginx 443 端口)"
+                  class="w-full bg-gray-900 border border-gray-700 rounded-xl px-3 py-2 text-white font-mono focus:outline-none focus:border-brand-500"
+                />
+                <p class="text-[10px] text-gray-500 mt-0.5">客户端连接端口（如 Nginx 443 反代）</p>
+              </div>
+
+              <div>
+                <label class="block text-gray-300 mb-1 font-medium">
+                  外部连接域名/IP (External Host)
+                </label>
+                <input
+                  v-model="form.externalHost"
+                  type="text"
+                  placeholder="留空则使用全局公网域名"
+                  class="w-full bg-gray-900 border border-gray-700 rounded-xl px-3 py-2 text-white font-mono focus:outline-none focus:border-brand-500"
+                />
+                <p class="text-[10px] text-gray-500 mt-0.5">订阅下发的目标地址，留空继承全局设置</p>
+              </div>
             </div>
 
-            <!-- 非 443 端口安全告警卡片 -->
+            <!-- 非 443 端口安全告警卡片 (外部端口为 443 时自动豁免) -->
             <div
-              v-if="form.port !== 443 && form.security === 'reality'"
+              v-if="(form.externalPort || form.port) !== 443 && form.security === 'reality'"
               class="p-3 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-300 text-xs flex items-start gap-2.5"
             >
               <AlertTriangle class="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
               <div>
                 <p class="font-bold">⚠️ 安全风险警报 (Non-443 Port Alert)</p>
                 <p class="mt-0.5 text-[11px] opacity-90">
-                  当前节点配置了 Reality 伪装，但监听端口为 <b>{{ form.port }}</b>（非标准 443 端口）。监听非 443 端口极易被 GFW 的 SNI 白名单与主动探测特征识别阻断！强烈建议将监听端口设为 <b>443</b>。
+                  当前节点配置了 Reality 伪装，但外部公网连接端口为 <b>{{ form.externalPort || form.port }}</b>（非标准 443 端口）。监听非 443 端口极易被 GFW 的 SNI 白名单与主动探测特征识别阻断！强烈建议将外部端口映射为 <b>443</b>。
                 </p>
               </div>
             </div>
@@ -524,7 +552,9 @@ const form = ref<any>({
   id: 0,
   tag: 'vless-reality',
   listen: '0.0.0.0',
-  port: 443,
+  port: 4434,
+  externalPort: 443,
+  externalHost: '',
   protocol: 'vless',
   vlessFlow: 'xtls-rprx-vision',
   network: 'tcp',
@@ -848,6 +878,8 @@ const saveInbound = async () => {
       id: form.value.id,
       tag: form.value.tag,
       port: form.value.port,
+      externalPort: form.value.externalPort || 0,
+      externalHost: form.value.externalHost || '',
       listen: form.value.listen || '0.0.0.0',
       protocol: form.value.protocol,
       settingsJson: buildSettingsJSON(),

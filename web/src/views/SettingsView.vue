@@ -113,6 +113,17 @@
           />
           <p class="text-[10px] text-gray-500 mt-1">若节点监听 0.0.0.0 时以此地址作为分享地址</p>
         </div>
+
+        <div class="sm:col-span-2">
+          <label class="block text-gray-300 font-semibold mb-1">全局默认外部公网连接端口 (Public Port)</label>
+          <input
+            v-model.number="settings.public_port"
+            type="number"
+            placeholder="443"
+            class="w-full bg-gray-900 border border-gray-700 rounded-xl px-3 py-2 text-white font-mono focus:outline-none focus:border-brand-500"
+          />
+          <p class="text-[10px] text-gray-500 mt-1">Nginx 前置 443 分流反代时，订阅链接默认下发的外部连接端口（默认 443）</p>
+        </div>
       </div>
     </div>
 

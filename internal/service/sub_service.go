@@ -54,6 +54,11 @@ func (s *SubService) GetSubscriptionByToken(ctx context.Context, token string, t
 	}
 
 	hostDomain, _ := s.settingRepo.Get(ctx, "sub_domain")
+	defaultPortStr, _ := s.settingRepo.Get(ctx, "public_port")
+	defaultPort := 443
+	if defaultPortStr != "" {
+		_, _ = fmt.Sscanf(defaultPortStr, "%d", &defaultPort)
+	}
 
 	var shareLinks []string
 	for _, in := range inbounds {
@@ -69,7 +74,7 @@ func (s *SubService) GetSubscriptionByToken(ctx context.Context, token string, t
 			continue
 		}
 
-		link := xray.BuildShareLink(&in, user, hostDomain)
+		link := xray.BuildShareLink(&in, user, hostDomain, defaultPort)
 		if link != "" {
 			shareLinks = append(shareLinks, link)
 		}
@@ -115,11 +120,17 @@ func (s *SubService) GetUserShareInfo(ctx context.Context, userID uint, baseURL 
 		hostDomain = baseURL
 	}
 
+	defaultPortStr, _ := s.settingRepo.Get(ctx, "public_port")
+	defaultPort := 443
+	if defaultPortStr != "" {
+		_, _ = fmt.Sscanf(defaultPortStr, "%d", &defaultPort)
+	}
+
 	resp := &domain.UserShareResponse{
 		UserID:    user.ID,
 		Email:     user.Email,
 		SubToken:  user.SubToken,
-		AllSubURL: fmt.Sprintf("%s/api/sub/%s", baseURL, user.SubToken),
+		AllSubURL: fmt.Sprintf("%s/sub/%s", baseURL, user.SubToken),
 		Nodes:     make([]domain.NodeShareInfo, 0),
 	}
 
@@ -127,13 +138,13 @@ func (s *SubService) GetUserShareInfo(ctx context.Context, userID uint, baseURL 
 		if !in.Enabled || !user.HasInbound(in.Tag) {
 			continue
 		}
-		link := xray.BuildShareLink(&in, user, hostDomain)
+		link := xray.BuildShareLink(&in, user, hostDomain, defaultPort)
 		resp.Nodes = append(resp.Nodes, domain.NodeShareInfo{
 			Tag:       in.Tag,
 			Protocol:  in.Protocol,
 			Remark:    in.Remark,
 			ShareLink: link,
-			SingleSub: fmt.Sprintf("%s/api/sub/%s?tag=%s", baseURL, user.SubToken, in.Tag),
+			SingleSub: fmt.Sprintf("%s/sub/%s?tag=%s", baseURL, user.SubToken, in.Tag),
 		})
 	}
 

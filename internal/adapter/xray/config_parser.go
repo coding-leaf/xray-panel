@@ -168,12 +168,23 @@ func (c *ConfigManager) GetCertificatePaths() []string {
 }
 
 // BuildShareLink 生成标准 Xray 分享链接 (vless://, vmess://, trojan://)
-func BuildShareLink(inbound *domain.Inbound, user *domain.User, hostDomain string) string {
-	if hostDomain == "" {
-		hostDomain = inbound.Listen
-		if hostDomain == "0.0.0.0" || hostDomain == "127.0.0.1" || hostDomain == "" {
-			hostDomain = "example.com"
+func BuildShareLink(inbound *domain.Inbound, user *domain.User, hostDomain string, defaultPort int) string {
+	targetHost := hostDomain
+	if inbound.ExternalHost != "" {
+		targetHost = inbound.ExternalHost
+	}
+	if targetHost == "" {
+		targetHost = inbound.Listen
+		if targetHost == "0.0.0.0" || targetHost == "127.0.0.1" || targetHost == "" {
+			targetHost = "example.com"
 		}
+	}
+
+	targetPort := inbound.Port
+	if inbound.ExternalPort > 0 {
+		targetPort = inbound.ExternalPort
+	} else if defaultPort > 0 {
+		targetPort = defaultPort
 	}
 
 	var streamMap map[string]interface{}
@@ -251,7 +262,7 @@ func BuildShareLink(inbound *domain.Inbound, user *domain.User, hostDomain strin
 		if remark == "" {
 			remark = inbound.Tag
 		}
-		return fmt.Sprintf("vless://%s@%s:%d?%s#%s", user.UUID, hostDomain, inbound.Port, v.Encode(), url.QueryEscape(remark))
+		return fmt.Sprintf("vless://%s@%s:%d?%s#%s", user.UUID, targetHost, targetPort, v.Encode(), url.QueryEscape(remark))
 
 	case "trojan":
 		v := url.Values{}
@@ -261,7 +272,7 @@ func BuildShareLink(inbound *domain.Inbound, user *domain.User, hostDomain strin
 		if remark == "" {
 			remark = inbound.Tag
 		}
-		return fmt.Sprintf("trojan://%s@%s:%d?%s#%s", user.UUID, hostDomain, inbound.Port, v.Encode(), url.QueryEscape(remark))
+		return fmt.Sprintf("trojan://%s@%s:%d?%s#%s", user.UUID, targetHost, targetPort, v.Encode(), url.QueryEscape(remark))
 
 	default:
 		return ""

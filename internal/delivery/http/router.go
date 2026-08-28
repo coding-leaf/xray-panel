@@ -62,8 +62,12 @@ func SetupRouter(handlers *Handlers, jwtSecret string, staticFS fs.FS) *gin.Engi
 		authGroup := api.Group("")
 		authGroup.Use(middleware.JWTAuth(jwtSecret))
 		{
+			authGroup.GET("/auth/info", handlers.Auth.GetAdminInfo)
 			authGroup.POST("/auth/password", handlers.Auth.ChangePassword)
 			authGroup.POST("/auth/change-password", handlers.Auth.ChangePassword)
+			authGroup.GET("/auth/2fa/setup", handlers.Auth.Setup2FA)
+			authGroup.POST("/auth/2fa/enable", handlers.Auth.Enable2FA)
+			authGroup.POST("/auth/2fa/disable", handlers.Auth.Disable2FA)
 
 			// 仪表盘
 			authGroup.GET("/dashboard", handlers.Dashboard.GetDashboard)

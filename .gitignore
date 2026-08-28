@@ -4,6 +4,7 @@
 panel
 panel.exe
 panel.exe~
+dist/
 
 # Runtime Data & Database
 data/

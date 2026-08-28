@@ -2,6 +2,7 @@ package config
 
 import (
 	"flag"
+	"fmt"
 	"os"
 	"os/exec"
 	"runtime"
@@ -20,11 +21,14 @@ type Config struct {
 	PublicURL      string
 }
 
-func Load() *Config {
+func Load(version, commit, buildTime string) *Config {
 	cfg := &Config{}
 
 	defaultBin := detectDefaultXrayBin()
 	defaultConfig := detectDefaultXrayConfig()
+
+	showVersion := flag.Bool("v", false, "Show version information")
+	showVersionLong := flag.Bool("version", false, "Show version information")
 
 	flag.StringVar(&cfg.ListenPort, "port", getEnv("PANEL_PORT", "9000"), "Panel listen port")
 	flag.StringVar(&cfg.XrayGRPCAddr, "xray-grpc", getEnv("XRAY_GRPC_ADDR", "127.0.0.1:8080"), "Xray API gRPC listen address")
@@ -38,6 +42,12 @@ func Load() *Config {
 	flag.StringVar(&cfg.PublicURL, "public-url", getEnv("PUBLIC_URL", "http://127.0.0.1:9000"), "Public panel URL for subscription links")
 
 	flag.Parse()
+
+	if *showVersion || *showVersionLong {
+		fmt.Printf("Xray Decoupled Panel %s (Commit: %s, Built: %s)\n", version, commit, buildTime)
+		os.Exit(0)
+	}
+
 	return cfg
 }
 

@@ -222,12 +222,151 @@
         </button>
       </form>
     </div>
+
+    <!-- 5. TOTP 双因素认证 (2FA) 安全加固 -->
+    <div class="glass-panel p-6 rounded-2xl border border-gray-800/80 space-y-4">
+      <div class="flex items-center justify-between">
+        <h2 class="text-base font-bold text-white flex items-center gap-2">
+          <ShieldCheck class="w-4 h-4 text-emerald-400" />
+          <span>⑤ TOTP 双因素身份认证 (2FA)</span>
+        </h2>
+        <span
+          :class="totpEnabled ? 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30' : 'bg-amber-500/15 text-amber-400 border-amber-500/30'"
+          class="px-2.5 py-0.5 rounded-full text-[11px] font-semibold border flex items-center gap-1"
+        >
+          <span>{{ totpEnabled ? '🟢 已启用 2FA 保护' : '🟡 未启用 2FA' }}</span>
+        </span>
+      </div>
+
+      <p class="text-xs text-gray-400">
+        启用双因素认证后，每次登录除了需要输入密码外，还必须输入 Google Authenticator 或 1Password 等应用生成的 6 位动态验证码，有效防范凭据泄露风险。
+      </p>
+
+      <div class="pt-2">
+        <button
+          v-if="!totpEnabled"
+          @click="startSetup2FA"
+          :disabled="loading2FA"
+          class="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold rounded-xl transition-all shadow-lg shadow-emerald-500/25 flex items-center gap-2 disabled:opacity-50"
+        >
+          <QrCode class="w-4 h-4" />
+          <span>{{ loading2FA ? '加载中...' : '📱 扫码绑定并开启 2FA' }}</span>
+        </button>
+
+        <button
+          v-else
+          @click="showDisableModal = true"
+          class="px-4 py-2 bg-red-600/20 hover:bg-red-600/30 text-red-400 border border-red-500/30 text-xs font-semibold rounded-xl transition-colors flex items-center gap-2"
+        >
+          <ShieldAlert class="w-4 h-4" />
+          <span>关闭 2FA 双因素保护</span>
+        </button>
+      </div>
+    </div>
+
+    <!-- 2FA 绑定弹窗 -->
+    <div v-if="showSetupModal" class="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+      <div class="bg-[#111827] border border-gray-700/80 rounded-2xl p-6 max-w-sm w-full space-y-4 shadow-2xl">
+        <div class="flex items-center justify-between">
+          <h3 class="text-sm font-bold text-white flex items-center gap-2">
+            <QrCode class="w-4 h-4 text-emerald-400" />
+            <span>绑定 Google 验证码 (2FA)</span>
+          </h3>
+          <button @click="showSetupModal = false" class="text-gray-400 hover:text-white text-xs">✕</button>
+        </div>
+
+        <p class="text-[11px] text-gray-400">
+          请使用手机 Authenticator 扫描下方二维码，或手动输入 Secret 密钥：
+        </p>
+
+        <!-- QR Code -->
+        <div class="bg-white p-3 rounded-xl w-fit mx-auto shadow-inner">
+          <qrcode-vue :value="totpSetupData.otpauthUrl" :size="160" level="M" />
+        </div>
+
+        <div class="bg-gray-900/90 border border-gray-800 rounded-xl p-2.5 text-center">
+          <span class="text-[10px] uppercase text-gray-500 block mb-0.5">Base32 Secret 密钥</span>
+          <code class="text-xs font-mono font-bold text-emerald-400 select-all">{{ totpSetupData.secret }}</code>
+        </div>
+
+        <div class="space-y-2">
+          <label class="block text-xs text-gray-300 font-semibold">输入 App 生成的 6 位动态码确认：</label>
+          <input
+            v-model="setupPasscode"
+            type="text"
+            maxlength="6"
+            placeholder="例如: 123456"
+            class="w-full bg-gray-900 border border-emerald-500/60 rounded-xl px-3 py-2 text-center text-sm font-mono text-white tracking-widest focus:outline-none focus:border-emerald-400"
+          />
+        </div>
+
+        <div class="flex justify-end gap-2 pt-2">
+          <button @click="showSetupModal = false" class="px-3 py-2 bg-gray-800 hover:bg-gray-700 text-gray-300 text-xs rounded-xl">取消</button>
+          <button
+            @click="confirmEnable2FA"
+            :disabled="enabling2FA || setupPasscode.length !== 6"
+            class="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold rounded-xl transition-all disabled:opacity-50"
+          >
+            {{ enabling2FA ? '验证中...' : '确认开启 2FA' }}
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 2FA 关闭确认弹窗 -->
+    <div v-if="showDisableModal" class="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+      <div class="bg-[#111827] border border-gray-700/80 rounded-2xl p-6 max-w-sm w-full space-y-4 shadow-2xl">
+        <div class="flex items-center justify-between">
+          <h3 class="text-sm font-bold text-white flex items-center gap-2">
+            <ShieldAlert class="w-4 h-4 text-red-400" />
+            <span>关闭 2FA 保护</span>
+          </h3>
+          <button @click="showDisableModal = false" class="text-gray-400 hover:text-white text-xs">✕</button>
+        </div>
+
+        <p class="text-xs text-gray-400">关闭 2FA 后登录将只需密码，请输入管理员密码以确认操作：</p>
+
+        <div class="space-y-3 text-xs">
+          <div>
+            <label class="block text-gray-300 mb-1">管理员密码</label>
+            <input
+              v-model="disablePassword"
+              type="password"
+              placeholder="••••••••"
+              class="w-full bg-gray-900 border border-gray-700 rounded-xl px-3 py-2 text-white focus:outline-none focus:border-red-500"
+            />
+          </div>
+          <div>
+            <label class="block text-gray-300 mb-1">当前 6 位动态码 (可选)</label>
+            <input
+              v-model="disablePasscode"
+              type="text"
+              maxlength="6"
+              placeholder="6 位动态码"
+              class="w-full bg-gray-900 border border-gray-700 rounded-xl px-3 py-2 text-white font-mono text-center tracking-widest focus:outline-none focus:border-red-500"
+            />
+          </div>
+        </div>
+
+        <div class="flex justify-end gap-2 pt-2">
+          <button @click="showDisableModal = false" class="px-3 py-2 bg-gray-800 hover:bg-gray-700 text-gray-300 text-xs rounded-xl">取消</button>
+          <button
+            @click="confirmDisable2FA"
+            :disabled="disabling2FA || !disablePassword"
+            class="px-4 py-2 bg-red-600 hover:bg-red-500 text-white text-xs font-bold rounded-xl transition-all disabled:opacity-50"
+          >
+            {{ disabling2FA ? '关闭中...' : '确认关闭' }}
+          </button>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
-import { Send, Globe, Lock, Cpu, Save } from 'lucide-vue-next'
+import { Send, Globe, Lock, Cpu, Save, ShieldCheck, ShieldAlert, QrCode } from 'lucide-vue-next'
+import QrcodeVue from 'qrcode.vue'
 import { toast } from '../utils/toast'
 import api from '../api'
 
@@ -249,6 +388,29 @@ const testingTG = ref(false)
 const oldPassword = ref('')
 const newPassword = ref('')
 const changingPwd = ref(false)
+
+// 2FA 状态
+const totpEnabled = ref(false)
+const showSetupModal = ref(false)
+const showDisableModal = ref(false)
+const loading2FA = ref(false)
+const enabling2FA = ref(false)
+const disabling2FA = ref(false)
+const totpSetupData = ref({ secret: '', otpauthUrl: '' })
+const setupPasscode = ref('')
+const disablePassword = ref('')
+const disablePasscode = ref('')
+
+const fetchAdminInfo = async () => {
+  try {
+    const res: any = await api.get('/auth/info')
+    if (res) {
+      totpEnabled.value = !!res.totpEnabled
+    }
+  } catch (err) {
+    console.error(err)
+  }
+}
 
 const fetchSettings = async () => {
   try {
@@ -314,7 +476,69 @@ const changePassword = async () => {
   }
 }
 
+const startSetup2FA = async () => {
+  loading2FA.value = true
+  try {
+    const res: any = await api.get('/auth/2fa/setup')
+    totpSetupData.value = {
+      secret: res.secret,
+      otpauthUrl: res.otpauthUrl,
+    }
+    setupPasscode.value = ''
+    showSetupModal.value = true
+  } catch (err: any) {
+    toast.error('获取 2FA 密钥失败: ' + err)
+  } finally {
+    loading2FA.value = false
+  }
+}
+
+const confirmEnable2FA = async () => {
+  if (setupPasscode.value.length !== 6) {
+    toast.warning('请输入完整的 6 位动态验证码')
+    return
+  }
+  enabling2FA.value = true
+  try {
+    const res: any = await api.post('/auth/2fa/enable', {
+      secret: totpSetupData.value.secret,
+      passcode: setupPasscode.value,
+    })
+    toast.success(res.message || '2FA 双因素认证已成功开启！')
+    totpEnabled.value = true
+    showSetupModal.value = false
+  } catch (err: any) {
+    toast.error('开启失败: ' + (typeof err === 'string' ? err : '验证码不正确'))
+  } finally {
+    enabling2FA.value = false
+  }
+}
+
+const confirmDisable2FA = async () => {
+  if (!disablePassword.value) {
+    toast.warning('请输入密码确认')
+    return
+  }
+  disabling2FA.value = true
+  try {
+    const res: any = await api.post('/auth/2fa/disable', {
+      password: disablePassword.value,
+      passcode: disablePasscode.value,
+    })
+    toast.success(res.message || '2FA 已关闭')
+    totpEnabled.value = false
+    showDisableModal.value = false
+    disablePassword.value = ''
+    disablePasscode.value = ''
+  } catch (err: any) {
+    toast.error('关闭失败: ' + (typeof err === 'string' ? err : '密码或验证码错误'))
+  } finally {
+    disabling2FA.value = false
+  }
+}
+
 onMounted(() => {
   fetchSettings()
+  fetchAdminInfo()
 })
 </script>

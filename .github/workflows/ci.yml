@@ -46,6 +46,20 @@ jobs:
       - name: Checkout Code
         uses: actions/checkout@v4
 
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+          cache-dependency-path: web/package-lock.json
+
+      - name: Build Web Frontend
+        run: |
+          cd web
+          npm ci
+          npm run build
+          cd ..
+
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
@@ -58,7 +72,10 @@ jobs:
           GOARCH: ${{ matrix.arch }}
           CGO_ENABLED: 0
         run: |
-          go build -ldflags="-s -w" -o dist/${{ matrix.output }} main.go embedded.go
+          mkdir -p dist
+          COMMIT_HASH=$(git rev-parse --short HEAD 2>/dev/null || echo "unknown")
+          BUILD_DATE=$(date -u +'%Y-%m-%d_%H:%M:%S')
+          go build -ldflags="-s -w -X 'main.Version=v1.1.0-ci' -X 'main.Commit=${COMMIT_HASH}' -X 'main.BuildTime=${BUILD_DATE}'" -o dist/${{ matrix.output }} main.go embedded.go
 
       - name: Upload Artifact
         uses: actions/upload-artifact@v4

@@ -23,12 +23,19 @@ import (
 	"panel/internal/service"
 )
 
+var (
+	Version   = "v1.1.0"
+	Commit    = "dev"
+	BuildTime = "unknown"
+)
+
 func main() {
 	// 1. 加载配置与初始化结构化日志
-	cfg := config.Load()
+	cfg := config.Load(Version, Commit, BuildTime)
 	logger.Init(cfg.LogLevel, cfg.LogJSON)
 
 	slog.Info("Starting Xray Decoupled Panel",
+		slog.String("version", Version),
 		slog.String("port", cfg.ListenPort),
 		slog.String("xray_grpc", cfg.XrayGRPCAddr),
 		slog.String("db_path", cfg.DBPath),

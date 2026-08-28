@@ -107,7 +107,7 @@ func main() {
 	defer stop()
 
 	// 启动后台定时任务
-	syncJob := deliveryCron.NewTrafficSyncJob(xrayManager, userRepo, inboundRepo, trafficLogRepo, alertSvc, 15*time.Second)
+	syncJob := deliveryCron.NewTrafficSyncJob(xrayManager, userRepo, inboundRepo, trafficLogRepo, alertSvc, userSvc, 15*time.Second)
 	syncJob.Start(ctx)
 
 	// 启动 Telegram Bot 轮询

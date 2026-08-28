@@ -15,6 +15,7 @@ type TrafficSyncJob struct {
 	inboundRepo    domain.InboundRepository
 	trafficLogRepo domain.TrafficLogRepository
 	alertSvc       *service.AlertService
+	userSvc        *service.UserService
 	interval       time.Duration
 }
 
@@ -24,6 +25,7 @@ func NewTrafficSyncJob(
 	inboundRepo domain.InboundRepository,
 	trafficLogRepo domain.TrafficLogRepository,
 	alertSvc *service.AlertService,
+	userSvc *service.UserService,
 	interval time.Duration,
 ) *TrafficSyncJob {
 	if interval < 5*time.Second {
@@ -35,6 +37,7 @@ func NewTrafficSyncJob(
 		inboundRepo:    inboundRepo,
 		trafficLogRepo: trafficLogRepo,
 		alertSvc:       alertSvc,
+		userSvc:        userSvc,
 		interval:       interval,
 	}
 }
@@ -59,6 +62,9 @@ func (j *TrafficSyncJob) Start(ctx context.Context) {
 				_ = j.alertSvc.CheckTrafficQuotas(ctx)
 				_ = j.alertSvc.CheckSystemLoad(ctx)
 				_ = j.alertSvc.CheckCertificates(ctx)
+				if j.userSvc != nil {
+					_ = j.userSvc.CheckAndResetMonthlyTraffic(ctx)
+				}
 			}
 		}
 	}()

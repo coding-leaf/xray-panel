@@ -21,6 +21,8 @@ type CreateUserDTO struct {
 	Flow        string   `json:"flow"`
 	TotalBytes  int64    `json:"totalBytes"`
 	ExpireDays  int      `json:"expireDays"`
+	ResetDay    int      `json:"resetDay"`
+	IPLimit     int      `json:"ipLimit"`
 }
 
 type UserService struct {
@@ -82,6 +84,8 @@ func (s *UserService) CreateUser(ctx context.Context, dto CreateUserDTO) (*domai
 		SubToken:    subToken,
 		TotalBytes:  dto.TotalBytes,
 		ExpireTime:  expireTime,
+		ResetDay:    dto.ResetDay,
+		IPLimit:     dto.IPLimit,
 		Enabled:     true,
 		CreatedAt:   time.Now(),
 		UpdatedAt:   time.Now(),
@@ -183,6 +187,76 @@ func (s *UserService) ListUsers(ctx context.Context) ([]domain.User, error) {
 
 func (s *UserService) ResetTraffic(ctx context.Context, id uint) error {
 	return s.userRepo.ResetTraffic(ctx, id)
+}
+
+func (s *UserService) ResetSubToken(ctx context.Context, id uint) (string, error) {
+	user, err := s.userRepo.GetByID(ctx, id)
+	if err != nil {
+		return "", err
+	}
+	tokenBytes := make([]byte, 16)
+	_, _ = rand.Read(tokenBytes)
+	newToken := hex.EncodeToString(tokenBytes)
+	user.SubToken = newToken
+	if err := s.userRepo.Update(ctx, user); err != nil {
+		return "", err
+	}
+	return newToken, nil
+}
+
+func (s *UserService) BatchRenew(ctx context.Context, ids []uint, addDays int) error {
+	if addDays == 0 {
+		return nil
+	}
+	for _, id := range ids {
+		u, err := s.userRepo.GetByID(ctx, id)
+		if err != nil {
+			continue
+		}
+		now := time.Now().UnixMilli()
+		if u.ExpireTime <= 0 || u.ExpireTime < now {
+			u.ExpireTime = time.Now().AddDate(0, 0, addDays).UnixMilli()
+		} else {
+			u.ExpireTime = time.UnixMilli(u.ExpireTime).AddDate(0, 0, addDays).UnixMilli()
+		}
+		_ = s.UpdateUser(ctx, u)
+	}
+	return nil
+}
+
+func (s *UserService) BatchResetTraffic(ctx context.Context, ids []uint) error {
+	for _, id := range ids {
+		_ = s.userRepo.ResetTraffic(ctx, id)
+	}
+	return nil
+}
+
+func (s *UserService) BatchSetStatus(ctx context.Context, ids []uint, enabled bool) error {
+	for _, id := range ids {
+		u, err := s.userRepo.GetByID(ctx, id)
+		if err != nil {
+			continue
+		}
+		u.Enabled = enabled
+		_ = s.UpdateUser(ctx, u)
+	}
+	return nil
+}
+
+func (s *UserService) CheckAndResetMonthlyTraffic(ctx context.Context) error {
+	today := time.Now().Day()
+	users, err := s.userRepo.ListAll(ctx)
+	if err != nil {
+		return err
+	}
+	for _, u := range users {
+		if u.ResetDay > 0 && u.ResetDay == today {
+			if u.UpBytes > 0 || u.DownBytes > 0 {
+				_ = s.userRepo.ResetTraffic(ctx, u.ID)
+			}
+		}
+	}
+	return nil
 }
 
 func (s *UserService) GetTrafficHistory(ctx context.Context, userID uint, days int) ([]domain.TrafficLog, error) {

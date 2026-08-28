@@ -1,5 +1,6 @@
 <template>
   <div class="space-y-6">
+    <!-- Header -->
     <div class="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
       <div>
         <div class="flex items-center gap-2.5">
@@ -9,16 +10,86 @@
             <span>gRPC 毫秒内存热生效 (零断网 / 免重启)</span>
           </span>
         </div>
-        <p class="text-xs text-gray-400 mt-0.5">按用户聚合多节点归属，支持全局聚合订阅、单节点独立提取与每日历史流量趋势分析</p>
+        <p class="text-xs text-gray-400 mt-0.5">支持批量延期与流量重置、独立安全订阅 Token、每月周期自动重置与并发设备限制</p>
       </div>
 
-      <button
-        @click="openAddModal"
-        class="px-4 py-2 bg-gradient-to-r from-brand-600 to-indigo-600 hover:from-brand-500 hover:to-indigo-500 text-white text-xs font-semibold rounded-xl transition-all shadow-lg shadow-brand-500/25 flex items-center gap-1.5"
-      >
-        <UserPlus class="w-4 h-4" />
-        <span>添加用户</span>
-      </button>
+      <div class="flex items-center gap-3">
+        <button
+          @click="openAddModal"
+          class="px-4 py-2 bg-gradient-to-r from-brand-600 to-indigo-600 hover:from-brand-500 hover:to-indigo-500 text-white text-xs font-semibold rounded-xl transition-all shadow-lg shadow-brand-500/25 flex items-center gap-1.5"
+        >
+          <UserPlus class="w-4 h-4" />
+          <span>添加用户</span>
+        </button>
+      </div>
+    </div>
+
+    <!-- Batch Action Floating / Fixed Bar -->
+    <div
+      v-if="selectedUserIds.length > 0"
+      class="glass-panel p-3.5 sm:p-4 rounded-2xl border border-brand-500/40 bg-brand-950/30 flex flex-wrap items-center justify-between gap-3 animate-in fade-in duration-200"
+    >
+      <div class="flex items-center gap-2 text-xs">
+        <span class="px-2 py-0.5 rounded-md bg-brand-500/20 text-brand-300 font-bold font-mono">
+          已选择 {{ selectedUserIds.length }} 位用户
+        </span>
+        <span class="text-gray-400">可执行批量周期操作：</span>
+      </div>
+
+      <div class="flex flex-wrap items-center gap-2">
+        <!-- 批量延期按钮 -->
+        <button
+          @click="batchRenew(30)"
+          class="px-3 py-1.5 rounded-xl bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-300 border border-emerald-500/30 text-xs font-semibold transition-colors flex items-center gap-1"
+        >
+          <CalendarPlus class="w-3.5 h-3.5" />
+          <span>+30天 (1个月)</span>
+        </button>
+        <button
+          @click="batchRenew(90)"
+          class="px-3 py-1.5 rounded-xl bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-300 border border-emerald-500/30 text-xs font-semibold transition-colors flex items-center gap-1"
+        >
+          <CalendarPlus class="w-3.5 h-3.5" />
+          <span>+90天 (1季度)</span>
+        </button>
+        <button
+          @click="batchRenew(365)"
+          class="px-3 py-1.5 rounded-xl bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-300 border border-emerald-500/30 text-xs font-semibold transition-colors flex items-center gap-1"
+        >
+          <CalendarPlus class="w-3.5 h-3.5" />
+          <span>+365天 (1年)</span>
+        </button>
+
+        <!-- 批量重置已用流量 -->
+        <button
+          @click="batchResetTraffic"
+          class="px-3 py-1.5 rounded-xl bg-cyan-600/20 hover:bg-cyan-600/30 text-cyan-300 border border-cyan-500/30 text-xs font-semibold transition-colors flex items-center gap-1"
+        >
+          <RotateCcw class="w-3.5 h-3.5" />
+          <span>重置已用流量</span>
+        </button>
+
+        <!-- 批量启用/禁用 -->
+        <button
+          @click="batchSetStatus(true)"
+          class="px-3 py-1.5 rounded-xl bg-indigo-600/20 hover:bg-indigo-600/30 text-indigo-300 border border-indigo-500/30 text-xs font-semibold transition-colors"
+        >
+          批量启用
+        </button>
+        <button
+          @click="batchSetStatus(false)"
+          class="px-3 py-1.5 rounded-xl bg-gray-800 hover:bg-gray-700 text-gray-300 border border-gray-700 text-xs font-semibold transition-colors"
+        >
+          批量禁用
+        </button>
+
+        <button
+          @click="selectedUserIds = []"
+          class="px-2.5 py-1.5 rounded-xl text-gray-400 hover:text-white text-xs transition-colors"
+        >
+          取消选择
+        </button>
+      </div>
     </div>
 
     <!-- Users Table -->
@@ -27,18 +98,41 @@
         <table class="w-full text-left text-xs">
           <thead>
             <tr class="border-b border-gray-800/80 bg-gray-900/50 text-gray-400 font-semibold">
+              <th class="py-3.5 px-3 text-center w-10">
+                <input
+                  type="checkbox"
+                  :checked="isAllUsersSelected"
+                  @change="toggleSelectAllUsers"
+                  class="rounded bg-gray-900 border-gray-700 text-brand-500 focus:ring-0 cursor-pointer"
+                />
+              </th>
               <th class="py-3.5 px-4">用户名 / 邮箱</th>
               <th class="py-3.5 px-4">归属节点 (Inbound Tags)</th>
               <th class="py-3.5 px-4">已用 / 总限额</th>
-              <th class="py-3.5 px-4">到期时间</th>
+              <th class="py-3.5 px-4">到期时间 / 重置周期</th>
               <th class="py-3.5 px-4">状态</th>
               <th class="py-3.5 px-4 text-right">操作</th>
             </tr>
           </thead>
           <tbody class="divide-y divide-gray-800/40">
             <tr v-for="user in users" :key="user.id" class="hover:bg-white/[0.02] transition-colors">
-              <td class="py-3.5 px-4 font-mono font-medium text-white">
-                {{ user.email }}
+              <td class="py-3.5 px-3 text-center">
+                <input
+                  type="checkbox"
+                  :value="user.id"
+                  v-model="selectedUserIds"
+                  class="rounded bg-gray-900 border-gray-700 text-brand-500 focus:ring-0 cursor-pointer"
+                />
+              </td>
+
+              <td class="py-3.5 px-4">
+                <div class="font-mono font-medium text-white">{{ user.email }}</div>
+                <div class="text-[10px] text-gray-500 font-mono flex items-center gap-1.5 mt-0.5">
+                  <span v-if="user.ipLimit > 0" class="text-amber-400/90">限 {{ user.ipLimit }} IP</span>
+                  <span v-else>无IP限制</span>
+                  <span>•</span>
+                  <span>Token: {{ user.subToken ? user.subToken.substring(0, 8) + '...' : '未生成' }}</span>
+                </div>
               </td>
 
               <!-- 归属多节点展示 -->
@@ -68,7 +162,10 @@
               </td>
 
               <td class="py-3.5 px-4 text-gray-400 font-mono text-[11px]">
-                {{ user.expireTime > 0 ? formatDate(user.expireTime) : '永久有效' }}
+                <div>{{ user.expireTime > 0 ? formatDate(user.expireTime) : '永久有效' }}</div>
+                <div v-if="user.resetDay > 0" class="text-[10px] text-cyan-400/90">
+                  每月 {{ user.resetDay }} 号自动清零
+                </div>
               </td>
 
               <td class="py-3.5 px-4">
@@ -94,6 +191,15 @@
               </td>
 
               <td class="py-3.5 px-4 text-right space-x-1.5">
+                <!-- 快捷复制一键全节点订阅链接 -->
+                <button
+                  @click="copyDirectSubLink(user)"
+                  class="p-1 rounded-lg bg-gray-800 hover:bg-brand-600/20 text-brand-300 transition-colors"
+                  title="一键复制专属聚合订阅链接"
+                >
+                  <Zap class="w-3.5 h-3.5 text-amber-400" />
+                </button>
+
                 <!-- 流量历史趋势按钮 -->
                 <button
                   @click="openHistoryModal(user)"
@@ -103,20 +209,20 @@
                   <BarChart2 class="w-3.5 h-3.5" />
                 </button>
 
-                <!-- 订阅与分享 -->
+                <!-- 订阅与分享面板 -->
                 <button
                   @click="openShareModal(user)"
                   class="p-1 rounded-lg bg-gray-800 hover:bg-brand-600/20 text-brand-400 transition-colors"
-                  title="获取聚合与单节点订阅"
+                  title="获取多客户端订阅与二维码"
                 >
                   <Share2 class="w-3.5 h-3.5" />
                 </button>
 
-                <!-- 重置流量 -->
+                <!-- 重置已用流量 -->
                 <button
                   @click="resetTraffic(user.id)"
                   class="p-1 rounded-lg bg-gray-800 hover:bg-gray-700 text-gray-300 transition-colors"
-                  title="重置流量"
+                  title="单用户重置流量"
                 >
                   <RotateCcw class="w-3.5 h-3.5" />
                 </button>
@@ -125,7 +231,7 @@
                 <button
                   @click="openEditModal(user)"
                   class="p-1 rounded-lg bg-gray-800 hover:bg-gray-700 text-indigo-400 transition-colors"
-                  title="编辑"
+                  title="编辑用户与节点"
                 >
                   <Edit class="w-3.5 h-3.5" />
                 </button>
@@ -150,323 +256,305 @@
       <div class="glass-panel w-full max-w-lg p-6 sm:p-8 rounded-3xl border border-gray-800 shadow-2xl space-y-5 my-8">
         <div class="flex items-center justify-between pb-2 border-b border-gray-800">
           <div>
-            <h2 class="text-lg font-bold text-white">{{ isEditing ? '编辑用户权限与节点' : '添加新用户' }}</h2>
-            <p class="text-xs text-gray-400 mt-0.5">选择该用户归属的节点，将自动同步至 Xray 内存与文件</p>
+            <h2 class="text-lg font-bold text-white">{{ isEditing ? '编辑用户权限与周期' : '添加新用户' }}</h2>
+            <p class="text-xs text-gray-400 mt-0.5">选择该用户归属的节点与计费周期，将自动同步至 Xray 内存</p>
           </div>
           <button @click="showModal = false" class="text-gray-400 hover:text-white text-lg">✕</button>
         </div>
 
         <form @submit.prevent="saveUser" class="space-y-4 text-xs">
           <div>
-            <label class="block text-gray-300 mb-1 font-medium">用户名 / 邮箱 (Email)</label>
+            <label class="block text-gray-300 font-semibold mb-1">用户名 / 邮箱</label>
             <input
               v-model="form.email"
               type="text"
               required
               :disabled="isEditing"
-              placeholder="user@example.com"
-              class="w-full bg-gray-900 border border-gray-700 rounded-xl px-3 py-2 text-white font-mono focus:outline-none focus:border-brand-500 disabled:opacity-50"
+              placeholder="user@example.com 或 纯用户名"
+              class="w-full bg-gray-900 border border-gray-700 rounded-xl px-3 py-2 text-white font-mono focus:outline-none focus:border-brand-500 disabled:opacity-60"
             />
           </div>
 
-          <!-- 授权所属节点（多选列表） -->
+          <!-- 授权节点多选 (Inbounds Checkboxes) -->
           <div>
             <div class="flex items-center justify-between mb-1.5">
-              <label class="text-gray-300 font-medium">授权所属节点 (多选归属)</label>
+              <label class="block text-gray-300 font-semibold">
+                授权入站节点 (Inbounds) <span class="text-rose-400">*</span>
+              </label>
               <button
                 type="button"
                 @click="toggleSelectAllInbounds"
-                class="text-brand-400 hover:text-brand-300 text-[11px] font-semibold"
+                class="text-[11px] text-brand-400 hover:text-brand-300 transition-colors"
               >
                 {{ isAllInboundsSelected ? '取消全选' : '全选所有节点' }}
               </button>
             </div>
 
-            <div class="space-y-2 max-h-48 overflow-y-auto bg-gray-900/80 p-3 rounded-xl border border-gray-800">
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-36 overflow-y-auto p-2 bg-gray-900/80 rounded-xl border border-gray-800">
               <label
                 v-for="inb in availableInbounds"
-                :key="inb.tag"
-                class="flex items-center justify-between p-2 rounded-lg hover:bg-gray-800/60 cursor-pointer transition-colors"
+                :key="inb.id"
+                class="flex items-center gap-2 p-2 rounded-lg hover:bg-gray-800/60 cursor-pointer transition-colors border border-transparent"
+                :class="{ 'border-brand-500/40 bg-brand-500/10': form.selectedTags.includes(inb.tag) }"
               >
-                <div class="flex items-center gap-2.5">
-                  <input
-                    type="checkbox"
-                    :value="inb.tag"
-                    v-model="form.selectedTags"
-                    class="rounded bg-gray-800 border-gray-700 text-brand-600 focus:ring-0"
-                  />
-                  <span class="font-mono text-white text-xs font-semibold">{{ inb.tag }}</span>
-                </div>
-                <div class="flex items-center gap-1.5 font-mono text-[11px] text-gray-400">
-                  <span class="uppercase">{{ inb.protocol }}</span>
-                  <span>:{{ inb.port }}</span>
+                <input
+                  type="checkbox"
+                  :value="inb.tag"
+                  v-model="form.selectedTags"
+                  class="rounded bg-gray-900 border-gray-700 text-brand-500 focus:ring-0"
+                />
+                <div class="overflow-hidden">
+                  <div class="font-mono text-white text-[11px] font-semibold truncate">{{ inb.tag }}</div>
+                  <div class="text-[10px] text-gray-400 uppercase">{{ inb.protocol }} :{{ inb.port }}</div>
                 </div>
               </label>
-
-              <div v-if="!availableInbounds.length" class="text-center py-4 text-gray-500">
-                暂无可用的入站节点，请先在「入站节点」中添加
-              </div>
             </div>
           </div>
 
+          <!-- 计费与配额设置 -->
           <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
-              <label class="block text-gray-300 mb-1 font-medium">总流量限制 (GB, 0为不限)</label>
+              <label class="block text-gray-300 mb-1">流量限额 (GB, 0为不限制)</label>
               <input
                 v-model.number="form.totalGB"
                 type="number"
                 min="0"
-                placeholder="0"
+                class="w-full bg-gray-900 border border-gray-700 rounded-xl px-3 py-2 text-white font-mono focus:outline-none focus:border-brand-500"
+              />
+            </div>
+
+            <div v-if="!isEditing">
+              <label class="block text-gray-300 mb-1">初始有效天数 (0为永久)</label>
+              <input
+                v-model.number="form.expireDays"
+                type="number"
+                min="0"
+                placeholder="例如 30"
+                class="w-full bg-gray-900 border border-gray-700 rounded-xl px-3 py-2 text-white font-mono focus:outline-none focus:border-brand-500"
+              />
+            </div>
+
+            <div v-else>
+              <label class="block text-gray-300 mb-1">延长有效天数 (+天)</label>
+              <input
+                v-model.number="form.extendDays"
+                type="number"
+                min="0"
+                placeholder="增加天数如 30"
                 class="w-full bg-gray-900 border border-gray-700 rounded-xl px-3 py-2 text-white font-mono focus:outline-none focus:border-brand-500"
               />
             </div>
 
             <div>
-              <label class="block text-gray-300 mb-1 font-medium">有效期 (天数, 0为永不过期)</label>
+              <label class="block text-gray-300 mb-1">每月重置流量日 (0为不重置)</label>
               <input
-                v-model.number="form.expireDays"
+                v-model.number="form.resetDay"
                 type="number"
                 min="0"
-                placeholder="0"
+                max="31"
+                placeholder="1-31 (如每月1号清零)"
+                class="w-full bg-gray-900 border border-gray-700 rounded-xl px-3 py-2 text-white font-mono focus:outline-none focus:border-brand-500"
+              />
+            </div>
+
+            <div>
+              <label class="block text-gray-300 mb-1">并发连接设备限制 (0为不限)</label>
+              <input
+                v-model.number="form.ipLimit"
+                type="number"
+                min="0"
+                max="100"
+                placeholder="例如限制 2 IP"
                 class="w-full bg-gray-900 border border-gray-700 rounded-xl px-3 py-2 text-white font-mono focus:outline-none focus:border-brand-500"
               />
             </div>
           </div>
 
-          <div class="flex items-center justify-between pt-1">
-            <label class="flex items-center gap-2 cursor-pointer text-gray-300">
-              <input type="checkbox" v-model="form.enabled" class="rounded bg-gray-900 border-gray-700 text-brand-600" />
-              <span>启用该用户状态</span>
-            </label>
-            <span class="text-[11px] text-gray-500 font-mono">流控模式将由归属节点协议自动适配</span>
+          <div class="flex items-center gap-2 pt-1">
+            <input
+              type="checkbox"
+              id="enabled"
+              v-model="form.enabled"
+              class="rounded bg-gray-900 border-gray-700 text-brand-500 focus:ring-0"
+            />
+            <label for="enabled" class="text-gray-300 font-medium cursor-pointer">账号处于启用状态</label>
           </div>
 
           <div class="flex justify-end gap-3 pt-3 border-t border-gray-800">
             <button
               type="button"
               @click="showModal = false"
-              class="px-5 py-2.5 rounded-xl bg-gray-800 hover:bg-gray-700 text-gray-300 font-medium text-xs transition-colors"
+              class="px-5 py-2 rounded-xl bg-gray-800 hover:bg-gray-700 text-gray-300 font-medium text-xs transition-colors"
             >
               取消
             </button>
             <button
               type="submit"
               :disabled="saving"
-              class="px-5 py-2.5 bg-gradient-to-r from-brand-600 to-indigo-600 hover:from-brand-500 hover:to-indigo-500 text-white font-semibold text-xs rounded-xl transition-all shadow-lg shadow-brand-500/25 disabled:opacity-50"
+              class="px-5 py-2 bg-gradient-to-r from-brand-600 to-indigo-600 hover:from-brand-500 hover:to-indigo-500 text-white font-semibold text-xs rounded-xl transition-all shadow-lg shadow-brand-500/25 disabled:opacity-50"
             >
-              <span>{{ saving ? '保存中...' : '保存并实时热生效' }}</span>
+              {{ saving ? '保存中...' : '确认保存' }}
             </button>
           </div>
         </form>
       </div>
     </div>
 
-    <!-- Aggregated Subscription & Single Node Share Modal -->
-    <div v-if="showShareModal" class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/75 backdrop-blur-sm overflow-y-auto">
-      <div class="glass-panel w-full max-w-2xl p-6 sm:p-8 rounded-3xl border border-gray-800 shadow-2xl space-y-6 my-8 max-h-[90vh] overflow-y-auto">
+    <!-- Share & Subscription Modal -->
+    <div v-if="showShareModal" class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/75 backdrop-blur-sm">
+      <div class="glass-panel w-full max-w-lg p-6 sm:p-7 rounded-3xl border border-gray-800 shadow-2xl space-y-5">
         <div class="flex items-center justify-between pb-2 border-b border-gray-800">
           <div>
-            <h2 class="text-lg font-bold text-white">用户订阅与节点分享 ({{ currentShareData?.email }})</h2>
-            <p class="text-xs text-gray-400 mt-0.5">支持一键全量订阅与各个节点的独立分享直连</p>
+            <h2 class="text-base font-bold text-white flex items-center gap-2">
+              <Zap class="w-4 h-4 text-amber-400" />
+              <span>全节点订阅与独立安全 Token</span>
+            </h2>
+            <p class="text-xs text-gray-400 mt-0.5">用户专属聚合订阅，解耦 UUID 并支持一键重置 Token</p>
           </div>
           <button @click="showShareModal = false" class="text-gray-400 hover:text-white text-lg">✕</button>
         </div>
 
-        <!-- 1. 全局聚合订阅 -->
-        <div class="bg-gradient-to-br from-brand-950/60 to-indigo-950/60 p-5 rounded-2xl border border-brand-500/30 space-y-4">
-          <div class="flex items-center justify-between">
-            <span class="text-xs font-bold text-brand-300 uppercase tracking-wider flex items-center gap-1.5">
-              <span>📦 全节点聚合订阅链接 (包含已授权的所有 {{ currentShareData?.nodes?.length || 0 }} 个节点)</span>
-            </span>
-          </div>
-
-          <div class="flex flex-col sm:flex-row gap-4 items-center">
-            <div class="p-2 bg-white rounded-xl shadow-lg shrink-0">
-              <qrcode-vue :value="currentShareData?.allSubUrl || ''" :size="100" level="M" />
+        <div v-if="currentShareData" class="space-y-4 text-xs">
+          <!-- 核心专属安全订阅链接 (Token-based) -->
+          <div class="p-3.5 bg-brand-950/30 rounded-2xl border border-brand-500/30 space-y-2">
+            <div class="flex items-center justify-between">
+              <span class="font-bold text-white flex items-center gap-1.5">
+                <span class="w-2 h-2 rounded-full bg-brand-400 animate-pulse"></span>
+                <span>用户全部节点聚合订阅 (All-In-One Sub URL)</span>
+              </span>
+              <button
+                @click="resetUserSubToken(currentShareData.user?.id)"
+                class="text-[10px] text-rose-400 hover:text-rose-300 font-mono transition-colors flex items-center gap-1"
+              >
+                <RotateCcw class="w-3 h-3" />
+                <span>重置订阅 Token (防泄露)</span>
+              </button>
             </div>
 
-            <div class="flex-1 space-y-2 w-full text-xs">
-              <div class="p-2.5 bg-gray-900/90 rounded-xl border border-gray-800 font-mono text-[11px] text-white break-all select-all">
-                {{ currentShareData?.allSubUrl }}
-              </div>
-              <div class="flex flex-wrap gap-2">
+            <div class="flex items-center gap-2">
+              <input
+                :value="getDirectTokenSubUrl(currentShareData.user)"
+                readonly
+                class="w-full bg-gray-900 border border-gray-700 rounded-xl px-3 py-2 text-white font-mono text-[11px] select-all focus:outline-none"
+              />
+              <button
+                @click="copyText(getDirectTokenSubUrl(currentShareData.user))"
+                class="px-3.5 py-2 bg-brand-600 hover:bg-brand-500 text-white rounded-xl font-semibold transition-colors shrink-0 flex items-center gap-1"
+              >
+                <Copy class="w-3.5 h-3.5" />
+                <span>复制</span>
+              </button>
+            </div>
+            <p class="text-[10px] text-gray-400">支持直接导入 Clash、Shadowrocket、V2Ray、Sing-box 等全部客户端</p>
+          </div>
+
+          <!-- 单节点分享链接列表 -->
+          <div class="space-y-2">
+            <label class="block text-gray-300 font-semibold text-[11px]">单个节点独立直连链接</label>
+            <div class="max-h-40 overflow-y-auto space-y-2 pr-1">
+              <div
+                v-for="link in currentShareData.links"
+                :key="link.tag"
+                class="p-2.5 bg-gray-900/80 rounded-xl border border-gray-800 flex items-center justify-between gap-2"
+              >
+                <div class="overflow-hidden">
+                  <div class="font-mono text-white text-[11px] font-semibold truncate">{{ link.tag }}</div>
+                  <div class="text-[10px] text-gray-400 truncate font-mono">{{ link.url }}</div>
+                </div>
                 <button
-                  @click="copyText(currentShareData?.allSubUrl)"
-                  class="px-4 py-2 bg-brand-600 hover:bg-brand-500 text-white rounded-xl font-semibold text-xs transition-colors flex items-center gap-1.5"
+                  @click="copyText(link.url)"
+                  class="p-1.5 bg-gray-800 hover:bg-gray-700 text-gray-200 rounded-lg transition-colors shrink-0"
+                  title="复制单个节点链接"
                 >
                   <Copy class="w-3.5 h-3.5" />
-                  <span>复制全节点聚合订阅</span>
                 </button>
               </div>
-            </div>
-          </div>
-        </div>
-
-        <!-- 2. 单节点独立直连与独立订阅列表 -->
-        <div class="space-y-3">
-          <h3 class="text-xs font-bold text-gray-300 uppercase tracking-wider">
-            📍 单节点独立导出与直连 (按节点独立使用)
-          </h3>
-
-          <div class="divide-y divide-gray-800 rounded-2xl border border-gray-800 bg-gray-900/50 overflow-hidden text-xs">
-            <div
-              v-for="node in currentShareData?.nodes"
-              :key="node.tag"
-              class="p-4 space-y-3 hover:bg-white/[0.01] transition-colors"
-            >
-              <div class="flex items-center justify-between">
-                <div class="flex items-center gap-2">
-                  <span class="font-bold text-white font-mono text-sm">{{ node.tag }}</span>
-                  <span class="px-2 py-0.5 rounded-md text-[10px] font-mono uppercase bg-gray-800 text-cyan-400 border border-gray-700">
-                    {{ node.protocol }}
-                  </span>
-                </div>
-              </div>
-
-              <!-- Node direct share link -->
-              <div class="space-y-1">
-                <span class="text-gray-400 text-[11px]">节点直连分享链接 (vless:// / vmess://):</span>
-                <div class="flex items-center gap-2">
-                  <input
-                    type="text"
-                    readonly
-                    :value="node.shareLink"
-                    class="w-full bg-gray-900 border border-gray-800 rounded-xl px-3 py-1.5 text-[11px] font-mono text-gray-300 focus:outline-none"
-                  />
-                  <button
-                    @click="copyText(node.shareLink)"
-                    class="px-3 py-1.5 bg-gray-800 hover:bg-gray-700 text-white rounded-xl font-semibold text-xs shrink-0 transition-colors"
-                  >
-                    复制链接
-                  </button>
-                </div>
-              </div>
-
-              <!-- Node single sub link -->
-              <div class="space-y-1">
-                <span class="text-gray-400 text-[11px]">单节点专属订阅链接:</span>
-                <div class="flex items-center gap-2">
-                  <input
-                    type="text"
-                    readonly
-                    :value="node.singleSub"
-                    class="w-full bg-gray-900 border border-gray-800 rounded-xl px-3 py-1.5 text-[11px] font-mono text-gray-400 focus:outline-none"
-                  />
-                  <button
-                    @click="copyText(node.singleSub)"
-                    class="px-3 py-1.5 bg-gray-800 hover:bg-gray-700 text-white rounded-xl font-semibold text-xs shrink-0 transition-colors"
-                  >
-                    复制单订阅
-                  </button>
-                </div>
-              </div>
-            </div>
-
-            <div v-if="!currentShareData?.nodes?.length" class="text-center py-6 text-gray-500">
-              该用户尚未绑定任何入站节点
             </div>
           </div>
         </div>
       </div>
     </div>
 
-    <!-- User Traffic History Modal (Dedicated Trend Analysis) -->
-    <div v-if="showHistoryModal" class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/75 backdrop-blur-sm overflow-y-auto">
-      <div class="glass-panel w-full max-w-2xl p-6 sm:p-8 rounded-3xl border border-gray-800 shadow-2xl space-y-6 my-8 max-h-[90vh] overflow-y-auto">
+    <!-- Traffic History Modal -->
+    <div v-if="showHistoryModal" class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/75 backdrop-blur-sm">
+      <div class="glass-panel w-full max-w-2xl p-6 sm:p-7 rounded-3xl border border-gray-800 shadow-2xl space-y-5">
         <div class="flex items-center justify-between pb-2 border-b border-gray-800">
           <div>
-            <h2 class="text-lg font-bold text-white flex items-center gap-2">
-              <BarChart2 class="w-5 h-5 text-cyan-400" />
-              <span>流量历史统计分析 ({{ currentHistoryUser?.email }})</span>
+            <h2 class="text-base font-bold text-white flex items-center gap-2">
+              <BarChart2 class="w-4 h-4 text-cyan-400" />
+              <span>流量历史趋势 — {{ currentHistoryUser?.email }}</span>
             </h2>
-            <p class="text-xs text-gray-400 mt-0.5">每日增量上下行流量记录与周期消耗趋势</p>
+            <p class="text-xs text-gray-400 mt-0.5">每日聚合流量归档与可视化统计</p>
           </div>
           <button @click="showHistoryModal = false" class="text-gray-400 hover:text-white text-lg">✕</button>
         </div>
 
-        <!-- Timeframe selector -->
-        <div class="flex items-center justify-between">
-          <span class="text-xs font-semibold text-gray-300">分析周期</span>
-          <div class="flex bg-gray-900 p-1 rounded-xl border border-gray-800 text-xs">
+        <!-- Time Range Selector & Metrics -->
+        <div class="flex items-center justify-between gap-2 text-xs">
+          <div class="flex items-center gap-1 bg-gray-900 p-1 rounded-xl border border-gray-800">
             <button
               v-for="d in [7, 14, 30]"
               :key="d"
               @click="setHistoryDays(d)"
-              class="px-3 py-1 rounded-lg font-medium transition-all"
-              :class="historyDays === d ? 'bg-brand-600 text-white shadow-sm' : 'text-gray-400 hover:text-white'"
+              class="px-3 py-1 rounded-lg font-medium transition-colors"
+              :class="historyDays === d ? 'bg-brand-600 text-white font-semibold' : 'text-gray-400 hover:text-white'"
             >
               近 {{ d }} 天
             </button>
           </div>
-        </div>
 
-        <!-- 4 Summary Metric Cards -->
-        <div class="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
-          <div class="bg-gray-900/80 p-3.5 rounded-2xl border border-gray-800/80">
-            <div class="text-[11px] text-gray-400 flex items-center gap-1">
-              <ArrowUpRight class="w-3.5 h-3.5 text-emerald-400" />
-              <span>周期上行</span>
-            </div>
-            <div class="text-sm font-bold text-white font-mono mt-1">{{ formatBytes(historySummary.totalUp) }}</div>
-          </div>
-
-          <div class="bg-gray-900/80 p-3.5 rounded-2xl border border-gray-800/80">
-            <div class="text-[11px] text-gray-400 flex items-center gap-1">
-              <ArrowDownRight class="w-3.5 h-3.5 text-cyan-400" />
-              <span>周期下行</span>
-            </div>
-            <div class="text-sm font-bold text-white font-mono mt-1">{{ formatBytes(historySummary.totalDown) }}</div>
-          </div>
-
-          <div class="bg-gray-900/80 p-3.5 rounded-2xl border border-gray-800/80">
-            <div class="text-[11px] text-gray-400 flex items-center gap-1">
-              <Activity class="w-3.5 h-3.5 text-brand-400" />
-              <span>周期总计</span>
-            </div>
-            <div class="text-sm font-bold text-brand-300 font-mono mt-1">{{ formatBytes(historySummary.totalAll) }}</div>
-          </div>
-
-          <div class="bg-gray-900/80 p-3.5 rounded-2xl border border-gray-800/80">
-            <div class="text-[11px] text-gray-400 flex items-center gap-1">
-              <Zap class="w-3.5 h-3.5 text-amber-400" />
-              <span>日均消耗</span>
-            </div>
-            <div class="text-sm font-bold text-amber-300 font-mono mt-1">{{ formatBytes(historySummary.avgDay) }}</div>
+          <div class="text-[11px] font-mono text-gray-400">
+            区间总流量: <span class="text-brand-300 font-bold">{{ formatBytes(historySummary.totalAll) }}</span>
           </div>
         </div>
 
-        <!-- Visual Bar Chart -->
-        <div class="glass-panel p-5 rounded-2xl border border-gray-800 space-y-3">
-          <div class="flex items-center justify-between text-xs">
-            <span class="font-bold text-gray-300">每日流量趋势图</span>
-            <div class="flex items-center gap-3 text-[11px] text-gray-400">
-              <span class="flex items-center gap-1"><span class="w-2 h-2 rounded-full bg-emerald-400"></span> 上行</span>
-              <span class="flex items-center gap-1"><span class="w-2 h-2 rounded-full bg-cyan-400"></span> 下行</span>
+        <!-- Metric Badges -->
+        <div class="grid grid-cols-2 sm:grid-cols-4 gap-2.5 text-xs">
+          <div class="p-3 bg-gray-900/80 rounded-2xl border border-gray-800 space-y-0.5">
+            <span class="text-[10px] text-gray-400">总上行流量</span>
+            <div class="text-sm font-bold font-mono text-emerald-400">{{ formatBytes(historySummary.totalUp) }}</div>
+          </div>
+          <div class="p-3 bg-gray-900/80 rounded-2xl border border-gray-800 space-y-0.5">
+            <span class="text-[10px] text-gray-400">总下行流量</span>
+            <div class="text-sm font-bold font-mono text-cyan-400">{{ formatBytes(historySummary.totalDown) }}</div>
+          </div>
+          <div class="p-3 bg-gray-900/80 rounded-2xl border border-gray-800 space-y-0.5">
+            <span class="text-[10px] text-gray-400">单日最高</span>
+            <div class="text-sm font-bold font-mono text-amber-400">{{ formatBytes(maxDayBytes) }}</div>
+          </div>
+          <div class="p-3 bg-gray-900/80 rounded-2xl border border-gray-800 space-y-0.5">
+            <span class="text-[10px] text-gray-400">日均消耗</span>
+            <div class="text-sm font-bold font-mono text-indigo-300">{{ formatBytes(historySummary.avgDay) }}</div>
+          </div>
+        </div>
+
+        <!-- Bar Chart Visualizer -->
+        <div class="space-y-2">
+          <div class="flex items-center justify-between text-[11px] text-gray-400">
+            <span>每日用量柱状走势图</span>
+            <div class="flex items-center gap-3">
+              <span class="flex items-center gap-1"><span class="w-2 h-2 rounded bg-emerald-500"></span> 上行</span>
+              <span class="flex items-center gap-1"><span class="w-2 h-2 rounded bg-cyan-500"></span> 下行</span>
             </div>
           </div>
 
-          <!-- CSS Bar Chart Component -->
-          <div v-if="historyLogs.length" class="h-40 flex items-end gap-1.5 sm:gap-2 pt-4 pb-2 px-1 overflow-x-auto">
+          <div v-if="sortedHistoryLogs.length" class="h-36 bg-gray-900/60 rounded-2xl border border-gray-800 p-3 flex items-end gap-2 overflow-x-auto">
             <div
               v-for="log in sortedHistoryLogs"
               :key="log.date"
               class="flex-1 min-w-[20px] flex flex-col items-center gap-1 group relative h-full justify-end"
             >
-              <!-- Bar Column (Stacked) -->
               <div class="w-full max-w-[24px] bg-gray-800/60 rounded-t-md overflow-hidden flex flex-col justify-end h-full">
-                <!-- Downlink Bar -->
                 <div
                   class="w-full bg-cyan-500/80 hover:bg-cyan-400 transition-all"
                   :style="{ height: `${getBarPercent(log.downBytes)}%` }"
                 ></div>
-                <!-- Uplink Bar -->
                 <div
                   class="w-full bg-emerald-500/80 hover:bg-emerald-400 transition-all border-t border-gray-900"
                   :style="{ height: `${getBarPercent(log.upBytes)}%` }"
                 ></div>
               </div>
 
-              <!-- Tooltip on hover -->
               <div class="absolute bottom-full mb-2 hidden group-hover:flex flex-col p-2 bg-gray-900 text-white rounded-xl text-[10px] font-mono shadow-2xl border border-gray-700 whitespace-nowrap z-20 pointer-events-none">
                 <span class="font-bold text-brand-300 mb-0.5">{{ log.date }}</span>
                 <span>上行: {{ formatBytes(log.upBytes) }}</span>
@@ -474,7 +562,6 @@
                 <span class="text-gray-400 border-t border-gray-800 pt-0.5 mt-0.5">总计: {{ formatBytes(log.upBytes + log.downBytes) }}</span>
               </div>
 
-              <!-- X-Axis Label -->
               <span class="text-[9px] font-mono text-gray-500 truncate w-full text-center">
                 {{ log.date.substring(5) }}
               </span>
@@ -482,35 +569,31 @@
           </div>
 
           <div v-else class="text-center py-10 text-xs text-gray-500">
-            暂无历史流量记录（当有客户端产生流量后由后台定时器自动聚合归档）
+            暂无历史流量记录
           </div>
         </div>
 
-        <!-- History Detailed Records Table -->
+        <!-- History Records Table -->
         <div class="space-y-2 text-xs">
-          <h3 class="font-bold text-gray-300 uppercase tracking-wider text-[11px]">
-            每日详细明细列表
-          </h3>
-
-          <div class="max-h-48 overflow-y-auto rounded-2xl border border-gray-800 bg-gray-900/50">
+          <div class="max-h-40 overflow-y-auto rounded-2xl border border-gray-800 bg-gray-900/50">
             <table class="w-full text-left">
               <thead>
                 <tr class="border-b border-gray-800 bg-gray-900/80 text-gray-400 font-semibold text-[11px]">
-                  <th class="py-2.5 px-3">日期</th>
-                  <th class="py-2.5 px-3">上行流量 (Up)</th>
-                  <th class="py-2.5 px-3">下行流量 (Down)</th>
-                  <th class="py-2.5 px-3">单日总计 (Total)</th>
+                  <th class="py-2 px-3">日期</th>
+                  <th class="py-2 px-3">上行 (Up)</th>
+                  <th class="py-2 px-3">下行 (Down)</th>
+                  <th class="py-2 px-3">单日总计</th>
                 </tr>
               </thead>
               <tbody class="divide-y divide-gray-800/40 font-mono text-[11px]">
                 <tr v-for="log in historyLogs" :key="log.id" class="hover:bg-white/[0.02]">
-                  <td class="py-2.5 px-3 text-white font-medium">{{ log.date }}</td>
-                  <td class="py-2.5 px-3 text-emerald-400">{{ formatBytes(log.upBytes) }}</td>
-                  <td class="py-2.5 px-3 text-cyan-400">{{ formatBytes(log.downBytes) }}</td>
-                  <td class="py-2.5 px-3 text-brand-300 font-bold">{{ formatBytes(log.upBytes + log.downBytes) }}</td>
+                  <td class="py-2 px-3 text-white font-medium">{{ log.date }}</td>
+                  <td class="py-2 px-3 text-emerald-400">{{ formatBytes(log.upBytes) }}</td>
+                  <td class="py-2 px-3 text-cyan-400">{{ formatBytes(log.downBytes) }}</td>
+                  <td class="py-2 px-3 text-brand-300 font-bold">{{ formatBytes(log.upBytes + log.downBytes) }}</td>
                 </tr>
                 <tr v-if="!historyLogs.length">
-                  <td colspan="4" class="text-center py-4 text-gray-500">暂无记录</td>
+                  <td colspan="4" class="text-center py-3 text-gray-500">暂无记录</td>
                 </tr>
               </tbody>
             </table>
@@ -531,16 +614,15 @@ import {
   Share2,
   Copy,
   BarChart2,
-  ArrowUpRight,
-  ArrowDownRight,
-  Activity,
   Zap,
+  CalendarPlus,
 } from 'lucide-vue-next'
-import QrcodeVue from 'qrcode.vue'
 import api from '../api'
 
 const users = ref<any[]>([])
 const availableInbounds = ref<any[]>([])
+const selectedUserIds = ref<number[]>([])
+
 const showModal = ref(false)
 const showShareModal = ref(false)
 const showHistoryModal = ref(false)
@@ -559,8 +641,24 @@ const form = ref<any>({
   flow: 'xtls-rprx-vision',
   totalGB: 0,
   expireDays: 0,
+  extendDays: 0,
+  resetDay: 0,
+  ipLimit: 0,
   enabled: true,
 })
+
+const isAllUsersSelected = computed(() => {
+  if (!users.value.length) return false
+  return selectedUserIds.value.length === users.value.length
+})
+
+const toggleSelectAllUsers = () => {
+  if (isAllUsersSelected.value) {
+    selectedUserIds.value = []
+  } else {
+    selectedUserIds.value = users.value.map((u) => u.id)
+  }
+}
 
 const isAllInboundsSelected = computed(() => {
   if (!availableInbounds.value.length) return false
@@ -593,6 +691,83 @@ const getNodeTags = (user: any): string[] => {
   return []
 }
 
+const getDirectTokenSubUrl = (user: any): string => {
+  if (!user || !user.subToken) return ''
+  return `${window.location.origin}/sub/${user.subToken}`
+}
+
+const copyDirectSubLink = (user: any) => {
+  const url = getDirectTokenSubUrl(user)
+  if (!url) {
+    alert('该用户暂未生成专属订阅 Token')
+    return
+  }
+  copyText(url)
+}
+
+const resetUserSubToken = async (userId: number) => {
+  if (!confirm('确定重新生成该用户的安全订阅 Token 吗？旧的订阅链接将立即失效！')) return
+  try {
+    const res: any = await api.post(`/users/${userId}/reset-token`)
+    alert('订阅 Token 重置成功！')
+    if (currentShareData.value && currentShareData.value.user) {
+      currentShareData.value.user.subToken = res.subToken
+    }
+    await fetchAll()
+  } catch (err: any) {
+    alert('重置失败: ' + err)
+  }
+}
+
+// 批量操作
+const batchRenew = async (days: number) => {
+  if (!selectedUserIds.value.length) return
+  if (!confirm(`确定为选中的 ${selectedUserIds.value.length} 位用户统一延期 ${days} 天吗？`)) return
+  try {
+    await api.post('/users/batch-renew', {
+      ids: selectedUserIds.value,
+      days,
+    })
+    alert(`成功延期 ${days} 天！`)
+    selectedUserIds.value = []
+    await fetchAll()
+  } catch (err: any) {
+    alert('批量延期失败: ' + err)
+  }
+}
+
+const batchResetTraffic = async () => {
+  if (!selectedUserIds.value.length) return
+  if (!confirm(`确定重置选中的 ${selectedUserIds.value.length} 位用户的已用上下行流量吗？`)) return
+  try {
+    await api.post('/users/batch-reset-traffic', {
+      ids: selectedUserIds.value,
+    })
+    alert('已成功重置选中用户的已用流量！')
+    selectedUserIds.value = []
+    await fetchAll()
+  } catch (err: any) {
+    alert('批量重置流量失败: ' + err)
+  }
+}
+
+const batchSetStatus = async (enabled: boolean) => {
+  if (!selectedUserIds.value.length) return
+  const action = enabled ? '启用' : '禁用'
+  if (!confirm(`确定批量${action}选中的 ${selectedUserIds.value.length} 位用户吗？`)) return
+  try {
+    await api.post('/users/batch-status', {
+      ids: selectedUserIds.value,
+      enabled,
+    })
+    alert(`已成功批量${action}！`)
+    selectedUserIds.value = []
+    await fetchAll()
+  } catch (err: any) {
+    alert(`批量${action}失败: ` + err)
+  }
+}
+
 const openAddModal = () => {
   isEditing.value = false
   form.value = {
@@ -601,7 +776,10 @@ const openAddModal = () => {
     selectedTags: availableInbounds.value.map((i) => i.tag),
     flow: 'xtls-rprx-vision',
     totalGB: 0,
-    expireDays: 0,
+    expireDays: 30,
+    extendDays: 0,
+    resetDay: 0,
+    ipLimit: 0,
     enabled: true,
   }
   showModal.value = true
@@ -616,6 +794,9 @@ const openEditModal = (user: any) => {
     flow: user.flow || '',
     totalGB: user.totalBytes > 0 ? Math.round(user.totalBytes / 1073741824) : 0,
     expireDays: 0,
+    extendDays: 0,
+    resetDay: user.resetDay || 0,
+    ipLimit: user.ipLimit || 0,
     enabled: user.enabled,
   }
   showModal.value = true
@@ -636,17 +817,32 @@ const saveUser = async () => {
       flow: form.value.flow,
       totalBytes: form.value.totalGB > 0 ? form.value.totalGB * 1073741824 : 0,
       expireDays: form.value.expireDays,
+      resetDay: form.value.resetDay,
+      ipLimit: form.value.ipLimit,
       enabled: form.value.enabled,
     }
 
     if (isEditing.value) {
       const existingUser = users.value.find((u) => u.id === form.value.id)
+      let expireTime = existingUser.expireTime
+      if (form.value.extendDays > 0) {
+        const now = Date.now()
+        if (!expireTime || expireTime < now) {
+          expireTime = now + form.value.extendDays * 86400000
+        } else {
+          expireTime += form.value.extendDays * 86400000
+        }
+      }
+
       await api.put(`/users/${form.value.id}`, {
         ...existingUser,
         inboundTags: form.value.selectedTags.join(','),
         inboundTag: form.value.selectedTags[0],
         flow: form.value.flow,
         totalBytes: payload.totalBytes,
+        expireTime,
+        resetDay: form.value.resetDay,
+        ipLimit: form.value.ipLimit,
         enabled: form.value.enabled,
       })
     } else {
@@ -685,7 +881,10 @@ const resetTraffic = async (id: number) => {
 const openShareModal = async (user: any) => {
   try {
     const res: any = await api.get(`/users/${user.id}/share`)
-    currentShareData.value = res
+    currentShareData.value = {
+      ...res,
+      user,
+    }
     showShareModal.value = true
   } catch (err: any) {
     alert('获取订阅链接失败: ' + err)

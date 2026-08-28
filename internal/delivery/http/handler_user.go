@@ -144,3 +144,83 @@ func (h *UserHandler) GetTrafficHistory(c *gin.Context) {
 
 	c.JSON(http.StatusOK, history)
 }
+
+func (h *UserHandler) ResetToken(c *gin.Context) {
+	idStr := c.Param("id")
+	id, err := strconv.Atoi(idStr)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid user id"})
+		return
+	}
+
+	newToken, err := h.userSvc.ResetSubToken(c.Request.Context(), uint(id))
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"subToken": newToken, "message": "订阅 Token 重置成功"})
+}
+
+type BatchRenewRequest struct {
+	IDs  []uint `json:"ids" binding:"required"`
+	Days int    `json:"days" binding:"required"`
+}
+
+func (h *UserHandler) BatchRenew(c *gin.Context) {
+	var req BatchRenewRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	if err := h.userSvc.BatchRenew(c.Request.Context(), req.IDs, req.Days); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"message": fmt.Sprintf("成功为 %d 位用户延期 %d 天", len(req.IDs), req.Days)})
+}
+
+type BatchIDsRequest struct {
+	IDs []uint `json:"ids" binding:"required"`
+}
+
+func (h *UserHandler) BatchResetTraffic(c *gin.Context) {
+	var req BatchIDsRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	if err := h.userSvc.BatchResetTraffic(c.Request.Context(), req.IDs); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"message": fmt.Sprintf("成功重置 %d 位用户的已用流量", len(req.IDs))})
+}
+
+type BatchStatusRequest struct {
+	IDs     []uint `json:"ids" binding:"required"`
+	Enabled bool   `json:"enabled"`
+}
+
+func (h *UserHandler) BatchStatus(c *gin.Context) {
+	var req BatchStatusRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	if err := h.userSvc.BatchSetStatus(c.Request.Context(), req.IDs, req.Enabled); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	action := "启用"
+	if !req.Enabled {
+		action = "禁用"
+	}
+	c.JSON(http.StatusOK, gin.H{"message": fmt.Sprintf("成功%s %d 位用户", action, len(req.IDs))})
+}

@@ -17,6 +17,8 @@ type User struct {
 	UpBytes     int64     `gorm:"default:0" json:"upBytes"`
 	DownBytes   int64     `gorm:"default:0" json:"downBytes"`
 	ExpireTime  int64     `gorm:"default:0" json:"expireTime"` // 毫秒时间戳，0 为永不过期
+	ResetDay    int       `gorm:"column:reset_day;default:0" json:"resetDay"` // 每月几号重置流量 (0为不重置, 1-31)
+	IPLimit     int       `gorm:"column:ip_limit;default:0" json:"ipLimit"`   // 并发连接限制 (0为不限制)
 	Enabled     bool      `gorm:"default:true" json:"enabled"`
 	CreatedAt   time.Time `json:"createdAt"`
 	UpdatedAt   time.Time `json:"updatedAt"`

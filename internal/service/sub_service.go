@@ -30,12 +30,6 @@ func (s *SubService) GetSubscriptionByToken(ctx context.Context, token string, t
 	}
 
 	user, err := s.userRepo.GetBySubToken(ctx, token)
-	if err != nil {
-		user, err = s.userRepo.GetByUUID(ctx, token)
-	}
-	if err != nil {
-		user, err = s.userRepo.GetByEmail(ctx, token)
-	}
 	if err != nil || user == nil {
 		return nil, domain.ErrSubscriptionToken
 	}
@@ -48,23 +42,31 @@ func (s *SubService) GetSubscriptionByToken(ctx context.Context, token string, t
 	}
 
 	// 获取所有节点
-	inbounds, err := s.inboundRepo.ListAll(ctx)
-	if err != nil {
-		return nil, err
+	var inbounds []domain.Inbound
+	if s.inboundRepo != nil {
+		inbounds, err = s.inboundRepo.ListAll(ctx)
+		if err != nil {
+			return nil, err
+		}
 	}
 
-	hostDomain, _ := s.settingRepo.Get(ctx, "sub_domain")
-	if hostDomain == "" {
-		hostDomain, _ = s.settingRepo.Get(ctx, "public_url")
+	var hostDomain string
+	if s.settingRepo != nil {
+		hostDomain, _ = s.settingRepo.Get(ctx, "sub_domain")
+		if hostDomain == "" {
+			hostDomain, _ = s.settingRepo.Get(ctx, "public_url")
+		}
 	}
 	if hostDomain == "" && reqHost != "" {
 		hostDomain = reqHost
 	}
 
-	defaultPortStr, _ := s.settingRepo.Get(ctx, "public_port")
 	defaultPort := 443
-	if defaultPortStr != "" {
-		_, _ = fmt.Sscanf(defaultPortStr, "%d", &defaultPort)
+	if s.settingRepo != nil {
+		defaultPortStr, _ := s.settingRepo.Get(ctx, "public_port")
+		if defaultPortStr != "" {
+			_, _ = fmt.Sscanf(defaultPortStr, "%d", &defaultPort)
+		}
 	}
 
 	var shareLinks []string
@@ -117,20 +119,28 @@ func (s *SubService) GetUserShareInfo(ctx context.Context, userID uint, baseURL 
 		return nil, err
 	}
 
-	inbounds, err := s.inboundRepo.ListAll(ctx)
-	if err != nil {
-		return nil, err
+	var inbounds []domain.Inbound
+	if s.inboundRepo != nil {
+		inbounds, err = s.inboundRepo.ListAll(ctx)
+		if err != nil {
+			return nil, err
+		}
 	}
 
-	hostDomain, _ := s.settingRepo.Get(ctx, "sub_domain")
+	var hostDomain string
+	if s.settingRepo != nil {
+		hostDomain, _ = s.settingRepo.Get(ctx, "sub_domain")
+	}
 	if hostDomain == "" && baseURL != "" {
 		hostDomain = baseURL
 	}
 
-	defaultPortStr, _ := s.settingRepo.Get(ctx, "public_port")
 	defaultPort := 443
-	if defaultPortStr != "" {
-		_, _ = fmt.Sscanf(defaultPortStr, "%d", &defaultPort)
+	if s.settingRepo != nil {
+		defaultPortStr, _ := s.settingRepo.Get(ctx, "public_port")
+		if defaultPortStr != "" {
+			_, _ = fmt.Sscanf(defaultPortStr, "%d", &defaultPort)
+		}
 	}
 
 	resp := &domain.UserShareResponse{

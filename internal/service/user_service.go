@@ -244,16 +244,21 @@ func (s *UserService) BatchSetStatus(ctx context.Context, ids []uint, enabled bo
 }
 
 func (s *UserService) CheckAndResetMonthlyTraffic(ctx context.Context) error {
-	today := time.Now().Day()
+	now := time.Now()
+	today := now.Day()
+	currentYearMonth := now.Year()*100 + int(now.Month())
+
 	users, err := s.userRepo.ListAll(ctx)
 	if err != nil {
 		return err
 	}
 	for _, u := range users {
-		if u.ResetDay > 0 && u.ResetDay == today {
-			if u.UpBytes > 0 || u.DownBytes > 0 {
-				_ = s.userRepo.ResetTraffic(ctx, u.ID)
-			}
+		if u.ResetDay > 0 && u.ResetDay == today && u.LastResetMonth != currentYearMonth {
+			_ = s.userRepo.ResetTraffic(ctx, u.ID)
+			u.UpBytes = 0
+			u.DownBytes = 0
+			u.LastResetMonth = currentYearMonth
+			_ = s.userRepo.Update(ctx, &u)
 		}
 	}
 	return nil

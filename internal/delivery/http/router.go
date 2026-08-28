@@ -36,7 +36,6 @@ func SetupRouter(handlers *Handlers, jwtSecret string, staticFS fs.FS) *gin.Engi
 	// CORS 中间件
 	r.Use(func(c *gin.Context) {
 		c.Writer.Header().Set("Access-Control-Allow-Origin", "*")
-		c.Writer.Header().Set("Access-Control-Allow-Credentials", "true")
 		c.Writer.Header().Set("Access-Control-Allow-Headers", "Content-Type, Content-Length, Accept-Encoding, X-CSRF-Token, Authorization, accept, origin, Cache-Control, X-Requested-With, X-Request-ID")
 		c.Writer.Header().Set("Access-Control-Allow-Methods", "POST, OPTIONS, GET, PUT, DELETE")
 
@@ -53,8 +52,9 @@ func SetupRouter(handlers *Handlers, jwtSecret string, staticFS fs.FS) *gin.Engi
 
 	api := r.Group("/api")
 	{
-		// 公开接口
-		api.POST("/auth/login", handlers.Auth.Login)
+		// 公开接口 (登录限制每分钟最多 5 次请求)
+		loginLimiter := middleware.NewRateLimiter("5-M")
+		api.POST("/auth/login", loginLimiter, handlers.Auth.Login)
 		api.GET("/sub/:token", handlers.Sub.GetSubscription)
 		api.GET("/sub", handlers.Sub.GetSubscription)
 

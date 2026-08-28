@@ -104,10 +104,10 @@ func (c *ConfigManager) WriteConfig(ctx context.Context, rawJSON []byte) error {
 		cleanedJSON = buf.Bytes()
 	}
 
-	// 备份旧配置
-	if _, err := os.Stat(c.configPath); err == nil {
+	// 备份现有旧配置
+	if oldRaw, err := os.ReadFile(c.configPath); err == nil && len(oldRaw) > 0 {
 		backupPath := c.configPath + ".bak"
-		_ = os.WriteFile(backupPath, cleanedJSON, 0644)
+		_ = os.WriteFile(backupPath, oldRaw, 0644)
 	}
 
 	return os.WriteFile(c.configPath, cleanedJSON, 0644)
@@ -188,8 +188,8 @@ func BuildShareLink(inbound *domain.Inbound, user *domain.User, hostDomain strin
 	}
 	if targetHost == "" {
 		targetHost = inbound.Listen
-		if targetHost == "0.0.0.0" || targetHost == "127.0.0.1" || targetHost == "" {
-			targetHost = "yezineko.top"
+		if targetHost == "0.0.0.0" || targetHost == "" {
+			targetHost = "127.0.0.1"
 		}
 	}
 

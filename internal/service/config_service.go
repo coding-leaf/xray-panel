@@ -319,6 +319,19 @@ func (s *ConfigService) SyncUserToFile(ctx context.Context, authorizedTags []str
 		found := false
 		shouldHave := tagSet[tag] && !isDelete
 
+		// 根据节点传输层与安全层自动推导 flow 模式
+		inboundFlow := ""
+		protocol, _ := ibMap["protocol"].(string)
+		if strings.ToLower(protocol) == "vless" {
+			if stream, ok := ibMap["streamSettings"].(map[string]interface{}); ok {
+				net, _ := stream["network"].(string)
+				sec, _ := stream["security"].(string)
+				if (net == "" || net == "tcp") && (sec == "reality" || sec == "tls") {
+					inboundFlow = "xtls-rprx-vision"
+				}
+			}
+		}
+
 		for _, cRaw := range clientsRaw {
 			cMap, ok := cRaw.(map[string]interface{})
 			if !ok {
@@ -330,7 +343,7 @@ func (s *ConfigService) SyncUserToFile(ctx context.Context, authorizedTags []str
 				found = true
 				if shouldHave {
 					cMap["id"] = user.UUID
-					cMap["flow"] = user.Flow
+					cMap["flow"] = inboundFlow
 					newClients = append(newClients, cMap)
 				}
 				// 否则从该 inbound 移除
@@ -343,7 +356,7 @@ func (s *ConfigService) SyncUserToFile(ctx context.Context, authorizedTags []str
 			newClient := map[string]interface{}{
 				"id":    user.UUID,
 				"email": user.Email,
-				"flow":  user.Flow,
+				"flow":  inboundFlow,
 				"level": 0,
 			}
 			newClients = append(newClients, newClient)

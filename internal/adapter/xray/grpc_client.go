@@ -2,14 +2,13 @@ package xray
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
-	"log/slog"
 	"strings"
 	"sync"
 	"time"
 
 	"panel/internal/domain"
-	"panel/internal/pkg/logger"
 
 	proxymanCommand "github.com/xtls/xray-core/app/proxyman/command"
 	statsCommand "github.com/xtls/xray-core/app/stats/command"
@@ -88,13 +87,13 @@ func (c *GRPCClient) Close() error {
 }
 
 // AddUser 向指定 Inbound 添加用户
-func (c *GRPCClient) AddUser(ctx context.Context, inboundTag string, user *domain.User, protocolName string) error {
+func (c *GRPCClient) AddUser(ctx context.Context, inbound *domain.Inbound, user *domain.User) error {
 	_, err := c.getConn(ctx)
 	if err != nil {
 		return err
 	}
 
-	accountMsg, err := buildAccountMessage(protocolName, user)
+	accountMsg, err := buildAccountMessage(inbound, user)
 	if err != nil {
 		return err
 	}
@@ -106,23 +105,15 @@ func (c *GRPCClient) AddUser(ctx context.Context, inboundTag string, user *domai
 	}
 
 	req := &proxymanCommand.AlterInboundRequest{
-		Tag: inboundTag,
+		Tag: inbound.Tag,
 		Operation: serial.ToTypedMessage(&proxymanCommand.AddUserOperation{
 			User: protoUser,
 		}),
 	}
 
-	callCtx, cancel := context.WithTimeout(ctx, 4*time.Second)
-	defer cancel()
-
-	_, err = c.handlerCli.AlterInbound(callCtx, req)
+	_, err = c.handlerCli.AlterInbound(ctx, req)
 	if err != nil {
-		logger.FromContext(ctx).Error("Xray AddUser failed",
-			slog.String("inbound", inboundTag),
-			slog.String("email", user.Email),
-			slog.String("error", err.Error()),
-		)
-		return fmt.Errorf("xray AddUser failed: %w", err)
+		return fmt.Errorf("xray alter inbound add user failed: %w", err)
 	}
 	return nil
 }
@@ -141,37 +132,27 @@ func (c *GRPCClient) RemoveUser(ctx context.Context, inboundTag string, email st
 		}),
 	}
 
-	callCtx, cancel := context.WithTimeout(ctx, 4*time.Second)
-	defer cancel()
-
-	_, err = c.handlerCli.AlterInbound(callCtx, req)
+	_, err = c.handlerCli.AlterInbound(ctx, req)
 	if err != nil {
-		logger.FromContext(ctx).Warn("Xray RemoveUser warning",
-			slog.String("inbound", inboundTag),
-			slog.String("email", email),
-			slog.String("error", err.Error()),
-		)
-		return fmt.Errorf("xray RemoveUser failed: %w", err)
+		return fmt.Errorf("xray alter inbound remove user failed: %w", err)
 	}
 	return nil
 }
 
-// QueryTrafficStats 查询增量流量统计
+// QueryTrafficStats 查询流量统计
 func (c *GRPCClient) QueryTrafficStats(ctx context.Context, reset bool) ([]domain.TrafficStat, error) {
 	_, err := c.getConn(ctx)
 	if err != nil {
 		return nil, err
 	}
 
-	callCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
-	defer cancel()
+	req := &statsCommand.QueryStatsRequest{
+		Reset_: reset,
+	}
 
-	resp, err := c.statsCli.QueryStats(callCtx, &statsCommand.QueryStatsRequest{
-		Pattern: "",
-		Reset_:  reset,
-	})
+	resp, err := c.statsCli.QueryStats(ctx, req)
 	if err != nil {
-		return nil, fmt.Errorf("xray QueryStats failed: %w", err)
+		return nil, fmt.Errorf("xray query stats failed: %w", err)
 	}
 
 	var results []domain.TrafficStat
@@ -182,9 +163,6 @@ func (c *GRPCClient) QueryTrafficStats(ctx context.Context, reset bool) ([]domai
 			continue
 		}
 
-		// Pattern format in Xray stats:
-		// user>>>email>>>traffic>>>uplink | downlink
-		// inbound>>>tag>>>traffic>>>uplink | downlink
 		parts := strings.Split(name, ">>>")
 		if len(parts) < 4 {
 			continue
@@ -217,12 +195,22 @@ func (c *GRPCClient) QueryTrafficStats(ctx context.Context, reset bool) ([]domai
 	return results, nil
 }
 
-func buildAccountMessage(protocolName string, u *domain.User) (*serial.TypedMessage, error) {
+func buildAccountMessage(inbound *domain.Inbound, u *domain.User) (*serial.TypedMessage, error) {
+	protocolName := inbound.Protocol
 	switch strings.ToLower(protocolName) {
 	case "vless":
+		flow := ""
+		var streamMap map[string]interface{}
+		_ = json.Unmarshal([]byte(inbound.StreamSettings), &streamMap)
+		net, _ := streamMap["network"].(string)
+		sec, _ := streamMap["security"].(string)
+		if (net == "" || net == "tcp") && (sec == "reality" || sec == "tls") {
+			flow = "xtls-rprx-vision"
+		}
+
 		return serial.ToTypedMessage(&vless.Account{
 			Id:   u.UUID,
-			Flow: u.Flow,
+			Flow: flow,
 		}), nil
 	case "vmess":
 		return serial.ToTypedMessage(&vmess.Account{

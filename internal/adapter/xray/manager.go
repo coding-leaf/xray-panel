@@ -27,7 +27,7 @@ func (m *Manager) AddUser(ctx context.Context, inboundTag string, user *domain.U
 	if err != nil {
 		return err
 	}
-	return m.grpcClient.AddUser(ctx, inboundTag, user, inbound.Protocol)
+	return m.grpcClient.AddUser(ctx, inbound, user)
 }
 
 func (m *Manager) RemoveUser(ctx context.Context, inboundTag string, email string) error {

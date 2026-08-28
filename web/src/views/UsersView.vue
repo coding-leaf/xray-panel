@@ -29,7 +29,6 @@
             <tr class="border-b border-gray-800/80 bg-gray-900/50 text-gray-400 font-semibold">
               <th class="py-3.5 px-4">用户名 / 邮箱</th>
               <th class="py-3.5 px-4">归属节点 (Inbound Tags)</th>
-              <th class="py-3.5 px-4">流控模式 (Flow)</th>
               <th class="py-3.5 px-4">已用 / 总限额</th>
               <th class="py-3.5 px-4">到期时间</th>
               <th class="py-3.5 px-4">状态</th>
@@ -53,10 +52,6 @@
                     {{ tag }}
                   </span>
                 </div>
-              </td>
-
-              <td class="py-3.5 px-4 font-mono text-gray-300">
-                {{ user.flow || 'none' }}
               </td>
 
               <td class="py-3.5 px-4 font-mono text-gray-300">
@@ -203,18 +198,6 @@
 
           <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
-              <label class="block text-gray-300 mb-1 font-medium">流控模式 (Flow)</label>
-              <select
-                v-model="form.flow"
-                class="w-full bg-gray-900 border border-gray-700 rounded-xl px-3 py-2 text-white font-mono focus:outline-none focus:border-brand-500"
-              >
-                <option value="xtls-rprx-vision">xtls-rprx-vision (推荐)</option>
-                <option value="xtls-rprx-vision-udp443">xtls-rprx-vision-udp443</option>
-                <option value="">none (无流控)</option>
-              </select>
-            </div>
-
-            <div>
               <label class="block text-gray-300 mb-1 font-medium">总流量限制 (GB, 0为不限)</label>
               <input
                 v-model.number="form.totalGB"
@@ -224,9 +207,7 @@
                 class="w-full bg-gray-900 border border-gray-700 rounded-xl px-3 py-2 text-white font-mono focus:outline-none focus:border-brand-500"
               />
             </div>
-          </div>
 
-          <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
               <label class="block text-gray-300 mb-1 font-medium">有效期 (天数, 0为永不过期)</label>
               <input
@@ -237,13 +218,14 @@
                 class="w-full bg-gray-900 border border-gray-700 rounded-xl px-3 py-2 text-white font-mono focus:outline-none focus:border-brand-500"
               />
             </div>
+          </div>
 
-            <div class="flex items-center gap-2 pt-6">
-              <label class="flex items-center gap-2 cursor-pointer text-gray-300">
-                <input type="checkbox" v-model="form.enabled" class="rounded bg-gray-900 border-gray-700 text-brand-600" />
-                <span>启用该用户状态</span>
-              </label>
-            </div>
+          <div class="flex items-center justify-between pt-1">
+            <label class="flex items-center gap-2 cursor-pointer text-gray-300">
+              <input type="checkbox" v-model="form.enabled" class="rounded bg-gray-900 border-gray-700 text-brand-600" />
+              <span>启用该用户状态</span>
+            </label>
+            <span class="text-[11px] text-gray-500 font-mono">流控模式将由归属节点协议自动适配</span>
           </div>
 
           <div class="flex justify-end gap-3 pt-3 border-t border-gray-800">

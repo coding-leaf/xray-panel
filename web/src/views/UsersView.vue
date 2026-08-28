@@ -576,31 +576,44 @@
             </div>
           </div>
 
-          <div v-if="sortedHistoryLogs.length" class="h-36 bg-gray-900/60 rounded-2xl border border-gray-800 p-3 flex items-end gap-2 overflow-x-auto">
+          <div v-if="sortedHistoryLogs.length" class="h-44 bg-gray-900/60 rounded-2xl border border-gray-800 p-3.5 pt-6 flex items-end gap-2 overflow-x-auto">
             <div
               v-for="log in sortedHistoryLogs"
               :key="log.date"
-              class="flex-1 min-w-[20px] flex flex-col items-center gap-1 group relative h-full justify-end"
+              class="flex-1 min-w-[28px] max-w-[48px] flex flex-col items-center gap-1.5 group relative h-full justify-end"
             >
-              <div class="w-full max-w-[24px] bg-gray-800/60 rounded-t-md overflow-hidden flex flex-col justify-end h-full">
+              <!-- 柱子有效高度绘制区 (留出顶部余量) -->
+              <div class="w-full flex-1 flex flex-col justify-end items-center relative">
                 <div
-                  class="w-full bg-cyan-500/80 hover:bg-cyan-400 transition-all"
-                  :style="{ height: `${getBarPercent(log.downBytes)}%` }"
-                ></div>
-                <div
-                  class="w-full bg-emerald-500/80 hover:bg-emerald-400 transition-all border-t border-gray-900"
-                  :style="{ height: `${getBarPercent(log.upBytes)}%` }"
-                ></div>
+                  class="w-full max-w-[22px] rounded-t-md overflow-hidden flex flex-col justify-end bg-gray-800/40 transition-all duration-300 group-hover:ring-2 group-hover:ring-indigo-500/50"
+                  :style="{ height: `${getTotalBarHeight(log)}%` }"
+                >
+                  <!-- 下行 (Cyan) -->
+                  <div
+                    class="w-full bg-cyan-500 hover:bg-cyan-400 transition-all"
+                    :style="{ height: `${getSegmentPercent(log.downBytes, log)}%` }"
+                  ></div>
+                  <!-- 上行 (Emerald) -->
+                  <div
+                    class="w-full bg-emerald-500 hover:bg-emerald-400 transition-all border-t border-gray-900/30"
+                    :style="{ height: `${getSegmentPercent(log.upBytes, log)}%` }"
+                  ></div>
+                </div>
               </div>
 
-              <div class="absolute bottom-full mb-2 hidden group-hover:flex flex-col p-2 bg-gray-900 text-white rounded-xl text-[10px] font-mono shadow-2xl border border-gray-700 whitespace-nowrap z-20 pointer-events-none">
-                <span class="font-bold text-brand-300 mb-0.5">{{ log.date }}</span>
-                <span>上行: {{ formatBytes(log.upBytes) }}</span>
-                <span>下行: {{ formatBytes(log.downBytes) }}</span>
-                <span class="text-gray-400 border-t border-gray-800 pt-0.5 mt-0.5">总计: {{ formatBytes(log.upBytes + log.downBytes) }}</span>
+              <!-- 悬浮数据卡片 -->
+              <div class="absolute bottom-full mb-3 hidden group-hover:flex flex-col p-2.5 bg-gray-950/95 text-white rounded-xl text-[10px] font-mono shadow-2xl border border-gray-700/80 whitespace-nowrap z-30 pointer-events-none backdrop-blur-md">
+                <span class="font-bold text-indigo-300 mb-1 flex items-center gap-1">
+                  <span>📅</span>
+                  <span>{{ log.date }}</span>
+                </span>
+                <span class="text-emerald-400">↑ 上行: {{ formatBytes(log.upBytes) }}</span>
+                <span class="text-cyan-400">↓ 下行: {{ formatBytes(log.downBytes) }}</span>
+                <span class="text-gray-300 border-t border-gray-800 pt-1 mt-1 font-bold">总计: {{ formatBytes(log.upBytes + log.downBytes) }}</span>
               </div>
 
-              <span class="text-[9px] font-mono text-gray-500 truncate w-full text-center">
+              <!-- 底部日期标签 -->
+              <span class="text-[10px] font-mono text-gray-400 group-hover:text-white transition-colors truncate w-full text-center shrink-0">
                 {{ log.date.substring(5) }}
               </span>
             </div>
@@ -975,9 +988,17 @@ const maxDayBytes = computed(() => {
   return max
 })
 
-const getBarPercent = (bytes: number) => {
-  if (!bytes || maxDayBytes.value <= 0) return 0
-  return Math.min(100, Math.max(4, (bytes / maxDayBytes.value) * 100))
+const getTotalBarHeight = (log: any) => {
+  const total = (log.upBytes || 0) + (log.downBytes || 0)
+  if (!total || maxDayBytes.value <= 0) return 4
+  // 保持在 6% 到 90% 之间，留足顶部呼吸空间，避免顶到边框
+  return Math.min(90, Math.max(6, (total / maxDayBytes.value) * 90))
+}
+
+const getSegmentPercent = (segmentBytes: number, log: any) => {
+  const total = (log.upBytes || 0) + (log.downBytes || 0)
+  if (!total || !segmentBytes) return 0
+  return Math.round((segmentBytes / total) * 100)
 }
 
 const historySummary = computed(() => {

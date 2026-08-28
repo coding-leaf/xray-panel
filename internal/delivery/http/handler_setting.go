@@ -42,31 +42,49 @@ func (h *SettingHandler) GetSettings(c *gin.Context) {
 }
 
 func (h *SettingHandler) SaveSettings(c *gin.Context) {
-	var body map[string]string
+	var body map[string]interface{}
 	if err := c.ShouldBindJSON(&body); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
 
 	for k, v := range body {
-		_ = h.settingRepo.Set(c.Request.Context(), k, v)
+		if v == nil {
+			continue
+		}
+		strVal := fmt.Sprintf("%v", v)
+		_ = h.settingRepo.Set(c.Request.Context(), k, strVal)
 	}
 
+	configPath := fmt.Sprintf("%v", body["xray_config_path"])
+	binPath := fmt.Sprintf("%v", body["xray_bin_path"])
+	serviceName := fmt.Sprintf("%v", body["xray_service_name"])
+
 	// 动态更新配置管理器与 supervisor
-	if h.configMgr != nil {
-		h.configMgr.UpdateConfig(body["xray_config_path"], body["xray_bin_path"])
+	if h.configMgr != nil && configPath != "<nil>" && configPath != "" {
+		h.configMgr.UpdateConfig(configPath, binPath)
 	}
-	if h.supervisor != nil {
-		h.supervisor.UpdateConfig(body["xray_service_name"], body["xray_bin_path"])
+	if h.supervisor != nil && serviceName != "<nil>" && serviceName != "" {
+		h.supervisor.UpdateConfig(serviceName, binPath)
 	}
 
 	// 动态更新 Telegram Bot
 	if h.botAdapter != nil {
 		var chatID int64
-		if chatIDStr, ok := body["tg_admin_chat_id"]; ok && chatIDStr != "" {
-			_, _ = fmt.Sscanf(chatIDStr, "%d", &chatID)
+		if chatIDVal, ok := body["tg_admin_chat_id"]; ok && chatIDVal != nil {
+			chatIDStr := fmt.Sprintf("%v", chatIDVal)
+			if chatIDStr != "" && chatIDStr != "<nil>" {
+				_, _ = fmt.Sscanf(chatIDStr, "%d", &chatID)
+			}
 		}
-		_ = h.botAdapter.UpdateConfig(body["tg_bot_token"], chatID)
+		tgToken := ""
+		if tokVal, ok := body["tg_bot_token"]; ok && tokVal != nil {
+			tgToken = fmt.Sprintf("%v", tokVal)
+			if tgToken == "<nil>" {
+				tgToken = ""
+			}
+		}
+		_ = h.botAdapter.UpdateConfig(tgToken, chatID)
 	}
 
 	c.JSON(http.StatusOK, gin.H{"message": "settings updated successfully"})

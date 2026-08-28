@@ -1,11 +1,36 @@
-# Binaries
+# Binaries & Executables
 *.exe
+*.exe~
 panel
+panel.exe
+panel.exe~
 
-# Database and runtime data
+# Runtime Data & Database
 data/
 *.db
 *.db-journal
+*.db-wal
+*.db-shm
 
-# Web Node modules and dist
+# Log Files
+*.log
+access.log
+error.log
+
+# Web & Node Dependencies
 web/node_modules/
+web/.eslintcache
+web/dist/stats.html
+
+# IDE & OS Specific
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+*~
+.superpowers/
+
+# Test Artifacts
+*.out
+coverage.html

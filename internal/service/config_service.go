@@ -242,7 +242,9 @@ func (s *ConfigService) CreateInbound(ctx context.Context, inbound *domain.Inbou
 	}
 
 	// 2. 双向同步回写 config.json
-	_ = s.syncInboundToFile(ctx, inbound, false)
+	if err := s.syncInboundToFile(ctx, inbound, false); err != nil {
+		return err
+	}
 	return s.supervisor.Reload(ctx)
 }
 
@@ -251,7 +253,9 @@ func (s *ConfigService) UpdateInbound(ctx context.Context, inbound *domain.Inbou
 	if err := s.inboundRepo.Update(ctx, inbound); err != nil {
 		return err
 	}
-	_ = s.syncInboundToFile(ctx, inbound, false)
+	if err := s.syncInboundToFile(ctx, inbound, false); err != nil {
+		return err
+	}
 	return s.supervisor.Reload(ctx)
 }
 
@@ -264,7 +268,9 @@ func (s *ConfigService) DeleteInbound(ctx context.Context, id uint) error {
 	if err := s.inboundRepo.Delete(ctx, id); err != nil {
 		return err
 	}
-	_ = s.syncInboundToFile(ctx, inbound, true)
+	if err := s.syncInboundToFile(ctx, inbound, true); err != nil {
+		return err
+	}
 	return s.supervisor.Reload(ctx)
 }
 
@@ -296,7 +302,12 @@ func (s *ConfigService) syncInboundToFile(ctx context.Context, inbound *domain.I
 			if isDelete {
 				continue // 移除该 Inbound
 			}
-			// 更新现有 Inbound
+			// 更新现有 Inbound 基础网络参数与协议
+			ibMap["tag"] = inbound.Tag
+			ibMap["port"] = inbound.Port
+			ibMap["listen"] = inbound.Listen
+			ibMap["protocol"] = inbound.Protocol
+
 			var settingsObj map[string]interface{}
 			_ = json.Unmarshal([]byte(inbound.SettingsJSON), &settingsObj)
 			if settingsObj != nil {

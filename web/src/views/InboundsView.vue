@@ -4,7 +4,7 @@
     <div class="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
       <div>
         <h1 class="text-2xl font-extrabold text-white tracking-tight">入站节点管理 (Inbounds)</h1>
-        <p class="text-xs text-gray-400 mt-0.5">全可视化分层配置 Xray 入站代理节点，支持 Reality 密钥生成、Vision 流控、XHTTP 扩展、回落分流与非443端口安全警报</p>
+        <p class="text-xs text-gray-400 mt-0.5">全可视化分层配置 Xray 入站代理节点，严格遵循官方传输组合兼容矩阵与安全校验</p>
       </div>
       <button
         @click="openCreateModal"
@@ -45,7 +45,7 @@
             </div>
             <div class="flex justify-between py-1 border-b border-gray-800/60">
               <span>安全协议</span>
-              <span class="text-gray-200 font-mono font-semibold">{{ getSecurityType(inb) }}</span>
+              <span class="text-gray-200 font-mono font-semibold uppercase">{{ getSecurityType(inb) }}</span>
             </div>
             <div class="flex justify-between py-1 border-b border-gray-800/60">
               <span>监听地址</span>
@@ -94,7 +94,7 @@
         <div class="flex items-center justify-between pb-2 border-b border-gray-800">
           <div>
             <h2 class="text-lg font-bold text-white">{{ isEditing ? '编辑入站节点' : '分层添加新节点' }}</h2>
-            <p class="text-xs text-gray-400 mt-0.5">参数将同时热注入 Xray 并持久化回写 config.json</p>
+            <p class="text-xs text-gray-400 mt-0.5">参数将自动校验官方兼容性矩阵，热注入 Xray 并回写 config.json</p>
           </div>
           <button @click="showModal = false" class="text-gray-400 hover:text-white text-lg">✕</button>
         </div>
@@ -155,10 +155,10 @@
             </div>
           </div>
 
-          <!-- 2. 协议与传输层设置 -->
+          <!-- 2. 协议与传输层设置（严格级联互斥） -->
           <div class="space-y-3 bg-gray-900/50 p-4 rounded-2xl border border-gray-800/80">
             <h3 class="font-bold text-brand-400 uppercase tracking-wider text-[11px] flex items-center gap-1.5">
-              <span>② 入站协议与传输层</span>
+              <span>② 入站协议与传输层 (智能兼容联动)</span>
             </h3>
 
             <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
@@ -166,7 +166,8 @@
                 <label class="block text-gray-300 mb-1 font-medium">入站协议 (Protocol)</label>
                 <select
                   v-model="form.protocol"
-                  class="w-full bg-gray-900 border border-gray-700 rounded-xl px-3 py-2 text-white focus:outline-none focus:border-brand-500"
+                  @change="onProtocolChange"
+                  class="w-full bg-gray-900 border border-gray-700 rounded-xl px-3 py-2 text-white focus:outline-none focus:border-brand-500 font-medium"
                 >
                   <option value="vless">VLESS (推荐)</option>
                   <option value="vmess">VMess</option>
@@ -179,13 +180,15 @@
                 <label class="block text-gray-300 mb-1 font-medium">传输协议 (Network)</label>
                 <select
                   v-model="form.network"
-                  class="w-full bg-gray-900 border border-gray-700 rounded-xl px-3 py-2 text-white focus:outline-none focus:border-brand-500"
+                  @change="onNetworkChange"
+                  class="w-full bg-gray-900 border border-gray-700 rounded-xl px-3 py-2 text-white focus:outline-none focus:border-brand-500 font-mono"
                 >
-                  <option value="tcp">TCP</option>
+                  <option value="tcp">TCP (RAW 推荐)</option>
                   <option value="xhttp">XHTTP (SplitHTTP 推荐)</option>
                   <option value="grpc">gRPC</option>
                   <option value="ws">WebSocket</option>
                   <option value="httpupgrade">HTTPUpgrade</option>
+                  <option value="mkcp">mKCP (UDP)</option>
                 </select>
               </div>
 
@@ -193,26 +196,40 @@
                 <label class="block text-gray-300 mb-1 font-medium">安全协议 (Security)</label>
                 <select
                   v-model="form.security"
-                  class="w-full bg-gray-900 border border-gray-700 rounded-xl px-3 py-2 text-white focus:outline-none focus:border-brand-500"
+                  class="w-full bg-gray-900 border border-gray-700 rounded-xl px-3 py-2 text-white focus:outline-none focus:border-brand-500 font-mono"
                 >
-                  <option value="reality">REALITY (推荐)</option>
+                  <option v-if="isRealitySupported" value="reality">REALITY (推荐)</option>
                   <option value="tls">TLS</option>
                   <option value="none">None (无加密)</option>
                 </select>
               </div>
             </div>
 
-            <!-- VLESS 流控选项 -->
+            <!-- 不兼容 Reality 自动限制提示 -->
+            <div v-if="!isRealitySupported" class="p-2 rounded-xl bg-blue-500/10 border border-blue-500/20 text-blue-300 text-[11px]">
+              ℹ️ 官方规范说明：当前传输协议 (<code>{{ form.network }}</code>) 不支持 REALITY，安全协议仅支持 TLS 或 None。
+            </div>
+
+            <!-- VLESS/Trojan None 安全提示 -->
+            <div v-if="form.security === 'none' && (form.protocol === 'vless' || form.protocol === 'trojan')" class="p-2.5 rounded-xl bg-amber-500/10 border border-amber-500/20 text-amber-300 text-[11px]">
+              ⚠️ 官方安全提示: VLESS/Trojan 在无安全层 (None) 时仅允许连接私网，公网直接使用存在阻断风险，请确保处于 CDN 或前置反代后。
+            </div>
+
+            <!-- VLESS 流控选项（仅在 TCP/RAW 下支持 Vision） -->
             <div v-if="form.protocol === 'vless'" class="pt-2 border-t border-gray-800">
               <label class="block text-gray-400 mb-1 font-medium">VLESS 流控模式 (Flow)</label>
               <select
                 v-model="form.vlessFlow"
-                class="w-full bg-gray-900 border border-gray-700 rounded-xl px-3 py-2 text-white focus:outline-none focus:border-brand-500"
+                :disabled="form.network !== 'tcp'"
+                class="w-full bg-gray-900 border border-gray-700 rounded-xl px-3 py-2 text-white focus:outline-none focus:border-brand-500 disabled:opacity-40 font-mono"
               >
-                <option value="xtls-rprx-vision">xtls-rprx-vision (XTLS Vision 极速流控 - 推荐)</option>
-                <option value="xtls-rprx-vision-udp443">xtls-rprx-vision-udp443</option>
-                <option value="">none (无流控 - 适用于 XHTTP/gRPC/WS)</option>
+                <option v-if="form.network === 'tcp'" value="xtls-rprx-vision">xtls-rprx-vision (XTLS Vision 极速流控 - 推荐)</option>
+                <option v-if="form.network === 'tcp'" value="xtls-rprx-vision-udp443">xtls-rprx-vision-udp443</option>
+                <option value="">none (无流控 - 非 TCP 传输强制留空)</option>
               </select>
+              <p v-if="form.network !== 'tcp'" class="text-[11px] text-gray-500 mt-1">
+                * 官方速查表规定：Vision 流控仅适用于 TCP/RAW 载荷，当前 {{ form.network }} 传输层已自动禁用流控。
+              </p>
             </div>
 
             <!-- XHTTP 专属配置项 -->
@@ -231,7 +248,7 @@
                   <label class="block text-gray-400 mb-1">XHTTP 模式 (Mode)</label>
                   <select
                     v-model="form.xhttpMode"
-                    class="w-full bg-gray-900 border border-gray-700 rounded-xl px-3 py-2 text-white focus:outline-none focus:border-brand-500"
+                    class="w-full bg-gray-900 border border-gray-700 rounded-xl px-3 py-2 text-white focus:outline-none focus:border-brand-500 font-mono"
                   >
                     <option value="auto">auto (自动)</option>
                     <option value="stream-up">stream-up</option>
@@ -446,7 +463,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { Plus, Radio, Key, AlertTriangle } from 'lucide-vue-next'
 import api from '../api'
 
@@ -462,7 +479,7 @@ const form = ref<any>({
   port: 443,
   protocol: 'vless',
   vlessFlow: 'xtls-rprx-vision',
-  network: 'xhttp',
+  network: 'tcp',
   security: 'reality',
 
   // XHTTP
@@ -497,6 +514,32 @@ const form = ref<any>({
   sniffingRouteOnly: true,
 })
 
+// 官方传输组合矩阵判定：只有 TCP, XHTTP, gRPC 支持 REALITY
+const isRealitySupported = computed(() => {
+  return ['tcp', 'xhttp', 'grpc'].includes(form.value.network)
+})
+
+const onNetworkChange = () => {
+  // 如果切换到不支持 Reality 的网络协议，自动纠错为 TLS
+  if (!isRealitySupported.value && form.value.security === 'reality') {
+    form.value.security = 'tls'
+  }
+  // Vision 流控仅支持 TCP/RAW，切换到非 TCP 时自动清空
+  if (form.value.network !== 'tcp') {
+    form.value.vlessFlow = ''
+  } else if (form.value.protocol === 'vless' && !form.value.vlessFlow) {
+    form.value.vlessFlow = 'xtls-rprx-vision'
+  }
+}
+
+const onProtocolChange = () => {
+  if (form.value.protocol === 'vless' && form.value.network === 'tcp') {
+    form.value.vlessFlow = 'xtls-rprx-vision'
+  } else {
+    form.value.vlessFlow = ''
+  }
+}
+
 const fetchInbounds = async () => {
   try {
     inbounds.value = await api.get('/inbounds')
@@ -509,12 +552,12 @@ const openCreateModal = () => {
   isEditing.value = false
   form.value = {
     id: 0,
-    tag: `vless-${form.value.network || 'xhttp'}`,
+    tag: `vless-tcp`,
     listen: '0.0.0.0',
     port: 443,
     protocol: 'vless',
     vlessFlow: 'xtls-rprx-vision',
-    network: 'xhttp',
+    network: 'tcp',
     security: 'reality',
     xhttpPath: '/' + Math.random().toString(36).substring(2, 12),
     xhttpMode: 'auto',

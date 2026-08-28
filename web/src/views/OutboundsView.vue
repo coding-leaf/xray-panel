@@ -4,7 +4,7 @@
     <div class="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
       <div>
         <h1 class="text-2xl font-extrabold text-white tracking-tight">出站代理管理 (Outbounds)</h1>
-        <p class="text-xs text-gray-400 mt-0.5">配置直连、黑洞拦截、Cloudflare WARP (WireGuard) 与链式上游代理</p>
+        <p class="text-xs text-gray-400 mt-0.5">配置直连、黑洞拦截、Cloudflare WARP (WireGuard) 与链式上游代理（遵循官方传输矩阵）</p>
       </div>
       <button
         @click="openCreateModal"
@@ -69,7 +69,7 @@
 
     <!-- Outbound Edit / Create Modal -->
     <div v-if="showModal" class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/75 backdrop-blur-sm overflow-y-auto">
-      <div class="glass-panel w-full max-w-xl p-6 sm:p-8 rounded-3xl border border-gray-800 shadow-2xl space-y-5 my-8">
+      <div class="glass-panel w-full max-w-xl p-6 sm:p-8 rounded-3xl border border-gray-800 shadow-2xl space-y-5 my-8 max-h-[90vh] overflow-y-auto">
         <div class="flex items-center justify-between pb-2 border-b border-gray-800">
           <div>
             <h2 class="text-lg font-bold text-white">{{ isEditing ? '编辑出站节点' : '添加新出站节点' }}</h2>
@@ -100,10 +100,12 @@
               <option value="freedom">Freedom (直连访问)</option>
               <option value="blackhole">Blackhole (黑洞丢弃/拦截)</option>
               <option value="wireguard">WireGuard (Cloudflare WARP 出站)</option>
+              <option value="vless">VLESS (上游链式代理)</option>
+              <option value="vmess">VMess (上游链式代理)</option>
+              <option value="trojan">Trojan (上游链式代理)</option>
+              <option value="shadowsocks">Shadowsocks (上游链式代理)</option>
               <option value="socks">Socks 代理出站</option>
               <option value="http">HTTP 代理出站</option>
-              <option value="shadowsocks">Shadowsocks 出站</option>
-              <option value="trojan">Trojan 出站</option>
             </select>
           </div>
 
@@ -114,10 +116,10 @@
               <label class="block text-gray-400 mb-1">域名解析策略 (domainStrategy)</label>
               <select
                 v-model="form.freedomDomainStrategy"
-                class="w-full bg-gray-900 border border-gray-700 rounded-xl px-3 py-2 text-white focus:outline-none focus:border-brand-500"
+                class="w-full bg-gray-900 border border-gray-700 rounded-xl px-3 py-2 text-white focus:outline-none focus:border-brand-500 font-mono"
               >
                 <option value="UseIP">UseIP</option>
-                <option value="UseIPv4">UseIPv4 (强制IPv4)</option>
+                <option value="UseIPv4">UseIPv4 (强制IPv4 - 推荐)</option>
                 <option value="UseIPv6">UseIPv6 (强制IPv6)</option>
                 <option value="AsIs">AsIs (保持原样)</option>
               </select>
@@ -131,7 +133,7 @@
               <label class="block text-gray-400 mb-1">响应类型 (Response Type)</label>
               <select
                 v-model="form.blackholeResponse"
-                class="w-full bg-gray-900 border border-gray-700 rounded-xl px-3 py-2 text-white focus:outline-none focus:border-brand-500"
+                class="w-full bg-gray-900 border border-gray-700 rounded-xl px-3 py-2 text-white focus:outline-none focus:border-brand-500 font-mono"
               >
                 <option value="none">none (直接静默丢弃)</option>
                 <option value="http">http (返回 HTTP 403 阻断页面)</option>
@@ -185,16 +187,16 @@
             </div>
           </div>
 
-          <!-- Proxy outbounds (Socks / HTTP) -->
+          <!-- Proxy outbounds (VLESS / VMess / Trojan / Shadowsocks / Socks / HTTP) -->
           <div v-else class="space-y-3 bg-gray-900/50 p-4 rounded-2xl border border-gray-800">
-            <h3 class="font-bold text-indigo-400 text-xs">代理服务器连接信息</h3>
+            <h3 class="font-bold text-indigo-400 text-xs">上游代理服务器连接信息</h3>
             <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div>
-                <label class="block text-gray-400 mb-1">服务器地址 (Host)</label>
+                <label class="block text-gray-400 mb-1">服务器地址 (Host/Address)</label>
                 <input
                   v-model="form.proxyHost"
                   type="text"
-                  placeholder="127.0.0.1 或 proxy.com"
+                  placeholder="127.0.0.1 或 proxy.example.com"
                   class="w-full bg-gray-900 border border-gray-700 rounded-xl px-3 py-2 text-white font-mono focus:outline-none focus:border-brand-500"
                 />
               </div>
@@ -203,9 +205,48 @@
                 <input
                   v-model.number="form.proxyPort"
                   type="number"
-                  placeholder="1080"
+                  placeholder="443"
                   class="w-full bg-gray-900 border border-gray-700 rounded-xl px-3 py-2 text-white font-mono focus:outline-none focus:border-brand-500"
                 />
+              </div>
+            </div>
+
+            <div v-if="['vless', 'vmess', 'trojan'].includes(form.protocol)">
+              <label class="block text-gray-400 mb-1">UUID / 密码 (Password)</label>
+              <input
+                v-model="form.proxyPassword"
+                type="text"
+                placeholder="UUID 或密码"
+                class="w-full bg-gray-900 border border-gray-700 rounded-xl px-3 py-2 text-white font-mono text-[11px] focus:outline-none focus:border-brand-500"
+              />
+            </div>
+
+            <!-- 传输层与安全层联动 -->
+            <div v-if="['vless', 'vmess', 'trojan', 'shadowsocks'].includes(form.protocol)" class="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2 border-t border-gray-800">
+              <div>
+                <label class="block text-gray-400 mb-1">传输协议 (Network)</label>
+                <select
+                  v-model="form.streamNetwork"
+                  @change="onOutboundNetworkChange"
+                  class="w-full bg-gray-900 border border-gray-700 rounded-xl px-3 py-2 text-white focus:outline-none focus:border-brand-500 font-mono"
+                >
+                  <option value="tcp">TCP</option>
+                  <option value="xhttp">XHTTP</option>
+                  <option value="grpc">gRPC</option>
+                  <option value="ws">WebSocket</option>
+                  <option value="httpupgrade">HTTPUpgrade</option>
+                </select>
+              </div>
+              <div>
+                <label class="block text-gray-400 mb-1">安全协议 (Security)</label>
+                <select
+                  v-model="form.streamSecurity"
+                  class="w-full bg-gray-900 border border-gray-700 rounded-xl px-3 py-2 text-white focus:outline-none focus:border-brand-500 font-mono"
+                >
+                  <option v-if="['tcp', 'xhttp', 'grpc'].includes(form.streamNetwork)" value="reality">REALITY</option>
+                  <option value="tls">TLS</option>
+                  <option value="none">None</option>
+                </select>
               </div>
             </div>
           </div>
@@ -253,8 +294,17 @@ const form = ref<any>({
   wgEndpoint: '162.159.192.1:2408',
   wgAddress: '172.16.0.2/32',
   proxyHost: '',
-  proxyPort: 1080,
+  proxyPort: 443,
+  proxyPassword: '',
+  streamNetwork: 'tcp',
+  streamSecurity: 'tls',
 })
+
+const onOutboundNetworkChange = () => {
+  if (!['tcp', 'xhttp', 'grpc'].includes(form.value.streamNetwork) && form.value.streamSecurity === 'reality') {
+    form.value.streamSecurity = 'tls'
+  }
+}
 
 const fetchOutbounds = async () => {
   try {
@@ -276,7 +326,10 @@ const openCreateModal = () => {
     wgEndpoint: '162.159.192.1:2408',
     wgAddress: '172.16.0.2/32',
     proxyHost: '',
-    proxyPort: 1080,
+    proxyPort: 443,
+    proxyPassword: '',
+    streamNetwork: 'tcp',
+    streamSecurity: 'tls',
   }
   showModal.value = true
 }
@@ -291,6 +344,13 @@ const editOutbound = (ob: any) => {
     s = JSON.parse(ob.settingsJson || '{}')
   } catch (e) {}
 
+  let str: any = {}
+  try {
+    str = JSON.parse(ob.streamSettings || '{}')
+  } catch (e) {}
+
+  form.value.streamNetwork = str.network || 'tcp'
+  form.value.streamSecurity = str.security || 'none'
   form.value.freedomDomainStrategy = s.domainStrategy || 'UseIPv4'
   form.value.blackholeResponse = s.response?.type || 'none'
 
@@ -300,6 +360,18 @@ const editOutbound = (ob: any) => {
     if (s.peers?.length > 0) {
       form.value.wgEndpoint = s.peers[0].endpoint || ''
       form.value.wgPeerPublicKey = s.peers[0].publicKey || ''
+    }
+  } else if (['vless', 'vmess', 'trojan'].includes(ob.protocol)) {
+    if (s.vnext?.length > 0) {
+      form.value.proxyHost = s.vnext[0].address || ''
+      form.value.proxyPort = s.vnext[0].port || 443
+      if (s.vnext[0].users?.length > 0) {
+        form.value.proxyPassword = s.vnext[0].users[0].id || s.vnext[0].users[0].password || ''
+      }
+    } else if (s.servers?.length > 0) {
+      form.value.proxyHost = s.servers[0].address || ''
+      form.value.proxyPort = s.servers[0].port || 443
+      form.value.proxyPassword = s.servers[0].password || ''
     }
   }
 
@@ -330,7 +402,32 @@ const buildSettingsJSON = () => {
         },
       ],
     })
-  } else if (form.value.protocol === 'socks' || form.value.protocol === 'http') {
+  } else if (['vless', 'vmess'].includes(form.value.protocol)) {
+    return JSON.stringify({
+      vnext: [
+        {
+          address: form.value.proxyHost,
+          port: form.value.proxyPort,
+          users: [
+            {
+              id: form.value.proxyPassword,
+              encryption: 'none',
+            },
+          ],
+        },
+      ],
+    })
+  } else if (form.value.protocol === 'trojan') {
+    return JSON.stringify({
+      servers: [
+        {
+          address: form.value.proxyHost,
+          port: form.value.proxyPort,
+          password: form.value.proxyPassword,
+        },
+      ],
+    })
+  } else if (['socks', 'http'].includes(form.value.protocol)) {
     return JSON.stringify({
       servers: [
         {
@@ -343,6 +440,16 @@ const buildSettingsJSON = () => {
   return '{}'
 }
 
+const buildStreamSettingsJSON = () => {
+  if (['freedom', 'blackhole', 'wireguard'].includes(form.value.protocol)) {
+    return ''
+  }
+  return JSON.stringify({
+    network: form.value.streamNetwork,
+    security: form.value.streamSecurity,
+  })
+}
+
 const saveOutbound = async () => {
   saving.value = true
   try {
@@ -350,6 +457,7 @@ const saveOutbound = async () => {
       tag: form.value.tag,
       protocol: form.value.protocol,
       settingsJson: buildSettingsJSON(),
+      streamSettings: buildStreamSettingsJSON(),
     }
     await api.post('/outbounds', payload)
     showModal.value = false
@@ -404,6 +512,7 @@ const formatSettingsSummary = (ob: any) => {
     if (s.domainStrategy) return `解析策略: ${s.domainStrategy}`
     if (s.peers?.length > 0) return `WARP Endpoint: ${s.peers[0].endpoint}`
     if (s.response?.type) return `拦截类型: ${s.response.type}`
+    if (s.vnext?.length > 0) return `上游代理: ${s.vnext[0].address}:${s.vnext[0].port}`
     if (s.servers?.length > 0) return `代理服务器: ${s.servers[0].address}:${s.servers[0].port}`
     return JSON.stringify(s)
   } catch (e) {

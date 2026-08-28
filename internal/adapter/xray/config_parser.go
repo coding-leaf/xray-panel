@@ -167,16 +167,29 @@ func (c *ConfigManager) GetCertificatePaths() []string {
 	return paths
 }
 
+func cleanHost(raw string) string {
+	raw = strings.TrimSpace(raw)
+	if strings.HasPrefix(raw, "http://") || strings.HasPrefix(raw, "https://") {
+		if u, err := url.Parse(raw); err == nil {
+			return u.Hostname()
+		}
+	}
+	if strings.Contains(raw, ":") && !strings.Contains(raw, "]") {
+		return strings.Split(raw, ":")[0]
+	}
+	return raw
+}
+
 // BuildShareLink 生成标准 Xray 分享链接 (vless://, vmess://, trojan://)
 func BuildShareLink(inbound *domain.Inbound, user *domain.User, hostDomain string, defaultPort int) string {
-	targetHost := hostDomain
-	if inbound.ExternalHost != "" {
-		targetHost = inbound.ExternalHost
+	targetHost := cleanHost(inbound.ExternalHost)
+	if targetHost == "" {
+		targetHost = cleanHost(hostDomain)
 	}
 	if targetHost == "" {
 		targetHost = inbound.Listen
 		if targetHost == "0.0.0.0" || targetHost == "127.0.0.1" || targetHost == "" {
-			targetHost = "example.com"
+			targetHost = "yezineko.top"
 		}
 	}
 

@@ -444,7 +444,7 @@ const updateGeoData = async () => {
   if (!confirm('确定在线更新 GeoIP / GeoSite 规则库吗？更新完成后将自动重载 Xray 核心。')) return
   updatingGeo.value = true
   try {
-    await api.post('/geodata/update')
+    await api.post('/geodata/update', null, { timeout: 180000 })
     toast.success('GeoData 规则库更新成功！')
     await fetchGeoStatus()
   } catch (err: any) {

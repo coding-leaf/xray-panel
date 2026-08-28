@@ -24,7 +24,7 @@ func NewSubService(userRepo domain.UserRepository, inboundRepo domain.InboundRep
 	}
 }
 
-func (s *SubService) GetSubscriptionByToken(ctx context.Context, token string, tagFilter string) (*domain.SubscriptionPayload, error) {
+func (s *SubService) GetSubscriptionByToken(ctx context.Context, token string, tagFilter string, reqHost string) (*domain.SubscriptionPayload, error) {
 	if token == "" {
 		return nil, domain.ErrSubscriptionToken
 	}
@@ -54,6 +54,13 @@ func (s *SubService) GetSubscriptionByToken(ctx context.Context, token string, t
 	}
 
 	hostDomain, _ := s.settingRepo.Get(ctx, "sub_domain")
+	if hostDomain == "" {
+		hostDomain, _ = s.settingRepo.Get(ctx, "public_url")
+	}
+	if hostDomain == "" && reqHost != "" {
+		hostDomain = reqHost
+	}
+
 	defaultPortStr, _ := s.settingRepo.Get(ctx, "public_port")
 	defaultPort := 443
 	if defaultPortStr != "" {

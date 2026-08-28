@@ -44,6 +44,9 @@ func (h *SubHandler) GetSubscription(c *gin.Context) {
 	c.Header("Subscription-Userinfo", fmt.Sprintf("upload=%d; download=%d; total=%d; expire=%d", payload.UpBytes, payload.DownBytes, payload.TotalBytes, expireSec))
 	c.Header("Content-Type", "text/plain; charset=utf-8")
 	c.Header("Profile-Update-Interval", "24")
+	c.Header("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0")
+	c.Header("Pragma", "no-cache")
+	c.Header("Expires", "0")
 
 	// 返回 Base64 编码的标准节点订阅
 	c.String(http.StatusOK, payload.Base64Data)

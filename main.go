@@ -71,7 +71,7 @@ func main() {
 
 	// 4. 初始化业务用例深模块 Services
 	configSvc := service.NewConfigService(configMgr, supervisor, inboundRepo, userRepo, snapshotRepo)
-	_ = configSvc.ImportFromFileIfEmpty(bgCtx)
+	_ = configSvc.SyncFromFile(bgCtx)
 
 	userSvc := service.NewUserService(userRepo, inboundRepo, trafficLogRepo, xrayManager, configSvc)
 	subSvc := service.NewSubService(userRepo, inboundRepo, settingRepo)

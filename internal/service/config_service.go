@@ -90,11 +90,7 @@ func (s *ConfigService) SaveAndApplyRawConfig(ctx context.Context, rawJSON []byt
 	return s.supervisor.Reload(ctx)
 }
 
-func (s *ConfigService) ImportFromFileIfEmpty(ctx context.Context) error {
-	inbs, err := s.inboundRepo.ListAll(ctx)
-	if err == nil && len(inbs) > 0 {
-		return nil
-	}
+func (s *ConfigService) SyncFromFile(ctx context.Context) error {
 	raw, err := s.configMgr.ReadRawConfig()
 	if err != nil || len(raw) == 0 {
 		return nil

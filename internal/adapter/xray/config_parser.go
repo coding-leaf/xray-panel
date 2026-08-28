@@ -28,6 +28,15 @@ func NewConfigManager(configPath, xrayBinPath string) *ConfigManager {
 	}
 }
 
+func (c *ConfigManager) UpdateConfig(configPath, xrayBinPath string) {
+	if configPath != "" {
+		c.configPath = configPath
+	}
+	if xrayBinPath != "" {
+		c.xrayBinPath = xrayBinPath
+	}
+}
+
 // ReadRawConfig 读取当前原始 JSON 配置
 func (c *ConfigManager) ReadRawConfig() ([]byte, error) {
 	if _, err := os.Stat(c.configPath); os.IsNotExist(err) {

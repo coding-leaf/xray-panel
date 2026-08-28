@@ -88,7 +88,7 @@ func main() {
 		Routing:   deliveryHTTP.NewRoutingHandler(configSvc),
 		Config:    deliveryHTTP.NewConfigHandler(configSvc),
 		Sub:       deliveryHTTP.NewSubHandler(subSvc),
-		Setting:   deliveryHTTP.NewSettingHandler(settingRepo, botAdapter),
+		Setting:   deliveryHTTP.NewSettingHandler(settingRepo, botAdapter, configMgr, supervisor),
 		Log:       deliveryHTTP.NewLogHandler(logSvc),
 		DNS:       deliveryHTTP.NewDNSHandler(configSvc),
 		GeoData:   deliveryHTTP.NewGeoDataHandler(geoSvc),

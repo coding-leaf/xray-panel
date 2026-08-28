@@ -27,6 +27,15 @@ func NewSystemdSupervisor(serviceName, xrayBinPath string) *SystemdSupervisor {
 	}
 }
 
+func (s *SystemdSupervisor) UpdateConfig(serviceName, binPath string) {
+	if serviceName != "" {
+		s.serviceName = serviceName
+	}
+	if binPath != "" {
+		s.xrayBinPath = binPath
+	}
+}
+
 func (s *SystemdSupervisor) GetStatus(ctx context.Context) (domain.ServiceStatus, error) {
 	if runtime.GOOS != "linux" {
 		return domain.ServiceStatus{

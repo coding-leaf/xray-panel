@@ -112,6 +112,7 @@ func SetupRouter(handlers *Handlers, jwtSecret string, staticFS fs.FS) *gin.Engi
 			// 系统设置
 			authGroup.GET("/settings", handlers.Setting.GetSettings)
 			authGroup.POST("/settings", handlers.Setting.SaveSettings)
+			authGroup.POST("/settings/test-telegram", handlers.Setting.TestTelegram)
 		}
 	}
 

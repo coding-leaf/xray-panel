@@ -3,8 +3,13 @@
     <!-- Header -->
     <div class="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
       <div>
-        <h1 class="text-2xl font-extrabold text-white tracking-tight">DNS 模块显式配置 (DNS)</h1>
-        <p class="text-xs text-gray-400 mt-0.5">配置 Xray 内置 DNS 解析器、DoH 安全域名查询、IPv4/IPv6 策略与静态 Hosts 重定向</p>
+        <div class="flex items-center gap-2.5">
+          <h1 class="text-2xl font-extrabold text-white tracking-tight">DNS 模块显式配置 (DNS)</h1>
+          <span class="px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-amber-500/15 text-amber-400 border border-amber-500/30 flex items-center gap-1">
+            <span>🟠 修改配置自动重启核心 (初始化上游 DNS 池)</span>
+          </span>
+        </div>
+        <p class="text-xs text-gray-400 mt-0.5">配置 Xray 内置 DNS 解析器、DoH 安全域名查询与静态 Hosts，保存后自动落盘并重启核心生效</p>
       </div>
 
       <button

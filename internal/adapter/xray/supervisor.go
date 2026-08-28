@@ -68,17 +68,7 @@ func (s *SystemdSupervisor) Restart(ctx context.Context) error {
 }
 
 func (s *SystemdSupervisor) Reload(ctx context.Context) error {
-	if runtime.GOOS != "linux" {
-		s.lastReload = time.Now()
-		return nil
-	}
-
-	cmd := exec.CommandContext(ctx, "systemctl", "reload-or-restart", s.serviceName)
-	if out, err := cmd.CombinedOutput(); err != nil {
-		return fmt.Errorf("systemctl reload failed: %s, %w", string(out), err)
-	}
-	s.lastReload = time.Now()
-	return nil
+	return s.Restart(ctx)
 }
 
 func (s *SystemdSupervisor) GetVersion(ctx context.Context) (string, error) {

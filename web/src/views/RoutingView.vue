@@ -3,8 +3,13 @@
     <!-- Header -->
     <div class="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
       <div>
-        <h1 class="text-2xl font-extrabold text-white tracking-tight">路由与分流策略 (Routing)</h1>
-        <p class="text-xs text-gray-400 mt-0.5">自上而下匹配分流规则，出站与入站标签实时动态解耦绑定，支持智能预设向导与严格落盘</p>
+        <div class="flex items-center gap-2.5">
+          <h1 class="text-2xl font-extrabold text-white tracking-tight">路由与分流策略 (Routing)</h1>
+          <span class="px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-amber-500/15 text-amber-400 border border-amber-500/30 flex items-center gap-1">
+            <span>🟠 修改规则自动重启核心 (加载新路由表)</span>
+          </span>
+        </div>
+        <p class="text-xs text-gray-400 mt-0.5">自上而下匹配分流规则，出站与入站标签动态绑定，Xray 官方不支持平滑重载，规则落盘后自动全量重启核心生效</p>
       </div>
 
       <div class="flex items-center gap-3">

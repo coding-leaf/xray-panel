@@ -97,6 +97,9 @@ func SetupRouter(handlers *Handlers, jwtSecret string, staticFS fs.FS) *gin.Engi
 			// 运行日志查看
 			authGroup.GET("/logs", handlers.Log.GetLogs)
 
+			// 系统服务控制
+			authGroup.POST("/service/restart", handlers.Config.RestartService)
+
 			// 系统设置
 			authGroup.GET("/settings", handlers.Setting.GetSettings)
 			authGroup.POST("/settings", handlers.Setting.SaveSettings)

@@ -600,3 +600,7 @@ func (s *ConfigService) SaveDNSConfig(ctx context.Context, cfg *domain.DNSConfig
 
 	return s.supervisor.Reload(ctx)
 }
+
+func (s *ConfigService) RestartService(ctx context.Context) error {
+	return s.supervisor.Restart(ctx)
+}

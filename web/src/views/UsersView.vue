@@ -2,8 +2,14 @@
   <div class="space-y-6">
     <div class="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
       <div>
-        <h1 class="text-2xl font-extrabold text-white tracking-tight">用户与订阅管理</h1>
-        <p class="text-xs text-gray-400 mt-0.5">动态热添加/删除 Xray 节点用户、独立 Token 订阅分发与流量限额管理</p>
+        <div class="flex items-center gap-2.5">
+          <h1 class="text-2xl font-extrabold text-white tracking-tight">用户与订阅管理</h1>
+          <span class="px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 flex items-center gap-1">
+            <span class="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
+            <span>gRPC 毫秒内存热生效 (零断网 / 免重启)</span>
+          </span>
+        </div>
+        <p class="text-xs text-gray-400 mt-0.5">增删用户与流量重置通过 Xray gRPC 实时热注入内存生效，旧连接不中断，同时自动持久化回写 config.json</p>
       </div>
       <button
         @click="openAddModal"

@@ -3,8 +3,13 @@
     <!-- Header -->
     <div class="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
       <div>
-        <h1 class="text-2xl font-extrabold text-white tracking-tight">入站节点管理 (Inbounds)</h1>
-        <p class="text-xs text-gray-400 mt-0.5">全可视化分层配置 Xray 入站代理节点，严格遵循官方传输组合兼容矩阵与安全校验</p>
+        <div class="flex items-center gap-2.5">
+          <h1 class="text-2xl font-extrabold text-white tracking-tight">入站节点管理 (Inbounds)</h1>
+          <span class="px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-amber-500/15 text-amber-400 border border-amber-500/30 flex items-center gap-1">
+            <span>🟠 修改配置自动重启核心 (重新绑定系统端口)</span>
+          </span>
+        </div>
+        <p class="text-xs text-gray-400 mt-0.5">全可视化分层配置 Xray 入站代理节点，严格遵循官方传输组合兼容矩阵，保存后自动落盘并重启核心生效</p>
       </div>
       <button
         @click="openCreateModal"

@@ -261,12 +261,12 @@ const fetchData = async () => {
 }
 
 const restartXray = async () => {
-  if (!confirm('确认平滑重启 Xray 核心服务吗？')) return
+  if (!confirm('确认全量重启 Xray 核心进程吗？（重启耗时约 1 秒）')) return
   restarting.value = true
   try {
-    const raw: any = await api.get('/config/raw')
-    await api.post('/config/save', raw)
+    await api.post('/service/restart')
     await fetchData()
+    alert('Xray 核心已成功重启！')
   } catch (err: any) {
     alert('重启失败: ' + err)
   } finally {

@@ -3,8 +3,13 @@
     <!-- Header -->
     <div class="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
       <div>
-        <h1 class="text-2xl font-extrabold text-white tracking-tight">出站代理管理 (Outbounds)</h1>
-        <p class="text-xs text-gray-400 mt-0.5">配置直连、黑洞拦截、Cloudflare WARP (WireGuard) 与链式上游代理（遵循官方传输矩阵）</p>
+        <div class="flex items-center gap-2.5">
+          <h1 class="text-2xl font-extrabold text-white tracking-tight">出站代理管理 (Outbounds)</h1>
+          <span class="px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-amber-500/15 text-amber-400 border border-amber-500/30 flex items-center gap-1">
+            <span>🟠 修改配置自动重启核心 (初始化上游连接)</span>
+          </span>
+        </div>
+        <p class="text-xs text-gray-400 mt-0.5">配置直连、黑洞拦截、Cloudflare WARP (WireGuard) 与链式上游代理，保存后自动落盘并重启核心生效</p>
       </div>
       <button
         @click="openCreateModal"

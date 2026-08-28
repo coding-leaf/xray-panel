@@ -55,3 +55,11 @@ func (h *ConfigHandler) SaveAndApply(c *gin.Context) {
 
 	c.JSON(http.StatusOK, gin.H{"message": "configuration saved and xray reloaded successfully"})
 }
+
+func (h *ConfigHandler) RestartService(c *gin.Context) {
+	if err := h.configSvc.RestartService(c.Request.Context()); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"message": "Xray 核心已成功全量重启"})
+}

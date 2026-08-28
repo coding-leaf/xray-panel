@@ -4,7 +4,7 @@
     <div class="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
       <div>
         <h1 class="text-2xl font-extrabold text-white tracking-tight">路由与分流策略 (Routing)</h1>
-        <p class="text-xs text-gray-400 mt-0.5">自上而下匹配分流规则，支持 GeoIP/GeoSite、BT/广告一键拦截与 WARP 出站分流</p>
+        <p class="text-xs text-gray-400 mt-0.5">自上而下匹配分流规则，出站与入站标签实时动态解耦绑定，支持智能预设向导与严格落盘</p>
       </div>
 
       <div class="flex items-center gap-3">
@@ -47,45 +47,49 @@
         </p>
       </div>
 
-      <!-- Presets quick buttons -->
+      <!-- Presets quick buttons (Interactive Wizard) -->
       <div class="glass-panel p-5 rounded-2xl border border-gray-800/80 lg:col-span-2 space-y-3">
-        <span class="text-xs font-bold text-gray-300 uppercase tracking-wider block">
-          ⚡ 快捷预设分流规则注入
-        </span>
+        <div class="flex items-center justify-between">
+          <span class="text-xs font-bold text-gray-300 uppercase tracking-wider block">
+            ⚡ 智能预设分流向导 (动态探测可用出站)
+          </span>
+          <span class="text-[11px] text-gray-500 font-mono">点击唤起配置向导</span>
+        </div>
+
         <div class="flex flex-wrap gap-2">
           <button
-            @click="addPresetRule('ads')"
+            @click="openPresetWizard('ads')"
             class="px-3 py-1.5 rounded-xl bg-gray-900/80 hover:bg-rose-500/10 border border-gray-700 hover:border-rose-500/40 text-xs text-gray-300 hover:text-rose-300 transition-all flex items-center gap-1.5"
           >
             <span>🛡️ 拦截广告 (geosite:category-ads-all)</span>
           </button>
 
           <button
-            @click="addPresetRule('private_ip')"
+            @click="openPresetWizard('private_ip')"
             class="px-3 py-1.5 rounded-xl bg-gray-900/80 hover:bg-rose-500/10 border border-gray-700 hover:border-rose-500/40 text-xs text-gray-300 hover:text-rose-300 transition-all flex items-center gap-1.5"
           >
             <span>🔒 屏蔽私有局域网 (geoip:private)</span>
           </button>
 
           <button
-            @click="addPresetRule('bt')"
+            @click="openPresetWizard('bt')"
             class="px-3 py-1.5 rounded-xl bg-gray-900/80 hover:bg-rose-500/10 border border-gray-700 hover:border-rose-500/40 text-xs text-gray-300 hover:text-rose-300 transition-all flex items-center gap-1.5"
           >
             <span>🚫 拦截 BT 下载 (bittorrent)</span>
           </button>
 
           <button
-            @click="addPresetRule('smtp')"
+            @click="openPresetWizard('smtp')"
             class="px-3 py-1.5 rounded-xl bg-gray-900/80 hover:bg-rose-500/10 border border-gray-700 hover:border-rose-500/40 text-xs text-gray-300 hover:text-rose-300 transition-all flex items-center gap-1.5"
           >
             <span>📧 封禁邮件 25 端口 (port: 25)</span>
           </button>
 
           <button
-            @click="addPresetRule('cn_warp')"
+            @click="openPresetWizard('cn')"
             class="px-3 py-1.5 rounded-xl bg-gray-900/80 hover:bg-cyan-500/10 border border-gray-700 hover:border-cyan-500/40 text-xs text-gray-300 hover:text-cyan-300 transition-all flex items-center gap-1.5"
           >
-            <span>⚡ 国内域名与 IP 走 WARP</span>
+            <span>⚡ 国内流量分流 (geosite:cn / geoip:cn)</span>
           </button>
         </div>
       </div>
@@ -117,6 +121,9 @@
                 </span>
                 <span v-if="rule.inboundTag?.length" class="text-gray-500 font-mono text-[11px]">
                   (来源入站: {{ rule.inboundTag.join(', ') }})
+                </span>
+                <span v-if="!isKnownOutbound(rule.outboundTag)" class="text-amber-400 text-[10px] font-semibold" title="系统中未配置该出站标签">
+                  ⚠️ 未知出站
                 </span>
               </div>
 
@@ -178,36 +185,61 @@
       </div>
     </div>
 
-    <!-- Rule Edit Modal -->
+    <!-- Rule Edit Modal (Fully Decoupled Dropdowns) -->
     <div v-if="showModal" class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/75 backdrop-blur-sm overflow-y-auto">
       <div class="glass-panel w-full max-w-xl p-6 sm:p-8 rounded-3xl border border-gray-800 shadow-2xl space-y-5 my-8">
         <div class="flex items-center justify-between pb-2 border-b border-gray-800">
           <div>
             <h2 class="text-lg font-bold text-white">{{ isEditingRule ? '编辑分流规则' : '添加分流规则' }}</h2>
-            <p class="text-xs text-gray-400 mt-0.5">配置规则匹配条件与命中时的目标 Outbound</p>
+            <p class="text-xs text-gray-400 mt-0.5">从已有的入站与出站标签中动态选择绑定</p>
           </div>
           <button @click="showModal = false" class="text-gray-400 hover:text-white text-lg">✕</button>
         </div>
 
         <form @submit.prevent="saveRuleInModal" class="space-y-4 text-xs">
           <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <!-- 动态 OutboundTag 下拉选择 -->
             <div>
-              <label class="block text-gray-300 mb-1 font-medium">目标出站标识 (OutboundTag)</label>
-              <input
-                v-model="ruleForm.outboundTag"
-                type="text"
-                required
-                placeholder="direct / block / warp-out"
-                class="w-full bg-gray-900 border border-gray-700 rounded-xl px-3 py-2 text-white font-mono focus:outline-none focus:border-brand-500"
-              />
+              <label class="block text-gray-300 mb-1 font-medium">目标出站 (OutboundTag)</label>
+              <div class="space-y-1.5">
+                <select
+                  v-model="ruleForm.outboundTag"
+                  class="w-full bg-gray-900 border border-gray-700 rounded-xl px-3 py-2 text-white font-mono focus:outline-none focus:border-brand-500"
+                >
+                  <option v-for="tag in availableOutboundTags" :key="tag" :value="tag">
+                    {{ tag }}
+                  </option>
+                  <option value="__custom__">+ 手动输入自定义 Tag</option>
+                </select>
+
+                <input
+                  v-if="ruleForm.outboundTag === '__custom__' || !availableOutboundTags.includes(ruleForm.outboundTag)"
+                  v-model="ruleForm.customOutboundTag"
+                  type="text"
+                  placeholder="输入自定义 OutboundTag"
+                  class="w-full bg-gray-900 border border-gray-700 rounded-xl px-3 py-1.5 text-white font-mono text-[11px] focus:outline-none focus:border-brand-500"
+                />
+              </div>
             </div>
+
+            <!-- 动态 InboundTag 匹配选择 -->
             <div>
-              <label class="block text-gray-300 mb-1 font-medium">来源入站标识 (InboundTag 可选)</label>
+              <label class="block text-gray-300 mb-1 font-medium">来源入站 (InboundTag 可选)</label>
+              <select
+                v-model="ruleForm.selectedInboundTag"
+                @change="onSelectInboundTag"
+                class="w-full bg-gray-900 border border-gray-700 rounded-xl px-3 py-2 text-white font-mono focus:outline-none focus:border-brand-500"
+              >
+                <option value="">全部入站 (默认不限制)</option>
+                <option v-for="tag in availableInboundTags" :key="tag" :value="tag">
+                  {{ tag }}
+                </option>
+              </select>
               <input
                 v-model="ruleForm.inboundTagsStr"
                 type="text"
-                placeholder="api 或留空匹配全部入站"
-                class="w-full bg-gray-900 border border-gray-700 rounded-xl px-3 py-2 text-white font-mono focus:outline-none focus:border-brand-500"
+                placeholder="或用逗号隔开多个入站Tag (如 api, vless-reality)"
+                class="w-full bg-gray-900 border border-gray-700 rounded-xl px-3 py-1.5 mt-1.5 text-white font-mono text-[11px] focus:outline-none focus:border-brand-500"
               />
             </div>
           </div>
@@ -284,11 +316,66 @@
         </form>
       </div>
     </div>
+
+    <!-- Smart Preset Wizard Modal -->
+    <div v-if="showPresetModal" class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/75 backdrop-blur-sm">
+      <div class="glass-panel w-full max-w-md p-6 sm:p-7 rounded-3xl border border-gray-800 shadow-2xl space-y-5">
+        <div class="flex items-center justify-between pb-2 border-b border-gray-800">
+          <div>
+            <h2 class="text-base font-bold text-white">{{ presetData.title }}</h2>
+            <p class="text-xs text-gray-400 mt-0.5">{{ presetData.description }}</p>
+          </div>
+          <button @click="showPresetModal = false" class="text-gray-400 hover:text-white text-lg">✕</button>
+        </div>
+
+        <div class="space-y-3 text-xs">
+          <div>
+            <label class="block text-gray-300 mb-1 font-medium">选择目标出站 (OutboundTag)</label>
+            <select
+              v-model="presetData.selectedOutbound"
+              class="w-full bg-gray-900 border border-gray-700 rounded-xl px-3 py-2 text-white font-mono focus:outline-none focus:border-brand-500"
+            >
+              <option v-for="tag in availableOutboundTags" :key="tag" :value="tag">
+                {{ tag }}
+              </option>
+            </select>
+          </div>
+
+          <div v-if="!availableOutboundTags.includes(presetData.selectedOutbound)" class="p-2.5 rounded-xl bg-amber-500/10 border border-amber-500/20 text-amber-300 text-[11px]">
+            ⚠️ 当前系统中未检测到 <code>{{ presetData.selectedOutbound }}</code> 出站，请选择现有出站或先在「出站代理」页面创建。
+          </div>
+
+          <div class="p-3 rounded-xl bg-gray-900 border border-gray-800 space-y-1 font-mono text-[11px] text-gray-400">
+            <span class="block text-gray-300 font-bold">即将注入的匹配条件:</span>
+            <div v-for="(rule, i) in presetData.rules" :key="i">
+              - {{ formatRuleSummary(rule) }}
+            </div>
+          </div>
+        </div>
+
+        <div class="flex justify-end gap-3 pt-2 border-t border-gray-800">
+          <button
+            type="button"
+            @click="showPresetModal = false"
+            class="px-4 py-2 rounded-xl bg-gray-800 hover:bg-gray-700 text-gray-300 text-xs transition-colors"
+          >
+            取消
+          </button>
+          <button
+            type="button"
+            @click="confirmInjectPreset"
+            class="px-5 py-2 bg-gradient-to-r from-brand-600 to-indigo-600 hover:from-brand-500 hover:to-indigo-500 text-white font-bold text-xs rounded-xl transition-all shadow-lg shadow-brand-500/25"
+          >
+            确认注入规则
+          </button>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, computed } from 'vue'
 import { Plus, Check, ArrowUp, ArrowDown, Edit3, Trash2 } from 'lucide-vue-next'
 import api from '../api'
 
@@ -297,13 +384,28 @@ const routingConfig = ref<any>({
   rules: [],
 })
 
+const inboundsList = ref<any[]>([])
+const outboundsList = ref<any[]>([])
+
 const showModal = ref(false)
 const isEditingRule = ref(false)
 const editingIndex = ref(-1)
 const saving = ref(false)
 
+// Preset Wizard State
+const showPresetModal = ref(false)
+const presetData = ref<any>({
+  type: '',
+  title: '',
+  description: '',
+  selectedOutbound: 'block',
+  rules: [],
+})
+
 const ruleForm = ref<any>({
   outboundTag: 'direct',
+  customOutboundTag: '',
+  selectedInboundTag: '',
   inboundTagsStr: '',
   domainStr: '',
   ipStr: '',
@@ -312,20 +414,44 @@ const ruleForm = ref<any>({
   protocolStr: '',
 })
 
-const fetchRouting = async () => {
+const availableOutboundTags = computed(() => {
+  const tags = outboundsList.value.map((o) => o.tag).filter((t) => t)
+  if (!tags.includes('direct')) tags.unshift('direct')
+  if (!tags.includes('block')) tags.push('block')
+  return tags
+})
+
+const availableInboundTags = computed(() => {
+  return inboundsList.value.map((i) => i.tag).filter((t) => t)
+})
+
+const fetchAllDependencies = async () => {
   try {
-    const res: any = await api.get('/routing')
-    routingConfig.value = res || { domainStrategy: 'IPIfNonMatch', rules: [] }
+    const [routeRes, inbRes, outRes]: any = await Promise.all([
+      api.get('/routing'),
+      api.get('/inbounds'),
+      api.get('/outbounds'),
+    ])
+    routingConfig.value = routeRes || { domainStrategy: 'IPIfNonMatch', rules: [] }
+    inboundsList.value = inbRes || []
+    outboundsList.value = outRes || []
   } catch (err) {
     console.error(err)
   }
 }
 
+const isKnownOutbound = (tag: string) => {
+  return availableOutboundTags.value.includes(tag) || tag === 'api'
+}
+
 const openAddRuleModal = () => {
   isEditingRule.value = false
   editingIndex.value = -1
+  const defaultOutbound = availableOutboundTags.value.includes('block') ? 'block' : (availableOutboundTags.value[0] || 'direct')
   ruleForm.value = {
-    outboundTag: 'block',
+    outboundTag: defaultOutbound,
+    customOutboundTag: '',
+    selectedInboundTag: '',
     inboundTagsStr: '',
     domainStr: '',
     ipStr: '',
@@ -336,12 +462,26 @@ const openAddRuleModal = () => {
   showModal.value = true
 }
 
+const onSelectInboundTag = () => {
+  if (ruleForm.value.selectedInboundTag) {
+    const current = parseArray(ruleForm.value.inboundTagsStr) || []
+    if (!current.includes(ruleForm.value.selectedInboundTag)) {
+      current.push(ruleForm.value.selectedInboundTag)
+      ruleForm.value.inboundTagsStr = current.join(', ')
+    }
+  }
+}
+
 const editRule = (idx: number) => {
   isEditingRule.value = true
   editingIndex.value = idx
   const r = routingConfig.value.rules[idx]
+  const isCustom = !availableOutboundTags.value.includes(r.outboundTag)
+
   ruleForm.value = {
-    outboundTag: r.outboundTag,
+    outboundTag: isCustom ? '__custom__' : r.outboundTag,
+    customOutboundTag: isCustom ? r.outboundTag : '',
+    selectedInboundTag: '',
     inboundTagsStr: (r.inboundTag || []).join(', '),
     domainStr: (r.domain || []).join(',\n'),
     ipStr: (r.ip || []).join(',\n'),
@@ -362,8 +502,13 @@ const parseArray = (str: string) => {
 }
 
 const saveRuleInModal = () => {
+  let targetOutbound = ruleForm.value.outboundTag
+  if (targetOutbound === '__custom__') {
+    targetOutbound = ruleForm.value.customOutboundTag.trim() || 'direct'
+  }
+
   const newRule: any = {
-    outboundTag: ruleForm.value.outboundTag,
+    outboundTag: targetOutbound,
   }
   const inbounds = parseArray(ruleForm.value.inboundTagsStr)
   if (inbounds) newRule.inboundTag = inbounds
@@ -400,38 +545,80 @@ const moveRule = (idx: number, step: number) => {
   routingConfig.value.rules[target] = temp
 }
 
-const addPresetRule = (preset: string) => {
-  if (preset === 'ads') {
+// 智能预设向导 (Smart Preset Wizard)
+const openPresetWizard = (type: string) => {
+  let defOutbound = 'block'
+  if (type === 'cn') {
+    defOutbound = availableOutboundTags.value.includes('warp-out')
+      ? 'warp-out'
+      : (availableOutboundTags.value.includes('direct') ? 'direct' : availableOutboundTags.value[0] || 'direct')
+  } else {
+    defOutbound = availableOutboundTags.value.includes('block')
+      ? 'block'
+      : (availableOutboundTags.value[0] || 'block')
+  }
+
+  if (type === 'ads') {
+    presetData.value = {
+      type: 'ads',
+      title: '🛡️ 广告拦截预设向导',
+      description: '拦截常见广告联盟与追踪域名',
+      selectedOutbound: defOutbound,
+      rules: [{ domain: ['geosite:category-ads-all'] }],
+    }
+  } else if (type === 'private_ip') {
+    presetData.value = {
+      type: 'private_ip',
+      title: '🔒 局域网私有 IP 屏蔽向导',
+      description: '防止穿透访问服务器内网私有地址',
+      selectedOutbound: defOutbound,
+      rules: [{ ip: ['geoip:private'] }],
+    }
+  } else if (type === 'bt') {
+    presetData.value = {
+      type: 'bt',
+      title: '🚫 BT/BitTorrent 拦截向导',
+      description: '防止服务器遭遇版权版权投诉 (DMCA)',
+      selectedOutbound: defOutbound,
+      rules: [{ protocol: ['bittorrent'] }],
+    }
+  } else if (type === 'smtp') {
+    presetData.value = {
+      type: 'smtp',
+      title: '📧 邮件 25 端口封锁向导',
+      description: '防止滥用服务器发送垃圾邮件',
+      selectedOutbound: defOutbound,
+      rules: [{ port: '25', network: 'tcp' }],
+    }
+  } else if (type === 'cn') {
+    presetData.value = {
+      type: 'cn',
+      title: '⚡ 国内流量分流向导',
+      description: '将国内域名与 IP 路由至指定出站（如 WARP 或直连）',
+      selectedOutbound: defOutbound,
+      rules: [{ domain: ['geosite:cn'] }, { ip: ['geoip:cn'] }],
+    }
+  }
+
+  showPresetModal.value = true
+}
+
+const confirmInjectPreset = () => {
+  for (const r of presetData.value.rules) {
     routingConfig.value.rules.push({
-      outboundTag: 'block',
-      domain: ['geosite:category-ads-all'],
-    })
-  } else if (preset === 'private_ip') {
-    routingConfig.value.rules.push({
-      outboundTag: 'block',
-      ip: ['geoip:private'],
-    })
-  } else if (preset === 'bt') {
-    routingConfig.value.rules.push({
-      outboundTag: 'block',
-      protocol: ['bittorrent'],
-    })
-  } else if (preset === 'smtp') {
-    routingConfig.value.rules.push({
-      outboundTag: 'block',
-      port: '25',
-      network: 'tcp',
-    })
-  } else if (preset === 'cn_warp') {
-    routingConfig.value.rules.push({
-      outboundTag: 'warp-out',
-      domain: ['geosite:cn'],
-    })
-    routingConfig.value.rules.push({
-      outboundTag: 'warp-out',
-      ip: ['geoip:cn'],
+      ...r,
+      outboundTag: presetData.value.selectedOutbound,
     })
   }
+  showPresetModal.value = false
+}
+
+const formatRuleSummary = (rule: any) => {
+  if (rule.domain) return `域名: ${rule.domain.join(', ')}`
+  if (rule.ip) return `IP: ${rule.ip.join(', ')}`
+  if (rule.protocol) return `协议: ${rule.protocol.join(', ')}`
+  if (rule.port) return `端口: ${rule.port} (${rule.network || '全部'})`
+  return JSON.stringify(rule)
 }
 
 const saveAllRouting = async () => {
@@ -439,7 +626,7 @@ const saveAllRouting = async () => {
   try {
     await api.post('/routing', routingConfig.value)
     alert('路由分流配置已保存并平滑生效！')
-    await fetchRouting()
+    await fetchAllDependencies()
   } catch (err: any) {
     alert('保存失败: ' + err)
   } finally {
@@ -463,6 +650,6 @@ const outboundBadgeColor = (tag: string) => {
 }
 
 onMounted(() => {
-  fetchRouting()
+  fetchAllDependencies()
 })
 </script>

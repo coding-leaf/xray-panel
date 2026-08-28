@@ -47,11 +47,16 @@ func SetupRouter(handlers *Handlers, jwtSecret string, staticFS fs.FS) *gin.Engi
 		c.Next()
 	})
 
+	// 根路径公开订阅接口 (兼容 /sub/:token 与 /sub?token=...)
+	r.GET("/sub/:token", handlers.Sub.GetSubscription)
+	r.GET("/sub", handlers.Sub.GetSubscription)
+
 	api := r.Group("/api")
 	{
 		// 公开接口
 		api.POST("/auth/login", handlers.Auth.Login)
 		api.GET("/sub/:token", handlers.Sub.GetSubscription)
+		api.GET("/sub", handlers.Sub.GetSubscription)
 
 		// 管理受保护接口 (JWT 鉴权)
 		authGroup := api.Group("")
@@ -125,8 +130,8 @@ func SetupRouter(handlers *Handlers, jwtSecret string, staticFS fs.FS) *gin.Engi
 		fileServer := http.FileServer(http.FS(staticFS))
 		r.NoRoute(func(c *gin.Context) {
 			path := c.Request.URL.Path
-			if strings.HasPrefix(path, "/api") {
-				c.JSON(http.StatusNotFound, gin.H{"error": "API route not found"})
+			if strings.HasPrefix(path, "/api") || strings.HasPrefix(path, "/sub") {
+				c.JSON(http.StatusNotFound, gin.H{"error": "route not found"})
 				return
 			}
 

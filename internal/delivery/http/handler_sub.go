@@ -20,6 +20,9 @@ func NewSubHandler(subSvc *service.SubService) *SubHandler {
 func (h *SubHandler) GetSubscription(c *gin.Context) {
 	token := c.Param("token")
 	if token == "" {
+		token = c.Query("token")
+	}
+	if token == "" {
 		c.String(http.StatusBadRequest, "token is required")
 		return
 	}
@@ -32,10 +35,12 @@ func (h *SubHandler) GetSubscription(c *gin.Context) {
 		return
 	}
 
-	// 注入 Subscription-Userinfo 标准响应头
-	if payload.RemainingBytes >= 0 {
-		c.Header("Subscription-Userinfo", fmt.Sprintf("total=%d; expire=%d", payload.RemainingBytes, payload.ExpireTime/1000))
+	// 注入 Subscription-Userinfo 标准响应头: upload=X; download=Y; total=Z; expire=E
+	var expireSec int64 = 0
+	if payload.ExpireTime > 0 {
+		expireSec = payload.ExpireTime / 1000
 	}
+	c.Header("Subscription-Userinfo", fmt.Sprintf("upload=%d; download=%d; total=%d; expire=%d", payload.UpBytes, payload.DownBytes, payload.TotalBytes, expireSec))
 	c.Header("Content-Type", "text/plain; charset=utf-8")
 	c.Header("Profile-Update-Interval", "24")
 

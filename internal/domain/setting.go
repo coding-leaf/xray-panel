@@ -19,9 +19,12 @@ type AdminUser struct {
 }
 
 type SubscriptionPayload struct {
-	NodesRaw    string `json:"nodesRaw"` // Multi-line vless://... strings
-	Base64Data  string `json:"base64Data"`
-	UserEmail   string `json:"userEmail"`
-	RemainingBytes int64 `json:"remainingBytes"`
-	ExpireTime  int64  `json:"expireTime"`
+	NodesRaw       string `json:"nodesRaw"` // Multi-line vless://... strings
+	Base64Data     string `json:"base64Data"`
+	UserEmail      string `json:"userEmail"`
+	UpBytes        int64  `json:"upBytes"`
+	DownBytes      int64  `json:"downBytes"`
+	TotalBytes     int64  `json:"totalBytes"`
+	RemainingBytes int64  `json:"remainingBytes"`
+	ExpireTime     int64  `json:"expireTime"`
 }

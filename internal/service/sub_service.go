@@ -31,6 +31,12 @@ func (s *SubService) GetSubscriptionByToken(ctx context.Context, token string, t
 
 	user, err := s.userRepo.GetBySubToken(ctx, token)
 	if err != nil {
+		user, err = s.userRepo.GetByUUID(ctx, token)
+	}
+	if err != nil {
+		user, err = s.userRepo.GetByEmail(ctx, token)
+	}
+	if err != nil || user == nil {
 		return nil, domain.ErrSubscriptionToken
 	}
 
@@ -85,6 +91,9 @@ func (s *SubService) GetSubscriptionByToken(ctx context.Context, token string, t
 		NodesRaw:       rawText,
 		Base64Data:     base64Output,
 		UserEmail:      user.Email,
+		UpBytes:        user.UpBytes,
+		DownBytes:      user.DownBytes,
+		TotalBytes:     user.TotalBytes,
 		RemainingBytes: remainingBytes,
 		ExpireTime:     user.ExpireTime,
 	}, nil

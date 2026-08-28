@@ -8,6 +8,7 @@ import (
 )
 
 type Config struct {
+	ListenHost     string
 	ListenPort     string
 	XrayGRPCAddr   string
 	XrayConfigPath string
@@ -26,6 +27,7 @@ func Load() *Config {
 	defaultBin := detectDefaultXrayBin()
 	defaultConfig := detectDefaultXrayConfig()
 
+	flag.StringVar(&cfg.ListenHost, "host", getEnv("PANEL_HOST", "127.0.0.1"), "Panel listen host (default 127.0.0.1 for maximum security)")
 	flag.StringVar(&cfg.ListenPort, "port", getEnv("PANEL_PORT", "9000"), "Panel listen port")
 	flag.StringVar(&cfg.XrayGRPCAddr, "xray-grpc", getEnv("XRAY_GRPC_ADDR", "127.0.0.1:8080"), "Xray API gRPC listen address")
 	flag.StringVar(&cfg.XrayConfigPath, "xray-config", getEnv("XRAY_CONFIG_PATH", defaultConfig), "Path to xray config.json")

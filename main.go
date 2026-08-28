@@ -100,7 +100,7 @@ func main() {
 	router := deliveryHTTP.SetupRouter(handlers, cfg.JWTSecret, staticFS)
 
 	server := &http.Server{
-		Addr:    fmt.Sprintf(":%s", cfg.ListenPort),
+		Addr:    fmt.Sprintf("%s:%s", cfg.ListenHost, cfg.ListenPort),
 		Handler: router,
 	}
 

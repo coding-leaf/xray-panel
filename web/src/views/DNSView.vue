@@ -187,6 +187,7 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
 import { Globe, Server, Layers, Check, Plus, ArrowUp, ArrowDown, Trash2 } from 'lucide-vue-next'
+import { toast } from '../utils/toast'
 import api from '../api'
 
 const dnsConfig = ref<any>({
@@ -264,10 +265,10 @@ const saveDNS = async () => {
     dnsConfig.value.hosts = hostsMap
 
     await api.post('/dns', dnsConfig.value)
-    alert('DNS 模块配置已保存并平滑生效！')
+    toast.success('DNS 模块配置已保存并平滑生效！')
     await fetchDNS()
   } catch (err: any) {
-    alert('保存失败: ' + err)
+    toast.error('保存失败: ' + err)
   } finally {
     saving.value = false
   }

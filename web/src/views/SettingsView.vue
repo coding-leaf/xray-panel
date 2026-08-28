@@ -228,6 +228,7 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
 import { Send, Globe, Lock, Cpu, Save } from 'lucide-vue-next'
+import { toast } from '../utils/toast'
 import api from '../api'
 
 const settings = ref<any>({
@@ -238,6 +239,7 @@ const settings = ref<any>({
   xray_geodata_dir: '/usr/local/share/xray',
   public_url: 'http://127.0.0.1:9000',
   sub_domain: '',
+  public_port: 443,
   tg_bot_token: '',
   tg_admin_chat_id: '',
 })
@@ -266,10 +268,10 @@ const saveSystemSettings = async () => {
   saving.value = true
   try {
     await api.post('/settings', settings.value)
-    alert('系统与解耦设置已成功保存并即时生效！')
+    toast.success('系统与解耦设置已成功保存并即时生效！')
     await fetchSettings()
   } catch (err: any) {
-    alert('保存失败: ' + err)
+    toast.error('保存失败: ' + err)
   } finally {
     saving.value = false
   }
@@ -277,15 +279,15 @@ const saveSystemSettings = async () => {
 
 const testTelegram = async () => {
   if (!settings.value.tg_bot_token || !settings.value.tg_admin_chat_id) {
-    alert('请先填写 Bot Token 与 Admin Chat ID 并保存！')
+    toast.warning('请先填写 Bot Token 与 Admin Chat ID 并保存！')
     return
   }
   testingTG.value = true
   try {
     await api.post('/settings/test-telegram')
-    alert('测试消息已成功发送至 Telegram！请在客户端查看。')
+    toast.success('测试消息已成功发送至 Telegram！请在客户端查看。')
   } catch (err: any) {
-    alert('发送失败: ' + err)
+    toast.error('发送失败: ' + err)
   } finally {
     testingTG.value = false
   }
@@ -293,7 +295,7 @@ const testTelegram = async () => {
 
 const changePassword = async () => {
   if (newPassword.value.length < 6) {
-    alert('新密码长度不能少于 6 位')
+    toast.warning('新密码长度不能少于 6 位')
     return
   }
   changingPwd.value = true
@@ -302,11 +304,11 @@ const changePassword = async () => {
       oldPassword: oldPassword.value,
       newPassword: newPassword.value,
     })
-    alert('管理员密码修改成功，请牢记新密码！')
+    toast.success('管理员密码修改成功，请牢记新密码！')
     oldPassword.value = ''
     newPassword.value = ''
   } catch (err: any) {
-    alert('修改失败: ' + err)
+    toast.error('修改失败: ' + err)
   } finally {
     changingPwd.value = false
   }

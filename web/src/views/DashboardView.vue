@@ -242,6 +242,7 @@ import {
   Server,
   RefreshCw,
 } from 'lucide-vue-next'
+import { toast } from '../utils/toast'
 import api from '../api'
 
 const dashboard = ref<any>(null)
@@ -266,9 +267,9 @@ const restartXray = async () => {
   try {
     await api.post('/service/restart')
     await fetchData()
-    alert('Xray 核心已成功重启！')
+    toast.success('Xray 核心已成功重启！')
   } catch (err: any) {
-    alert('重启失败: ' + err)
+    toast.error('重启失败: ' + err)
   } finally {
     restarting.value = false
   }

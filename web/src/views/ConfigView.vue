@@ -107,6 +107,7 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
 import { CheckCircle2, AlertCircle, Save, History } from 'lucide-vue-next'
+import { toast } from '../utils/toast'
 import api from '../api'
 
 const rawContent = ref('')
@@ -123,7 +124,7 @@ const fetchRawConfig = async () => {
     const res: any = await api.get('/config/raw')
     rawContent.value = typeof res === 'string' ? res : JSON.stringify(res, null, 4)
   } catch (err: any) {
-    alert('加载配置失败: ' + err)
+    toast.error('加载配置失败: ' + err)
   }
 }
 
@@ -133,7 +134,7 @@ const openSnapshotsModal = async () => {
     snapshots.value = res || []
     showSnapshots.value = true
   } catch (err: any) {
-    alert('获取快照列表失败: ' + err)
+    toast.error('获取快照列表失败: ' + err)
   }
 }
 
@@ -142,11 +143,11 @@ const rollbackToSnapshot = async (id: number) => {
   rollingBack.value = true
   try {
     await api.post(`/config/snapshots/${id}/rollback`)
-    alert('已成功回滚至历史版本并重载 Xray 核心！')
+    toast.success('已成功回滚至历史版本并重载 Xray 核心！')
     showSnapshots.value = false
     await fetchRawConfig()
   } catch (err: any) {
-    alert('回滚失败: ' + err)
+    toast.error('回滚失败: ' + err)
   } finally {
     rollingBack.value = false
   }
@@ -156,8 +157,9 @@ const formatJSON = () => {
   try {
     const obj = JSON.parse(rawContent.value)
     rawContent.value = JSON.stringify(obj, null, 4)
+    toast.info('JSON 配置已格式化排版')
   } catch (err: any) {
-    alert('无法美化，JSON 语法存在错误: ' + err.message)
+    toast.error('无法美化，JSON 语法存在错误: ' + err.message)
   }
 }
 

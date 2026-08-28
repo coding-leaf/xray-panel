@@ -540,6 +540,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
 import { Plus, Radio, Key, AlertTriangle } from 'lucide-vue-next'
+import { toast } from '../utils/toast'
 import api from '../api'
 
 const inbounds = ref<any[]>([])
@@ -909,9 +910,10 @@ const saveInbound = async () => {
     }
 
     showModal.value = false
+    toast.success('节点配置已成功保存并同步重载核心！')
     await fetchAll()
   } catch (err: any) {
-    alert('保存失败: ' + err)
+    toast.error('保存失败: ' + err)
   } finally {
     saving.value = false
   }
@@ -921,9 +923,10 @@ const deleteInbound = async (id: number) => {
   if (!confirm('确定删除该入站节点吗？')) return
   try {
     await api.delete(`/inbounds/${id}`)
+    toast.success('入站节点已成功删除！')
     await fetchAll()
   } catch (err: any) {
-    alert('删除失败: ' + err)
+    toast.error('删除失败: ' + err)
   }
 }
 

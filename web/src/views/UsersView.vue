@@ -414,60 +414,98 @@
           <button @click="showShareModal = false" class="text-gray-400 hover:text-white text-lg">✕</button>
         </div>
 
-        <div v-if="currentShareData" class="space-y-4 text-xs">
-          <!-- 核心专属安全订阅链接 (Token-based) -->
-          <div class="p-3.5 bg-brand-950/30 rounded-2xl border border-brand-500/30 space-y-2">
-            <div class="flex items-center justify-between">
-              <span class="font-bold text-white flex items-center gap-1.5">
-                <span class="w-2 h-2 rounded-full bg-brand-400 animate-pulse"></span>
-                <span>用户全部节点聚合订阅 (All-In-One Sub URL)</span>
-              </span>
-              <button
-                @click="resetUserSubToken(currentShareData.user?.id)"
-                class="text-[10px] text-rose-400 hover:text-rose-300 font-mono transition-colors flex items-center gap-1"
-              >
-                <RotateCcw class="w-3 h-3" />
-                <span>重置订阅 Token (防泄露)</span>
-              </button>
-            </div>
+        <!-- Share Tabs -->
+        <div class="flex rounded-xl bg-white/[0.04] p-1 border border-white/[0.06]">
+          <button
+            type="button"
+            @click="activeShareTab = 'link'"
+            class="flex-1 py-1.5 rounded-lg text-xs font-semibold transition-all flex items-center justify-center gap-1.5"
+            :class="activeShareTab === 'link' ? 'bg-indigo-600 text-white shadow-sm' : 'text-gray-400 hover:text-gray-200'"
+          >
+            <Copy class="w-3.5 h-3.5" />
+            <span>订阅链接 (Text)</span>
+          </button>
+          <button
+            type="button"
+            @click="activeShareTab = 'qrcode'"
+            class="flex-1 py-1.5 rounded-lg text-xs font-semibold transition-all flex items-center justify-center gap-1.5"
+            :class="activeShareTab === 'qrcode' ? 'bg-indigo-600 text-white shadow-sm' : 'text-gray-400 hover:text-gray-200'"
+          >
+            <QrCode class="w-3.5 h-3.5" />
+            <span>手机扫码导入 (QR Code)</span>
+          </button>
+        </div>
 
-            <div class="flex items-center gap-2">
-              <input
+        <div v-if="currentShareData" class="space-y-4 text-xs">
+          <!-- 二维码模式 -->
+          <div v-if="activeShareTab === 'qrcode'" class="text-center py-2 space-y-3">
+            <div class="inline-block p-4 bg-white rounded-3xl shadow-2xl ring-4 ring-indigo-500/20">
+              <qrcode-vue
                 :value="getDirectTokenSubUrl(currentShareData.user)"
-                readonly
-                class="w-full bg-gray-900 border border-gray-700 rounded-xl px-3 py-2 text-white font-mono text-[11px] select-all focus:outline-none"
+                :size="190"
+                level="M"
+                render-as="svg"
               />
-              <button
-                @click="copyText(getDirectTokenSubUrl(currentShareData.user))"
-                class="px-3.5 py-2 bg-brand-600 hover:bg-brand-500 text-white rounded-xl font-semibold transition-colors shrink-0 flex items-center gap-1"
-              >
-                <Copy class="w-3.5 h-3.5" />
-                <span>复制</span>
-              </button>
             </div>
-            <p class="text-[10px] text-gray-400">支持直接导入 Clash、Shadowrocket、V2Ray、Sing-box 等全部客户端</p>
+            <p class="text-[11px] text-gray-400">使用 Shadowrocket / Clash / V2Ray / Sing-box 相机直接扫码添加</p>
           </div>
 
-          <!-- 单节点分享链接列表 -->
-          <div class="space-y-2">
-            <label class="block text-gray-300 font-semibold text-[11px]">单个节点独立直连链接</label>
-            <div class="max-h-40 overflow-y-auto space-y-2 pr-1">
-              <div
-                v-for="link in currentShareData.links"
-                :key="link.tag"
-                class="p-2.5 bg-gray-900/80 rounded-xl border border-gray-800 flex items-center justify-between gap-2"
-              >
-                <div class="overflow-hidden">
-                  <div class="font-mono text-white text-[11px] font-semibold truncate">{{ link.tag }}</div>
-                  <div class="text-[10px] text-gray-400 truncate font-mono">{{ link.url }}</div>
-                </div>
+          <!-- 链接模式 -->
+          <div v-else class="space-y-4">
+            <!-- 核心专属安全订阅链接 (Token-based) -->
+            <div class="p-3.5 bg-indigo-950/40 rounded-2xl border border-indigo-500/30 space-y-2">
+              <div class="flex items-center justify-between">
+                <span class="font-bold text-white flex items-center gap-1.5">
+                  <span class="w-2 h-2 rounded-full bg-indigo-400 animate-pulse"></span>
+                  <span>聚合订阅 (All-In-One Sub URL)</span>
+                </span>
                 <button
-                  @click="copyText(link.url)"
-                  class="p-1.5 bg-gray-800 hover:bg-gray-700 text-gray-200 rounded-lg transition-colors shrink-0"
-                  title="复制单个节点链接"
+                  @click="resetUserSubToken(currentShareData.user?.id)"
+                  class="text-[10px] text-rose-400 hover:text-rose-300 font-mono transition-colors flex items-center gap-1"
+                >
+                  <RotateCcw class="w-3 h-3" />
+                  <span>重置订阅 Token</span>
+                </button>
+              </div>
+
+              <div class="flex items-center gap-2">
+                <input
+                  :value="getDirectTokenSubUrl(currentShareData.user)"
+                  readonly
+                  class="w-full bg-gray-900/90 border border-gray-700 rounded-xl px-3 py-2 text-white font-mono text-[11px] select-all focus:outline-none focus:border-indigo-500"
+                />
+                <button
+                  @click="copyText(getDirectTokenSubUrl(currentShareData.user))"
+                  class="px-3.5 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl font-semibold transition-colors shrink-0 flex items-center gap-1 shadow-sm"
                 >
                   <Copy class="w-3.5 h-3.5" />
+                  <span>复制</span>
                 </button>
+              </div>
+              <p class="text-[10px] text-gray-400">客户端自动识别全协议并定时静默更新节点</p>
+            </div>
+
+            <!-- 单节点分享链接列表 -->
+            <div class="space-y-2">
+              <label class="block text-gray-300 font-semibold text-[11px]">单个节点独立直连链接</label>
+              <div class="max-h-40 overflow-y-auto space-y-2 pr-1">
+                <div
+                  v-for="link in currentShareData.links"
+                  :key="link.tag"
+                  class="p-2.5 bg-gray-900/80 rounded-xl border border-gray-800 flex items-center justify-between gap-2 hover:border-gray-700 transition-colors"
+                >
+                  <div class="overflow-hidden">
+                    <div class="font-mono text-white text-[11px] font-semibold truncate">{{ link.tag }}</div>
+                    <div class="text-[10px] text-gray-400 truncate font-mono">{{ link.url }}</div>
+                  </div>
+                  <button
+                    @click="copyText(link.url)"
+                    class="p-1.5 bg-gray-800 hover:bg-gray-700 text-gray-200 rounded-lg transition-colors shrink-0"
+                    title="复制单个节点链接"
+                  >
+                    <Copy class="w-3.5 h-3.5" />
+                  </button>
+                </div>
               </div>
             </div>
           </div>
@@ -616,7 +654,10 @@ import {
   BarChart2,
   Zap,
   CalendarPlus,
+  QrCode,
 } from 'lucide-vue-next'
+import QrcodeVue from 'qrcode.vue'
+import { toast } from '../utils/toast'
 import api from '../api'
 
 const users = ref<any[]>([])
@@ -628,6 +669,7 @@ const showShareModal = ref(false)
 const showHistoryModal = ref(false)
 const isEditing = ref(false)
 const saving = ref(false)
+const activeShareTab = ref<'link' | 'qrcode'>('link')
 
 const currentShareData = ref<any>(null)
 const currentHistoryUser = ref<any>(null)
@@ -699,7 +741,7 @@ const getDirectTokenSubUrl = (user: any): string => {
 const copyDirectSubLink = (user: any) => {
   const url = getDirectTokenSubUrl(user)
   if (!url) {
-    alert('该用户暂未生成专属订阅 Token')
+    toast.error('该用户暂未生成专属订阅 Token')
     return
   }
   copyText(url)
@@ -709,13 +751,13 @@ const resetUserSubToken = async (userId: number) => {
   if (!confirm('确定重新生成该用户的安全订阅 Token 吗？旧的订阅链接将立即失效！')) return
   try {
     const res: any = await api.post(`/users/${userId}/reset-token`)
-    alert('订阅 Token 重置成功！')
+    toast.success('订阅 Token 重置成功，旧链接已失效！')
     if (currentShareData.value && currentShareData.value.user) {
       currentShareData.value.user.subToken = res.subToken
     }
     await fetchAll()
   } catch (err: any) {
-    alert('重置失败: ' + err)
+    toast.error('重置失败: ' + err)
   }
 }
 
@@ -728,11 +770,11 @@ const batchRenew = async (days: number) => {
       ids: selectedUserIds.value,
       days,
     })
-    alert(`成功延期 ${days} 天！`)
+    toast.success(`成功为选中用户批量延期 ${days} 天！`)
     selectedUserIds.value = []
     await fetchAll()
   } catch (err: any) {
-    alert('批量延期失败: ' + err)
+    toast.error('批量延期失败: ' + err)
   }
 }
 
@@ -743,11 +785,11 @@ const batchResetTraffic = async () => {
     await api.post('/users/batch-reset-traffic', {
       ids: selectedUserIds.value,
     })
-    alert('已成功重置选中用户的已用流量！')
+    toast.success('已成功重置选中用户的已用流量！')
     selectedUserIds.value = []
     await fetchAll()
   } catch (err: any) {
-    alert('批量重置流量失败: ' + err)
+    toast.error('批量重置流量失败: ' + err)
   }
 }
 
@@ -760,11 +802,11 @@ const batchSetStatus = async (enabled: boolean) => {
       ids: selectedUserIds.value,
       enabled,
     })
-    alert(`已成功批量${action}！`)
+    toast.success(`已成功批量${action}选中用户！`)
     selectedUserIds.value = []
     await fetchAll()
   } catch (err: any) {
-    alert(`批量${action}失败: ` + err)
+    toast.error(`批量${action}失败: ` + err)
   }
 }
 
@@ -804,7 +846,7 @@ const openEditModal = (user: any) => {
 
 const saveUser = async () => {
   if (!form.value.selectedTags.length) {
-    alert('请至少选择一个归属的入站节点！')
+    toast.warning('请至少选择一个归属的入站节点！')
     return
   }
 
@@ -845,14 +887,16 @@ const saveUser = async () => {
         ipLimit: form.value.ipLimit,
         enabled: form.value.enabled,
       })
+      toast.success('用户信息与授权节点已保存更新！')
     } else {
       await api.post('/users', payload)
+      toast.success('用户已成功创建并同步至核心节点！')
     }
 
     showModal.value = false
     await fetchAll()
   } catch (err: any) {
-    alert('保存失败: ' + err)
+    toast.error('保存失败: ' + err)
   } finally {
     saving.value = false
   }
@@ -862,9 +906,10 @@ const deleteUser = async (id: number) => {
   if (!confirm('确定删除该用户并将其从所有节点下线吗？')) return
   try {
     await api.delete(`/users/${id}`)
+    toast.success('用户已成功删除！')
     await fetchAll()
   } catch (err: any) {
-    alert('删除失败: ' + err)
+    toast.error('删除失败: ' + err)
   }
 }
 
@@ -872,9 +917,10 @@ const resetTraffic = async (id: number) => {
   if (!confirm('确定重置该用户的上下行流量吗？')) return
   try {
     await api.post(`/users/${id}/reset-traffic`)
+    toast.success('用户已用流量已重置为 0！')
     await fetchAll()
   } catch (err: any) {
-    alert('重置失败: ' + err)
+    toast.error('重置失败: ' + err)
   }
 }
 
@@ -887,7 +933,7 @@ const openShareModal = async (user: any) => {
     }
     showShareModal.value = true
   } catch (err: any) {
-    alert('获取订阅链接失败: ' + err)
+    toast.error('获取订阅链接失败: ' + err)
   }
 }
 

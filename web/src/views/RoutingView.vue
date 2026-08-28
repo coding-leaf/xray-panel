@@ -413,6 +413,7 @@
 <script setup lang="ts">
 import { ref, onMounted, computed } from 'vue'
 import { Plus, Check, ArrowUp, ArrowDown, Edit3, Trash2, Database, RefreshCw } from 'lucide-vue-next'
+import { toast } from '../utils/toast'
 import api from '../api'
 
 const routingConfig = ref<any>({
@@ -444,10 +445,10 @@ const updateGeoData = async () => {
   updatingGeo.value = true
   try {
     await api.post('/geodata/update')
-    alert('GeoData 规则库更新成功！')
+    toast.success('GeoData 规则库更新成功！')
     await fetchGeoStatus()
   } catch (err: any) {
-    alert('更新失败: ' + err)
+    toast.error('更新失败: ' + err)
   } finally {
     updatingGeo.value = false
   }
@@ -686,10 +687,10 @@ const saveAllRouting = async () => {
   saving.value = true
   try {
     await api.post('/routing', routingConfig.value)
-    alert('路由分流配置已保存并平滑生效！')
+    toast.success('路由分流配置已保存并平滑生效！')
     await fetchAllDependencies()
   } catch (err: any) {
-    alert('保存失败: ' + err)
+    toast.error('保存失败: ' + err)
   } finally {
     saving.value = false
   }

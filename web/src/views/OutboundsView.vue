@@ -282,6 +282,7 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
 import { Plus } from 'lucide-vue-next'
+import { toast } from '../utils/toast'
 import api from '../api'
 
 const outbounds = ref<any[]>([])
@@ -466,9 +467,10 @@ const saveOutbound = async () => {
     }
     await api.post('/outbounds', payload)
     showModal.value = false
+    toast.success('出站配置已保存成功！')
     await fetchOutbounds()
   } catch (err: any) {
-    alert('保存失败: ' + err)
+    toast.error('保存失败: ' + err)
   } finally {
     saving.value = false
   }
@@ -478,9 +480,10 @@ const deleteOutbound = async (tag: string) => {
   if (!confirm(`确定删除出站节点 ${tag} 吗？`)) return
   try {
     await api.delete(`/outbounds/${tag}`)
+    toast.success('出站节点已成功删除！')
     await fetchOutbounds()
   } catch (err: any) {
-    alert('删除失败: ' + err)
+    toast.error('删除失败: ' + err)
   }
 }
 

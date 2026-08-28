@@ -86,6 +86,23 @@ func (s *ConfigService) SaveAndApplyRawConfig(ctx context.Context, rawJSON []byt
 		return err
 	}
 
+	_ = s.syncFromRawJSON(ctx, rawJSON)
+	return s.supervisor.Reload(ctx)
+}
+
+func (s *ConfigService) ImportFromFileIfEmpty(ctx context.Context) error {
+	inbs, err := s.inboundRepo.ListAll(ctx)
+	if err == nil && len(inbs) > 0 {
+		return nil
+	}
+	raw, err := s.configMgr.ReadRawConfig()
+	if err != nil || len(raw) == 0 {
+		return nil
+	}
+	return s.syncFromRawJSON(ctx, raw)
+}
+
+func (s *ConfigService) syncFromRawJSON(ctx context.Context, rawJSON []byte) error {
 	cleaned := jsonc.StripJSONC(rawJSON)
 
 	// 1. 解析 inbounds 同步至数据库
@@ -192,8 +209,7 @@ func (s *ConfigService) SaveAndApplyRawConfig(ctx context.Context, rawJSON []byt
 			}
 		}
 	}
-
-	return s.supervisor.Reload(ctx)
+	return nil
 }
 
 func (s *ConfigService) ListInbounds(ctx context.Context) ([]domain.Inbound, error) {

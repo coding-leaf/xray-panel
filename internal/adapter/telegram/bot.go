@@ -40,7 +40,57 @@ func NewBotHandler(
 }
 
 func (h *BotHandler) StartPolling(ctx context.Context) {
+	go func() {
+		for {
+			h.adapter.mu.RLock()
+			bot := h.adapter.bot
+			h.adapter.mu.RUnlock()
+
+			if bot == nil {
+				select {
+				case <-ctx.Done():
+					return
+				case <-h.adapter.ReloadChan:
+					continue
+				case <-time.After(3 * time.Second):
+					continue
+				}
+			}
+
+			u := tgbotapi.NewUpdate(0)
+			u.Timeout = 30
+			updates := bot.GetUpdatesChan(u)
+			slog.Info("Telegram Bot long polling started", slog.String("username", bot.Self.UserName))
+
+			pollCtx, cancelPoll := context.WithCancel(ctx)
+
+		pollLoop:
+			for {
+				select {
+				case <-pollCtx.Done():
+					break pollLoop
+				case <-h.adapter.ReloadChan:
+					cancelPoll()
+					bot.StopReceivingUpdates()
+					break pollLoop
+				case update, ok := <-updates:
+					if !ok {
+						cancelPoll()
+						break pollLoop
+					}
+					if update.Message != nil {
+						h.handleMessage(ctx, update.Message)
+					}
+				}
+			}
+			cancelPoll()
+		}
+	}()
+}
+
+func (h *BotHandler) handleMessage(ctx context.Context, msg *tgbotapi.Message) {
 	h.adapter.mu.RLock()
+	adminChatID := h.adapter.adminChatID
 	bot := h.adapter.bot
 	h.adapter.mu.RUnlock()
 
@@ -48,39 +98,20 @@ func (h *BotHandler) StartPolling(ctx context.Context) {
 		return
 	}
 
-	u := tgbotapi.NewUpdate(0)
-	u.Timeout = 60
-	updates := bot.GetUpdatesChan(u)
+	// 1. 若尚未在后台绑定管理员 Chat ID，向任意交互用户提示其 Chat ID 以便于填入后台
+	if adminChatID == 0 {
+		text := fmt.Sprintf(
+			"👋 <b>欢迎使用 Xray 面板运维机器人</b>\n\n"+
+				"🆔 <b>您的 Telegram Chat ID 为:</b> <code>%d</code>\n\n"+
+				"💡 <b>请复制上方数字 ID</b>，登录面板并在【系统设置】->【管理员 Chat ID】中填入并保存，即可完成管理员权限绑定！",
+			msg.Chat.ID,
+		)
+		h.reply(msg.Chat.ID, text)
+		return
+	}
 
-	slog.Info("Telegram Bot polling started")
-
-	go func() {
-		for {
-			select {
-			case <-ctx.Done():
-				return
-			case update, ok := <-updates:
-				if !ok {
-					return
-				}
-				if update.Message == nil || !update.Message.IsCommand() {
-					continue
-				}
-
-				h.handleCommand(ctx, update.Message)
-			}
-		}
-	}()
-}
-
-func (h *BotHandler) handleCommand(ctx context.Context, msg *tgbotapi.Message) {
-	// 校验管理员权限
-	h.adapter.mu.RLock()
-	adminChatID := h.adapter.adminChatID
-	bot := h.adapter.bot
-	h.adapter.mu.RUnlock()
-
-	if adminChatID != 0 && msg.Chat.ID != adminChatID {
+	// 2. 权限校验
+	if msg.Chat.ID != adminChatID {
 		reply := tgbotapi.NewMessage(msg.Chat.ID, "⛔ 无权使用此机器人。")
 		_, _ = bot.Send(reply)
 		return
@@ -88,6 +119,17 @@ func (h *BotHandler) handleCommand(ctx context.Context, msg *tgbotapi.Message) {
 
 	cmd := msg.Command()
 	args := strings.TrimSpace(msg.CommandArguments())
+
+	if !msg.IsCommand() {
+		// 收到普通文本时的友好指引
+		text := "🤖 <b>Xray 独立运维管理机器人</b>\n\n" +
+			"/status - 查看系统与 Xray 运行状态\n" +
+			"/traffic - 查看用户流量消耗统计\n" +
+			"/sub [email] - 获取指定用户的订阅分发链接\n" +
+			"/restart - 重启 Xray 核心服务\n"
+		h.reply(msg.Chat.ID, text)
+		return
+	}
 
 	switch cmd {
 	case "start", "help":
@@ -166,7 +208,7 @@ func (h *BotHandler) handleCommand(ctx context.Context, msg *tgbotapi.Message) {
 			h.reply(msg.Chat.ID, "❌ 未找到该用户")
 			return
 		}
-		subURL := fmt.Sprintf("%s/api/sub/%s", strings.TrimRight(h.publicURL, "/"), u.SubToken)
+		subURL := fmt.Sprintf("%s/sub/%s", strings.TrimRight(h.publicURL, "/"), u.SubToken)
 		text := fmt.Sprintf(
 			"🔗 <b>用户专属订阅链接</b>\n\n"+
 				"👤 <b>用户:</b> <code>%s</code>\n"+
@@ -188,19 +230,24 @@ func (h *BotHandler) handleCommand(ctx context.Context, msg *tgbotapi.Message) {
 		if status.Active {
 			h.reply(msg.Chat.ID, "✅ Xray 服务已成功平滑重启并恢复运行！")
 		} else {
-			h.reply(msg.Chat.ID, "⚠️ 重启完成，但当前服务状态异常: "+status.SubState)
+			h.reply(msg.Chat.ID, "⚠️ Xray 重启后状态异常: "+status.SubState)
 		}
+
+	default:
+		h.reply(msg.Chat.ID, "❓ 未知指令。发送 /help 查看所有可用命令。")
 	}
 }
 
-func (h *BotHandler) reply(chatID int64, text string) {
+func (h *BotHandler) reply(chatID int64, htmlText string) {
 	h.adapter.mu.RLock()
 	bot := h.adapter.bot
 	h.adapter.mu.RUnlock()
+
 	if bot == nil {
 		return
 	}
-	msg := tgbotapi.NewMessage(chatID, text)
+
+	msg := tgbotapi.NewMessage(chatID, htmlText)
 	msg.ParseMode = "HTML"
 	_, _ = bot.Send(msg)
 }

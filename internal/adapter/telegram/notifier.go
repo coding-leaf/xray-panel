@@ -13,19 +13,18 @@ import (
 )
 
 type BotAdapter struct {
-	mu         sync.RWMutex
-	botToken   string
+	mu          sync.RWMutex
+	botToken    string
 	adminChatID int64
-	bot        *tgbotapi.BotAPI
-	running    bool
-	stopChan   chan struct{}
+	bot         *tgbotapi.BotAPI
+	ReloadChan  chan struct{}
 }
 
 func NewBotAdapter(botToken string, adminChatID int64) *BotAdapter {
 	return &BotAdapter{
 		botToken:    botToken,
 		adminChatID: adminChatID,
-		stopChan:    make(chan struct{}),
+		ReloadChan:  make(chan struct{}, 1),
 	}
 }
 
@@ -44,21 +43,33 @@ func (b *BotAdapter) Init() error {
 
 func (b *BotAdapter) UpdateConfig(botToken string, adminChatID int64) error {
 	b.mu.Lock()
-	defer b.mu.Unlock()
-
 	b.botToken = botToken
 	b.adminChatID = adminChatID
 
 	if botToken == "" {
 		b.bot = nil
+		b.mu.Unlock()
+		select {
+		case b.ReloadChan <- struct{}{}:
+		default:
+		}
 		return nil
 	}
 
 	bot, err := tgbotapi.NewBotAPI(botToken)
 	if err != nil {
+		b.mu.Unlock()
 		return err
 	}
 	b.bot = bot
+	b.mu.Unlock()
+
+	select {
+	case b.ReloadChan <- struct{}{}:
+	default:
+	}
+
+	slog.Info("Telegram bot config updated and reloaded", slog.String("username", bot.Self.UserName))
 	return nil
 }
 
@@ -98,41 +109,49 @@ func (b *BotAdapter) SendTrafficAlert(ctx context.Context, alert domain.TrafficA
 
 func (b *BotAdapter) SendSystemAlert(ctx context.Context, alert domain.SystemAlert) error {
 	text := fmt.Sprintf(
-		"🚨 <b>系统高负载告警</b>\n\n"+
-			"📈 <b>指标:</b> %s\n"+
-			"⚡ <b>当前值:</b> %.1f%%\n"+
-			"🛑 <b>阈值:</b> %.1f%%\n"+
-			"📝 <b>描述:</b> %s",
-		alert.Metric, alert.CurrentVal, alert.Threshold, alert.Description,
+		"🚨 <b>系统负载告警</b>\n\n"+
+			"🏷️ <b>指标:</b> %s\n"+
+			"📈 <b>当前值:</b> %.1f%% (阈值: %.1f%%)\n"+
+			"📝 <b>描述:</b> %s\n"+
+			"⏰ <b>时间:</b> 实时告警",
+		alert.Metric,
+		alert.CurrentVal,
+		alert.Threshold,
+		alert.Description,
 	)
 	return b.SendMessage(ctx, text)
 }
 
 func (b *BotAdapter) SendServiceStatusAlert(ctx context.Context, status domain.ServiceStatus) error {
-	stateIcon := "🟢"
+	state := "🟢 运行中"
 	if !status.Active {
-		stateIcon = "🔴"
+		state = "🔴 已停止/异常"
 	}
 	text := fmt.Sprintf(
-		"%s <b>Xray 服务状态变更</b>\n\n"+
-			"<b>状态:</b> %s\n"+
-			"<b>子状态:</b> %s",
-		stateIcon,
-		map[bool]string{true: "正常运行中", false: "异常已停止"}[status.Active],
+		"🔔 <b>Xray 核心服务状态变更</b>\n\n"+
+			"📊 <b>状态:</b> %s (%s)\n"+
+			"🆔 <b>PID:</b> %d\n"+
+			"⏱️ <b>运行时间:</b> %s\n"+
+			"⏰ <b>时间:</b> 实时通知",
+		state,
 		status.SubState,
+		status.PID,
+		status.Uptime,
 	)
 	return b.SendMessage(ctx, text)
 }
 
 func (b *BotAdapter) SendCertAlert(ctx context.Context, alert domain.CertAlert) error {
 	text := fmt.Sprintf(
-		"🔒 <b>TLS 证书过期预警</b>\n\n"+
-			"🌐 <b>域名:</b> <code>%s</code>\n"+
-			"⏳ <b>剩余有效天数:</b> %d 天\n"+
-			"📅 <b>到期时间:</b> %s\n"+
-			"📁 <b>证书路径:</b> <code>%s</code>\n\n"+
-			"⚠️ 请尽快续签证书并重载 Xray 核心，以防客户端连接中断！",
-		alert.DomainName, alert.DaysLeft, alert.NotAfter, alert.Path,
+		"🔐 <b>TLS 证书过期提醒</b>\n\n"+
+			"📁 <b>域名/证书:</b> <code>%s</code>\n"+
+			"⏳ <b>剩余天数:</b> %d 天\n"+
+			"⏰ <b>到期时间:</b> %s\n"+
+			"📄 <b>路径:</b> <code>%s</code>",
+		alert.DomainName,
+		alert.DaysLeft,
+		alert.NotAfter,
+		alert.Path,
 	)
 	return b.SendMessage(ctx, text)
 }

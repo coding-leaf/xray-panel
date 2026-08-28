@@ -20,6 +20,12 @@ type User struct {
 	Enabled     bool      `gorm:"default:true" json:"enabled"`
 	CreatedAt   time.Time `json:"createdAt"`
 	UpdatedAt   time.Time `json:"updatedAt"`
+
+	// 内存运行时实时速率与在线状态 (不入持久化表)
+	UpSpeed    int64 `gorm:"-" json:"upSpeed"`    // Bytes/s
+	DownSpeed  int64 `gorm:"-" json:"downSpeed"`  // Bytes/s
+	LastActive int64 `gorm:"-" json:"lastActive"` // Unix 毫秒
+	IsOnline   bool  `gorm:"-" json:"isOnline"`
 }
 
 // GetInboundTagList 获取该用户所属的所有节点 Tag 列表

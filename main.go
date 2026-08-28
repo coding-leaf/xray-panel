@@ -44,6 +44,7 @@ func main() {
 	userRepo := repository.NewUserRepository(db)
 	inboundRepo := repository.NewInboundRepository(db)
 	trafficLogRepo := repository.NewGormTrafficLogRepository(db)
+	snapshotRepo := repository.NewGormConfigSnapshotRepository(db)
 	settingRepo := repository.NewSettingRepository(db)
 	adminRepo := repository.NewAdminRepository(db)
 
@@ -69,12 +70,13 @@ func main() {
 	botHandler := telegram.NewBotHandler(botAdapter, userRepo, inboundRepo, hostMonitor, xrayManager, cfg.PublicURL)
 
 	// 4. 初始化业务用例深模块 Services
-	configSvc := service.NewConfigService(configMgr, supervisor, inboundRepo, userRepo)
+	configSvc := service.NewConfigService(configMgr, supervisor, inboundRepo, userRepo, snapshotRepo)
 	userSvc := service.NewUserService(userRepo, inboundRepo, trafficLogRepo, xrayManager, configSvc)
 	subSvc := service.NewSubService(userRepo, inboundRepo, settingRepo)
 	monitorSvc := service.NewMonitorService(hostMonitor, xrayManager, userRepo, inboundRepo)
 	alertSvc := service.NewAlertService(botAdapter, userRepo, hostMonitor, configMgr)
 	logSvc := service.NewLogService(configMgr)
+	geoSvc := service.NewGeoDataService(cfg.XrayBinPath, xrayManager)
 
 	// 5. 初始化 HTTP API 处理器
 	handlers := &deliveryHTTP.Handlers{
@@ -89,6 +91,7 @@ func main() {
 		Setting:   deliveryHTTP.NewSettingHandler(settingRepo, botAdapter),
 		Log:       deliveryHTTP.NewLogHandler(logSvc),
 		DNS:       deliveryHTTP.NewDNSHandler(configSvc),
+		GeoData:   deliveryHTTP.NewGeoDataHandler(geoSvc),
 	}
 
 	staticFS := getStaticFS()

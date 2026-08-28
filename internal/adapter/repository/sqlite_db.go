@@ -36,6 +36,7 @@ func InitSQLite(dbPath string) (*gorm.DB, error) {
 		&domain.User{},
 		&domain.Inbound{},
 		&domain.TrafficLog{},
+		&domain.ConfigSnapshot{},
 		&domain.Setting{},
 		&domain.AdminUser{},
 	)

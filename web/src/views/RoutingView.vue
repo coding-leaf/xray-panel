@@ -32,6 +32,37 @@
       </div>
     </div>
 
+    <!-- GeoData 规则库在线升级状态卡片 -->
+    <div class="glass-panel p-4 sm:p-5 rounded-2xl border border-gray-800/80 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 bg-gradient-to-r from-gray-900/60 to-brand-950/20">
+      <div class="flex items-center gap-3">
+        <div class="p-2.5 rounded-xl bg-brand-500/10 border border-brand-500/20 text-brand-400">
+          <Database class="w-5 h-5" />
+        </div>
+        <div class="space-y-0.5 text-xs">
+          <div class="flex items-center gap-2">
+            <span class="font-bold text-white">GeoData 分流规则库 (geoip.dat & geosite.dat)</span>
+            <span class="px-2 py-0.2 rounded text-[10px] font-mono bg-gray-800 text-cyan-400">
+              {{ geodataStatus?.platform || 'Xray Core' }}
+            </span>
+          </div>
+          <p class="text-[11px] text-gray-400 font-mono">
+            GeoIP: {{ geodataStatus?.geoipExists ? `${(geodataStatus.geoipSize / 1048576).toFixed(2)} MB` : '未找到' }} | 
+            GeoSite: {{ geodataStatus?.geositeExists ? `${(geodataStatus.geositeSize / 1048576).toFixed(2)} MB` : '未找到' }} | 
+            路径: {{ geodataStatus?.targetDirectory || './' }}
+          </p>
+        </div>
+      </div>
+
+      <button
+        @click="updateGeoData"
+        :disabled="updatingGeo"
+        class="px-4 py-2 bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 text-white text-xs font-semibold rounded-xl transition-all shadow-lg shadow-cyan-500/25 flex items-center gap-1.5 shrink-0 disabled:opacity-50"
+      >
+        <RefreshCw class="w-3.5 h-3.5" :class="{ 'animate-spin': updatingGeo }" />
+        <span>{{ updatingGeo ? '正在更新规则库...' : '⚡ 一键拉取最新规则库' }}</span>
+      </button>
+    </div>
+
     <!-- Domain Strategy & Presets Bar -->
     <div class="grid grid-cols-1 lg:grid-cols-3 gap-5">
       <!-- Strategy Selector -->
@@ -381,7 +412,7 @@
 
 <script setup lang="ts">
 import { ref, onMounted, computed } from 'vue'
-import { Plus, Check, ArrowUp, ArrowDown, Edit3, Trash2 } from 'lucide-vue-next'
+import { Plus, Check, ArrowUp, ArrowDown, Edit3, Trash2, Database, RefreshCw } from 'lucide-vue-next'
 import api from '../api'
 
 const routingConfig = ref<any>({
@@ -391,11 +422,36 @@ const routingConfig = ref<any>({
 
 const inboundsList = ref<any[]>([])
 const outboundsList = ref<any[]>([])
+const geodataStatus = ref<any>(null)
+const updatingGeo = ref(false)
 
 const showModal = ref(false)
 const isEditingRule = ref(false)
 const editingIndex = ref(-1)
 const saving = ref(false)
+
+const fetchGeoStatus = async () => {
+  try {
+    const res: any = await api.get('/geodata/status')
+    geodataStatus.value = res
+  } catch (err) {
+    console.error(err)
+  }
+}
+
+const updateGeoData = async () => {
+  if (!confirm('确定在线更新 GeoIP / GeoSite 规则库吗？更新完成后将自动重载 Xray 核心。')) return
+  updatingGeo.value = true
+  try {
+    await api.post('/geodata/update')
+    alert('GeoData 规则库更新成功！')
+    await fetchGeoStatus()
+  } catch (err: any) {
+    alert('更新失败: ' + err)
+  } finally {
+    updatingGeo.value = false
+  }
+}
 
 // Preset Wizard State
 const showPresetModal = ref(false)
@@ -656,5 +712,6 @@ const outboundBadgeColor = (tag: string) => {
 
 onMounted(() => {
   fetchAllDependencies()
+  fetchGeoStatus()
 })
 </script>

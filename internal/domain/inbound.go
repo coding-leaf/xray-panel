@@ -17,4 +17,8 @@ type Inbound struct {
 	Enabled        bool      `gorm:"default:true" json:"enabled"`
 	CreatedAt      time.Time `json:"createdAt"`
 	UpdatedAt      time.Time `json:"updatedAt"`
+
+	// 内存运行时探测状态 (不入持久化表)
+	LatencyMs int64 `gorm:"-" json:"latencyMs"`
+	IsAlive   bool  `gorm:"-" json:"isAlive"`
 }

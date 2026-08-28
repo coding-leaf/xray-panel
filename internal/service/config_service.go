@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"net"
 	"strings"
 	"time"
 
@@ -15,10 +16,11 @@ import (
 )
 
 type ConfigService struct {
-	configMgr   *xray.ConfigManager
-	supervisor  *xray.SystemdSupervisor
-	inboundRepo domain.InboundRepository
-	userRepo    domain.UserRepository
+	configMgr    *xray.ConfigManager
+	supervisor   *xray.SystemdSupervisor
+	inboundRepo  domain.InboundRepository
+	userRepo     domain.UserRepository
+	snapshotRepo domain.ConfigSnapshotRepository
 }
 
 func NewConfigService(
@@ -26,13 +28,48 @@ func NewConfigService(
 	supervisor *xray.SystemdSupervisor,
 	inboundRepo domain.InboundRepository,
 	userRepo domain.UserRepository,
+	snapshotRepo domain.ConfigSnapshotRepository,
 ) *ConfigService {
 	return &ConfigService{
-		configMgr:   configMgr,
-		supervisor:  supervisor,
-		inboundRepo: inboundRepo,
-		userRepo:    userRepo,
+		configMgr:    configMgr,
+		supervisor:   supervisor,
+		inboundRepo:  inboundRepo,
+		userRepo:     userRepo,
+		snapshotRepo: snapshotRepo,
 	}
+}
+
+func (s *ConfigService) recordSnapshotBeforeWrite(ctx context.Context, remark string) {
+	if s.snapshotRepo == nil {
+		return
+	}
+	oldRaw, err := s.configMgr.ReadRawConfig()
+	if err == nil && len(oldRaw) > 0 {
+		_ = s.snapshotRepo.Save(ctx, &domain.ConfigSnapshot{
+			RawConfig: string(oldRaw),
+			Remark:    remark,
+			CreatedAt: time.Now(),
+		})
+	}
+}
+
+func (s *ConfigService) ListSnapshots(ctx context.Context, limit int) ([]domain.ConfigSnapshot, error) {
+	if s.snapshotRepo == nil {
+		return []domain.ConfigSnapshot{}, nil
+	}
+	return s.snapshotRepo.List(ctx, limit)
+}
+
+func (s *ConfigService) RollbackSnapshot(ctx context.Context, id uint) error {
+	if s.snapshotRepo == nil {
+		return fmt.Errorf("snapshot repository not configured")
+	}
+	snapshot, err := s.snapshotRepo.GetByID(ctx, id)
+	if err != nil {
+		return fmt.Errorf("snapshot not found: %w", err)
+	}
+
+	return s.SaveAndApplyRawConfig(ctx, []byte(snapshot.RawConfig))
 }
 
 func (s *ConfigService) GetRawConfig(ctx context.Context) ([]byte, error) {
@@ -44,6 +81,7 @@ func (s *ConfigService) ValidateRawConfig(ctx context.Context, rawJSON []byte) e
 }
 
 func (s *ConfigService) SaveAndApplyRawConfig(ctx context.Context, rawJSON []byte) error {
+	s.recordSnapshotBeforeWrite(ctx, "保存并应用原生 JSON 配置")
 	if err := s.configMgr.WriteConfig(ctx, rawJSON); err != nil {
 		return err
 	}
@@ -159,13 +197,44 @@ func (s *ConfigService) SaveAndApplyRawConfig(ctx context.Context, rawJSON []byt
 }
 
 func (s *ConfigService) ListInbounds(ctx context.Context) ([]domain.Inbound, error) {
-	return s.inboundRepo.ListAll(ctx)
+	list, err := s.inboundRepo.ListAll(ctx)
+	if err != nil {
+		return nil, err
+	}
+	for i := range list {
+		list[i].LatencyMs, list[i].IsAlive = probeInboundPort(list[i].Listen, list[i].Port)
+	}
+	return list, nil
+}
+
+func probeInboundPort(listen string, port int) (int64, bool) {
+	if port <= 0 {
+		return 0, false
+	}
+	host := listen
+	if host == "0.0.0.0" || host == "" {
+		host = "127.0.0.1"
+	}
+	addr := fmt.Sprintf("%s:%d", host, port)
+	start := time.Now()
+	conn, err := net.DialTimeout("tcp", addr, 1000*time.Millisecond)
+	if err != nil {
+		return 0, false
+	}
+	_ = conn.Close()
+	elapsed := time.Since(start).Milliseconds()
+	if elapsed == 0 {
+		elapsed = 1
+	}
+	return elapsed, true
 }
 
 func (s *ConfigService) CreateInbound(ctx context.Context, inbound *domain.Inbound) error {
 	if inbound.Tag == "" {
 		return fmt.Errorf("%w: tag is required", domain.ErrInvalidInput)
 	}
+
+	s.recordSnapshotBeforeWrite(ctx, fmt.Sprintf("创建入站节点 %s", inbound.Tag))
 
 	// 1. 存入数据库
 	if err := s.inboundRepo.Create(ctx, inbound); err != nil {
@@ -178,6 +247,7 @@ func (s *ConfigService) CreateInbound(ctx context.Context, inbound *domain.Inbou
 }
 
 func (s *ConfigService) UpdateInbound(ctx context.Context, inbound *domain.Inbound) error {
+	s.recordSnapshotBeforeWrite(ctx, fmt.Sprintf("更新入站节点 %s", inbound.Tag))
 	if err := s.inboundRepo.Update(ctx, inbound); err != nil {
 		return err
 	}
@@ -190,6 +260,7 @@ func (s *ConfigService) DeleteInbound(ctx context.Context, id uint) error {
 	if err != nil {
 		return err
 	}
+	s.recordSnapshotBeforeWrite(ctx, fmt.Sprintf("删除入站节点 %s", inbound.Tag))
 	if err := s.inboundRepo.Delete(ctx, id); err != nil {
 		return err
 	}
@@ -420,6 +491,7 @@ func (s *ConfigService) ListOutbounds(ctx context.Context) ([]domain.Outbound, e
 }
 
 func (s *ConfigService) SaveOutbound(ctx context.Context, outbound domain.Outbound) error {
+	s.recordSnapshotBeforeWrite(ctx, fmt.Sprintf("保存出站节点 %s", outbound.Tag))
 	raw, err := s.configMgr.ReadRawConfig()
 	if err != nil {
 		return err
@@ -493,6 +565,7 @@ func (s *ConfigService) SaveOutbound(ctx context.Context, outbound domain.Outbou
 }
 
 func (s *ConfigService) DeleteOutbound(ctx context.Context, tag string) error {
+	s.recordSnapshotBeforeWrite(ctx, fmt.Sprintf("删除出站节点 %s", tag))
 	raw, err := s.configMgr.ReadRawConfig()
 	if err != nil {
 		return err
@@ -557,6 +630,7 @@ func (s *ConfigService) GetRoutingConfig(ctx context.Context) (*domain.RoutingCo
 }
 
 func (s *ConfigService) SaveRoutingConfig(ctx context.Context, cfg *domain.RoutingConfig) error {
+	s.recordSnapshotBeforeWrite(ctx, "更新分流路由规则")
 	raw, err := s.configMgr.ReadRawConfig()
 	if err != nil {
 		return err
@@ -609,6 +683,7 @@ func (s *ConfigService) GetDNSConfig(ctx context.Context) (*domain.DNSConfig, er
 }
 
 func (s *ConfigService) SaveDNSConfig(ctx context.Context, cfg *domain.DNSConfig) error {
+	s.recordSnapshotBeforeWrite(ctx, "更新 DNS 解析设置")
 	raw, err := s.configMgr.ReadRawConfig()
 	if err != nil {
 		return err

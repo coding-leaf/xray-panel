@@ -3,9 +3,16 @@
     <div class="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
       <div>
         <h1 class="text-2xl font-extrabold text-white tracking-tight">Xray 原始配置管理</h1>
-        <p class="text-xs text-gray-400 mt-0.5">完整的 config.json 在线编辑器，支持 JSON 格式化、官方 xray -test 严格校验与保存平滑热重载</p>
+        <p class="text-xs text-gray-400 mt-0.5">完整的 config.json 在线编辑器，支持 JSON 格式化、官方 xray -test 严格校验、自动历史快照与一键回滚</p>
       </div>
       <div class="flex items-center gap-2">
+        <button
+          @click="openSnapshotsModal"
+          class="px-3.5 py-2 rounded-xl text-xs bg-gray-800 hover:bg-gray-700 text-cyan-400 border border-gray-700 transition-colors flex items-center gap-1.5"
+        >
+          <History class="w-3.5 h-3.5" />
+          <span>版本历史与回滚</span>
+        </button>
         <button
           @click="formatJSON"
           class="px-3.5 py-2 rounded-xl text-xs bg-gray-800 hover:bg-gray-700 text-gray-200 border border-gray-700 transition-colors"
@@ -53,18 +60,63 @@
         placeholder="正在加载配置文件..."
       ></textarea>
     </div>
+
+    <!-- History Snapshots Modal -->
+    <div v-if="showSnapshots" class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/75 backdrop-blur-sm">
+      <div class="glass-panel w-full max-w-lg p-6 sm:p-7 rounded-3xl border border-gray-800 shadow-2xl space-y-5">
+        <div class="flex items-center justify-between pb-2 border-b border-gray-800">
+          <div>
+            <h2 class="text-base font-bold text-white flex items-center gap-2">
+              <History class="w-4 h-4 text-cyan-400" />
+              <span>配置文件历史快照</span>
+            </h2>
+            <p class="text-xs text-gray-400 mt-0.5">每次修改保存前自动生成的备份快照，支持一键安全回滚</p>
+          </div>
+          <button @click="showSnapshots = false" class="text-gray-400 hover:text-white text-lg">✕</button>
+        </div>
+
+        <div class="space-y-2 max-h-80 overflow-y-auto">
+          <div
+            v-for="snap in snapshots"
+            :key="snap.id"
+            class="p-3 bg-gray-900/80 rounded-2xl border border-gray-800 flex items-center justify-between gap-3 hover:border-gray-700 transition-colors"
+          >
+            <div class="space-y-0.5 text-xs">
+              <span class="font-bold text-white font-mono text-[11px]">{{ snap.remark || '系统自动快照' }}</span>
+              <p class="text-[10px] text-gray-400 font-mono">{{ formatDate(snap.createdAt) }}</p>
+            </div>
+
+            <button
+              @click="rollbackToSnapshot(snap.id)"
+              :disabled="rollingBack"
+              class="px-3 py-1.5 bg-brand-600/20 hover:bg-brand-600/30 text-brand-300 hover:text-white rounded-xl text-xs font-semibold border border-brand-500/30 transition-all shrink-0"
+            >
+              回滚至此版本
+            </button>
+          </div>
+
+          <div v-if="!snapshots.length" class="text-center py-8 text-xs text-gray-500">
+            暂无历史快照记录，在修改保存配置后将自动生成
+          </div>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
-import { CheckCircle2, AlertCircle, Save } from 'lucide-vue-next'
+import { CheckCircle2, AlertCircle, Save, History } from 'lucide-vue-next'
 import api from '../api'
 
 const rawContent = ref('')
 const validating = ref(false)
 const saving = ref(false)
+const rollingBack = ref(false)
 const testResult = ref<any>(null)
+
+const showSnapshots = ref(false)
+const snapshots = ref<any[]>([])
 
 const fetchRawConfig = async () => {
   try {
@@ -72,6 +124,31 @@ const fetchRawConfig = async () => {
     rawContent.value = typeof res === 'string' ? res : JSON.stringify(res, null, 4)
   } catch (err: any) {
     alert('加载配置失败: ' + err)
+  }
+}
+
+const openSnapshotsModal = async () => {
+  try {
+    const res: any = await api.get('/config/snapshots')
+    snapshots.value = res || []
+    showSnapshots.value = true
+  } catch (err: any) {
+    alert('获取快照列表失败: ' + err)
+  }
+}
+
+const rollbackToSnapshot = async (id: number) => {
+  if (!confirm('确定回滚至该历史快照版本吗？当前配置将被替换并自动重载。')) return
+  rollingBack.value = true
+  try {
+    await api.post(`/config/snapshots/${id}/rollback`)
+    alert('已成功回滚至历史版本并重载 Xray 核心！')
+    showSnapshots.value = false
+    await fetchRawConfig()
+  } catch (err: any) {
+    alert('回滚失败: ' + err)
+  } finally {
+    rollingBack.value = false
   }
 }
 
@@ -100,19 +177,25 @@ const validateConfig = async () => {
 }
 
 const saveConfig = async () => {
-  if (!confirm('确定保存并平滑重载 Xray 核心吗？')) return
+  if (!confirm('确定保存并覆盖当前的 Xray 核心配置吗？')) return
   saving.value = true
   testResult.value = null
   try {
-    const res: any = await api.post('/config/save', rawContent.value, {
+    await api.post('/config/save', rawContent.value, {
       headers: { 'Content-Type': 'application/json' },
     })
-    testResult.value = { valid: true, message: res.message || '配置已成功保存并重新加载！' }
+    testResult.value = { valid: true, message: '配置已成功保存落盘并完成重载！' }
+    await fetchRawConfig()
   } catch (err: any) {
-    testResult.value = { valid: false, message: typeof err === 'string' ? err : '保存失败' }
+    testResult.value = { valid: false, message: '保存失败: ' + err }
   } finally {
     saving.value = false
   }
+}
+
+const formatDate = (dateStr: string) => {
+  if (!dateStr) return ''
+  return new Date(dateStr).toLocaleString()
 }
 
 onMounted(() => {

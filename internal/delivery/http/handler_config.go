@@ -1,6 +1,7 @@
 package http
 
 import (
+	"fmt"
 	"io"
 	"net/http"
 
@@ -62,4 +63,28 @@ func (h *ConfigHandler) RestartService(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"message": "Xray 核心已成功全量重启"})
+}
+
+func (h *ConfigHandler) ListSnapshots(c *gin.Context) {
+	list, err := h.configSvc.ListSnapshots(c.Request.Context(), 20)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, list)
+}
+
+func (h *ConfigHandler) RollbackSnapshot(c *gin.Context) {
+	idStr := c.Param("id")
+	var id uint
+	if _, err := fmt.Sscanf(idStr, "%d", &id); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid snapshot id"})
+		return
+	}
+
+	if err := h.configSvc.RollbackSnapshot(c.Request.Context(), id); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"message": "配置已成功回滚至历史快照并重新应用"})
 }

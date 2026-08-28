@@ -61,9 +61,13 @@
               <span class="text-brand-300 font-mono font-bold">{{ getClientCount(inb) }} 人</span>
             </div>
             <div class="flex justify-between py-1">
-              <span>运行状态</span>
-              <span class="text-emerald-400 font-semibold flex items-center gap-1">
-                <span class="w-1.5 h-1.5 rounded-full bg-emerald-400"></span> 正常运行
+              <span>端口连通性 (TCP Ping)</span>
+              <span
+                class="font-semibold flex items-center gap-1"
+                :class="inb.isAlive ? 'text-emerald-400' : 'text-rose-400'"
+              >
+                <span class="w-1.5 h-1.5 rounded-full" :class="inb.isAlive ? 'bg-emerald-400' : 'bg-rose-400'"></span>
+                <span>{{ inb.isAlive ? `正常连通 (${inb.latencyMs || 1}ms)` : '端口未响应' }}</span>
               </span>
             </div>
           </div>

@@ -72,6 +72,15 @@ func (j *TrafficSyncJob) syncOnce(ctx context.Context) {
 	}
 
 	today := time.Now().Format("2006-01-02")
+	sec := int64(j.interval.Seconds())
+	if sec <= 0 {
+		sec = 15
+	}
+	nowMs := time.Now().UnixMilli()
+
+	// 临时聚合本次轮询的速率
+	userDeltaUp := make(map[string]int64)
+	userDeltaDown := make(map[string]int64)
 
 	for _, s := range stats {
 		if s.Value <= 0 {
@@ -87,6 +96,12 @@ func (j *TrafficSyncJob) syncOnce(ctx context.Context) {
 
 		if s.Type == domain.TrafficStatTypeUser {
 			_ = j.userRepo.AddTraffic(ctx, s.Tag, up, down)
+			if up > 0 {
+				userDeltaUp[s.Tag] += up
+			}
+			if down > 0 {
+				userDeltaDown[s.Tag] += down
+			}
 
 			// 异步/同步写入每日历史记录
 			user, err := j.userRepo.GetByEmail(ctx, s.Tag)
@@ -104,6 +119,17 @@ func (j *TrafficSyncJob) syncOnce(ctx context.Context) {
 			}
 		} else if s.Type == domain.TrafficStatTypeInbound {
 			_ = j.inboundRepo.AddTraffic(ctx, s.Tag, up, down)
+		}
+	}
+
+	// 更新速度追踪器
+	for email, up := range userDeltaUp {
+		down := userDeltaDown[email]
+		domain.SetUserRuntimeSpeed(email, up/sec, down/sec, nowMs)
+	}
+	for email, down := range userDeltaDown {
+		if _, exists := userDeltaUp[email]; !exists {
+			domain.SetUserRuntimeSpeed(email, 0, down/sec, nowMs)
 		}
 	}
 }

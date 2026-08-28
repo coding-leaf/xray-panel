@@ -162,11 +162,23 @@ func (s *UserService) DeleteUser(ctx context.Context, id uint) error {
 }
 
 func (s *UserService) GetByID(ctx context.Context, id uint) (*domain.User, error) {
-	return s.userRepo.GetByID(ctx, id)
+	u, err := s.userRepo.GetByID(ctx, id)
+	if err != nil || u == nil {
+		return u, err
+	}
+	u.UpSpeed, u.DownSpeed, u.LastActive, u.IsOnline = domain.GetUserRuntimeSpeed(u.Email)
+	return u, nil
 }
 
 func (s *UserService) ListUsers(ctx context.Context) ([]domain.User, error) {
-	return s.userRepo.ListAll(ctx)
+	users, err := s.userRepo.ListAll(ctx)
+	if err != nil {
+		return nil, err
+	}
+	for i := range users {
+		users[i].UpSpeed, users[i].DownSpeed, users[i].LastActive, users[i].IsOnline = domain.GetUserRuntimeSpeed(users[i].Email)
+	}
+	return users, nil
 }
 
 func (s *UserService) ResetTraffic(ctx context.Context, id uint) error {

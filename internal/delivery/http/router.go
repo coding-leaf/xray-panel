@@ -22,6 +22,7 @@ type Handlers struct {
 	Setting   *SettingHandler
 	Log       *LogHandler
 	DNS       *DNSHandler
+	GeoData   *GeoDataHandler
 }
 
 func SetupRouter(handlers *Handlers, jwtSecret string, staticFS fs.FS) *gin.Engine {
@@ -91,10 +92,16 @@ func SetupRouter(handlers *Handlers, jwtSecret string, staticFS fs.FS) *gin.Engi
 			authGroup.GET("/dns", handlers.DNS.Get)
 			authGroup.POST("/dns", handlers.DNS.Save)
 
-			// 原始配置在线校验与保存
+			// 原始配置在线校验与保存及快照
 			authGroup.GET("/config/raw", handlers.Config.GetRaw)
 			authGroup.POST("/config/validate", handlers.Config.ValidateRaw)
 			authGroup.POST("/config/save", handlers.Config.SaveAndApply)
+			authGroup.GET("/config/snapshots", handlers.Config.ListSnapshots)
+			authGroup.POST("/config/snapshots/:id/rollback", handlers.Config.RollbackSnapshot)
+
+			// GeoData 规则库与升级
+			authGroup.GET("/geodata/status", handlers.GeoData.GetStatus)
+			authGroup.POST("/geodata/update", handlers.GeoData.UpdateGeoData)
 
 			// 运行日志查看
 			authGroup.GET("/logs", handlers.Log.GetLogs)

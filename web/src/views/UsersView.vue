@@ -72,12 +72,25 @@
               </td>
 
               <td class="py-3.5 px-4">
-                <span
-                  class="px-2 py-0.5 rounded-full text-[10px] font-semibold"
-                  :class="user.enabled ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' : 'bg-gray-800 text-gray-400'"
-                >
-                  {{ user.enabled ? '正常' : '已禁用' }}
-                </span>
+                <div class="space-y-1">
+                  <div class="flex items-center gap-1.5">
+                    <span
+                      class="w-2 h-2 rounded-full"
+                      :class="!user.enabled ? 'bg-gray-600' : (user.isOnline ? 'bg-emerald-400 animate-pulse' : 'bg-gray-500')"
+                    ></span>
+                    <span
+                      class="text-[11px] font-semibold"
+                      :class="!user.enabled ? 'text-gray-500' : (user.isOnline ? 'text-emerald-400' : 'text-gray-400')"
+                    >
+                      {{ !user.enabled ? '已禁用' : (user.isOnline ? '在线连接' : '离线') }}
+                    </span>
+                  </div>
+                  <!-- 实时上下行速率 -->
+                  <div v-if="user.isOnline && (user.upSpeed > 0 || user.downSpeed > 0)" class="text-[10px] font-mono text-cyan-300 flex items-center gap-1">
+                    <span>↑{{ formatBytes(user.upSpeed) }}/s</span>
+                    <span>↓{{ formatBytes(user.downSpeed) }}/s</span>
+                  </div>
+                </div>
               </td>
 
               <td class="py-3.5 px-4 text-right space-x-1.5">

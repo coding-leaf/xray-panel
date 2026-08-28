@@ -9,7 +9,7 @@
             Realtime Inspector
           </span>
         </h1>
-        <p class="text-xs text-gray-400 mt-1">深度解析 Xray 客户端访问流向、路由分流决策与错误诊断</p>
+        <p class="text-xs text-gray-400 mt-1">深度解析 Xray 客户端访问流向、路由分流决策与运行错误诊断</p>
       </div>
 
       <div class="flex flex-wrap items-center gap-2.5">
@@ -47,7 +47,7 @@
             class="px-3 py-1.5 rounded-lg text-xs font-semibold transition-all"
             :class="logType === 'error' ? 'bg-rose-600 text-white shadow-md' : 'text-gray-400 hover:text-white'"
           >
-            错误日志 (Error)
+            错误诊断 (Error)
           </button>
         </div>
 
@@ -80,7 +80,7 @@
         <input
           v-model="searchKeyword"
           type="text"
-          placeholder="快速搜索关键词 (如 IP、目标域名、分流出站)..."
+          :placeholder="logType === 'access' ? '快速搜索关键词 (如 IP、目标域名、分流出站)...' : '快速搜索错误内容 (如 DNS, account, timeout, rejected)...'"
           class="w-full bg-transparent text-white focus:outline-none placeholder-gray-500 font-mono text-xs"
         />
         <button v-if="searchKeyword" @click="searchKeyword = ''" class="text-gray-500 hover:text-white text-xs">
@@ -88,19 +88,35 @@
         </button>
       </div>
 
-      <!-- User Dropdown Filter -->
-      <div class="flex items-center gap-2 shrink-0">
-        <div class="flex items-center gap-1.5 bg-black/40 px-3 py-1.5 rounded-xl border border-gray-800 text-xs">
+      <!-- Filters depending on type -->
+      <div class="flex flex-wrap items-center gap-2 shrink-0">
+        <!-- User Dropdown Filter (Access Mode) -->
+        <div v-if="logType === 'access'" class="flex items-center gap-1.5 bg-black/40 px-3 py-1.5 rounded-xl border border-gray-800 text-xs">
           <User class="w-3.5 h-3.5 text-indigo-400 shrink-0" />
-          <span class="text-gray-400 shrink-0">筛选用户:</span>
+          <span class="text-gray-400 shrink-0">用户:</span>
           <select
             v-model="selectedUserEmail"
             class="bg-transparent text-white font-mono font-medium focus:outline-none cursor-pointer pr-2 text-xs"
           >
-            <option value="" class="bg-gray-900 text-gray-300">全部用户 (All Users)</option>
+            <option value="" class="bg-gray-900 text-gray-300">全部用户</option>
             <option v-for="email in userOptions" :key="email" :value="email" class="bg-gray-900 text-cyan-300">
               {{ email }}
             </option>
+          </select>
+        </div>
+
+        <!-- Level Filter (Error Mode) -->
+        <div v-else class="flex items-center gap-1.5 bg-black/40 px-3 py-1.5 rounded-xl border border-gray-800 text-xs">
+          <ShieldAlert class="w-3.5 h-3.5 text-amber-400 shrink-0" />
+          <span class="text-gray-400 shrink-0">级别:</span>
+          <select
+            v-model="selectedLevel"
+            class="bg-transparent text-white font-mono font-medium focus:outline-none cursor-pointer pr-2 text-xs"
+          >
+            <option value="" class="bg-gray-900 text-gray-300">全部级别</option>
+            <option value="Error" class="bg-gray-900 text-rose-400">仅 Error (错误)</option>
+            <option value="Warning" class="bg-gray-900 text-amber-400">仅 Warning (警告)</option>
+            <option value="Info" class="bg-gray-900 text-cyan-400">仅 Info (信息)</option>
           </select>
         </div>
 
@@ -117,7 +133,7 @@
       </div>
     </div>
 
-    <!-- Structured Table View (Mode 1) -->
+    <!-- 1. Access Logs Structured Table View -->
     <div v-if="viewMode === 'table' && logType === 'access'" class="glass-panel rounded-2xl border border-gray-800/80 overflow-hidden shadow-2xl bg-[#06080F]/90">
       <div class="px-5 py-3 bg-gray-900/60 border-b border-gray-800/80 flex items-center justify-between text-xs">
         <div class="flex items-center gap-2 font-mono text-gray-300 font-semibold">
@@ -125,7 +141,7 @@
           <span>结构化访问记录 (共匹配 {{ parsedAccessLogs.length }} 条)</span>
         </div>
         <div v-if="selectedUserEmail" class="text-cyan-400 font-mono text-[11px] bg-cyan-950/40 px-2 py-0.5 rounded border border-cyan-800/40">
-          正在过滤用户: {{ selectedUserEmail }}
+          过滤用户: {{ selectedUserEmail }}
         </div>
       </div>
 
@@ -203,7 +219,82 @@
       </div>
     </div>
 
-    <!-- Terminal High-Contrast Log View (Mode 2 or Error Log) -->
+    <!-- 2. Error / Diagnostic Structured Table View -->
+    <div v-else-if="viewMode === 'table' && logType === 'error'" class="glass-panel rounded-2xl border border-gray-800/80 overflow-hidden shadow-2xl bg-[#06080F]/90">
+      <div class="px-5 py-3 bg-gray-900/60 border-b border-gray-800/80 flex items-center justify-between text-xs">
+        <div class="flex items-center gap-2 font-mono text-gray-300 font-semibold">
+          <span class="w-2 h-2 rounded-full bg-rose-400"></span>
+          <span>结构化错误与诊断报告 (共匹配 {{ parsedErrorLogs.length }} 条)</span>
+        </div>
+        <div class="text-gray-400 font-mono text-[11px]">
+          点击关键词可快速过滤排查
+        </div>
+      </div>
+
+      <div class="overflow-x-auto max-h-[620px] overflow-y-auto">
+        <table class="w-full text-left text-[13px] border-collapse font-sans">
+          <thead class="text-gray-400 bg-gray-950/80 border-b border-gray-800 sticky top-0 z-10 text-xs font-semibold uppercase tracking-wider backdrop-blur-md">
+            <tr>
+              <th class="py-3 px-4">时间</th>
+              <th class="py-3 px-4">级别</th>
+              <th class="py-3 px-4">来源模块</th>
+              <th class="py-3 px-4">连接 ID</th>
+              <th class="py-3 px-4">错误原因与诊断详情</th>
+            </tr>
+          </thead>
+          <tbody class="divide-y divide-gray-800/50 font-mono text-xs">
+            <tr
+              v-for="(row, idx) in parsedErrorLogs"
+              :key="idx"
+              class="hover:bg-white/[0.03] transition-colors"
+            >
+              <!-- Time -->
+              <td class="py-3 px-4 text-gray-400 whitespace-nowrap">{{ row.time }}</td>
+
+              <!-- Level -->
+              <td class="py-3 px-4 whitespace-nowrap">
+                <span
+                  class="px-2.5 py-0.5 rounded text-[11px] font-bold border font-mono"
+                  :class="getErrorLevelBadge(row.level)"
+                >
+                  {{ row.level }}
+                </span>
+              </td>
+
+              <!-- Module -->
+              <td class="py-3 px-4 whitespace-nowrap">
+                <span class="px-2 py-0.5 rounded bg-gray-800/80 text-gray-300 border border-gray-700 text-[11px]">
+                  {{ row.module }}
+                </span>
+              </td>
+
+              <!-- Conn ID -->
+              <td class="py-3 px-4 text-gray-500 whitespace-nowrap font-mono text-[11px]">
+                {{ row.connId ? `[${row.connId}]` : '-' }}
+              </td>
+
+              <!-- Message & Diagnosis -->
+              <td class="py-3 px-4 text-gray-200 break-all leading-relaxed font-sans text-xs">
+                <div class="flex items-start gap-2">
+                  <span class="font-mono text-gray-300">{{ row.message }}</span>
+                </div>
+                <div v-if="row.smartTip" class="mt-1 text-[11px] text-amber-300/90 flex items-center gap-1 font-mono">
+                  <span>💡 诊断建议: {{ row.smartTip }}</span>
+                </div>
+              </td>
+            </tr>
+
+            <tr v-if="!parsedErrorLogs.length">
+              <td colspan="5" class="text-center py-16 text-gray-500 font-sans text-xs">
+                暂无匹配的错误诊断日志 (系统运行平稳)
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- 3. Terminal High-Contrast Log View (Raw Mode) -->
     <div v-else class="glass-panel rounded-2xl border border-gray-800/80 overflow-hidden shadow-2xl bg-[#04060B]">
       <!-- Terminal Header -->
       <div class="flex items-center justify-between px-4 py-2.5 bg-gray-900/90 border-b border-gray-800 text-xs">
@@ -220,7 +311,7 @@
         </div>
       </div>
 
-      <!-- Terminal Output Box (Font Size Increased to 13.5px with Enhanced Contrast) -->
+      <!-- Terminal Output Box (Font Size 13.5px) -->
       <div
         ref="logBox"
         class="h-[600px] overflow-y-auto p-4 sm:p-5 font-['JetBrains_Mono',monospace] text-[13.5px] leading-[1.7] select-text space-y-0.5"
@@ -253,6 +344,7 @@ import {
   Table,
   Terminal,
   User,
+  ShieldAlert,
 } from 'lucide-vue-next'
 import api from '../api'
 
@@ -262,6 +354,7 @@ const autoRefresh = ref(true)
 const loading = ref(false)
 const searchKeyword = ref('')
 const selectedUserEmail = ref('')
+const selectedLevel = ref('')
 const maxLines = ref(200)
 const logData = ref<any>(null)
 const knownUsers = ref<any[]>([])
@@ -290,9 +383,6 @@ const fetchUsers = async () => {
 
 const switchType = (type: string) => {
   logType.value = type
-  if (type === 'error') {
-    viewMode.value = 'terminal'
-  }
   fetchLogs()
 }
 
@@ -323,7 +413,7 @@ const userOptions = computed(() => {
   return Array.from(emailSet)
 })
 
-// 结构化解析 Access 访问日志
+// 1. 结构化解析 Access 访问日志
 const parsedAccessLogs = computed(() => {
   if (!logData.value?.lines || logType.value !== 'access') return []
 
@@ -332,12 +422,9 @@ const parsedAccessLogs = computed(() => {
   const filterEmail = selectedUserEmail.value.toLowerCase()
 
   for (const line of logData.value.lines) {
-    // 基础过滤
     if (kw && !line.toLowerCase().includes(kw)) continue
     if (filterEmail && !line.toLowerCase().includes(filterEmail)) continue
 
-    // 正则提取标准 Xray access 格式:
-    // 2026/08/28 07:56:59.953619 from 127.0.0.1:34004 accepted tcp:example.com:443 [vless-reality >> direct] email: test1@yezineko.top
     const match = line.match(/^(\d{4}\/\d{2}\/\d{2}\s+\d{2}:\d{2}:\d{2}(?:\.\d+)?)\s+from\s+([^\s]+)\s+(\w+)\s+([^\s]+)\s+\[([^\]]+)\](?:\s+email:\s+([^\s]+))?/)
 
     if (match) {
@@ -363,7 +450,6 @@ const parsedAccessLogs = computed(() => {
         email: match[6] || '',
       })
     } else if (line.includes('DOH') || line.includes('answer:')) {
-      // DNS / DOH 解析类日志提取
       list.push({
         raw: line,
         time: line.substring(0, 19),
@@ -380,16 +466,78 @@ const parsedAccessLogs = computed(() => {
   return list
 })
 
-// 原始终端高亮筛选
+// 2. 结构化解析 Error 诊断日志
+const parsedErrorLogs = computed(() => {
+  if (!logData.value?.lines || logType.value !== 'error') return []
+
+  const list: any[] = []
+  const kw = searchKeyword.value.toLowerCase()
+  const filterLvl = selectedLevel.value.toLowerCase()
+
+  for (const line of logData.value.lines) {
+    if (kw && !line.toLowerCase().includes(kw)) continue
+
+    // 匹配: 2026/08/28 01:18:29.038336 [Error] (可选 [3373508809]) module: message
+    const match = line.match(/^(\d{4}\/\d{2}\/\d{2}\s+\d{2}:\d{2}:\d{2}(?:\.\d+)?)\s+\[(Debug|Info|Warning|Error)\](?:\s+\[(\d+)\])?\s+([^:]+):\s+(.*)$/i)
+
+    if (match) {
+      const lvl = match[2].toUpperCase()
+      if (filterLvl && !lvl.toLowerCase().includes(filterLvl)) continue
+
+      const moduleName = match[4]
+      const msg = match[5]
+      let smartTip = ''
+
+      if (msg.includes('client flow is empty')) {
+        smartTip = '客户端未配置 Vision 流控，或当前入站协议不为 TCP'
+      } else if (msg.includes('dns-query') && msg.includes('context canceled')) {
+        smartTip = 'DoH 远端解析握手超时，建议优先使用 8.8.8.8 UDP DNS'
+      } else if (msg.includes('NoKernelTun')) {
+        smartTip = 'WireGuard WARP 采用用户态 gVisor TUN 启动成功'
+      } else if (msg.includes('started')) {
+        smartTip = 'Xray 核心服务已成功初始化并加载配置'
+      }
+
+      list.push({
+        raw: line,
+        time: match[1],
+        level: lvl,
+        connId: match[3] || '',
+        module: moduleName,
+        message: msg,
+        smartTip,
+      })
+    } else {
+      // 备用未归类行
+      if (!filterLvl) {
+        list.push({
+          raw: line,
+          time: line.substring(0, 19) || '-',
+          level: line.includes('Error') ? 'ERROR' : (line.includes('Warning') ? 'WARN' : 'INFO'),
+          connId: '',
+          module: 'system',
+          message: line,
+          smartTip: '',
+        })
+      }
+    }
+  }
+
+  return list
+})
+
+// 3. 原始终端高亮筛选
 const filteredRawLines = computed(() => {
   if (!logData.value?.lines) return []
   const kw = searchKeyword.value.toLowerCase()
   const filterEmail = selectedUserEmail.value.toLowerCase()
+  const filterLvl = selectedLevel.value.toLowerCase()
 
   return logData.value.lines.filter((line: string) => {
     const l = line.toLowerCase()
     if (kw && !l.includes(kw)) return false
-    if (filterEmail && !l.includes(filterEmail)) return false
+    if (logType.value === 'access' && filterEmail && !l.includes(filterEmail)) return false
+    if (logType.value === 'error' && filterLvl && !l.includes(filterLvl)) return false
     return true
   })
 })
@@ -402,10 +550,18 @@ const getRouteBadgeClass = (route: string) => {
   return 'bg-indigo-500/10 text-indigo-300 border-indigo-500/30'
 }
 
+const getErrorLevelBadge = (level: string) => {
+  const l = (level || '').toUpperCase()
+  if (l.includes('ERROR')) return 'bg-rose-500/15 text-rose-400 border-rose-500/30'
+  if (l.includes('WARN')) return 'bg-amber-500/15 text-amber-400 border-amber-500/30'
+  if (l.includes('INFO')) return 'bg-cyan-500/15 text-cyan-400 border-cyan-500/30'
+  return 'bg-gray-800 text-gray-300 border-gray-700'
+}
+
 const highlightLine = (line: string) => {
   const lower = line.toLowerCase()
-  if (lower.includes('warning')) return 'text-amber-300 bg-amber-500/5'
-  if (lower.includes('error') || lower.includes('failed') || lower.includes('rejected')) return 'text-rose-300 bg-rose-500/10 font-bold'
+  if (lower.includes('warning') || lower.includes('[warning]')) return 'text-amber-300 bg-amber-500/5'
+  if (lower.includes('error') || lower.includes('[error]') || lower.includes('failed') || lower.includes('rejected')) return 'text-rose-300 bg-rose-500/10 font-bold'
   if (lower.includes('accepted')) return 'text-emerald-300'
   if (lower.includes('warp')) return 'text-cyan-300'
   if (lower.includes('doh')) return 'text-indigo-300'

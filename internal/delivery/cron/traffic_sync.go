@@ -10,17 +10,19 @@ import (
 )
 
 type TrafficSyncJob struct {
-	xrayManager domain.XrayManager
-	userRepo    domain.UserRepository
-	inboundRepo domain.InboundRepository
-	alertSvc    *service.AlertService
-	interval    time.Duration
+	xrayManager    domain.XrayManager
+	userRepo       domain.UserRepository
+	inboundRepo    domain.InboundRepository
+	trafficLogRepo domain.TrafficLogRepository
+	alertSvc       *service.AlertService
+	interval       time.Duration
 }
 
 func NewTrafficSyncJob(
 	xrayManager domain.XrayManager,
 	userRepo domain.UserRepository,
 	inboundRepo domain.InboundRepository,
+	trafficLogRepo domain.TrafficLogRepository,
 	alertSvc *service.AlertService,
 	interval time.Duration,
 ) *TrafficSyncJob {
@@ -28,11 +30,12 @@ func NewTrafficSyncJob(
 		interval = 15 * time.Second
 	}
 	return &TrafficSyncJob{
-		xrayManager: xrayManager,
-		userRepo:    userRepo,
-		inboundRepo: inboundRepo,
-		alertSvc:    alertSvc,
-		interval:    interval,
+		xrayManager:    xrayManager,
+		userRepo:       userRepo,
+		inboundRepo:    inboundRepo,
+		trafficLogRepo: trafficLogRepo,
+		alertSvc:       alertSvc,
+		interval:       interval,
 	}
 }
 
@@ -68,6 +71,8 @@ func (j *TrafficSyncJob) syncOnce(ctx context.Context) {
 		return
 	}
 
+	today := time.Now().Format("2006-01-02")
+
 	for _, s := range stats {
 		if s.Value <= 0 {
 			continue
@@ -83,11 +88,18 @@ func (j *TrafficSyncJob) syncOnce(ctx context.Context) {
 		if s.Type == domain.TrafficStatTypeUser {
 			_ = j.userRepo.AddTraffic(ctx, s.Tag, up, down)
 
-			// 检查是否超出限额，超出则立即从 Xray 所有节点剔除
+			// 异步/同步写入每日历史记录
 			user, err := j.userRepo.GetByEmail(ctx, s.Tag)
-			if err == nil && user.IsTrafficExceeded() {
-				for _, t := range user.GetInboundTagList() {
-					_ = j.xrayManager.RemoveUser(ctx, t, user.Email)
+			if err == nil && user != nil {
+				if j.trafficLogRepo != nil {
+					_ = j.trafficLogRepo.RecordTraffic(ctx, user.ID, s.Tag, up, down, today)
+				}
+
+				// 检查是否超出限额，超出则立即从 Xray 所有节点剔除
+				if user.IsTrafficExceeded() {
+					for _, t := range user.GetInboundTagList() {
+						_ = j.xrayManager.RemoveUser(ctx, t, user.Email)
+					}
 				}
 			}
 		} else if s.Type == domain.TrafficStatTypeInbound {

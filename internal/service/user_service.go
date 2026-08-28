@@ -24,23 +24,26 @@ type CreateUserDTO struct {
 }
 
 type UserService struct {
-	userRepo    domain.UserRepository
-	inboundRepo domain.InboundRepository
-	xrayManager *xray.Manager
-	configSvc   *ConfigService
+	userRepo       domain.UserRepository
+	inboundRepo    domain.InboundRepository
+	trafficLogRepo domain.TrafficLogRepository
+	xrayManager    *xray.Manager
+	configSvc      *ConfigService
 }
 
 func NewUserService(
 	userRepo domain.UserRepository,
 	inboundRepo domain.InboundRepository,
+	trafficLogRepo domain.TrafficLogRepository,
 	xrayManager *xray.Manager,
 	configSvc *ConfigService,
 ) *UserService {
 	return &UserService{
-		userRepo:    userRepo,
-		inboundRepo: inboundRepo,
-		xrayManager: xrayManager,
-		configSvc:   configSvc,
+		userRepo:       userRepo,
+		inboundRepo:    inboundRepo,
+		trafficLogRepo: trafficLogRepo,
+		xrayManager:    xrayManager,
+		configSvc:      configSvc,
 	}
 }
 
@@ -168,4 +171,11 @@ func (s *UserService) ListUsers(ctx context.Context) ([]domain.User, error) {
 
 func (s *UserService) ResetTraffic(ctx context.Context, id uint) error {
 	return s.userRepo.ResetTraffic(ctx, id)
+}
+
+func (s *UserService) GetTrafficHistory(ctx context.Context, userID uint, days int) ([]domain.TrafficLog, error) {
+	if s.trafficLogRepo == nil {
+		return []domain.TrafficLog{}, nil
+	}
+	return s.trafficLogRepo.GetHistoryByUserID(ctx, userID, days)
 }

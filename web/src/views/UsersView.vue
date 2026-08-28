@@ -9,7 +9,7 @@
             <span>gRPC 毫秒内存热生效 (零断网 / 免重启)</span>
           </span>
         </div>
-        <p class="text-xs text-gray-400 mt-0.5">按用户聚合多节点归属，支持全局聚合订阅、单节点独立提取与多协议多端分发</p>
+        <p class="text-xs text-gray-400 mt-0.5">按用户聚合多节点归属，支持全局聚合订阅、单节点独立提取与每日历史流量趋势分析</p>
       </div>
 
       <button
@@ -85,7 +85,17 @@
                 </span>
               </td>
 
-              <td class="py-3.5 px-4 text-right space-x-2">
+              <td class="py-3.5 px-4 text-right space-x-1.5">
+                <!-- 流量历史趋势按钮 -->
+                <button
+                  @click="openHistoryModal(user)"
+                  class="p-1 rounded-lg bg-gray-800 hover:bg-cyan-500/20 text-cyan-400 transition-colors"
+                  title="查看每日流量历史"
+                >
+                  <BarChart2 class="w-3.5 h-3.5" />
+                </button>
+
+                <!-- 订阅与分享 -->
                 <button
                   @click="openShareModal(user)"
                   class="p-1 rounded-lg bg-gray-800 hover:bg-brand-600/20 text-brand-400 transition-colors"
@@ -93,6 +103,8 @@
                 >
                   <Share2 class="w-3.5 h-3.5" />
                 </button>
+
+                <!-- 重置流量 -->
                 <button
                   @click="resetTraffic(user.id)"
                   class="p-1 rounded-lg bg-gray-800 hover:bg-gray-700 text-gray-300 transition-colors"
@@ -100,6 +112,8 @@
                 >
                   <RotateCcw class="w-3.5 h-3.5" />
                 </button>
+
+                <!-- 编辑 -->
                 <button
                   @click="openEditModal(user)"
                   class="p-1 rounded-lg bg-gray-800 hover:bg-gray-700 text-indigo-400 transition-colors"
@@ -107,6 +121,8 @@
                 >
                   <Edit class="w-3.5 h-3.5" />
                 </button>
+
+                <!-- 删除 -->
                 <button
                   @click="deleteUser(user.id)"
                   class="p-1 rounded-lg bg-gray-800 hover:bg-rose-500/20 text-rose-400 transition-colors"
@@ -121,7 +137,7 @@
       </div>
     </div>
 
-    <!-- Add/Edit User Modal (With Multi-Node Checkbox Assignment) -->
+    <!-- Add/Edit User Modal -->
     <div v-if="showModal" class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/75 backdrop-blur-sm overflow-y-auto">
       <div class="glass-panel w-full max-w-lg p-6 sm:p-8 rounded-3xl border border-gray-800 shadow-2xl space-y-5 my-8">
         <div class="flex items-center justify-between pb-2 border-b border-gray-800">
@@ -261,7 +277,7 @@
           <button @click="showShareModal = false" class="text-gray-400 hover:text-white text-lg">✕</button>
         </div>
 
-        <!-- 1. 全局聚合订阅 (All Nodes Subscription) -->
+        <!-- 1. 全局聚合订阅 -->
         <div class="bg-gradient-to-br from-brand-950/60 to-indigo-950/60 p-5 rounded-2xl border border-brand-500/30 space-y-4">
           <div class="flex items-center justify-between">
             <span class="text-xs font-bold text-brand-300 uppercase tracking-wider flex items-center gap-1.5">
@@ -270,7 +286,6 @@
           </div>
 
           <div class="flex flex-col sm:flex-row gap-4 items-center">
-            <!-- QR Code -->
             <div class="p-2 bg-white rounded-xl shadow-lg shrink-0">
               <qrcode-vue :value="currentShareData?.allSubUrl || ''" :size="100" level="M" />
             </div>
@@ -292,7 +307,7 @@
           </div>
         </div>
 
-        <!-- 2. 单节点独立直连与独立订阅列表 (Single Node Breakdowns) -->
+        <!-- 2. 单节点独立直连与独立订阅列表 -->
         <div class="space-y-3">
           <h3 class="text-xs font-bold text-gray-300 uppercase tracking-wider">
             📍 单节点独立导出与直连 (按节点独立使用)
@@ -359,12 +374,173 @@
         </div>
       </div>
     </div>
+
+    <!-- User Traffic History Modal (Dedicated Trend Analysis) -->
+    <div v-if="showHistoryModal" class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/75 backdrop-blur-sm overflow-y-auto">
+      <div class="glass-panel w-full max-w-2xl p-6 sm:p-8 rounded-3xl border border-gray-800 shadow-2xl space-y-6 my-8 max-h-[90vh] overflow-y-auto">
+        <div class="flex items-center justify-between pb-2 border-b border-gray-800">
+          <div>
+            <h2 class="text-lg font-bold text-white flex items-center gap-2">
+              <BarChart2 class="w-5 h-5 text-cyan-400" />
+              <span>流量历史统计分析 ({{ currentHistoryUser?.email }})</span>
+            </h2>
+            <p class="text-xs text-gray-400 mt-0.5">每日增量上下行流量记录与周期消耗趋势</p>
+          </div>
+          <button @click="showHistoryModal = false" class="text-gray-400 hover:text-white text-lg">✕</button>
+        </div>
+
+        <!-- Timeframe selector -->
+        <div class="flex items-center justify-between">
+          <span class="text-xs font-semibold text-gray-300">分析周期</span>
+          <div class="flex bg-gray-900 p-1 rounded-xl border border-gray-800 text-xs">
+            <button
+              v-for="d in [7, 14, 30]"
+              :key="d"
+              @click="setHistoryDays(d)"
+              class="px-3 py-1 rounded-lg font-medium transition-all"
+              :class="historyDays === d ? 'bg-brand-600 text-white shadow-sm' : 'text-gray-400 hover:text-white'"
+            >
+              近 {{ d }} 天
+            </button>
+          </div>
+        </div>
+
+        <!-- 4 Summary Metric Cards -->
+        <div class="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
+          <div class="bg-gray-900/80 p-3.5 rounded-2xl border border-gray-800/80">
+            <div class="text-[11px] text-gray-400 flex items-center gap-1">
+              <ArrowUpRight class="w-3.5 h-3.5 text-emerald-400" />
+              <span>周期上行</span>
+            </div>
+            <div class="text-sm font-bold text-white font-mono mt-1">{{ formatBytes(historySummary.totalUp) }}</div>
+          </div>
+
+          <div class="bg-gray-900/80 p-3.5 rounded-2xl border border-gray-800/80">
+            <div class="text-[11px] text-gray-400 flex items-center gap-1">
+              <ArrowDownRight class="w-3.5 h-3.5 text-cyan-400" />
+              <span>周期下行</span>
+            </div>
+            <div class="text-sm font-bold text-white font-mono mt-1">{{ formatBytes(historySummary.totalDown) }}</div>
+          </div>
+
+          <div class="bg-gray-900/80 p-3.5 rounded-2xl border border-gray-800/80">
+            <div class="text-[11px] text-gray-400 flex items-center gap-1">
+              <Activity class="w-3.5 h-3.5 text-brand-400" />
+              <span>周期总计</span>
+            </div>
+            <div class="text-sm font-bold text-brand-300 font-mono mt-1">{{ formatBytes(historySummary.totalAll) }}</div>
+          </div>
+
+          <div class="bg-gray-900/80 p-3.5 rounded-2xl border border-gray-800/80">
+            <div class="text-[11px] text-gray-400 flex items-center gap-1">
+              <Zap class="w-3.5 h-3.5 text-amber-400" />
+              <span>日均消耗</span>
+            </div>
+            <div class="text-sm font-bold text-amber-300 font-mono mt-1">{{ formatBytes(historySummary.avgDay) }}</div>
+          </div>
+        </div>
+
+        <!-- Visual Bar Chart -->
+        <div class="glass-panel p-5 rounded-2xl border border-gray-800 space-y-3">
+          <div class="flex items-center justify-between text-xs">
+            <span class="font-bold text-gray-300">每日流量趋势图</span>
+            <div class="flex items-center gap-3 text-[11px] text-gray-400">
+              <span class="flex items-center gap-1"><span class="w-2 h-2 rounded-full bg-emerald-400"></span> 上行</span>
+              <span class="flex items-center gap-1"><span class="w-2 h-2 rounded-full bg-cyan-400"></span> 下行</span>
+            </div>
+          </div>
+
+          <!-- CSS Bar Chart Component -->
+          <div v-if="historyLogs.length" class="h-40 flex items-end gap-1.5 sm:gap-2 pt-4 pb-2 px-1 overflow-x-auto">
+            <div
+              v-for="log in sortedHistoryLogs"
+              :key="log.date"
+              class="flex-1 min-w-[20px] flex flex-col items-center gap-1 group relative h-full justify-end"
+            >
+              <!-- Bar Column (Stacked) -->
+              <div class="w-full max-w-[24px] bg-gray-800/60 rounded-t-md overflow-hidden flex flex-col justify-end h-full">
+                <!-- Downlink Bar -->
+                <div
+                  class="w-full bg-cyan-500/80 hover:bg-cyan-400 transition-all"
+                  :style="{ height: `${getBarPercent(log.downBytes)}%` }"
+                ></div>
+                <!-- Uplink Bar -->
+                <div
+                  class="w-full bg-emerald-500/80 hover:bg-emerald-400 transition-all border-t border-gray-900"
+                  :style="{ height: `${getBarPercent(log.upBytes)}%` }"
+                ></div>
+              </div>
+
+              <!-- Tooltip on hover -->
+              <div class="absolute bottom-full mb-2 hidden group-hover:flex flex-col p-2 bg-gray-900 text-white rounded-xl text-[10px] font-mono shadow-2xl border border-gray-700 whitespace-nowrap z-20 pointer-events-none">
+                <span class="font-bold text-brand-300 mb-0.5">{{ log.date }}</span>
+                <span>上行: {{ formatBytes(log.upBytes) }}</span>
+                <span>下行: {{ formatBytes(log.downBytes) }}</span>
+                <span class="text-gray-400 border-t border-gray-800 pt-0.5 mt-0.5">总计: {{ formatBytes(log.upBytes + log.downBytes) }}</span>
+              </div>
+
+              <!-- X-Axis Label -->
+              <span class="text-[9px] font-mono text-gray-500 truncate w-full text-center">
+                {{ log.date.substring(5) }}
+              </span>
+            </div>
+          </div>
+
+          <div v-else class="text-center py-10 text-xs text-gray-500">
+            暂无历史流量记录（当有客户端产生流量后由后台定时器自动聚合归档）
+          </div>
+        </div>
+
+        <!-- History Detailed Records Table -->
+        <div class="space-y-2 text-xs">
+          <h3 class="font-bold text-gray-300 uppercase tracking-wider text-[11px]">
+            每日详细明细列表
+          </h3>
+
+          <div class="max-h-48 overflow-y-auto rounded-2xl border border-gray-800 bg-gray-900/50">
+            <table class="w-full text-left">
+              <thead>
+                <tr class="border-b border-gray-800 bg-gray-900/80 text-gray-400 font-semibold text-[11px]">
+                  <th class="py-2.5 px-3">日期</th>
+                  <th class="py-2.5 px-3">上行流量 (Up)</th>
+                  <th class="py-2.5 px-3">下行流量 (Down)</th>
+                  <th class="py-2.5 px-3">单日总计 (Total)</th>
+                </tr>
+              </thead>
+              <tbody class="divide-y divide-gray-800/40 font-mono text-[11px]">
+                <tr v-for="log in historyLogs" :key="log.id" class="hover:bg-white/[0.02]">
+                  <td class="py-2.5 px-3 text-white font-medium">{{ log.date }}</td>
+                  <td class="py-2.5 px-3 text-emerald-400">{{ formatBytes(log.upBytes) }}</td>
+                  <td class="py-2.5 px-3 text-cyan-400">{{ formatBytes(log.downBytes) }}</td>
+                  <td class="py-2.5 px-3 text-brand-300 font-bold">{{ formatBytes(log.upBytes + log.downBytes) }}</td>
+                </tr>
+                <tr v-if="!historyLogs.length">
+                  <td colspan="4" class="text-center py-4 text-gray-500">暂无记录</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
-import { UserPlus, Edit, Trash2, RotateCcw, Share2, Copy } from 'lucide-vue-next'
+import {
+  UserPlus,
+  Edit,
+  Trash2,
+  RotateCcw,
+  Share2,
+  Copy,
+  BarChart2,
+  ArrowUpRight,
+  ArrowDownRight,
+  Activity,
+  Zap,
+} from 'lucide-vue-next'
 import QrcodeVue from 'qrcode.vue'
 import api from '../api'
 
@@ -372,9 +548,14 @@ const users = ref<any[]>([])
 const availableInbounds = ref<any[]>([])
 const showModal = ref(false)
 const showShareModal = ref(false)
+const showHistoryModal = ref(false)
 const isEditing = ref(false)
 const saving = ref(false)
+
 const currentShareData = ref<any>(null)
+const currentHistoryUser = ref<any>(null)
+const historyLogs = ref<any[]>([])
+const historyDays = ref(14)
 
 const form = ref<any>({
   id: 0,
@@ -422,7 +603,7 @@ const openAddModal = () => {
   form.value = {
     id: 0,
     email: '',
-    selectedTags: availableInbounds.value.map((i) => i.tag), // 默认选中全部节点
+    selectedTags: availableInbounds.value.map((i) => i.tag),
     flow: 'xtls-rprx-vision',
     totalGB: 0,
     expireDays: 0,
@@ -515,6 +696,66 @@ const openShareModal = async (user: any) => {
     alert('获取订阅链接失败: ' + err)
   }
 }
+
+// 流量历史统计分析 (Traffic History Analysis)
+const openHistoryModal = async (user: any) => {
+  currentHistoryUser.value = user
+  historyDays.value = 14
+  showHistoryModal.value = true
+  await fetchUserHistory(user.id, 14)
+}
+
+const setHistoryDays = async (days: number) => {
+  historyDays.value = days
+  if (currentHistoryUser.value) {
+    await fetchUserHistory(currentHistoryUser.value.id, days)
+  }
+}
+
+const fetchUserHistory = async (userId: number, days: number) => {
+  try {
+    const res: any = await api.get(`/users/${userId}/traffic-history?days=${days}`)
+    historyLogs.value = res || []
+  } catch (err) {
+    console.error(err)
+    historyLogs.value = []
+  }
+}
+
+const sortedHistoryLogs = computed(() => {
+  return [...historyLogs.value].reverse()
+})
+
+const maxDayBytes = computed(() => {
+  let max = 1
+  for (const log of historyLogs.value) {
+    const total = log.upBytes + log.downBytes
+    if (total > max) max = total
+  }
+  return max
+})
+
+const getBarPercent = (bytes: number) => {
+  if (!bytes || maxDayBytes.value <= 0) return 0
+  return Math.min(100, Math.max(4, (bytes / maxDayBytes.value) * 100))
+}
+
+const historySummary = computed(() => {
+  let up = 0
+  let down = 0
+  for (const log of historyLogs.value) {
+    up += log.upBytes || 0
+    down += log.downBytes || 0
+  }
+  const all = up + down
+  const count = historyLogs.value.length || 1
+  return {
+    totalUp: up,
+    totalDown: down,
+    totalAll: all,
+    avgDay: Math.round(all / count),
+  }
+})
 
 const copyText = (text: string) => {
   if (!text) return

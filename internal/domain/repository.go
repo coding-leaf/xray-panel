@@ -28,6 +28,13 @@ type InboundRepository interface {
 	AddTraffic(ctx context.Context, tag string, upBytes, downBytes int64) error
 }
 
+// TrafficLogRepository 定义每日流量历史持久化接口
+type TrafficLogRepository interface {
+	RecordTraffic(ctx context.Context, userID uint, email string, upBytes, downBytes int64, date string) error
+	GetHistoryByUserID(ctx context.Context, userID uint, days int) ([]TrafficLog, error)
+	GetHistoryByEmail(ctx context.Context, email string, days int) ([]TrafficLog, error)
+}
+
 // SettingRepository 定义系统设置仓储接口
 type SettingRepository interface {
 	Get(ctx context.Context, key string) (string, error)

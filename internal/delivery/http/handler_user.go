@@ -121,3 +121,26 @@ func (h *UserHandler) GetShareLink(c *gin.Context) {
 
 	c.JSON(http.StatusOK, shareInfo)
 }
+
+func (h *UserHandler) GetTrafficHistory(c *gin.Context) {
+	idStr := c.Param("id")
+	id, err := strconv.Atoi(idStr)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid user id"})
+		return
+	}
+
+	daysStr := c.DefaultQuery("days", "30")
+	days, _ := strconv.Atoi(daysStr)
+	if days <= 0 {
+		days = 30
+	}
+
+	history, err := h.userSvc.GetTrafficHistory(c.Request.Context(), uint(id), days)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, history)
+}

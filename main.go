@@ -43,6 +43,7 @@ func main() {
 
 	userRepo := repository.NewUserRepository(db)
 	inboundRepo := repository.NewInboundRepository(db)
+	trafficLogRepo := repository.NewGormTrafficLogRepository(db)
 	settingRepo := repository.NewSettingRepository(db)
 	adminRepo := repository.NewAdminRepository(db)
 
@@ -69,7 +70,7 @@ func main() {
 
 	// 4. 初始化业务用例深模块 Services
 	configSvc := service.NewConfigService(configMgr, supervisor, inboundRepo, userRepo)
-	userSvc := service.NewUserService(userRepo, inboundRepo, xrayManager, configSvc)
+	userSvc := service.NewUserService(userRepo, inboundRepo, trafficLogRepo, xrayManager, configSvc)
 	subSvc := service.NewSubService(userRepo, inboundRepo, settingRepo)
 	monitorSvc := service.NewMonitorService(hostMonitor, xrayManager, userRepo, inboundRepo)
 	alertSvc := service.NewAlertService(botAdapter, userRepo, hostMonitor, configMgr)
@@ -103,7 +104,7 @@ func main() {
 	defer stop()
 
 	// 启动后台定时任务
-	syncJob := deliveryCron.NewTrafficSyncJob(xrayManager, userRepo, inboundRepo, alertSvc, 15*time.Second)
+	syncJob := deliveryCron.NewTrafficSyncJob(xrayManager, userRepo, inboundRepo, trafficLogRepo, alertSvc, 15*time.Second)
 	syncJob.Start(ctx)
 
 	// 启动 Telegram Bot 轮询

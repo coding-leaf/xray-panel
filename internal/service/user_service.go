@@ -16,13 +16,20 @@ type UserService struct {
 	userRepo    domain.UserRepository
 	inboundRepo domain.InboundRepository
 	xrayManager domain.XrayManager
+	configSvc   *ConfigService
 }
 
-func NewUserService(userRepo domain.UserRepository, inboundRepo domain.InboundRepository, xrayManager domain.XrayManager) *UserService {
+func NewUserService(
+	userRepo domain.UserRepository,
+	inboundRepo domain.InboundRepository,
+	xrayManager domain.XrayManager,
+	configSvc *ConfigService,
+) *UserService {
 	return &UserService{
 		userRepo:    userRepo,
 		inboundRepo: inboundRepo,
 		xrayManager: xrayManager,
+		configSvc:   configSvc,
 	}
 }
 
@@ -74,9 +81,12 @@ func (s *UserService) CreateUser(ctx context.Context, dto CreateUserDTO) (*domai
 		return nil, fmt.Errorf("create user in db failed: %w", err)
 	}
 
-	// gRPC 同步到 Xray 核心
-	if err := s.xrayManager.AddUser(ctx, inbound.Tag, user); err != nil {
-		// Xray 离线时不阻断 DB，记录告警
+	// 1. gRPC 热同步到 Xray 核心内存
+	_ = s.xrayManager.AddUser(ctx, inbound.Tag, user)
+
+	// 2. 双向同步持久化回写 config.json 物理文件
+	if s.configSvc != nil {
+		_ = s.configSvc.SyncUserToFile(ctx, inbound.Tag, user, false)
 	}
 
 	return user, nil
@@ -96,6 +106,10 @@ func (s *UserService) UpdateUser(ctx context.Context, user *domain.User) error {
 		}
 	}
 
+	if s.configSvc != nil {
+		_ = s.configSvc.SyncUserToFile(ctx, user.InboundTag, user, false)
+	}
+
 	return s.userRepo.Update(ctx, user)
 }
 
@@ -105,8 +119,13 @@ func (s *UserService) DeleteUser(ctx context.Context, id uint) error {
 		return err
 	}
 
-	// gRPC 移除
+	// 1. gRPC 热移除
 	_ = s.xrayManager.RemoveUser(ctx, user.InboundTag, user.Email)
+
+	// 2. 从物理 config.json 移除
+	if s.configSvc != nil {
+		_ = s.configSvc.SyncUserToFile(ctx, user.InboundTag, user, true)
+	}
 
 	return s.userRepo.Delete(ctx, id)
 }

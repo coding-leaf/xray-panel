@@ -68,9 +68,9 @@ func main() {
 	botHandler := telegram.NewBotHandler(botAdapter, userRepo, inboundRepo, hostMonitor, xrayManager, cfg.PublicURL)
 
 	// 4. 初始化业务用例深模块 Services
-	userSvc := service.NewUserService(userRepo, inboundRepo, xrayManager)
+	configSvc := service.NewConfigService(configMgr, supervisor, inboundRepo, userRepo)
+	userSvc := service.NewUserService(userRepo, inboundRepo, xrayManager, configSvc)
 	subSvc := service.NewSubService(userRepo, inboundRepo, settingRepo)
-	configSvc := service.NewConfigService(configMgr, supervisor, inboundRepo)
 	monitorSvc := service.NewMonitorService(hostMonitor, xrayManager, userRepo, inboundRepo)
 	alertSvc := service.NewAlertService(botAdapter, userRepo, hostMonitor, configMgr)
 	logSvc := service.NewLogService(configMgr)

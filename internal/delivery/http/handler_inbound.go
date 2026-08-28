@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"strconv"
 
+	"panel/internal/adapter/xray"
 	"panel/internal/domain"
 	"panel/internal/service"
 
@@ -75,4 +76,13 @@ func (h *InboundHandler) Delete(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{"message": "inbound deleted"})
+}
+
+func (h *InboundHandler) GenerateRealityKey(c *gin.Context) {
+	pair, err := xray.GenerateRealityKeyPair()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, pair)
 }

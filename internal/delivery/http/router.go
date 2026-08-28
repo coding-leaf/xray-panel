@@ -111,6 +111,7 @@ func SetupRouter(handlers *Handlers, jwtSecret string, staticFS fs.FS) *gin.Engi
 
 			// GeoData 规则库与升级
 			authGroup.GET("/geodata/status", handlers.GeoData.GetStatus)
+			authGroup.GET("/geodata/progress", handlers.GeoData.GetProgress)
 			authGroup.POST("/geodata/update", handlers.GeoData.UpdateGeoData)
 
 			// 运行日志查看

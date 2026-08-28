@@ -32,35 +32,60 @@
       </div>
     </div>
 
-    <!-- GeoData 规则库在线升级状态卡片 -->
-    <div class="glass-panel p-4 sm:p-5 rounded-2xl border border-gray-800/80 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 bg-gradient-to-r from-gray-900/60 to-brand-950/20">
-      <div class="flex items-center gap-3">
-        <div class="p-2.5 rounded-xl bg-brand-500/10 border border-brand-500/20 text-brand-400">
-          <Database class="w-5 h-5" />
-        </div>
-        <div class="space-y-0.5 text-xs">
-          <div class="flex items-center gap-2">
-            <span class="font-bold text-white">GeoData 分流规则库 (geoip.dat & geosite.dat)</span>
-            <span class="px-2 py-0.2 rounded text-[10px] font-mono bg-gray-800 text-cyan-400">
-              {{ geodataStatus?.platform || 'Xray Core' }}
-            </span>
+    <!-- GeoData 规则库在线升级状态卡片与实时进度条 -->
+    <div class="glass-panel p-4 sm:p-5 rounded-2xl border border-gray-800/80 flex flex-col gap-4 bg-gradient-to-r from-gray-900/60 to-brand-950/20">
+      <div class="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+        <div class="flex items-center gap-3">
+          <div class="p-2.5 rounded-xl bg-brand-500/10 border border-brand-500/20 text-brand-400">
+            <Database class="w-5 h-5" />
           </div>
-          <p class="text-[11px] text-gray-400 font-mono">
-            GeoIP: {{ geodataStatus?.geoipExists ? `${(geodataStatus.geoipSize / 1048576).toFixed(2)} MB` : '未找到' }} | 
-            GeoSite: {{ geodataStatus?.geositeExists ? `${(geodataStatus.geositeSize / 1048576).toFixed(2)} MB` : '未找到' }} | 
-            路径: {{ geodataStatus?.targetDirectory || './' }}
-          </p>
+          <div class="space-y-0.5 text-xs">
+            <div class="flex items-center gap-2">
+              <span class="font-bold text-white">GeoData 分流规则库 (geoip.dat & geosite.dat)</span>
+              <span class="px-2 py-0.2 rounded text-[10px] font-mono bg-gray-800 text-cyan-400">
+                {{ geodataStatus?.platform || 'Xray Core' }}
+              </span>
+            </div>
+            <p class="text-[11px] text-gray-400 font-mono">
+              GeoIP: {{ geodataStatus?.geoipExists ? `${(geodataStatus.geoipSize / 1048576).toFixed(2)} MB` : '未找到' }} | 
+              GeoSite: {{ geodataStatus?.geositeExists ? `${(geodataStatus.geositeSize / 1048576).toFixed(2)} MB` : '未找到' }} | 
+              路径: {{ geodataStatus?.targetDirectory || './' }}
+            </p>
+          </div>
         </div>
+
+        <button
+          @click="updateGeoData"
+          :disabled="updatingGeo"
+          class="px-4 py-2 bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 text-white text-xs font-semibold rounded-xl transition-all shadow-lg shadow-cyan-500/25 flex items-center gap-1.5 shrink-0 disabled:opacity-50"
+        >
+          <RotateCw class="w-3.5 h-3.5" :class="{ 'animate-spin': updatingGeo }" />
+          <span>{{ updatingGeo ? '规则库升级中...' : '一键拉取最新规则库' }}</span>
+        </button>
       </div>
 
-      <button
-        @click="updateGeoData"
-        :disabled="updatingGeo"
-        class="px-4 py-2 bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 text-white text-xs font-semibold rounded-xl transition-all shadow-lg shadow-cyan-500/25 flex items-center gap-1.5 shrink-0 disabled:opacity-50"
-      >
-        <RefreshCw class="w-3.5 h-3.5" :class="{ 'animate-spin': updatingGeo }" />
-        <span>{{ updatingGeo ? '正在更新规则库...' : '⚡ 一键拉取最新规则库' }}</span>
-      </button>
+      <!-- 实时下载进度条 (Obsidian 炫彩流光样式) -->
+      <div v-if="updatingGeo || (geoProgress.percentage > 0 && geoProgress.percentage < 100)" class="p-3.5 bg-black/40 rounded-xl border border-gray-800 space-y-2 transition-all">
+        <div class="flex items-center justify-between text-xs">
+          <div class="flex items-center gap-2">
+            <span class="w-2 h-2 rounded-full" :class="updatingGeo ? 'bg-cyan-400 animate-ping' : 'bg-emerald-400'"></span>
+            <span class="font-medium text-gray-300 font-mono text-[11px]">
+              {{ geoProgress.message || '正在准备下载...' }}
+            </span>
+          </div>
+          <span class="font-mono font-bold text-cyan-300 text-xs">
+            {{ geoProgress.percentage }}%
+          </span>
+        </div>
+
+        <!-- 进度条轨道 -->
+        <div class="w-full h-2 bg-gray-900 rounded-full overflow-hidden p-0.5 border border-gray-800 relative">
+          <div
+            class="h-full rounded-full bg-gradient-to-r from-cyan-500 via-emerald-400 to-indigo-500 transition-all duration-300 shadow-[0_0_12px_rgba(6,182,212,0.6)]"
+            :style="{ width: `${geoProgress.percentage}%` }"
+          ></div>
+        </div>
+      </div>
     </div>
 
     <!-- Domain Strategy & Presets Bar -->
@@ -440,17 +465,52 @@ const fetchGeoStatus = async () => {
   }
 }
 
+const geoProgress = ref<any>({
+  isUpdating: false,
+  percentage: 0,
+  message: '',
+  speedBps: 0,
+})
+let progressTimer: any = null
+
+const pollGeoProgress = async () => {
+  try {
+    const res: any = await api.get('/geodata/progress')
+    if (res) {
+      geoProgress.value = res
+      if (!res.isUpdating) {
+        if (progressTimer) {
+          clearInterval(progressTimer)
+          progressTimer = null
+        }
+        updatingGeo.value = false
+        if (res.step === 'done') {
+          toast.success(res.message || 'GeoData 规则库更新成功！')
+          await fetchGeoStatus()
+          setTimeout(() => {
+            geoProgress.value.percentage = 0
+          }, 4000)
+        } else if (res.step === 'error') {
+          toast.error(res.message || '更新规则库失败')
+        }
+      }
+    }
+  } catch (e) {
+    console.error('poll progress failed', e)
+  }
+}
+
 const updateGeoData = async () => {
   if (!confirm('确定在线更新 GeoIP / GeoSite 规则库吗？更新完成后将自动重载 Xray 核心。')) return
   updatingGeo.value = true
+  geoProgress.value = { isUpdating: true, percentage: 5, message: '正在启动后台下载引擎...' }
   try {
-    await api.post('/geodata/update', null, { timeout: 180000 })
-    toast.success('GeoData 规则库更新成功！')
-    await fetchGeoStatus()
+    await api.post('/geodata/update')
+    if (progressTimer) clearInterval(progressTimer)
+    progressTimer = setInterval(pollGeoProgress, 500)
   } catch (err: any) {
-    toast.error('更新失败: ' + err)
-  } finally {
     updatingGeo.value = false
+    toast.error('触发更新失败: ' + err)
   }
 }
 

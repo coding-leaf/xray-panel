@@ -25,10 +25,15 @@ func (h *GeoDataHandler) GetStatus(c *gin.Context) {
 	c.JSON(http.StatusOK, status)
 }
 
+func (h *GeoDataHandler) GetProgress(c *gin.Context) {
+	progress := h.geoSvc.GetProgress()
+	c.JSON(http.StatusOK, progress)
+}
+
 func (h *GeoDataHandler) UpdateGeoData(c *gin.Context) {
-	if err := h.geoSvc.UpdateGeoData(c.Request.Context()); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+	if err := h.geoSvc.TriggerUpdate(); err != nil {
+		c.JSON(http.StatusConflict, gin.H{"error": err.Error()})
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"message": "GeoData 规则库已成功更新并重载生效"})
+	c.JSON(http.StatusAccepted, gin.H{"message": "GeoData 规则库更新任务已在后台启动"})
 }

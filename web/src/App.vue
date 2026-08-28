@@ -79,9 +79,15 @@
         <!-- Global Status Pill & Quick Controls -->
         <div class="flex items-center gap-3">
           <!-- Xray Active Status Badge -->
-          <div class="flex items-center gap-2 px-3 py-1.5 rounded-full bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-xs font-medium font-mono">
-            <span class="w-2 h-2 rounded-full bg-emerald-400 pulse-green"></span>
-            <span>Xray Core Running</span>
+          <div
+            class="flex items-center gap-2 px-3 py-1.5 rounded-full border text-xs font-medium font-mono transition-colors shadow-sm"
+            :class="coreStatus.active ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-400' : 'bg-rose-500/10 border-rose-500/20 text-rose-400'"
+          >
+            <span
+              class="w-2 h-2 rounded-full"
+              :class="coreStatus.active ? 'bg-emerald-400 pulse-green' : 'bg-rose-500 animate-pulse'"
+            ></span>
+            <span>{{ coreStatus.active ? (coreStatus.version ? `Xray Core 运行中 (${coreStatus.version})` : 'Xray Core 运行中') : 'Xray Core 已停止' }}</span>
           </div>
 
           <!-- Quick Refresh Button -->
@@ -149,7 +155,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed } from 'vue'
+import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import {
   LayoutDashboard,
@@ -203,9 +209,30 @@ const currentViewName = computed(() => {
   return cur ? cur.name : '控制面板'
 })
 
+const coreStatus = ref<{ active: boolean; version?: string }>({
+  active: true,
+  version: '',
+})
+let statusTimer: any = null
+
+const fetchCoreStatus = async () => {
+  if (isLoginPage.value) return
+  try {
+    const res: any = await api.get('/dashboard')
+    if (res?.service) {
+      coreStatus.value = {
+        active: !!res.service.active,
+        version: res.metrics?.xrayVersion || '',
+      }
+    }
+  } catch (e) {
+    coreStatus.value.active = false
+  }
+}
+
 const triggerGlobalRefresh = () => {
   refreshing.value = true
-  // 触发全局事件或轻微重新渲染
+  fetchCoreStatus()
   setTimeout(() => {
     refreshing.value = false
     toast.info('面板数据已同步更新')
@@ -215,14 +242,24 @@ const triggerGlobalRefresh = () => {
 const restartCore = async () => {
   restarting.value = true
   try {
-    await api.post('/config/restart')
-    toast.success('Xray 核心已成功重启/重载！')
+    await api.post('/service/restart')
+    toast.success('Xray 核心已成功重启！')
+    await fetchCoreStatus()
   } catch (err: any) {
     toast.error('重启失败: ' + err)
   } finally {
     restarting.value = false
   }
 }
+
+onMounted(() => {
+  fetchCoreStatus()
+  statusTimer = setInterval(fetchCoreStatus, 6000)
+})
+
+onUnmounted(() => {
+  if (statusTimer) clearInterval(statusTimer)
+})
 
 const logout = () => {
   localStorage.removeItem('token')

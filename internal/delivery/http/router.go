@@ -21,6 +21,7 @@ type Handlers struct {
 	Sub       *SubHandler
 	Setting   *SettingHandler
 	Log       *LogHandler
+	DNS       *DNSHandler
 }
 
 func SetupRouter(handlers *Handlers, jwtSecret string, staticFS fs.FS) *gin.Engine {
@@ -83,6 +84,10 @@ func SetupRouter(handlers *Handlers, jwtSecret string, staticFS fs.FS) *gin.Engi
 			// 路由分流规则管理
 			authGroup.GET("/routing", handlers.Routing.Get)
 			authGroup.POST("/routing", handlers.Routing.Save)
+
+			// DNS 设置管理
+			authGroup.GET("/dns", handlers.DNS.Get)
+			authGroup.POST("/dns", handlers.DNS.Save)
 
 			// 原始配置在线校验与保存
 			authGroup.GET("/config/raw", handlers.Config.GetRaw)

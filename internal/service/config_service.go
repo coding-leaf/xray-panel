@@ -548,3 +548,55 @@ func (s *ConfigService) SaveRoutingConfig(ctx context.Context, cfg *domain.Routi
 
 	return s.supervisor.Reload(ctx)
 }
+
+// === DNS 设置 (DNS Management) ===
+
+func (s *ConfigService) GetDNSConfig(ctx context.Context) (*domain.DNSConfig, error) {
+	raw, err := s.configMgr.ReadRawConfig()
+	if err != nil {
+		return nil, err
+	}
+	cleaned := jsonc.StripJSONC(raw)
+
+	var root struct {
+		DNS domain.DNSConfig `json:"dns"`
+	}
+
+	if err := json.Unmarshal(cleaned, &root); err != nil {
+		return nil, err
+	}
+
+	if len(root.DNS.Servers) == 0 {
+		root.DNS.Servers = []interface{}{"https://1.1.1.1/dns-query", "8.8.8.8", "localhost"}
+	}
+	if root.DNS.QueryStrategy == "" {
+		root.DNS.QueryStrategy = "UseIP"
+	}
+
+	return &root.DNS, nil
+}
+
+func (s *ConfigService) SaveDNSConfig(ctx context.Context, cfg *domain.DNSConfig) error {
+	raw, err := s.configMgr.ReadRawConfig()
+	if err != nil {
+		return err
+	}
+	cleaned := jsonc.StripJSONC(raw)
+
+	var root map[string]interface{}
+	if err := json.Unmarshal(cleaned, &root); err != nil {
+		return err
+	}
+
+	root["dns"] = cfg
+	data, err := json.Marshal(root)
+	if err != nil {
+		return err
+	}
+
+	if err := s.configMgr.WriteConfig(ctx, data); err != nil {
+		return err
+	}
+
+	return s.supervisor.Reload(ctx)
+}

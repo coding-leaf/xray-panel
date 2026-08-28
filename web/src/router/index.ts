@@ -3,6 +3,7 @@ import DashboardView from '../views/DashboardView.vue'
 import InboundsView from '../views/InboundsView.vue'
 import OutboundsView from '../views/OutboundsView.vue'
 import RoutingView from '../views/RoutingView.vue'
+import DNSView from '../views/DNSView.vue'
 import UsersView from '../views/UsersView.vue'
 import ConfigView from '../views/ConfigView.vue'
 import LogsView from '../views/LogsView.vue'
@@ -15,6 +16,7 @@ const routes = [
   { path: '/inbounds', component: InboundsView, meta: { requiresAuth: true } },
   { path: '/outbounds', component: OutboundsView, meta: { requiresAuth: true } },
   { path: '/routing', component: RoutingView, meta: { requiresAuth: true } },
+  { path: '/dns', component: DNSView, meta: { requiresAuth: true } },
   { path: '/users', component: UsersView, meta: { requiresAuth: true } },
   { path: '/config', component: ConfigView, meta: { requiresAuth: true } },
   { path: '/logs', component: LogsView, meta: { requiresAuth: true } },

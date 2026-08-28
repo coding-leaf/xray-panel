@@ -89,6 +89,7 @@ import {
   ScrollText,
   Send,
   Route as RouteIcon,
+  Globe,
   Settings,
   LogOut,
 } from 'lucide-vue-next'
@@ -104,6 +105,7 @@ const navItems = [
   { name: '入站节点', path: '/inbounds', icon: Radio },
   { name: '出站代理', path: '/outbounds', icon: Send },
   { name: '路由分流', path: '/routing', icon: RouteIcon },
+  { name: 'DNS 设置', path: '/dns', icon: Globe },
   { name: '用户与订阅', path: '/users', icon: Users },
   { name: '配置编辑', path: '/config', icon: FileCode2 },
   { name: '运行日志', path: '/logs', icon: ScrollText },

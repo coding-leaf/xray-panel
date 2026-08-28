@@ -87,6 +87,7 @@ func main() {
 		Sub:       deliveryHTTP.NewSubHandler(subSvc),
 		Setting:   deliveryHTTP.NewSettingHandler(settingRepo, botAdapter),
 		Log:       deliveryHTTP.NewLogHandler(logSvc),
+		DNS:       deliveryHTTP.NewDNSHandler(configSvc),
 	}
 
 	staticFS := getStaticFS()

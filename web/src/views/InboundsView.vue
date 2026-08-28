@@ -694,6 +694,8 @@ const editInbound = (inb: any) => {
   form.value.tag = inb.tag
   form.value.listen = inb.listen || '0.0.0.0'
   form.value.port = inb.port
+  form.value.externalPort = inb.externalPort || 0
+  form.value.externalHost = inb.externalHost || ''
   form.value.protocol = inb.protocol
 
   let settings: any = {}

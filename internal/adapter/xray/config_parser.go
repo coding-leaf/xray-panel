@@ -205,10 +205,63 @@ func BuildShareLink(inbound *domain.Inbound, user *domain.User, hostDomain strin
 		v := url.Values{}
 		v.Set("type", network)
 		v.Set("security", security)
-		flow := ""
+		v.Set("encryption", "none")
+
+		if security == "reality" {
+			v.Set("fp", "chrome") // 默认 uTLS 指纹 chrome
+
+			if realitySettings, ok := streamMap["realitySettings"].(map[string]interface{}); ok {
+				// 获取或从私钥推导公钥 (pbk)
+				pbk, _ := realitySettings["publicKey"].(string)
+				if pbk == "" {
+					if privKey, ok := realitySettings["privateKey"].(string); ok {
+						pbk = DerivePublicKeyFromPrivate(privKey)
+					}
+				}
+				if pbk != "" {
+					v.Set("pbk", pbk)
+				}
+
+				// SNI
+				if serverNames, ok := realitySettings["serverNames"].([]interface{}); ok && len(serverNames) > 0 {
+					v.Set("sni", fmt.Sprintf("%v", serverNames[0]))
+				}
+
+				// ShortId (优先选取第一个非空 shortId)
+				if shortIds, ok := realitySettings["shortIds"].([]interface{}); ok && len(shortIds) > 0 {
+					for _, sidRaw := range shortIds {
+						sidStr := fmt.Sprintf("%v", sidRaw)
+						if sidStr != "" {
+							v.Set("sid", sidStr)
+							break
+						}
+					}
+				}
+
+				// SpiderX (spx)
+				if spx, ok := realitySettings["spiderX"].(string); ok && spx != "" {
+					v.Set("spx", spx)
+				}
+
+				// 自定义指纹覆盖
+				if customFp, ok := realitySettings["fingerprint"].(string); ok && customFp != "" {
+					v.Set("fp", customFp)
+				}
+			}
+		} else if security == "tls" {
+			v.Set("fp", "chrome")
+			if tlsSettings, ok := streamMap["tlsSettings"].(map[string]interface{}); ok {
+				if serverName, ok := tlsSettings["serverName"].(string); ok && serverName != "" {
+					v.Set("sni", serverName)
+				}
+			}
+		}
+
+		// TCP 下的 flow 属性 (xtls-rprx-vision)
 		if network == "tcp" && (security == "reality" || security == "tls") {
 			var settingsMap map[string]interface{}
 			_ = json.Unmarshal([]byte(inbound.SettingsJSON), &settingsMap)
+			flow := ""
 			if f, ok := settingsMap["flow"].(string); ok && f != "" {
 				flow = f
 			} else if user.Flow != "" {
@@ -216,43 +269,29 @@ func BuildShareLink(inbound *domain.Inbound, user *domain.User, hostDomain strin
 			} else {
 				flow = "xtls-rprx-vision"
 			}
-		}
-		if flow != "" {
-			v.Set("flow", flow)
-		}
-
-		if security == "reality" {
-			if realitySettings, ok := streamMap["realitySettings"].(map[string]interface{}); ok {
-				if pbk, ok := realitySettings["publicKey"].(string); ok {
-					v.Set("pbk", pbk)
-				}
-				if serverNames, ok := realitySettings["serverNames"].([]interface{}); ok && len(serverNames) > 0 {
-					v.Set("sni", fmt.Sprintf("%v", serverNames[0]))
-				}
-				if shortIds, ok := realitySettings["shortIds"].([]interface{}); ok && len(shortIds) > 0 {
-					v.Set("sid", fmt.Sprintf("%v", shortIds[0]))
-				}
+			if flow != "" {
+				v.Set("flow", flow)
 			}
 		}
 
 		if network == "xhttp" {
 			if xhttpSettings, ok := streamMap["xhttpSettings"].(map[string]interface{}); ok {
-				if path, ok := xhttpSettings["path"].(string); ok {
+				if path, ok := xhttpSettings["path"].(string); ok && path != "" {
 					v.Set("path", path)
 				}
-				if mode, ok := xhttpSettings["mode"].(string); ok {
+				if mode, ok := xhttpSettings["mode"].(string); ok && mode != "" {
 					v.Set("mode", mode)
 				}
 			}
 		} else if network == "ws" {
 			if wsSettings, ok := streamMap["wsSettings"].(map[string]interface{}); ok {
-				if path, ok := wsSettings["path"].(string); ok {
+				if path, ok := wsSettings["path"].(string); ok && path != "" {
 					v.Set("path", path)
 				}
 			}
 		} else if network == "grpc" {
 			if grpcSettings, ok := streamMap["grpcSettings"].(map[string]interface{}); ok {
-				if serviceName, ok := grpcSettings["serviceName"].(string); ok {
+				if serviceName, ok := grpcSettings["serviceName"].(string); ok && serviceName != "" {
 					v.Set("serviceName", serviceName)
 				}
 			}

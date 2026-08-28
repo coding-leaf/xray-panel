@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"fmt"
+	"strings"
 
 	"golang.org/x/crypto/curve25519"
 )
@@ -42,4 +43,25 @@ func GenerateRealityKeyPair() (*RealityKeyPair, error) {
 		PublicKey:  pubStr,
 		ShortID:    shortID,
 	}, nil
+}
+
+// DerivePublicKeyFromPrivate 从 Reality base64 私钥自动推导 x25519 对应公钥
+func DerivePublicKeyFromPrivate(privStr string) string {
+	if privStr == "" {
+		return ""
+	}
+	privBytes, err := base64.RawURLEncoding.DecodeString(strings.TrimRight(privStr, "="))
+	if err != nil {
+		privBytes, err = base64.StdEncoding.DecodeString(privStr)
+	}
+	if err != nil || len(privBytes) != 32 {
+		return ""
+	}
+	var privKey, pubKey [32]byte
+	copy(privKey[:], privBytes)
+	privKey[0] &= 248
+	privKey[31] &= 127
+	privKey[31] |= 64
+	curve25519.ScalarBaseMult(&pubKey, &privKey)
+	return base64.RawURLEncoding.EncodeToString(pubKey[:])
 }

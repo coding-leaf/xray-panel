@@ -4,13 +4,16 @@
   <img src="https://img.shields.io/badge/Go-1.22+-00ADD8?style=flat-square&logo=go" alt="Go Version">
   <img src="https://img.shields.io/badge/Vue-3.4+-4FC08D?style=flat-square&logo=vue.js" alt="Vue Version">
   <img src="https://img.shields.io/badge/Architecture-Clean%20Architecture-blue?style=flat-square" alt="Clean Architecture">
+  <img src="https://img.shields.io/badge/Developed%20with-AI%20Pair%20Programming-8A2BE2?style=flat-square&logo=google-gemini" alt="Developed with AI">
   <img src="https://img.shields.io/badge/License-MIT-green.svg?style=flat-square" alt="License">
   <img src="https://img.shields.io/badge/Status-Production%20Ready-success?style=flat-square" alt="Production Ready">
 </p>
 
+> 💡 **AI 驱动开发**：本项目由 AI 辅助结对编程深度打造，严格遵循 **Clean Architecture（整洁架构）** 分层契约，并通过 **ISO/IEC 25010 国际软件质量标准** 审查与自动化单元测试加固。
+
 ---
 
-**Xray Decoupled Panel** 是一款基于 **Clean Architecture（整洁架构）** 分层设计的高性能单机 Xray 运维监控与订阅分发面板。它采用**完全解耦模式**，仅通过 Xray 官方 gRPC API 与系统信号协同工作，不侵入 Xray 原生内核进程，具备极高的稳定性和极低资源占用。
+**Xray Decoupled Panel** 是一款高性能单机 Xray 运维监控与订阅分发面板。它采用**完全解耦模式**，仅通过 Xray 官方 gRPC API 与系统信号协同工作，不侵入 Xray 原生内核进程，具备极高的稳定性和极低资源占用。
 
 ---
 
@@ -65,6 +68,25 @@ internal/
 
 ---
 
+## 🔒 生产环境安全与加固建议 (Security Best Practices)
+
+为确保生产环境安全无虞，推荐按以下准则配置与加固：
+
+1. **启用 HTTPS 反向代理（强烈推荐）**：
+   - 避免直接将面板 HTTP 裸端口暴露在公网上。
+   - 建议使用 Nginx / Caddy 申请合法 SSL 证书并通过反向代理访问（参考项目中的 `deploy/nginx-sample.conf`）。
+2. **首次登录强制修改默认凭据**：
+   - 初始密码为 `admin123`，首次登录后请立即进入【系统设置】修改为高强度密码。
+   - 强烈建议开启 **TOTP 双因素身份验证 (2FA)**，使用 Google Authenticator 等应用扫码绑定。
+3. **隔离 gRPC API 通信端口**：
+   - Xray 配置中的 gRPC API 监听地址务必限定为 `127.0.0.1:8080`（仅允许本地回环访问），禁止绑定 `0.0.0.0`。
+4. **自定义生产 JWT Secret**：
+   - 生产环境中建议通过环境变量 `PANEL_JWT_SECRET` 指定至少 32 位的随机高熵密钥，杜绝使用默认密钥。
+5. **防火墙策略最小权限原则**：
+   - 使用 UFW / iptables 仅对外开放业务代理入站端口（如 `443`）与 Web 反代端口，面板底层端口与 gRPC 端口无需对外开放。
+
+---
+
 ## 🚀 快速开始
 
 ### 方式一：Linux Systemd 一键安装（推荐生产环境）
@@ -93,7 +115,7 @@ sudo bash deploy/install.sh
 ./panel -port 9000 -xray-config /usr/local/etc/xray/config.json -xray-grpc 127.0.0.1:8080
 ```
 
-#### 常用启动参数：
+#### 常用启动参数与环境变量：
 
 | 参数名 | 环境变量 | 默认值 | 描述 |
 | :--- | :--- | :--- | :--- |
@@ -104,15 +126,6 @@ sudo bash deploy/install.sh
 | `-xray-service` | `XRAY_SERVICE_NAME` | `xray` | Xray 的 systemd 服务名 |
 | `-db` | `PANEL_DB_PATH` | `data/panel.db` | 面板 SQLite 数据库文件路径 |
 | `-jwt-secret` | `PANEL_JWT_SECRET` | 随机生成/默认 | 管理员鉴权 JWT 签名密钥 |
-
----
-
-### 初始凭据
-
-- **默认后台地址**：`http://<你的服务器IP>:9000`
-- **默认管理员账号**：`admin`
-- **默认管理员密码**：`admin123`
-*(登录后请立即进入【系统设置】修改密码并绑定 Telegram Bot)*
 
 ---
 

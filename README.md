@@ -17,6 +17,21 @@
 
 ---
 
+## 📸 界面预览 (Screenshots)
+
+<div align="center">
+  <img src="docs/images/dashboard.png" alt="Dashboard" width="92%">
+  <p><em>▲ 运行监控与主机负载实时图表 (Dashboard)</em></p>
+  <br/>
+  <img src="docs/images/users.png" alt="Users Management" width="92%">
+  <p><em>▲ 多用户管理、流量配额结算与专属聚合订阅分发 (Users & Subscription)</em></p>
+  <br/>
+  <img src="docs/images/routing.png" alt="Routing & GeoData" width="92%">
+  <p><em>▲ 可视化路由分流与 GeoData 规则库在线升级 (Routing & GeoData)</em></p>
+</div>
+
+---
+
 ## ✨ 核心特性
 
 - 🧩 **极致解耦设计**：

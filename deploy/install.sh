@@ -27,8 +27,10 @@ mkdir -p "${DATA_DIR}"
 
 # 2. 复制二进制执行程序
 if [[ -f "./panel" ]]; then
-    echo -e "${GREEN}[1/4] 复制 panel 执行程序到 ${INSTALL_DIR}/panel ...${PLAIN}"
-    cp -f ./panel "${INSTALL_DIR}/panel"
+    if [[ "$(readlink -f ./panel)" != "$(readlink -f ${INSTALL_DIR}/panel 2>/dev/null)" ]]; then
+        echo -e "${GREEN}[1/4] 复制 panel 执行程序到 ${INSTALL_DIR}/panel ...${PLAIN}"
+        cp -f ./panel "${INSTALL_DIR}/panel"
+    fi
     chmod +x "${INSTALL_DIR}/panel"
 else
     echo -e "${RED}错误：当前目录下未找到 panel 二进制文件，请先执行编译！${PLAIN}"

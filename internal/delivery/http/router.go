@@ -63,6 +63,7 @@ func SetupRouter(handlers *Handlers, jwtSecret string, staticFS fs.FS) *gin.Engi
 		authGroup.Use(middleware.JWTAuth(jwtSecret))
 		{
 			authGroup.POST("/auth/password", handlers.Auth.ChangePassword)
+			authGroup.POST("/auth/change-password", handlers.Auth.ChangePassword)
 
 			// 仪表盘
 			authGroup.GET("/dashboard", handlers.Dashboard.GetDashboard)

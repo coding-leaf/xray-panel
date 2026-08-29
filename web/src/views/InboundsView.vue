@@ -31,7 +31,7 @@
           <div class="flex items-center justify-between mb-3">
             <span class="text-base font-bold text-white tracking-tight font-mono">{{ inb.tag }}</span>
             <div class="flex items-center gap-1.5">
-              <span v-if="inb.routeId > 0" class="px-2 py-0.5 rounded-md text-[11px] font-mono font-bold bg-indigo-500/20 text-indigo-300 border border-indigo-500/30">
+              <span v-if="inb.routeId > 0 && (!inb.subRoutes || inb.subRoutes.length === 0)" class="px-2 py-0.5 rounded-md text-[11px] font-mono font-bold bg-indigo-500/20 text-indigo-300 border border-indigo-500/30">
                 Route #{{ inb.routeId }}
               </span>
               <span class="px-2 py-0.5 rounded-md text-[11px] font-mono font-bold uppercase" :class="protocolBadgeColor(inb.protocol)">
@@ -44,7 +44,7 @@
           </div>
 
           <div class="space-y-2 text-xs text-gray-400">
-            <div v-if="inb.routeId > 0" class="flex justify-between py-1 border-b border-gray-800/60">
+            <div v-if="inb.routeId > 0 && (!inb.subRoutes || inb.subRoutes.length === 0)" class="flex justify-between py-1 border-b border-gray-800/60">
               <span>VLESS 路由编号 (Route ID)</span>
               <span class="text-indigo-300 font-mono font-bold">#{{ inb.routeId }} (0x{{ inb.routeId.toString(16).padStart(4, '0') }})</span>
             </div>
@@ -201,19 +201,6 @@
                   class="w-full bg-gray-900 border border-gray-700 rounded-xl px-3 py-2 text-white font-mono focus:outline-none focus:border-brand-500"
                 />
                 <p class="text-[10px] text-gray-500 mt-0.5">订阅下发的目标地址，留空继承全局设置</p>
-              </div>
-
-              <div>
-                <label class="block text-gray-300 mb-1 font-medium">
-                  VLESS 路由编号 (Route ID)
-                </label>
-                <input
-                  v-model.number="form.routeId"
-                  type="number"
-                  placeholder="0 (留空或 0 为不启用)"
-                  class="w-full bg-gray-900 border border-gray-700 rounded-xl px-3 py-2 text-white font-mono focus:outline-none focus:border-brand-500"
-                />
-                <p class="text-[10px] text-gray-500 mt-0.5">Xray vlessRoute 协议级分流标识 (1~65535)</p>
               </div>
             </div>
 

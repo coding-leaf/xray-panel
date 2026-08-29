@@ -39,6 +39,25 @@ func NewBotHandler(
 	}
 }
 
+func (h *BotHandler) registerBotCommands(bot *tgbotapi.BotAPI) {
+	if bot == nil {
+		return
+	}
+	commands := tgbotapi.NewSetMyCommands(
+		tgbotapi.BotCommand{Command: "status", Description: "📊 查看系统与 Xray 运行状态"},
+		tgbotapi.BotCommand{Command: "traffic", Description: "📈 查看用户流量消耗概览"},
+		tgbotapi.BotCommand{Command: "sub", Description: "🔗 获取指定用户的专属订阅"},
+		tgbotapi.BotCommand{Command: "restart", Description: "🔄 重启 Xray 核心服务"},
+		tgbotapi.BotCommand{Command: "menu", Description: "📱 呼出快捷交互菜单键盘"},
+		tgbotapi.BotCommand{Command: "help", Description: "❓ 查看帮助指引说明"},
+	)
+	if _, err := bot.Request(commands); err != nil {
+		slog.Warn("Failed to sync telegram bot cloud commands", slog.String("error", err.Error()))
+	} else {
+		slog.Info("Telegram bot cloud commands registered successfully", slog.String("username", bot.Self.UserName))
+	}
+}
+
 func (h *BotHandler) StartPolling(ctx context.Context) {
 	go func() {
 		for {
@@ -56,6 +75,9 @@ func (h *BotHandler) StartPolling(ctx context.Context) {
 					continue
 				}
 			}
+
+			// 自动注册云端 Menu 按钮指令列表
+			h.registerBotCommands(bot)
 
 			u := tgbotapi.NewUpdate(0)
 			u.Timeout = 30
@@ -119,26 +141,37 @@ func (h *BotHandler) handleMessage(ctx context.Context, msg *tgbotapi.Message) {
 
 	cmd := msg.Command()
 	args := strings.TrimSpace(msg.CommandArguments())
+	rawText := strings.TrimSpace(msg.Text)
 
+	// 3. 支持快捷菜单按钮文字点击
 	if !msg.IsCommand() {
-		// 收到普通文本时的友好指引
-		text := "🤖 <b>Xray 独立运维管理机器人</b>\n\n" +
-			"/status - 查看系统与 Xray 运行状态\n" +
-			"/traffic - 查看用户流量消耗统计\n" +
-			"/sub [email] - 获取指定用户的订阅分发链接\n" +
-			"/restart - 重启 Xray 核心服务\n"
-		h.reply(msg.Chat.ID, text)
-		return
+		switch rawText {
+		case "📊 系统状态", "📊 状态", "状态":
+			cmd = "status"
+		case "📈 流量统计", "📈 流量", "流量":
+			cmd = "traffic"
+		case "🔄 重启 Xray", "🔄 重启服务", "重启":
+			cmd = "restart"
+		case "❓ 帮助指引", "❓ 帮助", "帮助":
+			cmd = "help"
+		case "📱 快捷菜单", "菜单":
+			cmd = "menu"
+		default:
+			h.sendMenuWithKeyboard(msg.Chat.ID, "🤖 <b>Xray 独立运维管理机器人</b>\n\n请点击下方快捷按钮或发送指令：")
+			return
+		}
 	}
 
 	switch cmd {
-	case "start", "help":
+	case "start", "menu", "help":
 		text := "🤖 <b>Xray 独立运维管理机器人</b>\n\n" +
-			"/status - 查看系统与 Xray 运行状态\n" +
-			"/traffic - 查看用户流量消耗统计\n" +
-			"/sub [email] - 获取指定用户的订阅分发链接\n" +
-			"/restart - 重启 Xray 核心服务\n"
-		h.reply(msg.Chat.ID, text)
+			"📊 /status - 查看系统与 Xray 运行状态\n" +
+			"📈 /traffic - 查看用户流量消耗统计\n" +
+			"🔗 /sub [email] - 获取指定用户专属订阅\n" +
+			"🔄 /restart - 重启 Xray 核心服务\n" +
+			"📱 /menu - 呼出快捷交互键盘\n\n" +
+			"<i>可直接点击下方快捷按钮进行操作：</i>"
+		h.sendMenuWithKeyboard(msg.Chat.ID, text)
 
 	case "status":
 		metrics, err := h.monitor.GetSystemMetrics(ctx)
@@ -200,7 +233,7 @@ func (h *BotHandler) handleMessage(ctx context.Context, msg *tgbotapi.Message) {
 
 	case "sub":
 		if args == "" {
-			h.reply(msg.Chat.ID, "用法: <code>/sub 用户邮箱</code>")
+			h.reply(msg.Chat.ID, "用法: <code>/sub 用户邮箱</code>\n示例: <code>/sub test@example.com</code>")
 			return
 		}
 		u, err := h.userRepo.GetByEmail(ctx, args)
@@ -234,8 +267,34 @@ func (h *BotHandler) handleMessage(ctx context.Context, msg *tgbotapi.Message) {
 		}
 
 	default:
-		h.reply(msg.Chat.ID, "❓ 未知指令。发送 /help 查看所有可用命令。")
+		h.sendMenuWithKeyboard(msg.Chat.ID, "❓ 未知指令。请使用下方快捷菜单或发送 /help。")
 	}
+}
+
+func (h *BotHandler) sendMenuWithKeyboard(chatID int64, htmlText string) {
+	h.adapter.mu.RLock()
+	bot := h.adapter.bot
+	h.adapter.mu.RUnlock()
+
+	if bot == nil {
+		return
+	}
+
+	msg := tgbotapi.NewMessage(chatID, htmlText)
+	msg.ParseMode = "HTML"
+	keyboard := tgbotapi.NewReplyKeyboard(
+		tgbotapi.NewKeyboardButtonRow(
+			tgbotapi.NewKeyboardButton("📊 系统状态"),
+			tgbotapi.NewKeyboardButton("📈 流量统计"),
+		),
+		tgbotapi.NewKeyboardButtonRow(
+			tgbotapi.NewKeyboardButton("🔄 重启 Xray"),
+			tgbotapi.NewKeyboardButton("❓ 帮助指引"),
+		),
+	)
+	keyboard.ResizeKeyboard = true
+	msg.ReplyMarkup = keyboard
+	_, _ = bot.Send(msg)
 }
 
 func (h *BotHandler) reply(chatID int64, htmlText string) {

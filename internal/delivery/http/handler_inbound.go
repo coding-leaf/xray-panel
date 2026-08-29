@@ -51,8 +51,16 @@ func (h *InboundHandler) Update(c *gin.Context) {
 	}
 
 	idStr := c.Param("id")
-	id, _ := strconv.Atoi(idStr)
-	in.ID = uint(id)
+	if idStr != "" {
+		if id, err := strconv.Atoi(idStr); err == nil && id > 0 {
+			in.ID = uint(id)
+		}
+	}
+
+	if in.ID == 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "inbound id is required"})
+		return
+	}
 
 	if err := h.configSvc.UpdateInbound(c.Request.Context(), &in); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})

@@ -562,7 +562,7 @@ const submitWizard = async () => {
       subRoutesJson: JSON.stringify(currentSubRoutes),
     }
 
-    await api.put('/inbounds', payload)
+    await api.put(`/inbounds/${targetGateway.id}`, payload)
     toast.success('🎉 线路发布成功！已自动注入 Xray 路由表并就绪订阅')
     showWizardModal.value = false
     await fetchAll()
@@ -577,16 +577,25 @@ const toggleChannelStatus = async (ch: any) => {
   try {
     const targetGateway = inbounds.value.find((i) => i.id === ch.inboundId)
     if (!targetGateway) return
-    const srs = targetGateway.subRoutes || []
-    for (const sr of srs) {
-      if (sr.routeId === ch.routeId) {
-        sr.enabled = !sr.enabled
+
+    if (ch.routeId > 0) {
+      const srs = targetGateway.subRoutes || []
+      for (const sr of srs) {
+        if (sr.routeId === ch.routeId) {
+          sr.enabled = !sr.enabled
+        }
       }
+      await api.put(`/inbounds/${targetGateway.id}`, {
+        ...targetGateway,
+        subRoutesJson: JSON.stringify(srs),
+      })
+    } else {
+      // 切换网关整体启用状态
+      await api.put(`/inbounds/${targetGateway.id}`, {
+        ...targetGateway,
+        enabled: !targetGateway.enabled,
+      })
     }
-    await api.put('/inbounds', {
-      ...targetGateway,
-      subRoutesJson: JSON.stringify(srs),
-    })
     toast.success('状态已更新')
     await fetchAll()
   } catch (err) {
@@ -599,12 +608,19 @@ const deleteChannel = async (ch: any) => {
   try {
     const targetGateway = inbounds.value.find((i) => i.id === ch.inboundId)
     if (!targetGateway) return
-    const srs = (targetGateway.subRoutes || []).filter((s: any) => s.routeId !== ch.routeId)
-    await api.put('/inbounds', {
-      ...targetGateway,
-      subRoutesJson: JSON.stringify(srs),
-    })
-    toast.success('线路已删除')
+
+    if (ch.routeId > 0) {
+      const srs = (targetGateway.subRoutes || []).filter((s: any) => s.routeId !== ch.routeId)
+      await api.put(`/inbounds/${targetGateway.id}`, {
+        ...targetGateway,
+        subRoutesJson: JSON.stringify(srs),
+      })
+      toast.success('线路已删除')
+    } else {
+      // 独立网关直出线路，提示并删除网关
+      await api.delete(`/inbounds/${targetGateway.id}`)
+      toast.success('网关及线路已删除')
+    }
     await fetchAll()
   } catch (err) {
     toast.error('删除线路失败')

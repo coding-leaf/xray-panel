@@ -1,60 +1,51 @@
-# 🚀 Xray Decoupled Panel (解耦运维监控与订阅面板)
+# 🚀 Xray Decoupled Panel (解耦运维监控与分流管理面板)
 
 <p align="center">
+  <img src="https://img.shields.io/badge/Version-v1.3.5-indigo?style=flat-square" alt="Version">
   <img src="https://img.shields.io/badge/Go-1.22+-00ADD8?style=flat-square&logo=go" alt="Go Version">
   <img src="https://img.shields.io/badge/Vue-3.4+-4FC08D?style=flat-square&logo=vue.js" alt="Vue Version">
   <img src="https://img.shields.io/badge/Architecture-Clean%20Architecture-blue?style=flat-square" alt="Clean Architecture">
+  <img src="https://img.shields.io/badge/Live%20Demo-GitHub%20Pages-success?style=flat-square&logo=github" alt="Live Demo">
   <img src="https://img.shields.io/badge/Developed%20with-AI%20Pair%20Programming-8A2BE2?style=flat-square&logo=google-gemini" alt="Developed with AI">
   <img src="https://img.shields.io/badge/License-MIT-green.svg?style=flat-square" alt="License">
-  <img src="https://img.shields.io/badge/Status-Production%20Ready-success?style=flat-square" alt="Production Ready">
 </p>
 
-> 💡 **AI 驱动开发**：本项目由 AI 辅助结对编程深度打造，严格遵循 **Clean Architecture（整洁架构）** 分层契约，并通过 **ISO/IEC 25010 国际软件质量标准** 审查与自动化单元测试加固。
+<p align="center">
+  <b>🌟 在线免部署体验 Demo：</b>
+  <a href="https://coding-leaf.github.io/xray-panel/" target="_blank">
+    <b>https://coding-leaf.github.io/xray-panel/</b>
+  </a>
+</p>
 
 ---
 
-**Xray Decoupled Panel** 是一款高性能单机 Xray 运维监控与订阅分发面板。它采用**完全解耦模式**，仅通过 Xray 官方 gRPC API 与系统信号协同工作，不侵入 Xray 原生内核进程，具备极高的稳定性和极低资源占用。
+> 💡 **AI 结对工程范式**：本项目采用现代 **Clean Architecture（整洁架构）** 分层契约驱动开发，具备严密的业务实体封装、单向配置编译管道与完备的自动化单元测试加固。
+
+**Xray Decoupled Panel** 是一款高性能单机 Xray 运维监控、节点分流与订阅分发面板。它采用**完全解耦设计**，通过 Xray 原生 gRPC API 与系统信号协同工作，不侵入 Xray 原生内核进程，具备极高的稳定性和极低资源占用。
 
 ---
 
-## 📸 界面预览 (Screenshots)
+## ⚡ 核心亮点 (Core Highlights)
 
-<div align="center">
-  <img src="docs/images/dashboard.png" alt="Dashboard" width="92%">
-  <p><em>▲ 运行监控与主机负载实时图表 (Dashboard)</em></p>
-  <br/>
-  <img src="docs/images/users.png" alt="Users Management" width="92%">
-  <p><em>▲ 多用户管理、流量配额结算与专属聚合订阅分发 (Users & Subscription)</em></p>
-  <br/>
-  <img src="docs/images/routing.png" alt="Routing & GeoData" width="92%">
-  <p><em>▲ 可视化路由分流与 GeoData 规则库在线升级 (Routing & GeoData)</em></p>
-</div>
-
----
-
-## ✨ 核心特性
-
-- 🧩 **极致解耦设计**：
-    - 核心进程隔离：通过 Xray 原生 gRPC API（`HandlerService`、`StatsService`）进行用户动态增删与流量采集，拒绝魔改 Xray 核心。
-    - 独立运行：面板进程崩溃或重启绝不影响现存网络代理连接。
-- 📦 **单二进制极简部署**：
-    - 前端基于 Vue 3 + Tailwind CSS 构建，所有静态资源通过 Go 1.16+ `//go:embed` 编译进单一可执行文件，零外部静态依赖。
-- 📊 **全维度实时运维监控**：
-    - 主机负载：实时采集 CPU 使用率、物理内存占比、磁盘使用率及网卡上下行瞬时速率。
-    - 流量结算：多协程并发采集并持久化用户与入站节点累计流量，支持按月自动结算清零。
-- 🔗 **安全订阅分发系统**：
-    - 采用高熵独立 `subToken` 鉴权，支持 VLESS、VMess、Trojan、Shadowsocks 等主流协议节点自动生成与聚合。
-    - 支持节点链接分发、Clash/Base64 订阅源及二维码实时渲染。
-- ⚙️ **双模配置管理**：
-    - **可视化入站管理**：便捷维护端口、协议、TLS/Reality 证书及流控参数。
-    - **在线配置编辑器**：支持查看与在线编辑完整 `config.json`，保存前自动调用 `xray -test` 严格语法校验，杜绝配置错误导致核心停机。
+- 🌐 **单入站多通道解耦分流 (Decoupled Relaying)**：
+  - 首创 **VLESS Route ID 动态 UUID 映射** 机制，单端口（如 443 Reality）可挂载数十条不同国家/WARP 的独立落地出口。
+  - **1 步极速发布**：支持直接从落地出口一键绑定发布至主入口网关，秒级生成独立订阅节点。
+- 🎭 **纯前端 Mock 演示沙盒 (GitHub Pages)**：
+  - 内置基于 LocalStorage 的纯前端数据仿真引擎，无需后端服务器即可完整体验节点增删、通道编排与扫码订阅。
+- 🧩 **极致解耦与单二进制交付**：
+  - 前端基于 Vue 3 + Tailwind CSS 构建，所有静态资源通过 Go `//go:embed` 编译进单一二进制文件，无外部静态依赖。
+  - 核心进程隔离：面板崩溃或热重载绝不影响现存网络连接与代理进程。
+- 📊 **5秒级精准监控与在线追踪**：
+  - 实时采集主机 CPU、内存、磁盘与双向网卡吞吐速率。
+  - 基于 Xray gRPC `StatsService` 的 5 秒级轮询机制，智能追踪用户瞬时速率与 `🟢 在线传输` / `🟢 正常(空闲)` / `🔴 已禁用` 状态。
+- 🔗 **聚合订阅与二维码分发**：
+  - 采用高熵独立 `subToken` 鉴权，支持 VLESS、VMess、Trojan、Shadowsocks 等协议节点的统一聚合与单节点/全节点订阅导出。
 - 🌍 **GeoData 规则库热更新**：
-    - 一键在线拉取最新 `geoip.dat` 与 `geosite.dat`，具备实时下载进度百分比与平滑重载。
+  - 一键在线拉取最新 `geoip.dat` 与 `geosite.dat`，具备实时下载进度百分比与平滑重载。
 - 🤖 **Telegram 运维机器人**：
-    - 支持 `/status`、`/traffic`、`/sub`、`/restart` 等交互式管理指令。
-    - 内置防抖与冷却机制的主动告警（流量超额、系统过载、SSL 证书临期提醒）。
+  - 支持 `/status`、`/traffic`、`/sub`、`/restart` 等交互式管理指令与主动告警推送（流量超额、系统过载、SSL 临期）。
 - 🛡️ **生产级安全防护**：
-    - 内置防爆破滑动窗口限流器（`ulule/limiter`）、TOTP 双因素认证（2FA）、BCrypt 密码哈希、JWT 鉴权及 SQLite WAL 高并发支持。
+  - 内置滑动窗口限流器（`ulule/limiter`）、TOTP 双因素认证（2FA）、BCrypt 哈希加密、JWT 鉴权及 SQLite WAL 模式加固。
 
 ---
 
@@ -62,43 +53,17 @@
 
 ```
 internal/
-├── domain/            # 纯业务领域实体与接口契约（无外部依赖）
-│   ├── user.go        # 用户实体与流量状态
-│   ├── inbound.go     # 节点入站实体
-│   └── repository.go  # 仓储与适配器抽象接口
-├── service/           # 核心用例与业务逻辑
-│   ├── user_service.go
-│   ├── config_service.go
-│   ├── sub_service.go
-│   └── alert_service.go
+├── domain/            # 纯业务领域实体与接口契约（Inbound, Outbound, User, Route）
+├── service/           # 核心用例（ConfigService 单向编译管道, UserService, AlertService）
 ├── adapter/           # 外部系统适配实现
-│   ├── xray/          # Xray gRPC 客户端与配置文件解析器
-│   ├── repository/    # SQLite & GORM 仓储实现（WAL并发加固）
+│   ├── xray/          # Xray 强类型 Compiler、gRPC 客户端与 Systemd Supervisor
+│   ├── repository/    # SQLite & GORM 仓储实现（WAL 并发加固）
 │   ├── telegram/      # Telegram Bot 适配器
 │   └── monitor/       # gopsutil 硬件指标采集
 └── delivery/          # 传输接入层
     ├── http/          # RESTful API、Gin 路由与限流/鉴权中间件
-    └── cron/          # 流量同步与状态轮询定时任务
+    └── cron/          # 流量同步与状态轮询定时任务 (5s 极速同步)
 ```
-
----
-
-## 🔒 生产环境安全与加固建议 (Security Best Practices)
-
-为确保生产环境安全无虞，推荐按以下准则配置与加固：
-
-1. **启用 HTTPS 反向代理（强烈推荐）**：
-    - 避免直接将面板 HTTP 裸端口暴露在公网上。
-    - 建议使用 Nginx / Caddy 申请合法 SSL 证书并通过反向代理访问（参考项目中的 `deploy/nginx-sample.conf`）。
-2. **首次登录强制修改默认凭据**：
-    - 初始密码为 `admin123`，首次登录后请立即进入【系统设置】修改为高强度密码。
-    - 强烈建议开启 **TOTP 双因素身份验证 (2FA)**，使用 Google Authenticator 等应用扫码绑定。
-3. **隔离 gRPC API 通信端口**：
-    - Xray 配置中的 gRPC API 监听地址务必限定为 `127.0.0.1:8080`（仅允许本地回环访问），禁止绑定 `0.0.0.0`。
-4. **自定义生产 JWT Secret**：
-    - 生产环境中建议通过环境变量 `PANEL_JWT_SECRET` 指定至少 32 位的随机高熵密钥，杜绝使用默认密钥。
-5. **防火墙策略最小权限原则**：
-    - 使用 UFW / iptables 仅对外开放业务代理入站端口（如 `443`）与 Web 反代端口，面板底层端口与 gRPC 端口无需对外开放。
 
 ---
 
@@ -109,17 +74,17 @@ internal/
 确保系统已安装 Xray-core 并正常运行：
 
 ```bash
-# 下载并进入解压目录
-cd /root
+# 1. 下载源码并进入目录
+git clone https://github.com/coding-leaf/xray-panel.git
+cd xray-panel
 
-# 执行一键部署安装脚本
+# 2. 执行一键部署安装脚本
 sudo bash deploy/install.sh
 ```
 
 一键脚本将自动完成：
-
-1. 创建 `/usr/local/xray-panel` 工作与数据目录。
-2. 注册并启动 `/etc/systemd/system/panel.service` 系统服务。
+1. 注册并配置 `/usr/local/xray-panel` 工作目录；
+2. 注册并启动 `/etc/systemd/system/panel.service` 系统守护进程；
 3. 开启开机自启并输出面板访问地址。
 
 ---
@@ -133,43 +98,51 @@ sudo bash deploy/install.sh
 
 #### 常用启动参数与环境变量：
 
-| 参数名          | 环境变量            | 默认值                            | 描述                        |
-| :-------------- | :------------------ | :-------------------------------- | :-------------------------- |
-| `-port`         | `PANEL_PORT`        | `9000`                            | 面板 Web 监听端口           |
-| `-xray-config`  | `XRAY_CONFIG_PATH`  | `/usr/local/etc/xray/config.json` | Xray 核心主配置文件路径     |
-| `-xray-grpc`    | `XRAY_GRPC_ADDR`    | `127.0.0.1:8080`                  | Xray 核心 API gRPC 监听地址 |
-| `-xray-bin`     | `XRAY_BIN_PATH`     | `xray`                            | Xray 核心二进制程序路径     |
-| `-xray-service` | `XRAY_SERVICE_NAME` | `xray`                            | Xray 的 systemd 服务名      |
-| `-db`           | `PANEL_DB_PATH`     | `data/panel.db`                   | 面板 SQLite 数据库文件路径  |
-| `-jwt-secret`   | `PANEL_JWT_SECRET`  | 随机生成/默认                     | 管理员鉴权 JWT 签名密钥     |
+| 参数名 | 环境变量 | 默认值 | 描述 |
+| :--- | :--- | :--- | :--- |
+| `-port` | `PANEL_PORT` | `9000` | 面板 Web 监听端口 |
+| `-xray-config` | `XRAY_CONFIG_PATH` | `/usr/local/etc/xray/config.json` | Xray 核心主配置文件路径 |
+| `-xray-grpc` | `XRAY_GRPC_ADDR` | `127.0.0.1:8080` | Xray 核心 API gRPC 监听地址 |
+| `-xray-bin` | `XRAY_BIN_PATH` | `xray` | Xray 核心二进制程序路径 |
+| `-xray-service` | `XRAY_SERVICE_NAME`| `xray` | Xray 的 systemd 服务名 |
+| `-db` | `PANEL_DB_PATH` | `data/panel.db` | 面板 SQLite 数据库文件路径 |
+| `-jwt-secret` | `PANEL_JWT_SECRET` | 随机生成/默认 | 管理员鉴权 JWT 签名密钥 |
 
 ---
 
-## 🛠️ 本地开发与源码编译
+## 🛠️ 本地开发与编译
 
 ### 前置要求
-
 - Go 1.22+
-- Node.js 18+ & npm / pnpm
+- Node.js 20+ & npm
 
 ```bash
 # 1. 克隆代码仓库
-git clone https://github.com/your-username/xray-panel.git
+git clone https://github.com/coding-leaf/xray-panel.git
 cd xray-panel
 
-# 2. 编译前端静态资源
+# 2. 纯前端 Mock 模式本地调试 (无需 Xray 核心)
 cd web
 npm install
+npm run dev:demo
+
+# 3. 生产前端构建
 npm run build
 cd ..
 
-# 3. 运行全量单元测试与质量分析
-go vet ./...
+# 4. 运行全量单元测试与编译生产二进制
 go test -v ./...
-
-# 4. 编译单二进制可执行文件
-go build -ldflags="-s -w" -o panel main.go embedded.go
+go build -ldflags="-s -w" -o panel .
 ```
+
+---
+
+## 🔒 生产环境安全与加固建议
+
+1. **启用 HTTPS 反向代理**：建议使用 Nginx / Caddy 申请 SSL 证书反向代理面板端口；
+2. **首次登录强制修改凭据**：初始账号为 `admin` / `admin123`，登录后请立即进入【系统设置】修改密码并启用 **TOTP 双因素认证 (2FA)**；
+3. **隔离 gRPC API 通信端口**：Xray 的 gRPC API 监听地址必须限定为 `127.0.0.1:8080`，严禁对外网开放；
+4. **最小防火墙权限**：仅对外开放业务代理端口（如 443）与 Web 反代端口。
 
 ---
 

@@ -75,14 +75,14 @@ func (c *XrayCompiler) Compile(
 		cfg.Inbounds = append(cfg.Inbounds, *compiledInbound)
 	}
 
-	// 注入默认 API Inbound (用于 gRPC 本地通信)
+	// 注入默认 API Inbound (用于 gRPC 本地通信，默认 8080 端口)
 	apiInboundSettings, _ := json.Marshal(map[string]interface{}{
 		"address": "127.0.0.1",
 	})
 	cfg.Inbounds = append(cfg.Inbounds, XrayInbound{
 		Tag:      "api",
 		Listen:   "127.0.0.1",
-		Port:     10085,
+		Port:     8080,
 		Protocol: "dokodemo-door",
 		Settings: apiInboundSettings,
 	})
@@ -250,6 +250,11 @@ func (c *XrayCompiler) compileInbound(inb *domain.Inbound, users []domain.User) 
 		clients = append(clients, client)
 	}
 
+	// 服务端 Inbound 移除 publicKey 字段以防止部分 Xray 内核版本解析报警
+	if streamSettings != nil && streamSettings.RealitySettings != nil {
+		streamSettings.RealitySettings.PublicKey = ""
+	}
+
 	// 组装 Settings
 	var settingsMap map[string]interface{}
 	if inb.SettingsJSON != "" {
@@ -258,7 +263,26 @@ func (c *XrayCompiler) compileInbound(inb *domain.Inbound, users []domain.User) 
 	if settingsMap == nil {
 		settingsMap = make(map[string]interface{})
 	}
-	settingsMap["clients"] = clients
+
+	// 若当前用户库中暂未关联到此 Inbound，优先回退提取 settingsJson 中原有 clients，若仍为空则注入合规占位客户端
+	if len(clients) == 0 {
+		if rawClients, ok := settingsMap["clients"].([]interface{}); ok && len(rawClients) > 0 {
+			// 保留原本存在于 settingsJson 的 clients
+		} else {
+			placeholderID := "00000000-0000-0000-0000-000000000001"
+			clients = append(clients, XrayClient{
+				ID:       placeholderID,
+				Password: placeholderID,
+				Email:    "default@panel.local",
+				Flow:     inboundFlow,
+				Level:    0,
+			})
+			settingsMap["clients"] = clients
+		}
+	} else {
+		settingsMap["clients"] = clients
+	}
+
 	if protocolLower == "vless" && settingsMap["decryption"] == nil {
 		settingsMap["decryption"] = "none"
 	}

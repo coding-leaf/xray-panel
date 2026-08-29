@@ -3,6 +3,7 @@ package xray
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"net/url"
@@ -343,6 +344,47 @@ func BuildShareLink(inbound *domain.Inbound, user *domain.User, hostDomain strin
 			remark = inbound.Tag
 		}
 		return fmt.Sprintf("trojan://%s@%s:%d?%s#%s", user.UUID, targetHost, targetPort, v.Encode(), url.QueryEscape(remark))
+
+	case "shadowsocks":
+		var settingsMap map[string]interface{}
+		_ = json.Unmarshal([]byte(inbound.SettingsJSON), &settingsMap)
+		method, _ := settingsMap["method"].(string)
+		if method == "" {
+			method = "aes-128-gcm"
+		}
+		auth := fmt.Sprintf("%s:%s", method, user.UUID)
+		encodedAuth := base64.URLEncoding.EncodeToString([]byte(auth))
+		remark := inbound.Remark
+		if remark == "" {
+			remark = inbound.Tag
+		}
+		return fmt.Sprintf("ss://%s@%s:%d#%s", encodedAuth, targetHost, targetPort, url.QueryEscape(remark))
+
+	case "vmess":
+		remark := inbound.Remark
+		if remark == "" {
+			remark = inbound.Tag
+		}
+		vmessObj := map[string]interface{}{
+			"v":    "2",
+			"ps":   remark,
+			"add":  targetHost,
+			"port": targetPort,
+			"id":   user.UUID,
+			"aid":  0,
+			"net":  network,
+			"type": "none",
+			"tls":  security,
+		}
+		if network == "ws" {
+			if wsSettings, ok := streamMap["wsSettings"].(map[string]interface{}); ok {
+				if path, ok := wsSettings["path"].(string); ok {
+					vmessObj["path"] = path
+				}
+			}
+		}
+		rawJSON, _ := json.Marshal(vmessObj)
+		return "vmess://" + base64.StdEncoding.EncodeToString(rawJSON)
 
 	default:
 		return ""

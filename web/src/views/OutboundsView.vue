@@ -226,6 +226,81 @@
               />
             </div>
 
+            <!-- VMess 专属安全加密 -->
+            <div v-if="form.protocol === 'vmess'" class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div>
+                <label class="block text-gray-400 mb-1">VMess 加密 (Security)</label>
+                <select
+                  v-model="form.vmessSecurity"
+                  class="w-full bg-gray-900 border border-gray-700 rounded-xl px-3 py-2 text-white focus:outline-none focus:border-brand-500 font-mono"
+                >
+                  <option value="auto">auto (自动匹配)</option>
+                  <option value="aes-128-gcm">aes-128-gcm</option>
+                  <option value="chacha20-poly1305">chacha20-poly1305</option>
+                  <option value="none">none</option>
+                </select>
+              </div>
+              <div>
+                <label class="block text-gray-400 mb-1">AlterID (额外ID)</label>
+                <input
+                  v-model.number="form.vmessAlterId"
+                  type="number"
+                  placeholder="0"
+                  class="w-full bg-gray-900 border border-gray-700 rounded-xl px-3 py-2 text-white font-mono focus:outline-none focus:border-brand-500"
+                />
+              </div>
+            </div>
+
+            <!-- Shadowsocks 专属密码与加密方式 -->
+            <div v-if="form.protocol === 'shadowsocks'" class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div>
+                <label class="block text-gray-400 mb-1">SS 密码 (Password)</label>
+                <input
+                  v-model="form.proxyPassword"
+                  type="text"
+                  placeholder="Shadowsocks 密码"
+                  class="w-full bg-gray-900 border border-gray-700 rounded-xl px-3 py-2 text-white font-mono text-[11px] focus:outline-none focus:border-brand-500"
+                />
+              </div>
+              <div>
+                <label class="block text-gray-400 mb-1">加密算法 (Method)</label>
+                <select
+                  v-model="form.ssMethod"
+                  class="w-full bg-gray-900 border border-gray-700 rounded-xl px-3 py-2 text-white focus:outline-none focus:border-brand-500 font-mono"
+                >
+                  <option value="2022-blake3-aes-128-gcm">2022-blake3-aes-128-gcm</option>
+                  <option value="2022-blake3-aes-256-gcm">2022-blake3-aes-256-gcm</option>
+                  <option value="2022-blake3-chacha20-poly1305">2022-blake3-chacha20-poly1305</option>
+                  <option value="aes-256-gcm">aes-256-gcm</option>
+                  <option value="aes-128-gcm">aes-128-gcm</option>
+                  <option value="chacha20-ietf-poly1305">chacha20-ietf-poly1305</option>
+                  <option value="none">none</option>
+                </select>
+              </div>
+            </div>
+
+            <!-- Socks / HTTP 专属可选用户名密码 -->
+            <div v-if="['socks', 'http'].includes(form.protocol)" class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div>
+                <label class="block text-gray-400 mb-1">认证用户名 (选填)</label>
+                <input
+                  v-model="form.proxyUsername"
+                  type="text"
+                  placeholder="用户名 (如无需认证可留空)"
+                  class="w-full bg-gray-900 border border-gray-700 rounded-xl px-3 py-2 text-white font-mono focus:outline-none focus:border-brand-500"
+                />
+              </div>
+              <div>
+                <label class="block text-gray-400 mb-1">认证密码 (选填)</label>
+                <input
+                  v-model="form.proxyPassword"
+                  type="password"
+                  placeholder="密码 (如无需认证可留空)"
+                  class="w-full bg-gray-900 border border-gray-700 rounded-xl px-3 py-2 text-white font-mono focus:outline-none focus:border-brand-500"
+                />
+              </div>
+            </div>
+
             <!-- 传输层与安全层联动 -->
             <div v-if="['vless', 'vmess', 'trojan', 'shadowsocks'].includes(form.protocol)" class="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2 border-t border-gray-800">
               <div>
@@ -533,10 +608,22 @@ const editOutbound = (ob: any) => {
       if (s.vnext[0].users?.length > 0) {
         form.value.proxyPassword = s.vnext[0].users[0].id || s.vnext[0].users[0].password || ''
       }
-    } else if (s.servers?.length > 0) {
-      form.value.proxyHost = s.servers[0].address || ''
-      form.value.proxyPort = s.servers[0].port || 443
-      form.value.proxyPassword = s.servers[0].password || ''
+    } else if (form.value.protocol === 'shadowsocks') {
+      if (s.servers?.length > 0) {
+        form.value.proxyHost = s.servers[0].address || ''
+        form.value.proxyPort = s.servers[0].port || 443
+        form.value.proxyPassword = s.servers[0].password || ''
+        form.value.ssMethod = s.servers[0].method || '2022-blake3-aes-128-gcm'
+      }
+    } else if (['socks', 'http'].includes(ob.protocol)) {
+      if (s.servers?.length > 0) {
+        form.value.proxyHost = s.servers[0].address || ''
+        form.value.proxyPort = s.servers[0].port || 1080
+        if (s.servers[0].users?.length > 0) {
+          form.value.proxyUsername = s.servers[0].users[0].user || ''
+          form.value.proxyPassword = s.servers[0].users[0].pass || ''
+        }
+      }
     }
   }
 
@@ -567,7 +654,7 @@ const buildSettingsJSON = () => {
         },
       ],
     })
-  } else if (['vless', 'vmess'].includes(form.value.protocol)) {
+  } else if (form.value.protocol === 'vless') {
     return JSON.stringify({
       vnext: [
         {
@@ -582,6 +669,33 @@ const buildSettingsJSON = () => {
         },
       ],
     })
+  } else if (form.value.protocol === 'vmess') {
+    return JSON.stringify({
+      vnext: [
+        {
+          address: form.value.proxyHost,
+          port: form.value.proxyPort,
+          users: [
+            {
+              id: form.value.proxyPassword,
+              security: form.value.vmessSecurity || 'auto',
+              alterId: form.value.vmessAlterId || 0,
+            },
+          ],
+        },
+      ],
+    })
+  } else if (form.value.protocol === 'shadowsocks') {
+    return JSON.stringify({
+      servers: [
+        {
+          address: form.value.proxyHost,
+          port: form.value.proxyPort,
+          method: form.value.ssMethod || '2022-blake3-aes-128-gcm',
+          password: form.value.proxyPassword,
+        },
+      ],
+    })
   } else if (form.value.protocol === 'trojan') {
     return JSON.stringify({
       servers: [
@@ -593,13 +707,20 @@ const buildSettingsJSON = () => {
       ],
     })
   } else if (['socks', 'http'].includes(form.value.protocol)) {
-    return JSON.stringify({
-      servers: [
+    const srv: any = {
+      address: form.value.proxyHost,
+      port: form.value.proxyPort,
+    }
+    if (form.value.proxyUsername || form.value.proxyPassword) {
+      srv.users = [
         {
-          address: form.value.proxyHost,
-          port: form.value.proxyPort,
+          user: form.value.proxyUsername || '',
+          pass: form.value.proxyPassword || '',
         },
-      ],
+      ]
+    }
+    return JSON.stringify({
+      servers: [srv],
     })
   }
   return '{}'

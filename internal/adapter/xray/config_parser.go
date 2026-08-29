@@ -348,3 +348,32 @@ func BuildShareLink(inbound *domain.Inbound, user *domain.User, hostDomain strin
 		return ""
 	}
 }
+
+// BuildShareLinksForInbound 为单个入站生成一组分享链接 (若配置了 SubRoutes 则导出所有启用的分流线路，否则导出单节点)
+func BuildShareLinksForInbound(inbound *domain.Inbound, user *domain.User, hostDomain string, defaultPort int) []string {
+	subRoutes := inbound.GetSubRoutes()
+	if len(subRoutes) == 0 {
+		link := BuildShareLink(inbound, user, hostDomain, defaultPort)
+		if link != "" {
+			return []string{link}
+		}
+		return nil
+	}
+
+	var links []string
+	for _, sr := range subRoutes {
+		if !sr.Enabled {
+			continue
+		}
+		tempInbound := *inbound
+		if sr.Name != "" {
+			tempInbound.Remark = sr.Name
+		}
+		tempInbound.RouteID = sr.RouteID
+		link := BuildShareLink(&tempInbound, user, hostDomain, defaultPort)
+		if link != "" {
+			links = append(links, link)
+		}
+	}
+	return links
+}

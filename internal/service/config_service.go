@@ -377,12 +377,104 @@ func (s *ConfigService) syncInboundToFile(ctx context.Context, inbound *domain.I
 	}
 
 	root["inbounds"] = newInbounds
+	s.autoSyncSubRoutesToRouting(ctx, root)
+
 	modifiedBytes, err := json.Marshal(root)
 	if err != nil {
 		return err
 	}
 
 	return s.configMgr.WriteConfig(ctx, modifiedBytes)
+}
+
+// autoSyncSubRoutesToRouting 自动收集所有 Inbound 下配置的 SubRoutes 并将 vlessRoute 规则注入到 Xray 路由表顶部 (紧随 api 之后)
+func (s *ConfigService) autoSyncSubRoutesToRouting(ctx context.Context, root map[string]interface{}) {
+	if s.inboundRepo == nil {
+		return
+	}
+	allInbounds, err := s.inboundRepo.ListAll(ctx)
+	if err != nil {
+		return
+	}
+
+	var routingMap map[string]interface{}
+	if r, ok := root["routing"].(map[string]interface{}); ok && r != nil {
+		routingMap = r
+	} else {
+		routingMap = map[string]interface{}{
+			"domainStrategy": "IPIfNonMatch",
+			"rules":          []interface{}{},
+		}
+		root["routing"] = routingMap
+	}
+
+	existingRules, _ := routingMap["rules"].([]interface{})
+
+	// 收集所有 Inbound 下启用的 SubRoute
+	type subRouteRule struct {
+		vlessRoute  string
+		outboundTag string
+	}
+	var subRules []subRouteRule
+	for _, in := range allInbounds {
+		if !in.Enabled {
+			continue
+		}
+		for _, sr := range in.GetSubRoutes() {
+			if sr.Enabled && sr.RouteID > 0 && sr.OutboundTag != "" {
+				subRules = append(subRules, subRouteRule{
+					vlessRoute:  fmt.Sprintf("%d", sr.RouteID),
+					outboundTag: sr.OutboundTag,
+				})
+			}
+		}
+	}
+
+	if len(subRules) == 0 {
+		return
+	}
+
+	var finalRules []interface{}
+	var apiRules []interface{}
+	var otherRules []interface{}
+
+	for _, rRaw := range existingRules {
+		rMap, ok := rRaw.(map[string]interface{})
+		if !ok {
+			otherRules = append(otherRules, rRaw)
+			continue
+		}
+		// 检查是否为 api 规则
+		if inbTag, ok := rMap["inboundTag"].([]interface{}); ok && len(inbTag) > 0 && inbTag[0] == "api" {
+			apiRules = append(apiRules, rRaw)
+			continue
+		}
+		// 避免重复的 vlessRoute 规则
+		if vr, ok := rMap["vlessRoute"].(string); ok && vr != "" {
+			isOverridden := false
+			for _, sr := range subRules {
+				if sr.vlessRoute == vr {
+					isOverridden = true
+					break
+				}
+			}
+			if isOverridden {
+				continue
+			}
+		}
+		otherRules = append(otherRules, rRaw)
+	}
+
+	finalRules = append(finalRules, apiRules...)
+	for _, sr := range subRules {
+		finalRules = append(finalRules, map[string]interface{}{
+			"type":        "field",
+			"vlessRoute":  sr.vlessRoute,
+			"outboundTag": sr.outboundTag,
+		})
+	}
+	finalRules = append(finalRules, otherRules...)
+	routingMap["rules"] = finalRules
 }
 
 func (s *ConfigService) SyncUserToFile(ctx context.Context, authorizedTags []string, user *domain.User, isDelete bool) error {

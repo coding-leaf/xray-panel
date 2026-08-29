@@ -83,10 +83,8 @@ func (s *SubService) GetSubscriptionByToken(ctx context.Context, token string, t
 			continue
 		}
 
-		link := xray.BuildShareLink(&in, user, hostDomain, defaultPort)
-		if link != "" {
-			shareLinks = append(shareLinks, link)
-		}
+		links := xray.BuildShareLinksForInbound(&in, user, hostDomain, defaultPort)
+		shareLinks = append(shareLinks, links...)
 	}
 
 	rawText := strings.Join(shareLinks, "\n")

@@ -79,6 +79,26 @@
                 <span>{{ inb.isAlive ? `正常连通 (${inb.latencyMs || 1}ms)` : '端口未响应' }}</span>
               </span>
             </div>
+
+            <!-- 分流订阅线路 (Sub-Routes) -->
+            <div v-if="inb.subRoutes?.length" class="pt-2 border-t border-gray-800/60">
+              <div class="text-[11px] font-semibold text-gray-400 mb-1.5 flex items-center justify-between">
+                <span>分流订阅线路 ({{ inb.subRoutes.length }}条)</span>
+                <span class="text-[10px] text-indigo-400 font-mono">共用单端口 :{{ inb.externalPort || 443 }}</span>
+              </div>
+              <div class="flex flex-wrap gap-1.5">
+                <span
+                  v-for="sr in inb.subRoutes"
+                  :key="sr.id || sr.routeId"
+                  class="px-2 py-0.5 rounded-md text-[11px] font-mono flex items-center gap-1 border"
+                  :class="sr.enabled ? 'bg-indigo-500/15 text-indigo-300 border-indigo-500/30 font-medium' : 'bg-gray-900 text-gray-500 border-gray-800 line-through'"
+                >
+                  <span class="font-bold text-cyan-400">#{{ sr.routeId }}</span>
+                  <span class="text-white">{{ sr.name }}</span>
+                  <span class="text-gray-400">➔ {{ sr.outboundTag || 'direct' }}</span>
+                </span>
+              </div>
+            </div>
           </div>
         </div>
 
@@ -494,6 +514,97 @@
             </div>
           </div>
 
+          <!-- 5. 分流订阅线路配置 (Sub-Routes) - 单端口多出口 -->
+          <div v-if="form.protocol === 'vless'" class="space-y-3 bg-indigo-950/20 p-4 rounded-2xl border border-indigo-500/30">
+            <div class="flex items-center justify-between">
+              <div>
+                <h3 class="font-bold text-indigo-300 uppercase tracking-wider text-[11px] flex items-center gap-1.5">
+                  <span>⑤ 分流订阅线路 (Sub-Routes: 单端口多出口)</span>
+                </h3>
+                <p class="text-[10px] text-gray-400 mt-0.5">
+                  所有线路共用此入站的 Reality 密钥与端口，订阅将自动导出多个节点并按 RouteID 路由
+                </p>
+              </div>
+              <button
+                type="button"
+                @click="addSubRoute"
+                class="flex items-center gap-1 px-3 py-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-medium text-xs shadow-md shadow-indigo-600/20 transition-all"
+              >
+                <Plus class="w-3.5 h-3.5" />
+                <span>添加分流线路</span>
+              </button>
+            </div>
+
+            <!-- 线路列表 -->
+            <div v-if="form.subRoutes?.length" class="space-y-2 pt-1">
+              <div
+                v-for="(sr, index) in form.subRoutes"
+                :key="sr.id || index"
+                class="flex flex-wrap sm:flex-nowrap items-center gap-2 bg-gray-900/80 p-2.5 rounded-xl border border-gray-800"
+              >
+                <!-- Route ID -->
+                <div class="w-20 shrink-0">
+                  <label class="block text-[10px] text-gray-400 font-mono mb-0.5">Route ID</label>
+                  <input
+                    v-model.number="sr.routeId"
+                    type="number"
+                    min="1"
+                    max="65535"
+                    class="w-full bg-gray-800 border border-gray-700 rounded-lg px-2 py-1 text-white font-mono text-xs focus:outline-none focus:border-indigo-500"
+                  />
+                </div>
+
+                <!-- 线路名称 -->
+                <div class="flex-1 min-w-[140px]">
+                  <label class="block text-[10px] text-gray-400 mb-0.5">订阅节点名称</label>
+                  <input
+                    v-model="sr.name"
+                    type="text"
+                    placeholder="如 🇯🇵 日本原生直连"
+                    class="w-full bg-gray-800 border border-gray-700 rounded-lg px-2.5 py-1 text-white text-xs focus:outline-none focus:border-indigo-500"
+                  />
+                </div>
+
+                <!-- 目标出站 -->
+                <div class="w-36 shrink-0">
+                  <label class="block text-[10px] text-gray-400 mb-0.5">目标出站 (Outbound)</label>
+                  <select
+                    v-model="sr.outboundTag"
+                    class="w-full bg-gray-800 border border-gray-700 rounded-lg px-2 py-1 text-white font-mono text-xs focus:outline-none focus:border-indigo-500"
+                  >
+                    <option v-for="tag in availableOutbounds" :key="tag" :value="tag">
+                      {{ tag }}
+                    </option>
+                  </select>
+                </div>
+
+                <!-- 启用开关 & 删除 -->
+                <div class="flex items-center gap-2 pt-3 shrink-0">
+                  <label class="flex items-center gap-1 cursor-pointer text-gray-300 text-[11px]">
+                    <input
+                      type="checkbox"
+                      v-model="sr.enabled"
+                      class="rounded bg-gray-800 border-gray-700 text-indigo-600 focus:ring-0"
+                    />
+                    <span>启用</span>
+                  </label>
+                  <button
+                    type="button"
+                    @click="removeSubRoute(Number(index))"
+                    class="p-1 rounded-lg text-rose-400 hover:bg-rose-500/20 transition-colors"
+                    title="删除线路"
+                  >
+                    <Trash2 class="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            <div v-else class="text-center py-4 text-gray-500 text-[11px] border border-dashed border-gray-800 rounded-xl">
+              暂未配置分流线路（将仅作为单个普通节点导出）
+            </div>
+          </div>
+
           <!-- 6. 关联授权用户 (双向批量用户绑定) -->
           <div class="space-y-3 bg-gray-900/50 p-4 rounded-2xl border border-gray-800/80">
             <div class="flex items-center justify-between">
@@ -559,12 +670,13 @@
 
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
-import { Plus, Radio, Key, AlertTriangle } from 'lucide-vue-next'
+import { Plus, Radio, Key, AlertTriangle, Trash2 } from 'lucide-vue-next'
 import { toast } from '../utils/toast'
 import api from '../api'
 
 const inbounds = ref<any[]>([])
 const usersList = ref<any[]>([])
+const availableOutbounds = ref<string[]>(['direct', 'block'])
 const showModal = ref(false)
 const isEditing = ref(false)
 const saving = ref(false)
@@ -577,6 +689,7 @@ const form = ref<any>({
   externalPort: 443,
   externalHost: '',
   routeId: 0,
+  subRoutes: [] as any[],
   protocol: 'vless',
   vlessFlow: 'xtls-rprx-vision',
   network: 'tcp',
@@ -654,12 +767,45 @@ const onProtocolChange = () => {
 
 const fetchAll = async () => {
   try {
-    const [inbRes, uRes]: any = await Promise.all([api.get('/inbounds'), api.get('/users')])
-    inbounds.value = inbRes || []
+    const [inbRes, uRes, obRes]: any = await Promise.all([
+      api.get('/inbounds'),
+      api.get('/users'),
+      api.get('/outbounds').catch(() => []),
+    ])
+    inbounds.value = (inbRes || []).map((ib: any) => {
+      let srs: any[] = []
+      try {
+        srs = JSON.parse(ib.subRoutesJson || '[]')
+      } catch (e) {}
+      return { ...ib, subRoutes: srs }
+    })
     usersList.value = uRes || []
+    if (Array.isArray(obRes) && obRes.length > 0) {
+      availableOutbounds.value = obRes.map((o: any) => o.tag).filter((t: string) => t)
+    }
+    if (!availableOutbounds.value.includes('direct')) {
+      availableOutbounds.value.unshift('direct')
+    }
   } catch (err) {
     console.error(err)
   }
+}
+
+const addSubRoute = () => {
+  if (!form.value.subRoutes) form.value.subRoutes = []
+  const currentMax = form.value.subRoutes.reduce((max: number, sr: any) => Math.max(max, sr.routeId || 0), 0)
+  const nextId = currentMax + 1
+  form.value.subRoutes.push({
+    id: Math.random().toString(36).substring(2, 9),
+    name: `分流线路 #${nextId}`,
+    routeId: nextId,
+    outboundTag: availableOutbounds.value[0] || 'direct',
+    enabled: true,
+  })
+}
+
+const removeSubRoute = (idx: number) => {
+  form.value.subRoutes.splice(idx, 1)
 }
 
 const openCreateModal = () => {
@@ -669,6 +815,12 @@ const openCreateModal = () => {
     tag: `vless-tcp`,
     listen: '0.0.0.0',
     port: 443,
+    externalPort: 443,
+    externalHost: '',
+    routeId: 0,
+    subRoutes: [
+      { id: '1', name: '🇯🇵 日本原生直连', routeId: 1, outboundTag: 'direct', enabled: true },
+    ],
     protocol: 'vless',
     vlessFlow: 'xtls-rprx-vision',
     network: 'tcp',
@@ -719,6 +871,14 @@ const editInbound = (inb: any) => {
   form.value.externalHost = inb.externalHost || ''
   form.value.routeId = inb.routeId || 0
   form.value.protocol = inb.protocol
+
+  let srs: any[] = []
+  try {
+    srs = JSON.parse(inb.subRoutesJson || '[]')
+  } catch (e) {}
+  form.value.subRoutes = srs.length > 0 ? srs.map((r: any) => ({ ...r })) : [
+    { id: '1', name: inb.remark || inb.tag, routeId: inb.routeId || 1, outboundTag: 'direct', enabled: true },
+  ]
 
   let settings: any = {}
   try {
@@ -910,6 +1070,7 @@ const saveInbound = async () => {
       externalPort: form.value.externalPort || 0,
       externalHost: form.value.externalHost || '',
       routeId: form.value.routeId || 0,
+      subRoutesJson: JSON.stringify(form.value.subRoutes || []),
       listen: form.value.listen || '0.0.0.0',
       protocol: form.value.protocol,
       settingsJson: buildSettingsJSON(),

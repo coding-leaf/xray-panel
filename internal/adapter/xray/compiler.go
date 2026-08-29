@@ -310,21 +310,20 @@ func (c *XrayCompiler) compileInbound(inb *domain.Inbound, users []domain.User) 
 
 func (c *XrayCompiler) compileOutbound(ob *domain.Outbound) (*XrayOutbound, error) {
 	var streamSettings *XrayStreamSettings
-	if ob.StreamSettings != "" {
-		_ = json.Unmarshal([]byte(ob.StreamSettings), &streamSettings)
+	streamStr := strings.TrimSpace(ob.StreamSettings)
+	if streamStr != "" && streamStr != "null" && streamStr != "{}" {
+		_ = json.Unmarshal([]byte(streamStr), &streamSettings)
 	}
 
-	var settingsBytes json.RawMessage
-	if ob.SettingsJSON != "" {
-		settingsBytes = json.RawMessage(ob.SettingsJSON)
-	} else {
-		settingsBytes = json.RawMessage("{}")
+	settingsStr := strings.TrimSpace(ob.SettingsJSON)
+	if settingsStr == "" || settingsStr == "null" {
+		settingsStr = "{}"
 	}
 
 	return &XrayOutbound{
 		Tag:            ob.Tag,
 		Protocol:       ob.Protocol,
-		Settings:       settingsBytes,
+		Settings:       json.RawMessage(settingsStr),
 		StreamSettings: streamSettings,
 	}, nil
 }

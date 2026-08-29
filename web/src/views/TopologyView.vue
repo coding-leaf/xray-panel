@@ -479,17 +479,69 @@ const parseImportLink = () => {
   const link = wizardLink.value.trim()
   if (!link) {
     parsedExitTag.value = ''
+    parsedOutboundPayload.value = null
     return
   }
   try {
     if (link.startsWith('vless://')) {
       const u = new URL(link)
-      const tag = `out-vless-${u.hostname.replace(/[^a-zA-Z0-9]/g, '') || 'node'}`
+      const cleanHost = u.hostname.replace(/[^a-zA-Z0-9]/g, '') || 'node'
+      const tag = `out-vless-${cleanHost}-${Math.random().toString(36).substring(2, 6)}`
       parsedExitTag.value = tag
       parsedProtocol.value = 'vless'
       if (u.hash) {
         wizardForm.value.channelName = decodeURIComponent(u.hash.replace('#', ''))
       }
+
+      const params = u.searchParams
+      const network = params.get('type') || 'tcp'
+      const security = params.get('security') || 'none'
+      const flow = params.get('flow') || ''
+      const sni = params.get('sni') || ''
+      const pbk = params.get('pbk') || ''
+      const sid = params.get('sid') || ''
+      const fp = params.get('fp') || 'chrome'
+      const spx = params.get('spx') || ''
+      const path = params.get('path') || ''
+      const mode = params.get('mode') || 'auto'
+      const serviceName = params.get('serviceName') || ''
+
+      const userObj: any = {
+        id: u.username,
+        encryption: 'none',
+      }
+      if (flow) {
+        userObj.flow = flow
+      }
+
+      const stream: any = {
+        network,
+        security,
+      }
+
+      if (security === 'reality') {
+        stream.realitySettings = {
+          serverName: sni || u.hostname,
+          fingerprint: fp,
+          publicKey: pbk,
+          shortId: sid,
+          spiderX: spx,
+        }
+      } else if (security === 'tls') {
+        stream.tlsSettings = {
+          serverName: sni || u.hostname,
+          fingerprint: fp,
+        }
+      }
+
+      if (network === 'xhttp') {
+        stream.xhttpSettings = { path: path || '/', mode }
+      } else if (network === 'ws') {
+        stream.wsSettings = { path: path || '/' }
+      } else if (network === 'grpc') {
+        stream.grpcSettings = { serviceName }
+      }
+
       parsedOutboundPayload.value = {
         tag,
         protocol: 'vless',
@@ -498,19 +550,37 @@ const parseImportLink = () => {
             {
               address: u.hostname,
               port: parseInt(u.port) || 443,
-              users: [{ id: u.username, encryption: 'none' }],
+              users: [userObj],
             },
           ],
         }),
+        streamSettings: JSON.stringify(stream),
       }
     } else if (link.startsWith('trojan://')) {
       const u = new URL(link)
-      const tag = `out-trojan-${u.hostname.replace(/[^a-zA-Z0-9]/g, '') || 'node'}`
+      const cleanHost = u.hostname.replace(/[^a-zA-Z0-9]/g, '') || 'node'
+      const tag = `out-trojan-${cleanHost}-${Math.random().toString(36).substring(2, 6)}`
       parsedExitTag.value = tag
       parsedProtocol.value = 'trojan'
       if (u.hash) {
         wizardForm.value.channelName = decodeURIComponent(u.hash.replace('#', ''))
       }
+
+      const params = u.searchParams
+      const network = params.get('type') || 'tcp'
+      const security = params.get('security') || 'tls'
+      const sni = params.get('sni') || ''
+
+      const stream: any = {
+        network,
+        security,
+      }
+      if (security === 'tls') {
+        stream.tlsSettings = {
+          serverName: sni || u.hostname,
+        }
+      }
+
       parsedOutboundPayload.value = {
         tag,
         protocol: 'trojan',
@@ -520,6 +590,61 @@ const parseImportLink = () => {
               address: u.hostname,
               port: parseInt(u.port) || 443,
               password: u.username,
+            },
+          ],
+        }),
+        streamSettings: JSON.stringify(stream),
+      }
+    } else if (link.startsWith('ss://')) {
+      const clean = link.replace('ss://', '')
+      const parts = clean.split('#')
+      const mainPart = parts[0]
+      if (parts[1]) {
+        wizardForm.value.channelName = decodeURIComponent(parts[1])
+      }
+
+      let method = 'aes-128-gcm'
+      let password = ''
+      let server = ''
+      let port = 443
+
+      if (mainPart.includes('@')) {
+        const [authB64, hostPort] = mainPart.split('@')
+        try {
+          const auth = atob(authB64)
+          const authParts = auth.split(':')
+          method = authParts[0]
+          password = authParts[1]
+        } catch (e) {}
+        const hp = hostPort.split(':')
+        server = hp[0]
+        port = parseInt(hp[1]) || 443
+      } else {
+        try {
+          const decoded = atob(mainPart)
+          const [auth, hp] = decoded.split('@')
+          const authParts = auth.split(':')
+          method = authParts[0]
+          password = authParts[1]
+          const hpParts = hp.split(':')
+          server = hpParts[0]
+          port = parseInt(hpParts[1]) || 443
+        } catch (e) {}
+      }
+
+      const tag = `out-ss-${server.replace(/[^a-zA-Z0-9]/g, '') || 'node'}-${Math.random().toString(36).substring(2, 6)}`
+      parsedExitTag.value = tag
+      parsedProtocol.value = 'shadowsocks'
+      parsedOutboundPayload.value = {
+        tag,
+        protocol: 'shadowsocks',
+        settingsJson: JSON.stringify({
+          servers: [
+            {
+              address: server,
+              port: port,
+              method: method,
+              password: password,
             },
           ],
         }),
@@ -536,9 +661,17 @@ const submitWizard = async () => {
     let targetOutboundTag = wizardForm.value.exitTag
 
     // 如果是通过链接导入的新出口，先创建出站
-    if (wizardMode.value === 'link' && parsedOutboundPayload.value) {
+    if (wizardMode.value === 'link') {
+      if (!parsedOutboundPayload.value) {
+        toast.error('未检测到有效的节点链接，请检查格式')
+        return
+      }
       targetOutboundTag = parsedOutboundPayload.value.tag
-      await api.post('/outbounds', parsedOutboundPayload.value)
+      // 检查出站是否已存在，不存在才创建
+      const existingOb = outbounds.value.find((o) => o.tag === targetOutboundTag)
+      if (!existingOb) {
+        await api.post('/outbounds', parsedOutboundPayload.value)
+      }
     }
 
     // 将 SubRoute 挂载到选定的网关

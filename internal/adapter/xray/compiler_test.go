@@ -1,11 +1,14 @@
 package xray_test
 
 import (
+	"bytes"
 	"encoding/json"
 	"testing"
 
 	"panel/internal/adapter/xray"
 	"panel/internal/domain"
+
+	"github.com/xtls/xray-core/infra/conf/serial"
 )
 
 func TestXrayCompiler_Compile(t *testing.T) {
@@ -177,5 +180,54 @@ func TestXrayCompiler_Compile(t *testing.T) {
 	// Rule 3: Layer 3 自定义规则 (geosite:category-ads-all -> block)
 	if rules[3].OutboundTag != "block" {
 		t.Errorf("Rule 3 should be block, got %s", rules[3].OutboundTag)
+	}
+}
+
+func TestXrayRealityValidation(t *testing.T) {
+	compiler := xray.NewXrayCompiler()
+
+	// 模拟前端或旧配置中传入了混用的字段 (服务端带单数 serverName 和 publicKey，客户端带复数 serverNames 和 dest)
+	inbounds := []domain.Inbound{
+		{
+			ID:             1,
+			Tag:            "vless-reality",
+			Port:           443,
+			Protocol:       "vless",
+			StreamSettings: `{"network":"tcp","security":"reality","realitySettings":{"dest":"www.titech.ac.jp:443","serverName":"www.titech.ac.jp","publicKey":"some_pbk","privateKey":"OCiaG7JluOeRDE9IIuqPleHWArqqmnKJ_rKTxtjo7mc","shortIds":["0123456789abcdef"]}}`,
+			Enabled:        true,
+		},
+	}
+
+	outbounds := []domain.Outbound{
+		{
+			Tag:          "us-reality-exit",
+			Protocol:     "vless",
+			SettingsJSON: `{"vnext":[{"address":"1.2.3.4","port":443,"users":[{"id":"7117295b-4362-0000-a133-b969344dfcd5","encryption":"none"}]}]}`,
+			StreamSettings: `{"network":"tcp","security":"reality","realitySettings":{"serverNames":["apple.com"],"publicKey":"abc","shortIds":["123456"]}}`,
+		},
+	}
+
+	users := []domain.User{
+		{
+			Email:       "test@test.com",
+			UUID:        "7117295b-4362-0000-a133-b969344dfcd5",
+			InboundTags: "vless-reality",
+			Enabled:     true,
+		},
+	}
+
+	jsonBytes, err := compiler.CompileToJSON(inbounds, outbounds, nil, nil, users)
+	if err != nil {
+		t.Fatalf("CompileToJSON error: %v", err)
+	}
+
+	t.Logf("Generated JSON:\n%s", string(jsonBytes))
+
+	coreConfig, err := serial.DecodeJSONConfig(bytes.NewReader(jsonBytes))
+	if err != nil {
+		t.Fatalf("Xray Core serial.DecodeJSONConfig failed: %v", err)
+	}
+	if coreConfig == nil {
+		t.Fatal("Expected non-nil coreConfig")
 	}
 }

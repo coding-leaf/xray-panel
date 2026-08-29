@@ -250,9 +250,26 @@ func (c *XrayCompiler) compileInbound(inb *domain.Inbound, users []domain.User) 
 		clients = append(clients, client)
 	}
 
-	// 服务端 Inbound 移除 publicKey 字段以防止部分 Xray 内核版本解析报警
+	// 服务端 Inbound REALITY 字段规范化清洗 (杜绝 Xray 内核 non-empty serverName 报错)
 	if streamSettings != nil && streamSettings.RealitySettings != nil {
-		streamSettings.RealitySettings.PublicKey = ""
+		r := streamSettings.RealitySettings
+		if len(r.ServerNames) == 0 && r.ServerName != "" {
+			r.ServerNames = []string{r.ServerName}
+		}
+		r.ServerName = ""  // 服务端严禁包含单数 serverName
+		r.PublicKey = ""   // 服务端严禁包含 publicKey
+		r.Fingerprint = "" // 服务端严禁包含 fingerprint
+		r.SpiderX = ""     // 服务端严禁包含 spiderX
+		if len(r.ShortIds) == 0 && r.ShortId != "" {
+			r.ShortIds = []string{r.ShortId}
+		}
+		r.ShortId = ""     // 服务端严禁包含单数 shortId
+		if r.Dest == "" {
+			r.Dest = "www.titech.ac.jp:443"
+		}
+		if len(r.ServerNames) == 0 {
+			r.ServerNames = []string{"www.titech.ac.jp"}
+		}
 	}
 
 	// 组装 Settings
@@ -313,6 +330,21 @@ func (c *XrayCompiler) compileOutbound(ob *domain.Outbound) (*XrayOutbound, erro
 	streamStr := strings.TrimSpace(ob.StreamSettings)
 	if streamStr != "" && streamStr != "null" && streamStr != "{}" {
 		_ = json.Unmarshal([]byte(streamStr), &streamSettings)
+	}
+
+	// 客户端 Outbound REALITY 字段规范化清洗 (杜绝 Xray 内核 non-empty serverNames 报错)
+	if streamSettings != nil && streamSettings.RealitySettings != nil {
+		r := streamSettings.RealitySettings
+		if r.ServerName == "" && len(r.ServerNames) > 0 {
+			r.ServerName = r.ServerNames[0]
+		}
+		r.ServerNames = nil // 客户端严禁包含复数 serverNames
+		r.PrivateKey = ""   // 客户端严禁包含 privateKey
+		r.Dest = ""         // 客户端严禁包含 dest
+		if r.ShortId == "" && len(r.ShortIds) > 0 {
+			r.ShortId = r.ShortIds[0]
+		}
+		r.ShortIds = nil    // 客户端严禁包含复数 shortIds
 	}
 
 	settingsStr := strings.TrimSpace(ob.SettingsJSON)

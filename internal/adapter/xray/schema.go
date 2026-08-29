@@ -80,15 +80,17 @@ type XrayRealitySettings struct {
 	Show         bool     `json:"show,omitempty"`
 	Dest         string   `json:"dest,omitempty"`
 	Xver         int      `json:"xver,omitempty"`
-	ServerNames  []string `json:"serverNames,omitempty"`
-	PrivateKey   string   `json:"privateKey,omitempty"`
+	ServerNames  []string `json:"serverNames,omitempty"` // 服务端专属 (复数)
+	ServerName   string   `json:"serverName,omitempty"`  // 客户端专属 (单数)
+	PrivateKey   string   `json:"privateKey,omitempty"`  // 服务端专属
+	PublicKey    string   `json:"publicKey,omitempty"`   // 客户端专属
+	ShortIds     []string `json:"shortIds,omitempty"`    // 服务端专属 (复数)
+	ShortId      string   `json:"shortId,omitempty"`     // 客户端专属 (单数)
+	Fingerprint  string   `json:"fingerprint,omitempty"` // 客户端专属
+	SpiderX      string   `json:"spiderX,omitempty"`     // 客户端专属
 	MinClientVer string   `json:"minClientVer,omitempty"`
 	MaxClientVer string   `json:"maxClientVer,omitempty"`
 	MaxTimeDiff  int      `json:"maxTimeDiff,omitempty"`
-	ShortIds     []string `json:"shortIds,omitempty"`
-	Fingerprint  string   `json:"fingerprint,omitempty"`
-	PublicKey    string   `json:"publicKey,omitempty"`
-	SpiderX      string   `json:"spiderX,omitempty"`
 }
 
 type XrayTLSSettings struct {

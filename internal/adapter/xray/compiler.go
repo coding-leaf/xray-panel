@@ -35,6 +35,12 @@ func (c *XrayCompiler) Compile(
 		},
 		Stats: &XrayStatsConfig{},
 		Policy: &XrayPolicyConfig{
+			Levels: map[string]XrayPolicyLevel{
+				"0": {
+					StatsUserUplink:   true,
+					StatsUserDownlink: true,
+				},
+			},
 			System: &XrayPolicySystem{
 				StatsInboundUplink:    true,
 				StatsInboundDownlink:  true,

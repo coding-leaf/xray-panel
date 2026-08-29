@@ -28,7 +28,13 @@ type XrayAPIConfig struct {
 type XrayStatsConfig struct{}
 
 type XrayPolicyConfig struct {
-	System *XrayPolicySystem `json:"system,omitempty"`
+	Levels map[string]XrayPolicyLevel `json:"levels,omitempty"`
+	System *XrayPolicySystem          `json:"system,omitempty"`
+}
+
+type XrayPolicyLevel struct {
+	StatsUserUplink   bool `json:"statsUserUplink,omitempty"`
+	StatsUserDownlink bool `json:"statsUserDownlink,omitempty"`
 }
 
 type XrayPolicySystem struct {

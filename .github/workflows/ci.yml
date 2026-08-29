@@ -1,0 +1,84 @@
+name: CI & Multi-Platform Build
+
+on:
+  push:
+    branches: [ master, main ]
+  pull_request:
+    branches: [ master, main ]
+
+jobs:
+  test:
+    name: Run Tests & Vet
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+          cache: true
+
+      - name: Run Static Analysis (Vet)
+        run: go vet ./...
+
+      - name: Run Unit Tests
+        run: go test -v -race ./...
+
+  build:
+    name: Build Binaries
+    needs: test
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - os: linux
+            arch: amd64
+            output: panel-linux-amd64
+          - os: linux
+            arch: arm64
+            output: panel-linux-arm64
+          - os: windows
+            arch: amd64
+            output: panel-windows-amd64.exe
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+          cache-dependency-path: web/package-lock.json
+
+      - name: Build Web Frontend
+        run: |
+          cd web
+          npm ci
+          npm run build
+          cd ..
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+          cache: true
+
+      - name: Build Binary
+        env:
+          GOOS: ${{ matrix.os }}
+          GOARCH: ${{ matrix.arch }}
+          CGO_ENABLED: 0
+        run: |
+          mkdir -p dist
+          COMMIT_HASH=$(git rev-parse --short HEAD 2>/dev/null || echo "unknown")
+          BUILD_DATE=$(date -u +'%Y-%m-%d_%H:%M:%S')
+          go build -ldflags="-s -w -X 'main.Version=v1.1.0-ci' -X 'main.Commit=${COMMIT_HASH}' -X 'main.BuildTime=${BUILD_DATE}'" -o dist/${{ matrix.output }} main.go embedded.go
+
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.output }}
+          path: dist/${{ matrix.output }}

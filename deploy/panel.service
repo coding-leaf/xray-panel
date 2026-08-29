@@ -1,0 +1,24 @@
+[Unit]
+Description=Xray Decoupled Panel Daemon
+Documentation=https://github.com/
+After=network.target xray.service
+Wants=xray.service
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/usr/local/xray-panel
+ExecStart=/usr/local/xray-panel/panel
+Restart=on-failure
+RestartSec=5s
+LimitNOFILE=65535
+
+# 默认遵循 Linux 官方标准目录，如需自定义可通过环境变量或命令行参数指定
+# Environment="PANEL_PORT=9000"
+# Environment="XRAY_CONFIG_PATH=/usr/local/etc/xray/config.json"
+# Environment="XRAY_BIN_PATH=/usr/local/bin/xray"
+# Environment="SERVICE_NAME=xray"
+# Environment="DB_PATH=/usr/local/xray-panel/data/panel.db"
+
+[Install]
+WantedBy=multi-user.target

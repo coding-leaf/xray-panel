@@ -174,13 +174,13 @@
                   <div class="flex items-center gap-1.5">
                     <span
                       class="w-2 h-2 rounded-full"
-                      :class="!user.enabled ? 'bg-gray-600' : (user.isOnline ? 'bg-emerald-400 animate-pulse' : 'bg-gray-500')"
+                      :class="!user.enabled ? 'bg-rose-500' : (user.isOnline ? 'bg-emerald-400 animate-pulse' : 'bg-emerald-500/50')"
                     ></span>
                     <span
                       class="text-[11px] font-semibold"
-                      :class="!user.enabled ? 'text-gray-500' : (user.isOnline ? 'text-emerald-400' : 'text-gray-400')"
+                      :class="!user.enabled ? 'text-rose-400' : (user.isOnline ? 'text-emerald-400 font-bold' : 'text-gray-300')"
                     >
-                      {{ !user.enabled ? '已禁用' : (user.isOnline ? '在线连接' : '离线') }}
+                      {{ !user.enabled ? '已禁用' : (user.isOnline ? '在线传输' : '正常 (空闲)') }}
                     </span>
                   </div>
                   <!-- 实时上下行速率 -->
@@ -294,10 +294,10 @@
           <div class="shrink-0 flex flex-col items-end">
             <span
               class="px-2 py-0.5 rounded-full text-[10px] font-semibold border flex items-center gap-1"
-              :class="!user.enabled ? 'bg-gray-800 text-gray-500 border-gray-700' : (user.isOnline ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30' : 'bg-gray-900 text-gray-400 border-gray-800')"
+              :class="!user.enabled ? 'bg-rose-500/10 text-rose-400 border-rose-500/20' : (user.isOnline ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30' : 'bg-gray-900 text-gray-300 border-gray-800')"
             >
-              <span class="w-1.5 h-1.5 rounded-full" :class="!user.enabled ? 'bg-gray-600' : (user.isOnline ? 'bg-emerald-400' : 'bg-gray-500')"></span>
-              {{ !user.enabled ? '已禁用' : (user.isOnline ? '在线' : '离线') }}
+              <span class="w-1.5 h-1.5 rounded-full" :class="!user.enabled ? 'bg-rose-500' : (user.isOnline ? 'bg-emerald-400' : 'bg-emerald-500/50')"></span>
+              {{ !user.enabled ? '已禁用' : (user.isOnline ? '在线' : '正常') }}
             </span>
             <span v-if="user.isOnline && (user.upSpeed > 0 || user.downSpeed > 0)" class="text-[9px] font-mono text-cyan-300 mt-0.5">
               ↑{{ formatBytes(user.upSpeed) }}/s ↓{{ formatBytes(user.downSpeed) }}/s

@@ -11,6 +11,8 @@ import LogsView from '../views/LogsView.vue'
 import SettingsView from '../views/SettingsView.vue'
 import LoginView from '../views/LoginView.vue'
 
+import { isMockMode } from '../mock'
+
 const routes = [
   { path: '/login', component: LoginView },
   { path: '/', component: DashboardView, meta: { requiresAuth: true } },
@@ -26,15 +28,18 @@ const routes = [
 ]
 
 const router = createRouter({
-  history: createWebHistory(),
+  history: createWebHistory((import.meta as any).env?.BASE_URL || '/'),
   routes,
 })
 
 router.beforeEach((to, from, next) => {
+  if (isMockMode() && !localStorage.getItem('token')) {
+    localStorage.setItem('token', 'demo-mock-jwt-token')
+  }
   const token = localStorage.getItem('token')
   if (to.meta.requiresAuth && !token) {
     next('/login')
-  } else if (to.path === '/login' && token) {
+  } else if (to.path === '/login' && token && !isMockMode()) {
     next('/')
   } else {
     next()

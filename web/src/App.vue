@@ -227,7 +227,20 @@
         </div>
 
         <!-- 手机顶栏右侧状态与快捷键 -->
-        <div class="flex items-center gap-1.5">
+        <div class="flex items-center gap-2">
+          <!-- 演示模式专属徽章与重置 -->
+          <div v-if="isMock" class="flex items-center gap-1.5 bg-amber-500/10 border border-amber-500/20 px-2.5 py-1 rounded-lg text-amber-300 text-xs">
+            <span class="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse"></span>
+            <span class="font-medium hidden sm:inline">🎭 毛坯房演示</span>
+            <button
+              @click="handleResetDemo"
+              class="ml-0.5 px-1.5 py-0.5 rounded bg-amber-500/20 hover:bg-amber-500/30 text-[10px] text-amber-200 transition-colors border border-amber-500/30"
+              title="重置为初始毛坯房状态"
+            >
+              重置
+            </button>
+          </div>
+
           <!-- 核心状态小胶囊 -->
           <div
             class="flex items-center gap-1 px-2 py-1 rounded-full border text-[10px] font-mono"
@@ -308,9 +321,19 @@ import {
 import ToastContainer from './components/ToastContainer.vue'
 import { toast } from './utils/toast'
 import api from './api'
+import { isMockMode, resetMockState } from './mock'
 
 const route = useRoute()
 const router = useRouter()
+
+const isMock = computed(() => isMockMode())
+const handleResetDemo = () => {
+  if (confirm('确认将演示数据重置为初始毛坯房状态吗？')) {
+    resetMockState()
+    toast.success('已恢复初始毛坯房状态！')
+    window.location.reload()
+  }
+}
 
 const isLoginPage = computed(() => route.path === '/login')
 const username = computed(() => localStorage.getItem('username') || 'admin')

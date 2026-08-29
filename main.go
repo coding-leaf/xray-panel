@@ -79,6 +79,7 @@ func main() {
 	// 4. 初始化业务用例深模块 Services
 	configSvc := service.NewConfigService(configMgr, supervisor, inboundRepo, userRepo, snapshotRepo)
 	_ = configSvc.SyncFromFile(bgCtx)
+	_ = configSvc.RecompileAndApply(bgCtx, "面板启动自动同步与编译配置")
 
 	userSvc := service.NewUserService(userRepo, inboundRepo, trafficLogRepo, xrayManager, configSvc)
 	subSvc := service.NewSubService(userRepo, inboundRepo, settingRepo)
@@ -115,8 +116,8 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	// 启动后台定时任务
-	syncJob := deliveryCron.NewTrafficSyncJob(xrayManager, userRepo, inboundRepo, trafficLogRepo, alertSvc, userSvc, 15*time.Second)
+	// 启动后台定时任务 (5 秒轮询实时上下行与在线状态)
+	syncJob := deliveryCron.NewTrafficSyncJob(xrayManager, userRepo, inboundRepo, trafficLogRepo, alertSvc, userSvc, 5*time.Second)
 	syncJob.Start(ctx)
 
 	// 启动 Telegram Bot 轮询

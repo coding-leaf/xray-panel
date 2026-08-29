@@ -28,8 +28,8 @@ func NewTrafficSyncJob(
 	userSvc *service.UserService,
 	interval time.Duration,
 ) *TrafficSyncJob {
-	if interval < 5*time.Second {
-		interval = 15 * time.Second
+	if interval < 3*time.Second {
+		interval = 5 * time.Second
 	}
 	return &TrafficSyncJob{
 		xrayManager:    xrayManager,

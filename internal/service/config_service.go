@@ -101,8 +101,8 @@ func (s *ConfigService) SyncFromFile(ctx context.Context) error {
 	return s.syncFromRawJSON(ctx, raw)
 }
 
-// recompileAndApply 核心强类型编译管道：读取所有领域实体 ➔ 编译为合规 JSON ➔ 校验写入 ➔ 平滑重载
-func (s *ConfigService) recompileAndApply(ctx context.Context, remark string) error {
+// RecompileAndApply 核心强类型编译管道：读取所有领域实体 ➔ 编译为合规 JSON ➔ 校验写入 ➔ 平滑重载
+func (s *ConfigService) RecompileAndApply(ctx context.Context, remark string) error {
 	// 1. 读取 Inbounds
 	var inbounds []domain.Inbound
 	if s.inboundRepo != nil {
@@ -306,7 +306,7 @@ func (s *ConfigService) CreateInbound(ctx context.Context, inbound *domain.Inbou
 		return err
 	}
 
-	return s.recompileAndApply(ctx, fmt.Sprintf("创建入站节点 %s", inbound.Tag))
+	return s.RecompileAndApply(ctx, fmt.Sprintf("创建入站节点 %s", inbound.Tag))
 }
 
 func (s *ConfigService) UpdateInbound(ctx context.Context, inbound *domain.Inbound) error {
@@ -314,7 +314,7 @@ func (s *ConfigService) UpdateInbound(ctx context.Context, inbound *domain.Inbou
 		return err
 	}
 
-	return s.recompileAndApply(ctx, fmt.Sprintf("更新入站节点 %s", inbound.Tag))
+	return s.RecompileAndApply(ctx, fmt.Sprintf("更新入站节点 %s", inbound.Tag))
 }
 
 func (s *ConfigService) DeleteInbound(ctx context.Context, id uint) error {
@@ -326,11 +326,11 @@ func (s *ConfigService) DeleteInbound(ctx context.Context, id uint) error {
 		return err
 	}
 
-	return s.recompileAndApply(ctx, fmt.Sprintf("删除入站节点 %s", inbound.Tag))
+	return s.RecompileAndApply(ctx, fmt.Sprintf("删除入站节点 %s", inbound.Tag))
 }
 
 func (s *ConfigService) SyncUserToFile(ctx context.Context, authorizedTags []string, user *domain.User, isDelete bool) error {
-	return s.recompileAndApply(ctx, fmt.Sprintf("同步用户 %s 节点授权", user.Email))
+	return s.RecompileAndApply(ctx, fmt.Sprintf("同步用户 %s 节点授权", user.Email))
 }
 
 // === 出站管理 (Outbounds Management) ===

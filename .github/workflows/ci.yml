@@ -75,7 +75,7 @@ jobs:
           mkdir -p dist
           COMMIT_HASH=$(git rev-parse --short HEAD 2>/dev/null || echo "unknown")
           BUILD_DATE=$(date -u +'%Y-%m-%d_%H:%M:%S')
-          go build -ldflags="-s -w -X 'main.Version=v1.1.0-ci' -X 'main.Commit=${COMMIT_HASH}' -X 'main.BuildTime=${BUILD_DATE}'" -o dist/${{ matrix.output }} main.go embedded.go
+          go build -ldflags="-s -w -X 'main.Version=v1.3.0-ci' -X 'main.Commit=${COMMIT_HASH}' -X 'main.BuildTime=${BUILD_DATE}'" -o dist/${{ matrix.output }} main.go embedded.go
 
       - name: Upload Artifact
         uses: actions/upload-artifact@v4

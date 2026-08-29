@@ -4,13 +4,42 @@ on:
   push:
     tags:
       - 'v*'
+  workflow_dispatch:
 
 permissions:
   contents: write
 
 jobs:
-  build-and-release:
-    name: Build & Publish Multi-Platform Release
+  build-frontend:
+    name: Build Web Frontend
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+          cache-dependency-path: web/package-lock.json
+
+      - name: Build Web Dist
+        run: |
+          cd web
+          npm ci
+          npm run build
+          cd ..
+
+      - name: Upload Frontend Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: web-dist
+          path: web/dist
+
+  build-binaries:
+    name: Build Binary (${{ matrix.os }}/${{ matrix.arch }})
+    needs: build-frontend
     runs-on: ubuntu-latest
     strategy:
       matrix:
@@ -35,19 +64,11 @@ jobs:
       - name: Checkout Code
         uses: actions/checkout@v4
 
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
+      - name: Download Frontend Artifact
+        uses: actions/download-artifact@v4
         with:
-          node-version: 20
-          cache: 'npm'
-          cache-dependency-path: web/package-lock.json
-
-      - name: Build Web Frontend
-        run: |
-          cd web
-          npm ci
-          npm run build
-          cd ..
+          name: web-dist
+          path: web/dist
 
       - name: Set up Go
         uses: actions/setup-go@v5
@@ -63,15 +84,48 @@ jobs:
         run: |
           mkdir -p dist
           TAG_VERSION="${{ github.ref_name }}"
+          if [ -z "$TAG_VERSION" ] || [ "$TAG_VERSION" = "master" ] || [ "$TAG_VERSION" = "main" ]; then
+            TAG_VERSION="v1.3.0"
+          fi
           COMMIT_HASH=$(git rev-parse --short HEAD 2>/dev/null || echo "unknown")
           BUILD_DATE=$(date -u +'%Y-%m-%d_%H:%M:%S')
           go build -ldflags="-s -w -X 'main.Version=${TAG_VERSION}' -X 'main.Commit=${COMMIT_HASH}' -X 'main.BuildTime=${BUILD_DATE}'" \
                    -o dist/${{ matrix.output }} main.go embedded.go
 
-      - name: Upload Binary to GitHub Release
+      - name: Upload Binary Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: binary-${{ matrix.output }}
+          path: dist/${{ matrix.output }}
+
+  publish-release:
+    name: Publish GitHub Release
+    needs: build-binaries
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/v')
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Download All Binary Artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: release-assets
+          pattern: binary-*
+          merge-multiple: true
+
+      - name: Generate Checksums
+        run: |
+          cd release-assets
+          sha256sum * > checksums-sha256.txt
+          cat checksums-sha256.txt
+          cd ..
+
+      - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          files: dist/${{ matrix.output }}
+          files: |
+            release-assets/*
           generate_release_notes: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

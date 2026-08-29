@@ -53,7 +53,7 @@ func TestBuildShareLinksForInbound_SubRoutes(t *testing.T) {
 		Tag:            "vless-reality",
 		Port:           4434,
 		ExternalPort:   443,
-		ExternalHost:   "216.23.120.5",
+		ExternalHost:   "198.51.100.1",
 		Protocol:       "vless",
 		StreamSettings: string(streamBytes),
 		SubRoutesJson:  string(subRoutesBytes),
@@ -61,11 +61,11 @@ func TestBuildShareLinksForInbound_SubRoutes(t *testing.T) {
 	}
 
 	user := &domain.User{
-		Email: "master@yezineko.top",
+		Email: "user@example.com",
 		UUID:  "7117295b-4362-4260-a133-b969344dfcd5",
 	}
 
-	links := BuildShareLinksForInbound(inbound, user, "216.23.120.5", 443)
+	links := BuildShareLinksForInbound(inbound, user, "198.51.100.1", 443)
 
 	if len(links) != 2 {
 		t.Fatalf("expected 2 links for enabled subroutes, got %d", len(links))
@@ -76,7 +76,7 @@ func TestBuildShareLinksForInbound_SubRoutes(t *testing.T) {
 	if !strings.Contains(link1, "7117295b-4362-0001-a133-b969344dfcd5") {
 		t.Errorf("link1 does not contain route 1 UUID: %s", link1)
 	}
-	if !strings.Contains(link1, "@216.23.120.5:443") {
+	if !strings.Contains(link1, "@198.51.100.1:443") {
 		t.Errorf("link1 does not connect to port 443: %s", link1)
 	}
 	if !strings.Contains(link1, "%2Fmbqyfa4grswh5ntz") {
@@ -88,7 +88,7 @@ func TestBuildShareLinksForInbound_SubRoutes(t *testing.T) {
 	if !strings.Contains(link2, "7117295b-4362-0002-a133-b969344dfcd5") {
 		t.Errorf("link2 does not contain route 2 UUID: %s", link2)
 	}
-	if !strings.Contains(link2, "@216.23.120.5:443") {
+	if !strings.Contains(link2, "@198.51.100.1:443") {
 		t.Errorf("link2 does not connect to port 443: %s", link2)
 	}
 	if !strings.Contains(link2, "FMdWD0uS9lrXUAoMmTP5e2LLD-mk8vO8JTZmAE9vdww") {

@@ -303,6 +303,7 @@ import {
   RefreshCw,
   Menu,
   X,
+  Network,
 } from 'lucide-vue-next'
 import ToastContainer from './components/ToastContainer.vue'
 import { toast } from './utils/toast'
@@ -320,10 +321,11 @@ const restarting = ref(false)
 
 const navItems = [
   { name: '运行监控', path: '/', icon: LayoutDashboard, shortName: '监控' },
-  { name: '入站节点', path: '/inbounds', icon: Radio, shortName: '入站' },
+  { name: '线路与拓扑', path: '/topology', icon: Network, shortName: '拓扑' },
   { name: '用户与订阅', path: '/users', icon: Users, shortName: '用户' },
-  { name: '出站代理', path: '/outbounds', icon: Send, shortName: '出站' },
   { name: '路由分流', path: '/routing', icon: RouteIcon, shortName: '路由' },
+  { name: '入站网关', path: '/inbounds', icon: Radio, shortName: '网关' },
+  { name: '出站出口', path: '/outbounds', icon: Send, shortName: '出站' },
   { name: 'DNS 设置', path: '/dns', icon: Globe, shortName: 'DNS' },
   { name: '配置编辑', path: '/config', icon: FileCode2, shortName: '配置' },
   { name: '运行日志', path: '/logs', icon: ScrollText, shortName: '日志' },
@@ -333,9 +335,9 @@ const navItems = [
 // 手机端底部常驻 4 个最常用的核心导航
 const mobileNavItems = [
   navItems[0], // 监控
+  navItems[1], // 拓扑
   navItems[2], // 用户
-  navItems[4], // 路由
-  navItems[7], // 日志
+  navItems[8], // 日志
 ]
 
 const currentViewName = computed(() => {

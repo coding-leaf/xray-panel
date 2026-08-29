@@ -1,5 +1,6 @@
 import { createRouter, createWebHistory } from 'vue-router'
 import DashboardView from '../views/DashboardView.vue'
+import TopologyView from '../views/TopologyView.vue'
 import InboundsView from '../views/InboundsView.vue'
 import OutboundsView from '../views/OutboundsView.vue'
 import RoutingView from '../views/RoutingView.vue'
@@ -13,6 +14,7 @@ import LoginView from '../views/LoginView.vue'
 const routes = [
   { path: '/login', component: LoginView },
   { path: '/', component: DashboardView, meta: { requiresAuth: true } },
+  { path: '/topology', component: TopologyView, meta: { requiresAuth: true } },
   { path: '/inbounds', component: InboundsView, meta: { requiresAuth: true } },
   { path: '/outbounds', component: OutboundsView, meta: { requiresAuth: true } },
   { path: '/routing', component: RoutingView, meta: { requiresAuth: true } },

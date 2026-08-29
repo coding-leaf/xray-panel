@@ -785,7 +785,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted } from 'vue'
 import {
   UserPlus,
   Edit,
@@ -864,6 +864,37 @@ const fetchAll = async () => {
     availableInbounds.value = inbRes || []
   } catch (err) {
     console.error(err)
+  }
+}
+
+// 纯内存轻量速率就地打补丁 (In-place Patching，0 数据库查询，零 DOM 结构重建)
+let speedTimer: any = null
+const fetchSpeeds = async () => {
+  if (document.hidden) return
+  try {
+    const res: any = await api.get('/users/speeds')
+    if (res && users.value.length) {
+      for (const u of users.value) {
+        const s = res[u.email]
+        if (s) {
+          u.upSpeed = s.upSpeed || 0
+          u.downSpeed = s.downSpeed || 0
+          u.isOnline = !!s.isOnline
+        } else {
+          u.upSpeed = 0
+          u.downSpeed = 0
+          u.isOnline = false
+        }
+      }
+    }
+  } catch (err) {
+    // 忽略异常保证界面稳定
+  }
+}
+
+const handleVisibilityChange = () => {
+  if (!document.hidden) {
+    fetchSpeeds()
   }
 }
 
@@ -1196,7 +1227,17 @@ const formatDate = (ms: number) => {
   return new Date(ms).toLocaleDateString()
 }
 
-onMounted(() => {
-  fetchAll()
+onMounted(async () => {
+  await fetchAll()
+  document.addEventListener('visibilitychange', handleVisibilityChange)
+  speedTimer = setInterval(fetchSpeeds, 3000)
+})
+
+onUnmounted(() => {
+  if (speedTimer) {
+    clearInterval(speedTimer)
+    speedTimer = null
+  }
+  document.removeEventListener('visibilitychange', handleVisibilityChange)
 })
 </script>

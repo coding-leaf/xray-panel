@@ -224,3 +224,9 @@ func (h *UserHandler) BatchStatus(c *gin.Context) {
 	}
 	c.JSON(http.StatusOK, gin.H{"message": fmt.Sprintf("成功%s %d 位用户", action, len(req.IDs))})
 }
+
+// GetSpeeds 纯内存瞬时速率与在线状态查询接口（0 数据库 I/O，微秒级响应）
+func (h *UserHandler) GetSpeeds(c *gin.Context) {
+	speeds := domain.GetAllUserRuntimeSpeeds()
+	c.JSON(http.StatusOK, speeds)
+}

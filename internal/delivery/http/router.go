@@ -74,6 +74,7 @@ func SetupRouter(handlers *Handlers, jwtSecret string, staticFS fs.FS) *gin.Engi
 
 			// 用户管理
 			authGroup.GET("/users", handlers.User.List)
+			authGroup.GET("/users/speeds", handlers.User.GetSpeeds)
 			authGroup.POST("/users", handlers.User.Create)
 			authGroup.PUT("/users/:id", handlers.User.Update)
 			authGroup.DELETE("/users/:id", handlers.User.Delete)

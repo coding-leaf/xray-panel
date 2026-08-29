@@ -128,14 +128,22 @@ func (j *TrafficSyncJob) syncOnce(ctx context.Context) {
 		}
 	}
 
-	// 更新速度追踪器
-	for email, up := range userDeltaUp {
+	// 更新速度追踪器 (有增量计算速率，无增量即时将瞬时速率置零)
+	allTracked := domain.GetAllUserRuntimeSpeeds()
+	for email := range allTracked {
+		up := userDeltaUp[email]
 		down := userDeltaDown[email]
-		domain.SetUserRuntimeSpeed(email, up/sec, down/sec, nowMs)
+		if up > 0 || down > 0 {
+			domain.SetUserRuntimeSpeed(email, up/sec, down/sec, nowMs)
+		} else {
+			// 本轮周期无新增流量，立即将瞬时速率置零
+			domain.SetUserRuntimeSpeed(email, 0, 0, 0)
+		}
 	}
-	for email, down := range userDeltaDown {
-		if _, exists := userDeltaUp[email]; !exists {
-			domain.SetUserRuntimeSpeed(email, 0, down/sec, nowMs)
+	for email, up := range userDeltaUp {
+		if _, ok := allTracked[email]; !ok {
+			down := userDeltaDown[email]
+			domain.SetUserRuntimeSpeed(email, up/sec, down/sec, nowMs)
 		}
 	}
 }

@@ -133,6 +133,20 @@ export async function handleMockRequest(url: string, method: string, data?: any)
   }
 
   // 6. Users 用户管理
+  if (cleanUrl.endsWith('/users/speeds') && method === 'GET') {
+    const speeds: Record<string, any> = {}
+    for (const u of state.users) {
+      speeds[u.email] = {
+        email: u.email,
+        upSpeed: u.isOnline ? Math.floor(Math.random() * 50000) : 0,
+        downSpeed: u.isOnline ? Math.floor(Math.random() * 2000000) : 0,
+        lastActive: Date.now(),
+        isOnline: u.isOnline,
+      }
+    }
+    return delay(speeds, 40)
+  }
+
   if (cleanUrl.endsWith('/users') && method === 'GET') {
     return delay(state.users)
   }

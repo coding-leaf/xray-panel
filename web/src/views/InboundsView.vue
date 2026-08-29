@@ -31,6 +31,9 @@
           <div class="flex items-center justify-between mb-3">
             <span class="text-base font-bold text-white tracking-tight font-mono">{{ inb.tag }}</span>
             <div class="flex items-center gap-1.5">
+              <span v-if="inb.routeId > 0" class="px-2 py-0.5 rounded-md text-[11px] font-mono font-bold bg-indigo-500/20 text-indigo-300 border border-indigo-500/30">
+                Route #{{ inb.routeId }}
+              </span>
               <span class="px-2 py-0.5 rounded-md text-[11px] font-mono font-bold uppercase" :class="protocolBadgeColor(inb.protocol)">
                 {{ inb.protocol }}
               </span>
@@ -41,6 +44,10 @@
           </div>
 
           <div class="space-y-2 text-xs text-gray-400">
+            <div v-if="inb.routeId > 0" class="flex justify-between py-1 border-b border-gray-800/60">
+              <span>VLESS 路由编号 (Route ID)</span>
+              <span class="text-indigo-300 font-mono font-bold">#{{ inb.routeId }} (0x{{ inb.routeId.toString(16).padStart(4, '0') }})</span>
+            </div>
             <div class="flex justify-between py-1 border-b border-gray-800/60">
               <span>端口映射 (内部:外部)</span>
               <div class="flex items-center gap-1.5 font-mono">
@@ -174,6 +181,19 @@
                   class="w-full bg-gray-900 border border-gray-700 rounded-xl px-3 py-2 text-white font-mono focus:outline-none focus:border-brand-500"
                 />
                 <p class="text-[10px] text-gray-500 mt-0.5">订阅下发的目标地址，留空继承全局设置</p>
+              </div>
+
+              <div>
+                <label class="block text-gray-300 mb-1 font-medium">
+                  VLESS 路由编号 (Route ID)
+                </label>
+                <input
+                  v-model.number="form.routeId"
+                  type="number"
+                  placeholder="0 (留空或 0 为不启用)"
+                  class="w-full bg-gray-900 border border-gray-700 rounded-xl px-3 py-2 text-white font-mono focus:outline-none focus:border-brand-500"
+                />
+                <p class="text-[10px] text-gray-500 mt-0.5">Xray vlessRoute 协议级分流标识 (1~65535)</p>
               </div>
             </div>
 
@@ -556,6 +576,7 @@ const form = ref<any>({
   port: 4434,
   externalPort: 443,
   externalHost: '',
+  routeId: 0,
   protocol: 'vless',
   vlessFlow: 'xtls-rprx-vision',
   network: 'tcp',
@@ -696,6 +717,7 @@ const editInbound = (inb: any) => {
   form.value.port = inb.port
   form.value.externalPort = inb.externalPort || 0
   form.value.externalHost = inb.externalHost || ''
+  form.value.routeId = inb.routeId || 0
   form.value.protocol = inb.protocol
 
   let settings: any = {}
@@ -887,6 +909,7 @@ const saveInbound = async () => {
       port: form.value.port,
       externalPort: form.value.externalPort || 0,
       externalHost: form.value.externalHost || '',
+      routeId: form.value.routeId || 0,
       listen: form.value.listen || '0.0.0.0',
       protocol: form.value.protocol,
       settingsJson: buildSettingsJSON(),

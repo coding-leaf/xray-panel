@@ -190,6 +190,9 @@
 
               <!-- Rule conditions preview -->
               <div class="flex flex-wrap gap-1.5 pt-1">
+                <span v-if="rule.vlessRoute" class="px-2 py-0.5 rounded bg-indigo-500/20 text-indigo-300 font-mono text-[11px] border border-indigo-500/30 font-bold">
+                  vlessRoute: {{ rule.vlessRoute }}
+                </span>
                 <span v-if="rule.domain?.length" class="px-2 py-0.5 rounded bg-blue-500/15 text-blue-300 font-mono text-[11px] border border-blue-500/20">
                   域名: {{ rule.domain.join(', ') }}
                 </span>
@@ -303,6 +306,19 @@
                 class="w-full bg-gray-900 border border-gray-700 rounded-xl px-3 py-1.5 mt-1.5 text-white font-mono text-[11px] focus:outline-none focus:border-brand-500"
               />
             </div>
+          </div>
+
+          <div>
+            <label class="block text-gray-300 mb-1 font-medium">
+              VLESS 协议路由匹配 (vlessRoute，可选)
+            </label>
+            <input
+              v-model="ruleForm.vlessRoute"
+              type="text"
+              placeholder="例如: 1 或 2 或 1,2 或 100-200 (匹配客户端 VLESS UUID 中携带的 16 位路由编号)"
+              class="w-full bg-gray-900 border border-gray-700 rounded-xl px-3 py-2 text-white font-mono text-[11px] focus:outline-none focus:border-brand-500"
+            />
+            <p class="text-[10px] text-gray-500 mt-0.5">Xray 官方 VLESS 协议级多节点路由分流条件，支持单值、列表或范围匹配</p>
           </div>
 
           <div>
@@ -575,6 +591,7 @@ const openAddRuleModal = () => {
     customOutboundTag: '',
     selectedInboundTag: '',
     inboundTagsStr: '',
+    vlessRoute: '',
     domainStr: '',
     ipStr: '',
     port: '',
@@ -605,6 +622,7 @@ const editRule = (idx: number) => {
     customOutboundTag: isCustom ? r.outboundTag : '',
     selectedInboundTag: '',
     inboundTagsStr: (r.inboundTag || []).join(', '),
+    vlessRoute: r.vlessRoute || '',
     domainStr: (r.domain || []).join(',\n'),
     ipStr: (r.ip || []).join(',\n'),
     port: r.port || '',
@@ -632,6 +650,10 @@ const saveRuleInModal = () => {
   const newRule: any = {
     outboundTag: targetOutbound,
   }
+  if (ruleForm.value.vlessRoute && ruleForm.value.vlessRoute.trim()) {
+    newRule.vlessRoute = ruleForm.value.vlessRoute.trim()
+  }
+
   const inbounds = parseArray(ruleForm.value.inboundTagsStr)
   if (inbounds) newRule.inboundTag = inbounds
 
@@ -736,6 +758,7 @@ const confirmInjectPreset = () => {
 }
 
 const formatRuleSummary = (rule: any) => {
+  if (rule.vlessRoute) return `vlessRoute: ${rule.vlessRoute}`
   if (rule.domain) return `域名: ${rule.domain.join(', ')}`
   if (rule.ip) return `IP: ${rule.ip.join(', ')}`
   if (rule.protocol) return `协议: ${rule.protocol.join(', ')}`

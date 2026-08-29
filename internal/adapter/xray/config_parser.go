@@ -180,6 +180,20 @@ func cleanHost(raw string) string {
 	return raw
 }
 
+// ApplyVlessRouteToUUID 纯函数：将用户基准 UUID 的第 3 组（bytes 7&8）替换为 routeID 的 4 位十六进制格式
+// 若 routeID 为 0 或 rawUUID 格式不符合标准 5 段格式，则返回原始 UUID 不作修改
+func ApplyVlessRouteToUUID(rawUUID string, routeID uint16) string {
+	if routeID == 0 || rawUUID == "" {
+		return rawUUID
+	}
+	parts := strings.Split(rawUUID, "-")
+	if len(parts) != 5 {
+		return rawUUID
+	}
+	parts[2] = fmt.Sprintf("%04x", routeID)
+	return strings.Join(parts, "-")
+}
+
 // BuildShareLink 生成标准 Xray 分享链接 (vless://, vmess://, trojan://)
 func BuildShareLink(inbound *domain.Inbound, user *domain.User, hostDomain string, defaultPort int) string {
 	targetHost := cleanHost(inbound.ExternalHost)
@@ -314,7 +328,11 @@ func BuildShareLink(inbound *domain.Inbound, user *domain.User, hostDomain strin
 		if remark == "" {
 			remark = inbound.Tag
 		}
-		return fmt.Sprintf("vless://%s@%s:%d?%s#%s", user.UUID, targetHost, targetPort, v.Encode(), url.QueryEscape(remark))
+		effectiveUUID := user.UUID
+		if inbound.RouteID > 0 {
+			effectiveUUID = ApplyVlessRouteToUUID(user.UUID, inbound.RouteID)
+		}
+		return fmt.Sprintf("vless://%s@%s:%d?%s#%s", effectiveUUID, targetHost, targetPort, v.Encode(), url.QueryEscape(remark))
 
 	case "trojan":
 		v := url.Values{}

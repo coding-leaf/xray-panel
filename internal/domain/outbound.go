@@ -12,6 +12,7 @@ type RoutingRule struct {
 	Type        string   `json:"type,omitempty"` // field
 	InboundTag  []string `json:"inboundTag,omitempty"`
 	OutboundTag string   `json:"outboundTag"`
+	VlessRoute  string   `json:"vlessRoute,omitempty"` // 匹配 VLESS 协议级 16 位路由标识 (如 "1", "2", "1,2", "100-200")
 	Domain      []string `json:"domain,omitempty"`
 	IP          []string `json:"ip,omitempty"`
 	Port        string   `json:"port,omitempty"`

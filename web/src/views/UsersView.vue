@@ -141,9 +141,10 @@
                   <span
                     v-for="tag in getNodeTags(user)"
                     :key="tag"
-                    class="px-2 py-0.5 rounded-md text-[11px] font-mono font-medium bg-brand-500/15 text-brand-300 border border-brand-500/20"
+                    class="px-2 py-0.5 rounded-md text-[11px] font-mono font-medium bg-brand-500/15 text-brand-300 border border-brand-500/20 flex items-center gap-1"
                   >
-                    {{ tag }}
+                    <span>{{ tag }}</span>
+                    <span v-if="getSubRoutesCount(tag)" class="text-[10px] text-cyan-400 font-bold">({{ getSubRoutesCount(tag) }}线)</span>
                   </span>
                 </div>
               </td>
@@ -309,9 +310,10 @@
           <span
             v-for="tag in getNodeTags(user)"
             :key="tag"
-            class="px-2 py-0.5 rounded-md text-[10px] font-mono bg-brand-500/15 text-brand-300 border border-brand-500/20"
+            class="px-2 py-0.5 rounded-md text-[10px] font-mono bg-brand-500/15 text-brand-300 border border-brand-500/20 flex items-center gap-1"
           >
-            {{ tag }}
+            <span>{{ tag }}</span>
+            <span v-if="getSubRoutesCount(tag)" class="text-[9px] text-cyan-400 font-bold">({{ getSubRoutesCount(tag) }}线)</span>
           </span>
         </div>
 
@@ -866,11 +868,34 @@ const fetchAll = async () => {
 }
 
 const getNodeTags = (user: any): string[] => {
+  let tags: string[] = []
   if (user.inboundTags) {
-    return user.inboundTags.split(',').map((s: string) => s.trim()).filter((s: string) => s)
+    tags = user.inboundTags.split(',').map((s: string) => s.trim()).filter((s: string) => s)
+  } else if (user.inboundTag) {
+    tags = [user.inboundTag]
   }
-  if (user.inboundTag) return [user.inboundTag]
-  return []
+
+  // 严格过滤掉数据库中残留的已废弃/已删除节点 Tag
+  if (availableInbounds.value.length > 0) {
+    const validTags = new Set(availableInbounds.value.map((i: any) => i.tag))
+    const filtered = tags.filter((t) => validTags.has(t))
+    if (filtered.length > 0) {
+      return filtered
+    }
+    return availableInbounds.value.map((i: any) => i.tag)
+  }
+  return tags
+}
+
+const getSubRoutesCount = (tag: string): number => {
+  const inb = availableInbounds.value.find((i: any) => i.tag === tag)
+  if (!inb) return 0
+  try {
+    const srs = JSON.parse(inb.subRoutesJson || '[]')
+    return srs.filter((s: any) => s.enabled !== false).length
+  } catch (e) {
+    return 0
+  }
 }
 
 const getDirectTokenSubUrl = (user: any): string => {

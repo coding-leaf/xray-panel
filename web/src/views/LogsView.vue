@@ -130,6 +130,17 @@
           <option :value="200">200 行</option>
           <option :value="500">500 行</option>
         </select>
+
+        <!-- Sort Order (Desc / Asc) -->
+        <button
+          @click="toggleSortOrder"
+          class="px-3 py-2 rounded-xl text-xs border transition-all flex items-center gap-1.5 shadow-sm font-mono"
+          :class="sortOrder === 'desc' ? 'bg-indigo-500/15 text-indigo-300 border-indigo-500/30 font-semibold' : 'bg-gray-900/80 text-gray-400 border-gray-800'"
+          :title="sortOrder === 'desc' ? '当前：最新记录在顶端 (倒序)' : '当前：旧记录在顶端 (正序)'"
+        >
+          <ArrowUpDown class="w-3.5 h-3.5" />
+          <span>{{ sortOrder === 'desc' ? '最新在顶' : '正序排列' }}</span>
+        </button>
       </div>
     </div>
 
@@ -424,6 +435,7 @@ import {
   Terminal,
   User,
   ShieldAlert,
+  ArrowUpDown,
 } from 'lucide-vue-next'
 import api from '../api'
 
@@ -431,6 +443,7 @@ const viewMode = ref<'table' | 'terminal'>('table')
 const logType = ref('access')
 const autoRefresh = ref(true)
 const loading = ref(false)
+const sortOrder = ref<'desc' | 'asc'>('desc')
 const searchKeyword = ref('')
 const selectedUserEmail = ref('')
 const selectedLevel = ref('')
@@ -438,6 +451,10 @@ const maxLines = ref(200)
 const logData = ref<any>(null)
 const knownUsers = ref<any[]>([])
 let timer: any = null
+
+const toggleSortOrder = () => {
+  sortOrder.value = sortOrder.value === 'desc' ? 'asc' : 'desc'
+}
 
 const fetchLogs = async () => {
   loading.value = true
@@ -542,7 +559,7 @@ const parsedAccessLogs = computed(() => {
     }
   }
 
-  return list
+  return sortOrder.value === 'desc' ? list.reverse() : list
 })
 
 // 2. 结构化解析 Error 诊断日志
@@ -602,7 +619,7 @@ const parsedErrorLogs = computed(() => {
     }
   }
 
-  return list
+  return sortOrder.value === 'desc' ? list.reverse() : list
 })
 
 // 3. 原始终端高亮筛选
@@ -612,13 +629,15 @@ const filteredRawLines = computed(() => {
   const filterEmail = selectedUserEmail.value.toLowerCase()
   const filterLvl = selectedLevel.value.toLowerCase()
 
-  return logData.value.lines.filter((line: string) => {
+  const list = logData.value.lines.filter((line: string) => {
     const l = line.toLowerCase()
     if (kw && !l.includes(kw)) return false
     if (logType.value === 'access' && filterEmail && !l.includes(filterEmail)) return false
     if (logType.value === 'error' && filterLvl && !l.includes(filterLvl)) return false
     return true
   })
+
+  return sortOrder.value === 'desc' ? [...list].reverse() : list
 })
 
 const getRouteBadgeClass = (route: string) => {

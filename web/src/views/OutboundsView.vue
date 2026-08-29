@@ -254,6 +254,118 @@
                 </select>
               </div>
             </div>
+
+            <!-- XHTTP 专用参数 -->
+            <div v-if="form.streamNetwork === 'xhttp'" class="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2 border-t border-gray-800/60">
+              <div>
+                <label class="block text-gray-400 mb-1">XHTTP 路径 (Path)</label>
+                <input
+                  v-model="form.xhttpPath"
+                  type="text"
+                  placeholder="/mbqyfa4grswh5ntz"
+                  class="w-full bg-gray-900 border border-gray-700 rounded-xl px-3 py-2 text-white font-mono focus:outline-none focus:border-brand-500"
+                />
+              </div>
+              <div>
+                <label class="block text-gray-400 mb-1">XHTTP 模式 (Mode)</label>
+                <select
+                  v-model="form.xhttpMode"
+                  class="w-full bg-gray-900 border border-gray-700 rounded-xl px-3 py-2 text-white focus:outline-none focus:border-brand-500 font-mono"
+                >
+                  <option value="auto">auto</option>
+                  <option value="stream-up">stream-up</option>
+                  <option value="stream-one">stream-one</option>
+                </select>
+              </div>
+            </div>
+
+            <!-- WS 专用参数 -->
+            <div v-if="form.streamNetwork === 'ws'" class="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2 border-t border-gray-800/60">
+              <div>
+                <label class="block text-gray-400 mb-1">WebSocket 路径 (Path)</label>
+                <input
+                  v-model="form.wsPath"
+                  type="text"
+                  placeholder="/ws"
+                  class="w-full bg-gray-900 border border-gray-700 rounded-xl px-3 py-2 text-white font-mono focus:outline-none focus:border-brand-500"
+                />
+              </div>
+              <div>
+                <label class="block text-gray-400 mb-1">WebSocket Host 头部 (选填)</label>
+                <input
+                  v-model="form.wsHost"
+                  type="text"
+                  placeholder="例如: example.com"
+                  class="w-full bg-gray-900 border border-gray-700 rounded-xl px-3 py-2 text-white font-mono focus:outline-none focus:border-brand-500"
+                />
+              </div>
+            </div>
+
+            <!-- REALITY 专属连接参数 -->
+            <div v-if="form.streamSecurity === 'reality'" class="space-y-3 pt-2 border-t border-gray-800/60 bg-gray-950/40 p-3 rounded-xl">
+              <h4 class="text-xs font-bold text-cyan-400">REALITY 握手伪装参数</h4>
+              <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label class="block text-gray-400 mb-1">SNI 伪装域名 (ServerName)</label>
+                  <input
+                    v-model="form.realityServerName"
+                    type="text"
+                    placeholder="www.titech.ac.jp"
+                    class="w-full bg-gray-900 border border-gray-700 rounded-xl px-3 py-2 text-white font-mono focus:outline-none focus:border-brand-500"
+                  />
+                </div>
+                <div>
+                  <label class="block text-gray-400 mb-1">指纹伪装 (Fingerprint)</label>
+                  <select
+                    v-model="form.realityFingerprint"
+                    class="w-full bg-gray-900 border border-gray-700 rounded-xl px-3 py-2 text-white focus:outline-none focus:border-brand-500 font-mono"
+                  >
+                    <option value="chrome">chrome (推荐)</option>
+                    <option value="firefox">firefox</option>
+                    <option value="safari">safari</option>
+                    <option value="ios">ios</option>
+                    <option value="edge">edge</option>
+                  </select>
+                </div>
+              </div>
+              <div>
+                <label class="block text-gray-400 mb-1">Public Key (对端公钥 / pbk)</label>
+                <input
+                  v-model="form.realityPublicKey"
+                  type="text"
+                  placeholder="例如: FMdWD0uS9lrXUAoMmTP5e2LLD-mk8vO8JTZmAE9vdww"
+                  class="w-full bg-gray-900 border border-gray-700 rounded-xl px-3 py-2 text-white font-mono text-[11px] focus:outline-none focus:border-brand-500"
+                />
+              </div>
+              <div>
+                <label class="block text-gray-400 mb-1">Short ID (短ID / sid)</label>
+                <input
+                  v-model="form.realityShortId"
+                  type="text"
+                  placeholder="0123456789abcdef"
+                  class="w-full bg-gray-900 border border-gray-700 rounded-xl px-3 py-2 text-white font-mono focus:outline-none focus:border-brand-500"
+                />
+              </div>
+            </div>
+
+            <!-- TLS 专属连接参数 -->
+            <div v-if="form.streamSecurity === 'tls'" class="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2 border-t border-gray-800/60 bg-gray-950/40 p-3 rounded-xl">
+              <div>
+                <label class="block text-gray-400 mb-1">TLS SNI (ServerName)</label>
+                <input
+                  v-model="form.tlsServerName"
+                  type="text"
+                  placeholder="example.com"
+                  class="w-full bg-gray-900 border border-gray-700 rounded-xl px-3 py-2 text-white font-mono focus:outline-none focus:border-brand-500"
+                />
+              </div>
+              <div class="flex items-center pt-6">
+                <label class="flex items-center gap-2 text-xs text-gray-300 cursor-pointer">
+                  <input v-model="form.tlsAllowInsecure" type="checkbox" class="w-4 h-4 rounded text-brand-500 bg-gray-900 border-gray-700 focus:ring-0" />
+                  <span>允许不安全证书 (allowInsecure)</span>
+                </label>
+              </div>
+            </div>
           </div>
 
           <!-- Modal Action Buttons -->
@@ -292,7 +404,7 @@ const saving = ref(false)
 
 const form = ref<any>({
   tag: '',
-  protocol: 'freedom',
+  protocol: 'wireguard',
   freedomDomainStrategy: 'UseIPv4',
   blackholeResponse: 'none',
   wgSecretKey: '',
@@ -302,8 +414,20 @@ const form = ref<any>({
   proxyHost: '',
   proxyPort: 443,
   proxyPassword: '',
-  streamNetwork: 'tcp',
-  streamSecurity: 'tls',
+  streamNetwork: 'xhttp',
+  streamSecurity: 'reality',
+  xhttpPath: '/mbqyfa4grswh5ntz',
+  xhttpMode: 'auto',
+  wsPath: '/ws',
+  wsHost: '',
+  grpcServiceName: 'xray-grpc',
+  realityServerName: 'www.titech.ac.jp',
+  realityFingerprint: 'chrome',
+  realityPublicKey: '',
+  realityShortId: '0123456789abcdef',
+  tlsServerName: '',
+  tlsAllowInsecure: false,
+  tlsFingerprint: 'chrome',
 })
 
 const onOutboundNetworkChange = () => {
@@ -324,7 +448,7 @@ const openCreateModal = () => {
   isEditing.value = false
   form.value = {
     tag: '',
-    protocol: 'wireguard',
+    protocol: 'vless',
     freedomDomainStrategy: 'UseIPv4',
     blackholeResponse: 'none',
     wgSecretKey: '',
@@ -334,8 +458,20 @@ const openCreateModal = () => {
     proxyHost: '',
     proxyPort: 443,
     proxyPassword: '',
-    streamNetwork: 'tcp',
-    streamSecurity: 'tls',
+    streamNetwork: 'xhttp',
+    streamSecurity: 'reality',
+    xhttpPath: '/mbqyfa4grswh5ntz',
+    xhttpMode: 'auto',
+    wsPath: '/ws',
+    wsHost: '',
+    grpcServiceName: 'xray-grpc',
+    realityServerName: 'www.titech.ac.jp',
+    realityFingerprint: 'chrome',
+    realityPublicKey: '',
+    realityShortId: '0123456789abcdef',
+    tlsServerName: '',
+    tlsAllowInsecure: false,
+    tlsFingerprint: 'chrome',
   }
   showModal.value = true
 }
@@ -359,6 +495,29 @@ const editOutbound = (ob: any) => {
   form.value.streamSecurity = str.security || 'none'
   form.value.freedomDomainStrategy = s.domainStrategy || 'UseIPv4'
   form.value.blackholeResponse = s.response?.type || 'none'
+
+  if (str.xhttpSettings) {
+    form.value.xhttpPath = str.xhttpSettings.path || '/mbqyfa4grswh5ntz'
+    form.value.xhttpMode = str.xhttpSettings.mode || 'auto'
+  }
+  if (str.wsSettings) {
+    form.value.wsPath = str.wsSettings.path || '/ws'
+    form.value.wsHost = str.wsSettings.headers?.Host || ''
+  }
+  if (str.grpcSettings) {
+    form.value.grpcServiceName = str.grpcSettings.serviceName || 'xray-grpc'
+  }
+  if (str.realitySettings) {
+    form.value.realityServerName = str.realitySettings.serverName || 'www.titech.ac.jp'
+    form.value.realityPublicKey = str.realitySettings.publicKey || ''
+    form.value.realityShortId = str.realitySettings.shortId || ''
+    form.value.realityFingerprint = str.realitySettings.fingerprint || 'chrome'
+  }
+  if (str.tlsSettings) {
+    form.value.tlsServerName = str.tlsSettings.serverName || ''
+    form.value.tlsAllowInsecure = str.tlsSettings.allowInsecure === true
+    form.value.tlsFingerprint = str.tlsSettings.fingerprint || 'chrome'
+  }
 
   if (ob.protocol === 'wireguard') {
     form.value.wgSecretKey = s.secretKey || ''
@@ -450,10 +609,43 @@ const buildStreamSettingsJSON = () => {
   if (['freedom', 'blackhole', 'wireguard'].includes(form.value.protocol)) {
     return ''
   }
-  return JSON.stringify({
+  const stream: any = {
     network: form.value.streamNetwork,
     security: form.value.streamSecurity,
-  })
+  }
+
+  if (form.value.streamNetwork === 'xhttp') {
+    stream.xhttpSettings = {
+      path: form.value.xhttpPath || '/',
+      mode: form.value.xhttpMode || 'auto',
+    }
+  } else if (form.value.streamNetwork === 'ws') {
+    stream.wsSettings = {
+      path: form.value.wsPath || '/',
+      headers: form.value.wsHost ? { Host: form.value.wsHost } : undefined,
+    }
+  } else if (form.value.streamNetwork === 'grpc') {
+    stream.grpcSettings = {
+      serviceName: form.value.grpcServiceName || 'xray-grpc',
+    }
+  }
+
+  if (form.value.streamSecurity === 'reality') {
+    stream.realitySettings = {
+      serverName: form.value.realityServerName || 'www.titech.ac.jp',
+      publicKey: form.value.realityPublicKey || '',
+      shortId: form.value.realityShortId || '',
+      fingerprint: form.value.realityFingerprint || 'chrome',
+    }
+  } else if (form.value.streamSecurity === 'tls') {
+    stream.tlsSettings = {
+      serverName: form.value.tlsServerName || '',
+      allowInsecure: form.value.tlsAllowInsecure === true,
+      fingerprint: form.value.tlsFingerprint || 'chrome',
+    }
+  }
+
+  return JSON.stringify(stream, null, 2)
 }
 
 const saveOutbound = async () => {

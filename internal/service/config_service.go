@@ -22,6 +22,7 @@ type ConfigService struct {
 	inboundRepo  domain.InboundRepository
 	userRepo     domain.UserRepository
 	snapshotRepo domain.ConfigSnapshotRepository
+	compiler     *xray.XrayCompiler
 }
 
 func NewConfigService(
@@ -37,6 +38,7 @@ func NewConfigService(
 		inboundRepo:  inboundRepo,
 		userRepo:     userRepo,
 		snapshotRepo: snapshotRepo,
+		compiler:     xray.NewXrayCompiler(),
 	}
 }
 
@@ -99,10 +101,63 @@ func (s *ConfigService) SyncFromFile(ctx context.Context) error {
 	return s.syncFromRawJSON(ctx, raw)
 }
 
+// recompileAndApply 核心强类型编译管道：读取所有领域实体 ➔ 编译为合规 JSON ➔ 校验写入 ➔ 平滑重载
+func (s *ConfigService) recompileAndApply(ctx context.Context, remark string) error {
+	// 1. 读取 Inbounds
+	var inbounds []domain.Inbound
+	if s.inboundRepo != nil {
+		var err error
+		inbounds, err = s.inboundRepo.ListAll(ctx)
+		if err != nil {
+			return err
+		}
+	}
+
+	// 2. 读取 Outbounds
+	outbounds, err := s.ListOutbounds(ctx)
+	if err != nil {
+		outbounds = nil
+	}
+
+	// 3. 读取 Routing
+	routing, err := s.GetRoutingConfig(ctx)
+	if err != nil {
+		routing = nil
+	}
+
+	// 4. 读取 DNS
+	dns, err := s.GetDNSConfig(ctx)
+	if err != nil {
+		dns = nil
+	}
+
+	// 5. 读取 Users
+	var users []domain.User
+	if s.userRepo != nil {
+		users, err = s.userRepo.ListAll(ctx)
+		if err != nil {
+			return err
+		}
+	}
+
+	// 6. 单向编译为强类型 JSON
+	jsonBytes, err := s.compiler.CompileToJSON(inbounds, outbounds, routing, dns, users)
+	if err != nil {
+		return fmt.Errorf("compile config failed: %w", err)
+	}
+
+	// 7. 写入并平滑重载
+	s.recordSnapshotBeforeWrite(ctx, remark)
+	if err := s.configMgr.WriteConfig(ctx, jsonBytes); err != nil {
+		return err
+	}
+
+	return s.supervisor.Reload(ctx)
+}
+
 func (s *ConfigService) syncFromRawJSON(ctx context.Context, rawJSON []byte) error {
 	cleaned := jsonc.StripJSONC(rawJSON)
 
-	// 1. 解析 inbounds 同步至数据库
 	var root map[string]interface{}
 	if err := json.Unmarshal(cleaned, &root); err == nil {
 		if inboundsRaw, ok := root["inbounds"].([]interface{}); ok {
@@ -153,7 +208,7 @@ func (s *ConfigService) syncFromRawJSON(ctx context.Context, rawJSON []byte) err
 					_ = s.inboundRepo.Create(ctx, newIn)
 				}
 
-				// 2. 收集每个 inbound 下的 clients（用户）
+				// 收集每个 inbound 下的 clients（用户）
 				if settingsMap, ok := ib["settings"].(map[string]interface{}); ok {
 					if clientsRaw, ok := settingsMap["clients"].([]interface{}); ok {
 						for _, cRaw := range clientsRaw {
@@ -247,29 +302,19 @@ func (s *ConfigService) CreateInbound(ctx context.Context, inbound *domain.Inbou
 		return fmt.Errorf("%w: tag is required", domain.ErrInvalidInput)
 	}
 
-	s.recordSnapshotBeforeWrite(ctx, fmt.Sprintf("创建入站节点 %s", inbound.Tag))
-
-	// 1. 存入数据库
 	if err := s.inboundRepo.Create(ctx, inbound); err != nil {
 		return err
 	}
 
-	// 2. 双向同步回写 config.json
-	if err := s.syncInboundToFile(ctx, inbound, false); err != nil {
-		return err
-	}
-	return s.supervisor.Reload(ctx)
+	return s.recompileAndApply(ctx, fmt.Sprintf("创建入站节点 %s", inbound.Tag))
 }
 
 func (s *ConfigService) UpdateInbound(ctx context.Context, inbound *domain.Inbound) error {
-	s.recordSnapshotBeforeWrite(ctx, fmt.Sprintf("更新入站节点 %s", inbound.Tag))
 	if err := s.inboundRepo.Update(ctx, inbound); err != nil {
 		return err
 	}
-	if err := s.syncInboundToFile(ctx, inbound, false); err != nil {
-		return err
-	}
-	return s.supervisor.Reload(ctx)
+
+	return s.recompileAndApply(ctx, fmt.Sprintf("更新入站节点 %s", inbound.Tag))
 }
 
 func (s *ConfigService) DeleteInbound(ctx context.Context, id uint) error {
@@ -277,299 +322,15 @@ func (s *ConfigService) DeleteInbound(ctx context.Context, id uint) error {
 	if err != nil {
 		return err
 	}
-	s.recordSnapshotBeforeWrite(ctx, fmt.Sprintf("删除入站节点 %s", inbound.Tag))
 	if err := s.inboundRepo.Delete(ctx, id); err != nil {
 		return err
 	}
-	if err := s.syncInboundToFile(ctx, inbound, true); err != nil {
-		return err
-	}
-	return s.supervisor.Reload(ctx)
-}
 
-func (s *ConfigService) syncInboundToFile(ctx context.Context, inbound *domain.Inbound, isDelete bool) error {
-	raw, err := s.configMgr.ReadRawConfig()
-	if err != nil {
-		return err
-	}
-	cleaned := jsonc.StripJSONC(raw)
-
-	var root map[string]interface{}
-	if err := json.Unmarshal(cleaned, &root); err != nil {
-		return err
-	}
-
-	inbounds, _ := root["inbounds"].([]interface{})
-	var newInbounds []interface{}
-	found := false
-
-	for _, ibRaw := range inbounds {
-		ibMap, ok := ibRaw.(map[string]interface{})
-		if !ok {
-			newInbounds = append(newInbounds, ibRaw)
-			continue
-		}
-		tag, _ := ibMap["tag"].(string)
-		if tag == inbound.Tag {
-			found = true
-			if isDelete {
-				continue // 移除该 Inbound
-			}
-			// 更新现有 Inbound 基础网络参数与协议
-			ibMap["tag"] = inbound.Tag
-			ibMap["port"] = inbound.Port
-			ibMap["listen"] = inbound.Listen
-			ibMap["protocol"] = inbound.Protocol
-
-			var settingsObj map[string]interface{}
-			_ = json.Unmarshal([]byte(inbound.SettingsJSON), &settingsObj)
-			if settingsObj != nil {
-				if existingSettings, ok := ibMap["settings"].(map[string]interface{}); ok {
-					if _, hasClients := settingsObj["clients"]; !hasClients {
-						settingsObj["clients"] = existingSettings["clients"]
-					}
-				}
-				ibMap["settings"] = settingsObj
-			}
-
-			var streamObj map[string]interface{}
-			_ = json.Unmarshal([]byte(inbound.StreamSettings), &streamObj)
-			if streamObj != nil {
-				ibMap["streamSettings"] = streamObj
-			}
-
-			var sniffObj map[string]interface{}
-			_ = json.Unmarshal([]byte(inbound.SniffingJSON), &sniffObj)
-			if sniffObj != nil {
-				ibMap["sniffing"] = sniffObj
-			}
-			newInbounds = append(newInbounds, ibMap)
-		} else {
-			newInbounds = append(newInbounds, ibRaw)
-		}
-	}
-
-	if !found && !isDelete {
-		var settingsObj map[string]interface{}
-		_ = json.Unmarshal([]byte(inbound.SettingsJSON), &settingsObj)
-		if settingsObj == nil {
-			settingsObj = map[string]interface{}{"clients": []interface{}{}}
-		}
-
-		newMap := map[string]interface{}{
-			"tag":      inbound.Tag,
-			"port":     inbound.Port,
-			"listen":   inbound.Listen,
-			"protocol": inbound.Protocol,
-			"settings": settingsObj,
-		}
-		var streamObj map[string]interface{}
-		_ = json.Unmarshal([]byte(inbound.StreamSettings), &streamObj)
-		if streamObj != nil {
-			newMap["streamSettings"] = streamObj
-		}
-		var sniffObj map[string]interface{}
-		_ = json.Unmarshal([]byte(inbound.SniffingJSON), &sniffObj)
-		if sniffObj != nil {
-			newMap["sniffing"] = sniffObj
-		}
-		newInbounds = append(newInbounds, newMap)
-	}
-
-	root["inbounds"] = newInbounds
-	s.autoSyncSubRoutesToRouting(ctx, root)
-
-	modifiedBytes, err := json.Marshal(root)
-	if err != nil {
-		return err
-	}
-
-	return s.configMgr.WriteConfig(ctx, modifiedBytes)
-}
-
-// autoSyncSubRoutesToRouting 自动收集所有 Inbound 下配置的 SubRoutes 并将 vlessRoute 规则注入到 Xray 路由表顶部 (紧随 api 之后)
-func (s *ConfigService) autoSyncSubRoutesToRouting(ctx context.Context, root map[string]interface{}) {
-	if s.inboundRepo == nil {
-		return
-	}
-	allInbounds, err := s.inboundRepo.ListAll(ctx)
-	if err != nil {
-		return
-	}
-
-	var routingMap map[string]interface{}
-	if r, ok := root["routing"].(map[string]interface{}); ok && r != nil {
-		routingMap = r
-	} else {
-		routingMap = map[string]interface{}{
-			"domainStrategy": "IPIfNonMatch",
-			"rules":          []interface{}{},
-		}
-		root["routing"] = routingMap
-	}
-
-	existingRules, _ := routingMap["rules"].([]interface{})
-
-	// 收集所有 Inbound 下启用的 SubRoute
-	type subRouteRule struct {
-		vlessRoute  string
-		outboundTag string
-	}
-	var subRules []subRouteRule
-	for _, in := range allInbounds {
-		if !in.Enabled {
-			continue
-		}
-		for _, sr := range in.GetSubRoutes() {
-			if sr.Enabled && sr.RouteID > 0 && sr.OutboundTag != "" {
-				subRules = append(subRules, subRouteRule{
-					vlessRoute:  fmt.Sprintf("%d", sr.RouteID),
-					outboundTag: sr.OutboundTag,
-				})
-			}
-		}
-	}
-
-	if len(subRules) == 0 {
-		return
-	}
-
-	var finalRules []interface{}
-	var apiRules []interface{}
-	var otherRules []interface{}
-
-	for _, rRaw := range existingRules {
-		rMap, ok := rRaw.(map[string]interface{})
-		if !ok {
-			otherRules = append(otherRules, rRaw)
-			continue
-		}
-		// 检查是否为 api 规则
-		if inbTag, ok := rMap["inboundTag"].([]interface{}); ok && len(inbTag) > 0 && inbTag[0] == "api" {
-			apiRules = append(apiRules, rRaw)
-			continue
-		}
-		// 避免重复的 vlessRoute 规则
-		if vr, ok := rMap["vlessRoute"].(string); ok && vr != "" {
-			isOverridden := false
-			for _, sr := range subRules {
-				if sr.vlessRoute == vr {
-					isOverridden = true
-					break
-				}
-			}
-			if isOverridden {
-				continue
-			}
-		}
-		otherRules = append(otherRules, rRaw)
-	}
-
-	finalRules = append(finalRules, apiRules...)
-	for _, sr := range subRules {
-		finalRules = append(finalRules, map[string]interface{}{
-			"type":        "field",
-			"vlessRoute":  sr.vlessRoute,
-			"outboundTag": sr.outboundTag,
-		})
-	}
-	finalRules = append(finalRules, otherRules...)
-	routingMap["rules"] = finalRules
+	return s.recompileAndApply(ctx, fmt.Sprintf("删除入站节点 %s", inbound.Tag))
 }
 
 func (s *ConfigService) SyncUserToFile(ctx context.Context, authorizedTags []string, user *domain.User, isDelete bool) error {
-	raw, err := s.configMgr.ReadRawConfig()
-	if err != nil {
-		return err
-	}
-	cleaned := jsonc.StripJSONC(raw)
-
-	var root map[string]interface{}
-	if err := json.Unmarshal(cleaned, &root); err != nil {
-		return err
-	}
-
-	inbounds, ok := root["inbounds"].([]interface{})
-	if !ok {
-		return nil
-	}
-
-	tagSet := make(map[string]bool)
-	for _, t := range authorizedTags {
-		tagSet[t] = true
-	}
-
-	for _, ibRaw := range inbounds {
-		ibMap, ok := ibRaw.(map[string]interface{})
-		if !ok {
-			continue
-		}
-		tag, _ := ibMap["tag"].(string)
-
-		settings, ok := ibMap["settings"].(map[string]interface{})
-		if !ok || settings == nil {
-			settings = make(map[string]interface{})
-			ibMap["settings"] = settings
-		}
-
-		clientsRaw, _ := settings["clients"].([]interface{})
-		var newClients []interface{}
-		found := false
-		shouldHave := tagSet[tag] && !isDelete
-
-		// 根据节点传输层与安全层自动推导 flow 模式
-		inboundFlow := ""
-		protocol, _ := ibMap["protocol"].(string)
-		if strings.ToLower(protocol) == "vless" {
-			if stream, ok := ibMap["streamSettings"].(map[string]interface{}); ok {
-				net, _ := stream["network"].(string)
-				sec, _ := stream["security"].(string)
-				if (net == "" || net == "tcp") && (sec == "reality" || sec == "tls") {
-					inboundFlow = "xtls-rprx-vision"
-				}
-			}
-		}
-
-		for _, cRaw := range clientsRaw {
-			cMap, ok := cRaw.(map[string]interface{})
-			if !ok {
-				newClients = append(newClients, cRaw)
-				continue
-			}
-			email, _ := cMap["email"].(string)
-			if email == user.Email {
-				found = true
-				if shouldHave {
-					cMap["id"] = user.UUID
-					cMap["flow"] = inboundFlow
-					newClients = append(newClients, cMap)
-				}
-				// 否则从该 inbound 移除
-			} else {
-				newClients = append(newClients, cRaw)
-			}
-		}
-
-		if !found && shouldHave {
-			newClient := map[string]interface{}{
-				"id":    user.UUID,
-				"email": user.Email,
-				"flow":  inboundFlow,
-				"level": 0,
-			}
-			newClients = append(newClients, newClient)
-		}
-
-		settings["clients"] = newClients
-	}
-
-	root["inbounds"] = inbounds
-	modifiedBytes, err := json.Marshal(root)
-	if err != nil {
-		return err
-	}
-
-	return s.configMgr.WriteConfig(ctx, modifiedBytes)
+	return s.recompileAndApply(ctx, fmt.Sprintf("同步用户 %s 节点授权", user.Email))
 }
 
 // === 出站管理 (Outbounds Management) ===
@@ -607,117 +368,59 @@ func (s *ConfigService) ListOutbounds(ctx context.Context) ([]domain.Outbound, e
 }
 
 func (s *ConfigService) SaveOutbound(ctx context.Context, outbound domain.Outbound) error {
-	s.recordSnapshotBeforeWrite(ctx, fmt.Sprintf("保存出站节点 %s", outbound.Tag))
-	raw, err := s.configMgr.ReadRawConfig()
-	if err != nil {
-		return err
-	}
-	cleaned := jsonc.StripJSONC(raw)
-
-	var root map[string]interface{}
-	if err := json.Unmarshal(cleaned, &root); err != nil {
-		return err
-	}
-
-	outbounds, _ := root["outbounds"].([]interface{})
-	var newOutbounds []interface{}
+	existingList, _ := s.ListOutbounds(ctx)
 	found := false
-
-	for _, obRaw := range outbounds {
-		obMap, ok := obRaw.(map[string]interface{})
-		if !ok {
-			newOutbounds = append(newOutbounds, obRaw)
-			continue
-		}
-		tag, _ := obMap["tag"].(string)
-		if tag == outbound.Tag {
+	var updatedList []domain.Outbound
+	for _, ob := range existingList {
+		if ob.Tag == outbound.Tag {
 			found = true
-			obMap["protocol"] = outbound.Protocol
-			var sObj map[string]interface{}
-			_ = json.Unmarshal([]byte(outbound.SettingsJSON), &sObj)
-			if sObj != nil {
-				obMap["settings"] = sObj
-			}
-			var strObj map[string]interface{}
-			_ = json.Unmarshal([]byte(outbound.StreamSettings), &strObj)
-			if strObj != nil {
-				obMap["streamSettings"] = strObj
-			}
-			newOutbounds = append(newOutbounds, obMap)
+			updatedList = append(updatedList, outbound)
 		} else {
-			newOutbounds = append(newOutbounds, obRaw)
+			updatedList = append(updatedList, ob)
 		}
 	}
-
 	if !found {
-		newMap := map[string]interface{}{
-			"tag":      outbound.Tag,
-			"protocol": outbound.Protocol,
-		}
-		var sObj map[string]interface{}
-		_ = json.Unmarshal([]byte(outbound.SettingsJSON), &sObj)
-		if sObj != nil {
-			newMap["settings"] = sObj
-		}
-		var strObj map[string]interface{}
-		_ = json.Unmarshal([]byte(outbound.StreamSettings), &strObj)
-		if strObj != nil {
-			newMap["streamSettings"] = strObj
-		}
-		newOutbounds = append(newOutbounds, newMap)
+		updatedList = append(updatedList, outbound)
 	}
 
-	root["outbounds"] = newOutbounds
-	data, err := json.Marshal(root)
-	if err != nil {
-		return err
-	}
-
-	if err := s.configMgr.WriteConfig(ctx, data); err != nil {
-		return err
-	}
-
-	return s.supervisor.Reload(ctx)
+	// 临时保存到配置并重新编译
+	return s.saveOutboundsListAndRecompile(ctx, updatedList, fmt.Sprintf("保存出站节点 %s", outbound.Tag))
 }
 
 func (s *ConfigService) DeleteOutbound(ctx context.Context, tag string) error {
-	s.recordSnapshotBeforeWrite(ctx, fmt.Sprintf("删除出站节点 %s", tag))
-	raw, err := s.configMgr.ReadRawConfig()
-	if err != nil {
-		return err
-	}
-	cleaned := jsonc.StripJSONC(raw)
-
-	var root map[string]interface{}
-	if err := json.Unmarshal(cleaned, &root); err != nil {
-		return err
-	}
-
-	outbounds, _ := root["outbounds"].([]interface{})
-	var newOutbounds []interface{}
-
-	for _, obRaw := range outbounds {
-		obMap, ok := obRaw.(map[string]interface{})
-		if !ok {
-			newOutbounds = append(newOutbounds, obRaw)
-			continue
-		}
-		t, _ := obMap["tag"].(string)
-		if t != tag {
-			newOutbounds = append(newOutbounds, obRaw)
+	existingList, _ := s.ListOutbounds(ctx)
+	var updatedList []domain.Outbound
+	for _, ob := range existingList {
+		if ob.Tag != tag {
+			updatedList = append(updatedList, ob)
 		}
 	}
 
-	root["outbounds"] = newOutbounds
-	data, err := json.Marshal(root)
+	return s.saveOutboundsListAndRecompile(ctx, updatedList, fmt.Sprintf("删除出站节点 %s", tag))
+}
+
+func (s *ConfigService) saveOutboundsListAndRecompile(ctx context.Context, outbounds []domain.Outbound, remark string) error {
+	// 读取当前 Inbounds, Routing, DNS, Users
+	var inbounds []domain.Inbound
+	if s.inboundRepo != nil {
+		inbounds, _ = s.inboundRepo.ListAll(ctx)
+	}
+	routing, _ := s.GetRoutingConfig(ctx)
+	dns, _ := s.GetDNSConfig(ctx)
+	var users []domain.User
+	if s.userRepo != nil {
+		users, _ = s.userRepo.ListAll(ctx)
+	}
+
+	jsonBytes, err := s.compiler.CompileToJSON(inbounds, outbounds, routing, dns, users)
 	if err != nil {
 		return err
 	}
 
-	if err := s.configMgr.WriteConfig(ctx, data); err != nil {
+	s.recordSnapshotBeforeWrite(ctx, remark)
+	if err := s.configMgr.WriteConfig(ctx, jsonBytes); err != nil {
 		return err
 	}
-
 	return s.supervisor.Reload(ctx)
 }
 
@@ -746,28 +449,26 @@ func (s *ConfigService) GetRoutingConfig(ctx context.Context) (*domain.RoutingCo
 }
 
 func (s *ConfigService) SaveRoutingConfig(ctx context.Context, cfg *domain.RoutingConfig) error {
+	var inbounds []domain.Inbound
+	if s.inboundRepo != nil {
+		inbounds, _ = s.inboundRepo.ListAll(ctx)
+	}
+	outbounds, _ := s.ListOutbounds(ctx)
+	dns, _ := s.GetDNSConfig(ctx)
+	var users []domain.User
+	if s.userRepo != nil {
+		users, _ = s.userRepo.ListAll(ctx)
+	}
+
+	jsonBytes, err := s.compiler.CompileToJSON(inbounds, outbounds, cfg, dns, users)
+	if err != nil {
+		return err
+	}
+
 	s.recordSnapshotBeforeWrite(ctx, "更新分流路由规则")
-	raw, err := s.configMgr.ReadRawConfig()
-	if err != nil {
+	if err := s.configMgr.WriteConfig(ctx, jsonBytes); err != nil {
 		return err
 	}
-	cleaned := jsonc.StripJSONC(raw)
-
-	var root map[string]interface{}
-	if err := json.Unmarshal(cleaned, &root); err != nil {
-		return err
-	}
-
-	root["routing"] = cfg
-	data, err := json.Marshal(root)
-	if err != nil {
-		return err
-	}
-
-	if err := s.configMgr.WriteConfig(ctx, data); err != nil {
-		return err
-	}
-
 	return s.supervisor.Reload(ctx)
 }
 
@@ -799,28 +500,26 @@ func (s *ConfigService) GetDNSConfig(ctx context.Context) (*domain.DNSConfig, er
 }
 
 func (s *ConfigService) SaveDNSConfig(ctx context.Context, cfg *domain.DNSConfig) error {
+	var inbounds []domain.Inbound
+	if s.inboundRepo != nil {
+		inbounds, _ = s.inboundRepo.ListAll(ctx)
+	}
+	outbounds, _ := s.ListOutbounds(ctx)
+	routing, _ := s.GetRoutingConfig(ctx)
+	var users []domain.User
+	if s.userRepo != nil {
+		users, _ = s.userRepo.ListAll(ctx)
+	}
+
+	jsonBytes, err := s.compiler.CompileToJSON(inbounds, outbounds, routing, cfg, users)
+	if err != nil {
+		return err
+	}
+
 	s.recordSnapshotBeforeWrite(ctx, "更新 DNS 解析设置")
-	raw, err := s.configMgr.ReadRawConfig()
-	if err != nil {
+	if err := s.configMgr.WriteConfig(ctx, jsonBytes); err != nil {
 		return err
 	}
-	cleaned := jsonc.StripJSONC(raw)
-
-	var root map[string]interface{}
-	if err := json.Unmarshal(cleaned, &root); err != nil {
-		return err
-	}
-
-	root["dns"] = cfg
-	data, err := json.Marshal(root)
-	if err != nil {
-		return err
-	}
-
-	if err := s.configMgr.WriteConfig(ctx, data); err != nil {
-		return err
-	}
-
 	return s.supervisor.Reload(ctx)
 }
 

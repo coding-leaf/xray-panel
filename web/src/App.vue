@@ -20,7 +20,10 @@
               <span>XRAY</span>
               <span class="text-[10px] px-1.5 py-0.5 rounded-md bg-indigo-500/20 text-indigo-300 font-mono border border-indigo-500/30">DECOUPLED</span>
             </div>
-            <p class="text-[11px] text-gray-400 font-medium">Control Plane</p>
+            <p class="text-[11px] text-gray-400 font-medium flex items-center gap-1.5">
+              <span>Control Plane</span>
+              <span class="text-[9px] text-indigo-300 font-mono bg-indigo-500/20 px-1 py-0.5 rounded border border-indigo-500/30">v1.3.0</span>
+            </p>
           </div>
         </div>
 

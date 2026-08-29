@@ -16,9 +16,11 @@ func NewLogService(configMgr *xray.ConfigManager) *LogService {
 }
 
 type LogResponse struct {
-	Type     string   `json:"type"`
-	FilePath string   `json:"filePath"`
-	Lines    []string `json:"lines"`
+	Type     string                `json:"type"`
+	FilePath string                `json:"filePath"`
+	Lines    []string              `json:"lines"`
+	Access   []xray.AccessLogEntry `json:"access,omitempty"`
+	Errors   []xray.ErrorLogEntry  `json:"errors,omitempty"`
 }
 
 func (s *LogService) GetRecentLogs(ctx context.Context, logType string, maxLines int) (*LogResponse, error) {
@@ -49,9 +51,29 @@ func (s *LogService) GetRecentLogs(ctx context.Context, logType string, maxLines
 		}, nil
 	}
 
-	return &LogResponse{
+	resp := &LogResponse{
 		Type:     logType,
 		FilePath: targetPath,
 		Lines:    lines,
-	}, nil
+	}
+
+	if logType == "access" {
+		entries := make([]xray.AccessLogEntry, 0, len(lines))
+		for _, l := range lines {
+			if e := xray.ParseAccessLogLine(l); e != nil {
+				entries = append(entries, *e)
+			}
+		}
+		resp.Access = entries
+	} else {
+		entries := make([]xray.ErrorLogEntry, 0, len(lines))
+		for _, l := range lines {
+			if e := xray.ParseErrorLogLine(l); e != nil {
+				entries = append(entries, *e)
+			}
+		}
+		resp.Errors = entries
+	}
+
+	return resp, nil
 }

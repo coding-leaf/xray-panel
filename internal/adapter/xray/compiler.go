@@ -139,24 +139,7 @@ func (c *XrayCompiler) Compile(
 		OutboundTag: "api",
 	})
 
-	// Layer 2: 接入网关通道分流规则 (Scoped Scoped Rules - 协议级与单端口多出口)
-	for _, inb := range inbounds {
-		if !inb.Enabled {
-			continue
-		}
-		for _, sr := range inb.GetSubRoutes() {
-			if sr.Enabled && sr.RouteID > 0 && sr.OutboundTag != "" {
-				layeredRules = append(layeredRules, XrayRoutingRule{
-					Type:        "field",
-					InboundTag:  []string{inb.Tag}, // 严格限定 Inbound 命名空间，防止冲突
-					VlessRoute:  fmt.Sprintf("%d", sr.RouteID),
-					OutboundTag: sr.OutboundTag,
-				})
-			}
-		}
-	}
-
-	// Layer 3: 自定义全局分流规则 (用户在 Routing 视图维护的规则)
+	// Layer 2: 自定义全局分流规则 (用户在 Routing 视图维护的域名/IP/阻断规则，最高业务优先级)
 	if routing != nil {
 		for _, r := range routing.Rules {
 			// 过滤掉已被自动管理的 api 规则与 vlessRoute 规则
@@ -178,6 +161,23 @@ func (c *XrayCompiler) Compile(
 				Protocol:    r.Protocol,
 				Attrs:       r.Attrs,
 			})
+		}
+	}
+
+	// Layer 3: 接入网关通道分流规则 (Scoped Rules - 协议级与单端口多出口兜底)
+	for _, inb := range inbounds {
+		if !inb.Enabled {
+			continue
+		}
+		for _, sr := range inb.GetSubRoutes() {
+			if sr.Enabled && sr.RouteID > 0 && sr.OutboundTag != "" {
+				layeredRules = append(layeredRules, XrayRoutingRule{
+					Type:        "field",
+					InboundTag:  []string{inb.Tag}, // 严格限定 Inbound 命名空间，防止冲突
+					VlessRoute:  fmt.Sprintf("%d", sr.RouteID),
+					OutboundTag: sr.OutboundTag,
+				})
+			}
 		}
 	}
 

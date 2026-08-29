@@ -159,27 +159,27 @@ func TestXrayCompiler_Compile(t *testing.T) {
 		t.Fatalf("Expected at least 4 routing rules, got %d", len(rules))
 	}
 
-	// Rule 0: API
+	// Rule 0: API 系统规则
 	if rules[0].OutboundTag != "api" {
 		t.Errorf("Rule 0 should be api, got %s", rules[0].OutboundTag)
 	}
 
-	// Rule 1: Scoped SubRoute 1 (vlessRoute: 1, inboundTag: ["vless-tcp-reality"])
-	if rules[1].VlessRoute != "1" || rules[1].OutboundTag != "jp-direct" {
-		t.Errorf("Rule 1 mismatch: %+v", rules[1])
-	}
-	if len(rules[1].InboundTag) == 0 || rules[1].InboundTag[0] != "vless-tcp-reality" {
-		t.Errorf("Rule 1 should be scoped to vless-tcp-reality, got %+v", rules[1].InboundTag)
+	// Rule 1: Layer 2 自定义规则优先 (geosite:category-ads-all -> block)
+	if rules[1].OutboundTag != "block" {
+		t.Errorf("Rule 1 should be block, got %s", rules[1].OutboundTag)
 	}
 
-	// Rule 2: Scoped SubRoute 2 (vlessRoute: 2, inboundTag: ["vless-tcp-reality"])
-	if rules[2].VlessRoute != "2" || rules[2].OutboundTag != "us-relay" {
+	// Rule 2: Scoped SubRoute 1 兜底 (vlessRoute: 1, inboundTag: ["vless-tcp-reality"])
+	if rules[2].VlessRoute != "1" || rules[2].OutboundTag != "jp-direct" {
 		t.Errorf("Rule 2 mismatch: %+v", rules[2])
 	}
+	if len(rules[2].InboundTag) == 0 || rules[2].InboundTag[0] != "vless-tcp-reality" {
+		t.Errorf("Rule 2 should be scoped to vless-tcp-reality, got %+v", rules[2].InboundTag)
+	}
 
-	// Rule 3: Layer 3 自定义规则 (geosite:category-ads-all -> block)
-	if rules[3].OutboundTag != "block" {
-		t.Errorf("Rule 3 should be block, got %s", rules[3].OutboundTag)
+	// Rule 3: Scoped SubRoute 2 兜底 (vlessRoute: 2, inboundTag: ["vless-tcp-reality"])
+	if rules[3].VlessRoute != "2" || rules[3].OutboundTag != "us-relay" {
+		t.Errorf("Rule 3 mismatch: %+v", rules[3])
 	}
 }
 

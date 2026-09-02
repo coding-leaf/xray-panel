@@ -2,17 +2,18 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Fix critical functional bugs (REALITY dest loss, user traffic overwrite, quota ghost revival, substring matching) and decouple user operations from full Xray process restarts to achieve true zero-downtime hot reloading and lifecycle consistency.
+**Goal:** Fix critical functional bugs (REALITY dest loss, user traffic overwrite, quota ghost revival, substring matching) and decouple user operations from full Xray process restarts to achieve true zero-downtime hot reloading and lifecycle consistency, verified against real Xray-core gRPC APIs.
 
-**Architecture:** Split operations into lightweight user runtime events (pure gRPC memory sync + quiet disk persistence without process restart) and structural events (inbound/outbound/routing/DNS changes requiring systemctl restart). Enforce `IsActive()` across the compiler, background cron, and recovery pipelines with DTO-based non-destructive updates.
+**Architecture:** Split operations into lightweight user runtime events (pure gRPC memory sync with remove-before-add idempotency + quiet disk persistence without process restart) and structural events (inbound/outbound/routing/DNS changes requiring systemctl restart). Enforce `IsActive()` across the compiler, background cron, and recovery pipelines with DTO-based non-destructive updates.
 
-**Tech Stack:** Go 1.26 (Go toolchain via mise), Gin, GORM + SQLite (WAL), Xray-core v1.260327.0 (gRPC API), Vue 3 + Tailwind CSS.
+**Tech Stack:** Go 1.26 (Go toolchain via mise), Gin, GORM + SQLite (WAL), Xray-core v1.260327.0 (gRPC API & native `./bin/xray`), Vue 3 + Tailwind CSS.
 
 **Spec:** [docs/superpowers/specs/2026-09-03-xray-panel-review-and-bugfix-design.md](file:///home/yezisama/workspace/WorkSpace/xray-panel/docs/superpowers/specs/2026-09-03-xray-panel-review-and-bugfix-design.md)
 
 ## Global Constraints
 
 - Never call `supervisor.Reload` or `supervisor.Restart` during user CRUD, batch renew, or traffic reset operations.
+- In `UserService.UpdateUser`, always execute `RemoveUser` before `AddUser` on updated inbounds to avoid Xray's `User already exists` gRPC error.
 - All tests must pass using `mise exec -- go test -v ./...`.
 - Update endpoints must never overwrite `up_bytes` or `down_bytes` in the database.
 - REALITY configuration must use standard `dest` attribute while maintaining fallback compatibility for legacy `target`.
@@ -28,8 +29,9 @@
 - Test: `internal/adapter/xray/compiler_test.go`
 
 **Interfaces:**
-- `NewXrayCompiler(grpcPort int) *XrayCompiler` (or `compiler.SetGRPCPort(port int)`)
+- `NewXrayCompiler(grpcPort int) *XrayCompiler`
 - `XrayRealitySettings`: handles both `dest` and fallback `target`
+- `buildAccountMessage`: resolves dynamic cipher for Shadowsocks from `SettingsJSON`
 
 - [ ] **Step 1: Write the failing tests in compiler_test.go**
 
@@ -93,9 +95,9 @@ func TestCompiler_RealityDestAndDynamicGRPCPort(t *testing.T) {
 - [ ] **Step 2: Run test to verify it fails**
 
 Run: `mise exec -- go test -v ./internal/adapter/xray -run TestCompiler_RealityDestAndDynamicGRPCPort`
-Expected: FAIL with compilation error or assertion failure
+Expected: FAIL
 
-- [ ] **Step 3: Implement dynamic gRPC port and Reality dest normalization**
+- [ ] **Step 3: Implement dynamic gRPC port, Reality dest normalization, and Shadowsocks Cipher**
 
 In `internal/adapter/xray/schema.go`:
 Add `Target string json:"target,omitempty"` to `XrayRealitySettings`.
@@ -106,10 +108,11 @@ In `compileInbound`:
 If `r.Dest == ""` && `r.Target != ""`, set `r.Dest = r.Target`.
 If `r.Dest == ""`, set `r.Dest = "www.titech.ac.jp:443"`.
 Clear `r.Target = ""`.
+Use `c.grpcPort` for the `api` Inbound.
 
 In `internal/adapter/xray/grpc_client.go`:
 In `buildAccountMessage`:
-Parse `inbound.SettingsJSON` to detect `method` or `cipher`. If `chacha20` or `2022-blake3` is specified, map appropriately or fallback safely.
+Parse `inbound.SettingsJSON` to detect `method` or `cipher`. If `aes-256-gcm` or `chacha20-poly1305` is specified, set matching `shadowsocks.CipherType`. Default to `AES_128_GCM`.
 
 - [ ] **Step 4: Run test to verify it passes**
 
@@ -120,7 +123,7 @@ Expected: PASS
 
 ```bash
 git add internal/adapter/xray/schema.go internal/adapter/xray/compiler.go internal/adapter/xray/grpc_client.go internal/adapter/xray/compiler_test.go
-git commit -m "fix(xray): support dynamic grpc port and reality dest normalization"
+git commit -m "fix(xray): support dynamic grpc port, reality dest normalization, and shadowsocks cipher"
 ```
 
 ---
@@ -186,7 +189,7 @@ func TestCompiler_FilterInactiveUsers(t *testing.T) {
 - [ ] **Step 2: Run test to verify it fails**
 
 Run: `mise exec -- go test -v ./internal/adapter/xray -run TestCompiler_FilterInactiveUsers`
-Expected: FAIL (because expired and over-quota users are currently included)
+Expected: FAIL (because expired and over-quota users are included)
 
 - [ ] **Step 3: Implement IsActive filtering and traffic_sync eviction**
 
@@ -244,13 +247,13 @@ git commit -m "fix(lifecycle): filter inactive and expired users in compiler and
 - Modify: `internal/adapter/repository/user_repo.go`
 - Modify: `internal/service/user_service.go`
 - Modify: `internal/delivery/http/handler_user.go`
+- Create: `internal/adapter/repository/user_repo_test.go`
 - Test: `internal/service/user_service_test.go`
-- Test: `internal/adapter/repository/user_repo_test.go`
 
 **Interfaces:**
-- `service.UpdateUserDTO`: DTO containing only editable fields
-- `UserRepository.UpdateNonTraffic(ctx, id uint, dto UpdateUserDTO) error`
-- `UserRepository.ListByInboundTag`: strict tag inclusion, no substring false matches
+- `domain.UpdateUserDTO`: DTO containing only editable fields
+- `UserRepository.UpdateFields(ctx, id uint, values map[string]interface{}) error`
+- `UserRepository.ListByInboundTag`: strict tag inclusion without substring false matches
 
 - [ ] **Step 1: Write failing tests for UpdateUser non-destructive behavior and exact tag matching**
 
@@ -276,9 +279,6 @@ func TestUserRepo_ListByInboundTag_ExactMatch(t *testing.T) {
 }
 ```
 
-In `internal/service/user_service_test.go`:
-Test that updating user metadata preserves `UpBytes` and `DownBytes`.
-
 - [ ] **Step 2: Run tests to verify they fail**
 
 Run: `mise exec -- go test -v ./internal/adapter/repository -run TestUserRepo_ListByInboundTag_ExactMatch`
@@ -287,7 +287,7 @@ Expected: FAIL
 - [ ] **Step 3: Implement UpdateUserDTO and exact matching**
 
 In `internal/domain/user.go`:
-Add `UpdateUserDTO` struct:
+Add `UpdateUserDTO`:
 ```go
 type UpdateUserDTO struct {
 	InboundTags []string `json:"inboundTags"`
@@ -302,16 +302,16 @@ type UpdateUserDTO struct {
 ```
 
 In `internal/adapter/repository/user_repo.go`:
-Fix `ListByInboundTag`:
-Query all or query with strict boundary check:
-`WHERE inbound_tag = ? OR (',' || REPLACE(inbound_tags, ' ', '') || ',') LIKE ?`, with `"%," + tag + ",%"`.
-And filter using `u.HasInbound(tag)`.
+Implement exact matching in `ListByInboundTag`:
+Query candidates and filter with `u.HasInbound(tag)` to ensure 100% precision across all SQLite versions.
+Add `UpdateFields(ctx context.Context, id uint, values map[string]interface{}) error`.
 
 In `internal/service/user_service.go`:
-Update `UpdateUser` to accept `UpdateUserDTO` (or safely merge `oldUser` preserving `UpBytes`, `DownBytes`, `UUID`, `SubToken`, `CreatedAt`).
+In `UpdateUser(ctx context.Context, id uint, dto domain.UpdateUserDTO)`:
+Fetch existing user, merge only editable fields from DTO, preserve `UpBytes`, `DownBytes`, `UUID`, `SubToken`.
 
 In `internal/delivery/http/handler_user.go`:
-Bind `UpdateUserDTO` in `Update(c *gin.Context)`.
+Bind `domain.UpdateUserDTO` in `Update(c *gin.Context)`.
 
 - [ ] **Step 4: Run tests to verify they pass**
 
@@ -336,13 +336,15 @@ git commit -m "fix(user): introduce UpdateUserDTO, protect traffic counters, and
 
 **Interfaces:**
 - `ConfigService.SaveConfigQuietly(ctx context.Context, remark string) error`: recompiles and writes to disk WITHOUT calling `supervisor.Reload`
+- `UserService.UpdateUser`: removes existing user before adding in updated inbounds to avoid "already exists" gRPC error
 - `UserService.ResetTraffic`, `BatchResetTraffic`, `CheckAndResetMonthlyTraffic`: resets DB traffic and calls `xrayManager.AddUser` for active users
 
 - [ ] **Step 1: Write failing test in user_service_test.go**
 
 Test that:
 1. `CreateUser`, `UpdateUser`, `DeleteUser` invoke `SaveConfigQuietly` instead of reloading Xray.
-2. `ResetTraffic` checks if user becomes active and calls `xrayManager.AddUser` on authorized tags.
+2. Updating user executes `RemoveUser` then `AddUser` on modified inbounds.
+3. `ResetTraffic` checks if user becomes active and calls `xrayManager.AddUser` on authorized tags.
 
 - [ ] **Step 2: Run test to verify it fails**
 
@@ -358,6 +360,8 @@ In `SyncUserToFile(ctx, tags, user, isDelete)`:
 Use `SaveConfigQuietly(ctx, fmt.Sprintf("静默同步用户 %s 授权", user.Email))`.
 
 In `internal/service/user_service.go`:
+In `UpdateUser`:
+Before calling `xrayManager.AddUser(ctx, newT, user)`, call `xrayManager.RemoveUser(ctx, newT, oldUser.Email)` to ensure clean in-memory replacement without `already exists` error.
 In `ResetTraffic(ctx, id)`:
 ```go
 func (s *UserService) ResetTraffic(ctx context.Context, id uint) error {
@@ -398,7 +402,7 @@ git commit -m "feat(service): decouple user config writes from service restart a
 - Modify: `web/src/views/InboundsView.vue`
 - Modify: `web/src/mock/storage.ts`
 
-- [ ] **Step 1: Check frontend build and mock configuration**
+- [ ] **Step 1: Check frontend and mock configuration**
 
 Verify how `realitySettings.target` is read and saved in `InboundsView.vue`:
 Lines 920: `form.value.realityTarget = stream.realitySettings.dest || stream.realitySettings.target || ''`
@@ -411,11 +415,7 @@ Change `target` to `dest`.
 
 Ensure `InboundsView.vue` properly handles `dest` as the primary property, and `storage.ts` uses `dest`.
 
-- [ ] **Step 3: Run frontend build or linter check**
-
-Run: `cd web && npm run build` (or verify TypeScript compilation if vite/npm available)
-
-- [ ] **Step 4: Commit**
+- [ ] **Step 3: Commit**
 
 ```bash
 git add web/src/views/InboundsView.vue web/src/mock/storage.ts
@@ -424,31 +424,37 @@ git commit -m "fix(web): standardize realitySettings to dest with backward compa
 
 ---
 
-### Task 6: Main Wiring, Full Integration Test & Verification Suite
+### Task 6: Main Wiring, Real Xray Integration Test & Verification Suite
 
 **Files:**
 - Modify: `main.go`
+- Create: `internal/adapter/xray/xray_integration_test.go`
 - Test: All tests across the workspace
 
 - [ ] **Step 1: Wire dynamic gRPC port in main.go**
 
 In `main.go`:
-Extract port from `cfg.XrayGRPCAddr` (e.g., `net.SplitHostPort` or fallback 8080) and pass to `NewXrayCompiler(grpcPort)` in `configSvc`.
+Parse port from `cfg.XrayGRPCAddr` (defaulting to 8080) and pass into `xray.NewXrayCompiler(grpcPort)`. Pass this compiler to `service.NewConfigService`.
 
-- [ ] **Step 2: Run all unit tests**
+- [ ] **Step 2: Write real Xray integration test using local `./bin/xray`**
+
+In `internal/adapter/xray/xray_integration_test.go`:
+Test starting `./bin/xray run -c ...` on an ephemeral gRPC port, execute `AddUser`, `QueryTrafficStats`, and `RemoveUser` via `GRPCClient`. Verify real Xray returns success.
+
+- [ ] **Step 3: Run all unit tests & integration tests**
 
 Run: `mise exec -- go test -v ./...`
 Expected: ALL PASS
 
-- [ ] **Step 3: Verify go vet and build**
+- [ ] **Step 4: Verify go vet and build**
 
 Run: `mise exec -- go vet ./...`
 Run: `mise exec -- go build -o panel main.go embedded.go`
 Expected: Build successfully exits with code 0
 
-- [ ] **Step 4: Commit**
+- [ ] **Step 5: Commit**
 
 ```bash
-git add main.go
-git commit -m "feat(main): wire dynamic grpc port into compiler and verify production build"
+git add main.go internal/adapter/xray/xray_integration_test.go
+git commit -m "test(integration): add real xray-core grpc integration test and wire dynamic grpc port"
 ```

@@ -8,7 +8,6 @@ import (
 	"strings"
 	"time"
 
-	"panel/internal/adapter/xray"
 	"panel/internal/domain"
 
 	"github.com/google/uuid"
@@ -25,11 +24,16 @@ type CreateUserDTO struct {
 	IPLimit     int      `json:"ipLimit"`
 }
 
+type XrayUserManager interface {
+	AddUser(ctx context.Context, inboundTag string, user *domain.User) error
+	RemoveUser(ctx context.Context, inboundTag string, email string) error
+}
+
 type UserService struct {
 	userRepo       domain.UserRepository
 	inboundRepo    domain.InboundRepository
 	trafficLogRepo domain.TrafficLogRepository
-	xrayManager    *xray.Manager
+	xrayManager    XrayUserManager
 	configSvc      *ConfigService
 }
 
@@ -37,7 +41,7 @@ func NewUserService(
 	userRepo domain.UserRepository,
 	inboundRepo domain.InboundRepository,
 	trafficLogRepo domain.TrafficLogRepository,
-	xrayManager *xray.Manager,
+	xrayManager XrayUserManager,
 	configSvc *ConfigService,
 ) *UserService {
 	return &UserService{
@@ -158,6 +162,7 @@ func (s *UserService) UpdateUser(ctx context.Context, id uint, dto domain.Update
 	if oldUser.IsActive() {
 		for _, newT := range newTags {
 			if s.xrayManager != nil {
+				_ = s.xrayManager.RemoveUser(ctx, newT, oldUser.Email)
 				_ = s.xrayManager.AddUser(ctx, newT, oldUser)
 			}
 		}
@@ -169,12 +174,12 @@ func (s *UserService) UpdateUser(ctx context.Context, id uint, dto domain.Update
 		}
 	}
 
-	if s.configSvc != nil {
-		_ = s.configSvc.SyncUserToFile(ctx, newTags, oldUser, false)
-	}
-
 	if err := s.userRepo.Update(ctx, oldUser); err != nil {
 		return nil, err
+	}
+
+	if s.configSvc != nil {
+		_ = s.configSvc.SyncUserToFile(ctx, newTags, oldUser, false)
 	}
 
 	return oldUser, nil
@@ -188,16 +193,23 @@ func (s *UserService) DeleteUser(ctx context.Context, id uint) error {
 	}
 
 	// 1. gRPC 热移除该用户在所有节点的内存状态
-	for _, t := range user.GetInboundTagList() {
-		_ = s.xrayManager.RemoveUser(ctx, t, user.Email)
+	if s.xrayManager != nil {
+		for _, t := range user.GetInboundTagList() {
+			_ = s.xrayManager.RemoveUser(ctx, t, user.Email)
+		}
 	}
 
-	// 2. 从物理 config.json 移除
+	// 2. 从数据库删除
+	if err := s.userRepo.Delete(ctx, id); err != nil {
+		return err
+	}
+
+	// 3. 从物理 config.json 移除
 	if s.configSvc != nil {
 		_ = s.configSvc.SyncUserToFile(ctx, nil, user, true)
 	}
 
-	return s.userRepo.Delete(ctx, id)
+	return nil
 }
 
 func (s *UserService) GetByID(ctx context.Context, id uint) (*domain.User, error) {
@@ -221,7 +233,24 @@ func (s *UserService) ListUsers(ctx context.Context) ([]domain.User, error) {
 }
 
 func (s *UserService) ResetTraffic(ctx context.Context, id uint) error {
-	return s.userRepo.ResetTraffic(ctx, id)
+	if err := s.userRepo.ResetTraffic(ctx, id); err != nil {
+		return err
+	}
+	user, err := s.userRepo.GetByID(ctx, id)
+	if err != nil {
+		return err
+	}
+	if user != nil && user.IsActive() {
+		if s.xrayManager != nil {
+			for _, t := range user.GetInboundTagList() {
+				_ = s.xrayManager.AddUser(ctx, t, user)
+			}
+		}
+		if s.configSvc != nil {
+			_ = s.configSvc.SyncUserToFile(ctx, user.GetInboundTagList(), user, false)
+		}
+	}
+	return nil
 }
 
 func (s *UserService) ResetSubToken(ctx context.Context, id uint) (string, error) {
@@ -272,7 +301,7 @@ func (s *UserService) BatchRenew(ctx context.Context, ids []uint, addDays int) e
 
 func (s *UserService) BatchResetTraffic(ctx context.Context, ids []uint) error {
 	for _, id := range ids {
-		_ = s.userRepo.ResetTraffic(ctx, id)
+		_ = s.ResetTraffic(ctx, id)
 	}
 	return nil
 }
@@ -314,6 +343,17 @@ func (s *UserService) CheckAndResetMonthlyTraffic(ctx context.Context) error {
 			u.DownBytes = 0
 			u.LastResetMonth = currentYearMonth
 			_ = s.userRepo.Update(ctx, &u)
+
+			if u.IsActive() {
+				if s.xrayManager != nil {
+					for _, t := range u.GetInboundTagList() {
+						_ = s.xrayManager.AddUser(ctx, t, &u)
+					}
+				}
+				if s.configSvc != nil {
+					_ = s.configSvc.SyncUserToFile(ctx, u.GetInboundTagList(), &u, false)
+				}
+			}
 		}
 	}
 	return nil

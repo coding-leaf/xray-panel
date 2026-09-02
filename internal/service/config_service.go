@@ -16,9 +16,14 @@ import (
 	"panel/internal/pkg/jsonc"
 )
 
+type ServiceSupervisor interface {
+	Reload(ctx context.Context) error
+	Restart(ctx context.Context) error
+}
+
 type ConfigService struct {
 	configMgr    *xray.ConfigManager
-	supervisor   *xray.SystemdSupervisor
+	supervisor   ServiceSupervisor
 	inboundRepo  domain.InboundRepository
 	userRepo     domain.UserRepository
 	snapshotRepo domain.ConfigSnapshotRepository
@@ -27,7 +32,7 @@ type ConfigService struct {
 
 func NewConfigService(
 	configMgr *xray.ConfigManager,
-	supervisor *xray.SystemdSupervisor,
+	supervisor ServiceSupervisor,
 	inboundRepo domain.InboundRepository,
 	userRepo domain.UserRepository,
 	snapshotRepo domain.ConfigSnapshotRepository,
@@ -102,7 +107,8 @@ func (s *ConfigService) SyncFromFile(ctx context.Context) error {
 }
 
 // RecompileAndApply 核心强类型编译管道：读取所有领域实体 ➔ 编译为合规 JSON ➔ 校验写入 ➔ 平滑重载
-func (s *ConfigService) RecompileAndApply(ctx context.Context, remark string) error {
+// SaveConfigQuietly 核心强类型编译管道：读取所有领域实体 ➔ 编译为合规 JSON ➔ 校验写入 ➔ 静默持久化 (不平滑重载 supervisor)
+func (s *ConfigService) SaveConfigQuietly(ctx context.Context, remark string) error {
 	// 1. 读取 Inbounds
 	var inbounds []domain.Inbound
 	if s.inboundRepo != nil {
@@ -146,13 +152,27 @@ func (s *ConfigService) RecompileAndApply(ctx context.Context, remark string) er
 		return fmt.Errorf("compile config failed: %w", err)
 	}
 
-	// 7. 写入并平滑重载
+	// 7. 写入 (不调用 supervisor.Reload)
 	s.recordSnapshotBeforeWrite(ctx, remark)
-	if err := s.configMgr.WriteConfig(ctx, jsonBytes); err != nil {
+	if s.configMgr != nil {
+		if err := s.configMgr.WriteConfig(ctx, jsonBytes); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+// RecompileAndApply 核心强类型编译管道：读取所有领域实体 ➔ 编译为合规 JSON ➔ 校验写入 ➔ 平滑重载
+func (s *ConfigService) RecompileAndApply(ctx context.Context, remark string) error {
+	if err := s.SaveConfigQuietly(ctx, remark); err != nil {
 		return err
 	}
 
-	return s.supervisor.Reload(ctx)
+	if s.supervisor != nil {
+		return s.supervisor.Reload(ctx)
+	}
+	return nil
 }
 
 func (s *ConfigService) syncFromRawJSON(ctx context.Context, rawJSON []byte) error {
@@ -330,7 +350,7 @@ func (s *ConfigService) DeleteInbound(ctx context.Context, id uint) error {
 }
 
 func (s *ConfigService) SyncUserToFile(ctx context.Context, authorizedTags []string, user *domain.User, isDelete bool) error {
-	return s.RecompileAndApply(ctx, fmt.Sprintf("同步用户 %s 节点授权", user.Email))
+	return s.SaveConfigQuietly(ctx, fmt.Sprintf("静默同步用户 %s 节点授权", user.Email))
 }
 
 // === 出站管理 (Outbounds Management) ===

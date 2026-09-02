@@ -3,9 +3,13 @@ package service
 import (
 	"context"
 	"encoding/json"
+	"os"
+	"path/filepath"
+	"sync"
 	"testing"
 	"time"
 
+	"panel/internal/adapter/xray"
 	"panel/internal/domain"
 )
 
@@ -270,6 +274,371 @@ func TestUserService_BatchSetStatus_PreservesTrafficCounters(t *testing.T) {
 	if u.UpBytes != 111111 || u.DownBytes != 222222 {
 		t.Errorf("BatchSetStatus overwrote traffic! UpBytes: %d, DownBytes: %d", u.UpBytes, u.DownBytes)
 	}
+}
+
+type mockSupervisor struct {
+	reloadCalls  int
+	restartCalls int
+	mu           sync.Mutex
+}
+
+func (m *mockSupervisor) Reload(ctx context.Context) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.reloadCalls++
+	return nil
+}
+
+func (m *mockSupervisor) Restart(ctx context.Context) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.restartCalls++
+	return nil
+}
+
+type xrayCall struct {
+	op    string // "add" or "remove"
+	tag   string
+	email string
+}
+
+type mockXrayManager struct {
+	calls []xrayCall
+	mu    sync.Mutex
+}
+
+func (m *mockXrayManager) AddUser(ctx context.Context, inboundTag string, user *domain.User) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.calls = append(m.calls, xrayCall{op: "add", tag: inboundTag, email: user.Email})
+	return nil
+}
+
+func (m *mockXrayManager) RemoveUser(ctx context.Context, inboundTag string, email string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.calls = append(m.calls, xrayCall{op: "remove", tag: inboundTag, email: email})
+	return nil
+}
+
+func (m *mockXrayManager) GetCalls() []xrayCall {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	res := make([]xrayCall, len(m.calls))
+	copy(res, m.calls)
+	return res
+}
+
+type mockInboundRepo struct {
+	inbounds []domain.Inbound
+}
+
+func (m *mockInboundRepo) Create(ctx context.Context, in *domain.Inbound) error { return nil }
+func (m *mockInboundRepo) Update(ctx context.Context, in *domain.Inbound) error { return nil }
+func (m *mockInboundRepo) Delete(ctx context.Context, id uint) error            { return nil }
+func (m *mockInboundRepo) GetByID(ctx context.Context, id uint) (*domain.Inbound, error) {
+	for _, in := range m.inbounds {
+		if in.ID == id {
+			return &in, nil
+		}
+	}
+	return nil, domain.ErrNotFound
+}
+func (m *mockInboundRepo) GetByTag(ctx context.Context, tag string) (*domain.Inbound, error) {
+	for _, in := range m.inbounds {
+		if in.Tag == tag {
+			return &in, nil
+		}
+	}
+	return nil, domain.ErrNotFound
+}
+func (m *mockInboundRepo) ListAll(ctx context.Context) ([]domain.Inbound, error) {
+	return m.inbounds, nil
+}
+func (m *mockInboundRepo) ListEnabled(ctx context.Context) ([]domain.Inbound, error) {
+	return m.inbounds, nil
+}
+func (m *mockInboundRepo) AddTraffic(ctx context.Context, tag string, upBytes, downBytes int64) error {
+	return nil
+}
+
+func TestUserService_ZeroDowntimeAndAutoRestore(t *testing.T) {
+	t.Run("ResetTraffic restores over-quota user to Xray and syncs quietly", func(t *testing.T) {
+		repo := &mockUserRepo{
+			users: []domain.User{
+				{
+					ID:          1,
+					Email:       "overquota@test.com",
+					TotalBytes:  1000,
+					UpBytes:     600,
+					DownBytes:   500, // 1100 >= 1000 -> IsActive() is false
+					Enabled:     true,
+					InboundTag:  "vless-in",
+					InboundTags: "vless-in,trojan-in",
+				},
+			},
+		}
+		mockXray := &mockXrayManager{}
+		tmpDir := t.TempDir()
+		cfgPath := filepath.Join(tmpDir, "config.json")
+		_ = os.WriteFile(cfgPath, []byte("{}"), 0644)
+		configMgr := xray.NewConfigManager(cfgPath, "")
+		mockSup := &mockSupervisor{}
+		configSvc := NewConfigService(configMgr, mockSup, nil, repo, nil)
+
+		svc := NewUserService(repo, nil, nil, mockXray, configSvc)
+
+		// Before reset, user is inactive
+		uBefore, _ := repo.GetByID(context.Background(), 1)
+		if uBefore.IsActive() {
+			t.Fatalf("expected user to be inactive before reset")
+		}
+
+		// Reset traffic
+		if err := svc.ResetTraffic(context.Background(), 1); err != nil {
+			t.Fatalf("ResetTraffic failed: %v", err)
+		}
+
+		uAfter, _ := repo.GetByID(context.Background(), 1)
+		if !uAfter.IsActive() {
+			t.Fatalf("expected user to be active after reset")
+		}
+
+		calls := mockXray.GetCalls()
+		addedTags := make(map[string]bool)
+		for _, c := range calls {
+			if c.op == "add" && c.email == "overquota@test.com" {
+				addedTags[c.tag] = true
+			}
+		}
+
+		if !addedTags["vless-in"] || !addedTags["trojan-in"] {
+			t.Fatalf("expected user to be added back to vless-in and trojan-in, got calls: %+v", calls)
+		}
+
+		if mockSup.reloadCalls != 0 {
+			t.Fatalf("expected 0 supervisor reload calls, got %d", mockSup.reloadCalls)
+		}
+	})
+
+	t.Run("BatchResetTraffic restores active users to Xray", func(t *testing.T) {
+		repo := &mockUserRepo{
+			users: []domain.User{
+				{
+					ID:          1,
+					Email:       "u1@test.com",
+					TotalBytes:  1000,
+					UpBytes:     1000,
+					Enabled:     true,
+					InboundTag:  "vless-in",
+					InboundTags: "vless-in",
+				},
+				{
+					ID:          2,
+					Email:       "u2@test.com",
+					TotalBytes:  2000,
+					DownBytes:   2500,
+					Enabled:     true,
+					InboundTag:  "trojan-in",
+					InboundTags: "trojan-in",
+				},
+			},
+		}
+		mockXray := &mockXrayManager{}
+		svc := NewUserService(repo, nil, nil, mockXray, nil)
+
+		if err := svc.BatchResetTraffic(context.Background(), []uint{1, 2}); err != nil {
+			t.Fatalf("BatchResetTraffic failed: %v", err)
+		}
+
+		calls := mockXray.GetCalls()
+		addedUsers := make(map[string]bool)
+		for _, c := range calls {
+			if c.op == "add" {
+				addedUsers[c.email] = true
+			}
+		}
+
+		if !addedUsers["u1@test.com"] || !addedUsers["u2@test.com"] {
+			t.Fatalf("expected u1 and u2 to be added to xray, got calls: %+v", calls)
+		}
+	})
+
+	t.Run("BatchRenew restores expired users to Xray", func(t *testing.T) {
+		repo := &mockUserRepo{
+			users: []domain.User{
+				{
+					ID:          3,
+					Email:       "expired@test.com",
+					ExpireTime:  1000, // expired long ago
+					Enabled:     true,
+					InboundTag:  "vless-in",
+					InboundTags: "vless-in",
+				},
+			},
+		}
+		mockXray := &mockXrayManager{}
+		svc := NewUserService(repo, nil, nil, mockXray, nil)
+
+		uBefore, _ := repo.GetByID(context.Background(), 3)
+		if uBefore.IsActive() {
+			t.Fatalf("expected user to be inactive before renew")
+		}
+
+		if err := svc.BatchRenew(context.Background(), []uint{3}, 30); err != nil {
+			t.Fatalf("BatchRenew failed: %v", err)
+		}
+
+		uAfter, _ := repo.GetByID(context.Background(), 3)
+		if !uAfter.IsActive() {
+			t.Fatalf("expected user to be active after renew")
+		}
+
+		calls := mockXray.GetCalls()
+		foundAdd := false
+		for _, c := range calls {
+			if c.op == "add" && c.email == "expired@test.com" && c.tag == "vless-in" {
+				foundAdd = true
+				break
+			}
+		}
+		if !foundAdd {
+			t.Fatalf("expected expired user to be added to xray after renew, got calls: %+v", calls)
+		}
+	})
+
+	t.Run("UpdateUser removes existing user before adding on updated inbounds", func(t *testing.T) {
+		repo := &mockUserRepo{
+			users: []domain.User{
+				{
+					ID:          4,
+					Email:       "refresh@test.com",
+					Enabled:     true,
+					InboundTag:  "vless-in",
+					InboundTags: "vless-in",
+				},
+			},
+		}
+		mockXray := &mockXrayManager{}
+		svc := NewUserService(repo, nil, nil, mockXray, nil)
+
+		dto := domain.UpdateUserDTO{
+			InboundTags: []string{"vless-in", "trojan-in"},
+			InboundTag:  "vless-in",
+		}
+
+		_, err := svc.UpdateUser(context.Background(), 4, dto)
+		if err != nil {
+			t.Fatalf("UpdateUser failed: %v", err)
+		}
+
+		calls := mockXray.GetCalls()
+		// For vless-in, RemoveUser must appear BEFORE AddUser
+		removeIdx := -1
+		addIdx := -1
+		for i, c := range calls {
+			if c.email == "refresh@test.com" && c.tag == "vless-in" {
+				if c.op == "remove" && removeIdx == -1 {
+					removeIdx = i
+				} else if c.op == "add" && addIdx == -1 {
+					addIdx = i
+				}
+			}
+		}
+
+		if removeIdx == -1 {
+			t.Fatalf("expected RemoveUser to be called for existing inbound tag before AddUser, got calls: %+v", calls)
+		}
+		if addIdx == -1 {
+			t.Fatalf("expected AddUser to be called for inbound tag, got calls: %+v", calls)
+		}
+		if removeIdx >= addIdx {
+			t.Fatalf("expected RemoveUser (idx %d) BEFORE AddUser (idx %d) to avoid Xray conflict, got calls: %+v", removeIdx, addIdx, calls)
+		}
+	})
+
+	t.Run("SyncUserToFile and SaveConfigQuietly do not reload supervisor", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		cfgPath := filepath.Join(tmpDir, "config.json")
+		_ = os.WriteFile(cfgPath, []byte("{}"), 0644)
+		configMgr := xray.NewConfigManager(cfgPath, "")
+		mockSup := &mockSupervisor{}
+		repo := &mockUserRepo{
+			users: []domain.User{
+				{
+					ID:          5,
+					Email:       "quiet@test.com",
+					Enabled:     true,
+					InboundTag:  "vless-in",
+					InboundTags: "vless-in",
+				},
+			},
+		}
+		inboundRepo := &mockInboundRepo{
+			inbounds: []domain.Inbound{
+				{ID: 1, Tag: "vless-in", Protocol: "vless", Port: 443, Enabled: true},
+			},
+		}
+
+		configSvc := NewConfigService(configMgr, mockSup, inboundRepo, repo, nil)
+
+		user, _ := repo.GetByID(context.Background(), 5)
+		if err := configSvc.SyncUserToFile(context.Background(), []string{"vless-in"}, user, false); err != nil {
+			t.Fatalf("SyncUserToFile failed: %v", err)
+		}
+
+		if mockSup.reloadCalls != 0 {
+			t.Fatalf("expected 0 supervisor reload calls during SyncUserToFile, got %d", mockSup.reloadCalls)
+		}
+
+		// Verify file was written by SaveConfigQuietly and contains valid JSON
+		content, err := os.ReadFile(cfgPath)
+		if err != nil {
+			t.Fatalf("read config failed: %v", err)
+		}
+		if len(content) <= 2 { // more than just "{}"
+			t.Fatalf("expected config to be written quietly to disk, got content: %s", string(content))
+		}
+	})
+
+	t.Run("CheckAndResetMonthlyTraffic restores active users to Xray and syncs quietly", func(t *testing.T) {
+		today := time.Now().Day()
+		lastMonth := 202601
+		repo := &mockUserRepo{
+			users: []domain.User{
+				{
+					ID:             6,
+					Email:          "monthly@test.com",
+					ResetDay:       today,
+					LastResetMonth: lastMonth,
+					TotalBytes:     1000,
+					UpBytes:        1200, // over quota, inactive
+					DownBytes:      0,
+					Enabled:        true,
+					InboundTag:     "vless-in",
+					InboundTags:    "vless-in",
+				},
+			},
+		}
+		mockXray := &mockXrayManager{}
+		svc := NewUserService(repo, nil, nil, mockXray, nil)
+
+		if err := svc.CheckAndResetMonthlyTraffic(context.Background()); err != nil {
+			t.Fatalf("CheckAndResetMonthlyTraffic failed: %v", err)
+		}
+
+		calls := mockXray.GetCalls()
+		foundAdd := false
+		for _, c := range calls {
+			if c.op == "add" && c.email == "monthly@test.com" && c.tag == "vless-in" {
+				foundAdd = true
+				break
+			}
+		}
+		if !foundAdd {
+			t.Fatalf("expected monthly reset user to be added to xray, got calls: %+v", calls)
+		}
+	})
 }
 
 

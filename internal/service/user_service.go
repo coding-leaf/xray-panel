@@ -100,8 +100,10 @@ func (s *UserService) CreateUser(ctx context.Context, dto CreateUserDTO) (*domai
 	}
 
 	// 1. gRPC 热同步到所有已选节点内存
-	for _, t := range tags {
-		_ = s.xrayManager.AddUser(ctx, t, user)
+	if s.xrayManager != nil {
+		for _, t := range tags {
+			_ = s.xrayManager.AddUser(ctx, t, user)
+		}
 	}
 
 	// 2. 双向同步持久化回写 config.json 物理文件
@@ -336,6 +338,7 @@ func (s *UserService) CheckAndResetMonthlyTraffic(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	anyActiveReset := false
 	for _, u := range users {
 		if u.ResetDay > 0 && u.ResetDay == today && u.LastResetMonth != currentYearMonth {
 			_ = s.userRepo.ResetTraffic(ctx, u.ID)
@@ -350,11 +353,12 @@ func (s *UserService) CheckAndResetMonthlyTraffic(ctx context.Context) error {
 						_ = s.xrayManager.AddUser(ctx, t, &u)
 					}
 				}
-				if s.configSvc != nil {
-					_ = s.configSvc.SyncUserToFile(ctx, u.GetInboundTagList(), &u, false)
-				}
+				anyActiveReset = true
 			}
 		}
+	}
+	if anyActiveReset && s.configSvc != nil {
+		_ = s.configSvc.SaveConfigQuietly(ctx, "月度流量重置配置静默同步")
 	}
 	return nil
 }

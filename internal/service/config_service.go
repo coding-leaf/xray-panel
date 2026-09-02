@@ -111,7 +111,6 @@ func (s *ConfigService) SyncFromFile(ctx context.Context) error {
 	return s.syncFromRawJSON(ctx, raw)
 }
 
-// RecompileAndApply 核心强类型编译管道：读取所有领域实体 ➔ 编译为合规 JSON ➔ 校验写入 ➔ 平滑重载
 // SaveConfigQuietly 核心强类型编译管道：读取所有领域实体 ➔ 编译为合规 JSON ➔ 校验写入 ➔ 静默持久化 (不平滑重载 supervisor)
 func (s *ConfigService) SaveConfigQuietly(ctx context.Context, remark string) error {
 	// 1. 读取 Inbounds

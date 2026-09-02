@@ -30,7 +30,7 @@ const DEFAULT_RAW_STATE: MockState = {
         network: 'tcp',
         security: 'reality',
         realitySettings: {
-          target: 'www.titech.ac.jp:443',
+          dest: 'www.titech.ac.jp:443',
           serverNames: ['www.titech.ac.jp'],
           privateKey: 'OCiaG7JluOeRDE9IIuqPleHWArqqmnKJ_rKTxtjo7mc',
           publicKey: 'FMdWD0uS9lrXUAoMmTP5e2LLD-mk8vO8JTZmAE9vdww',

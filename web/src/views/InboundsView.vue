@@ -917,7 +917,7 @@ const editInbound = (inb: any) => {
     form.value.grpcService = stream.grpcSettings.serviceName || ''
   }
   if (stream.realitySettings) {
-    form.value.realityTarget = stream.realitySettings.target || ''
+    form.value.realityTarget = stream.realitySettings.dest || stream.realitySettings.target || ''
     form.value.realityServerNames = (stream.realitySettings.serverNames || []).join(', ')
     form.value.realityPrivateKey = stream.realitySettings.privateKey || ''
     form.value.realityShortIds = (stream.realitySettings.shortIds || []).join(', ')
@@ -1015,7 +1015,7 @@ const buildStreamSettingsJSON = () => {
       .map((s: string) => s.trim())
 
     stream.realitySettings = {
-      target: form.value.realityTarget || 'www.titech.ac.jp:443',
+      dest: form.value.realityTarget || 'www.titech.ac.jp:443',
       serverNames: sNames.length > 0 ? sNames : ['www.titech.ac.jp'],
       privateKey: form.value.realityPrivateKey,
       shortIds: sIds,

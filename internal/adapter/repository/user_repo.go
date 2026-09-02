@@ -22,7 +22,7 @@ func (r *GORMUserRepository) Create(ctx context.Context, user *domain.User) erro
 }
 
 func (r *GORMUserRepository) Update(ctx context.Context, user *domain.User) error {
-	return r.db.WithContext(ctx).Save(user).Error
+	return r.db.WithContext(ctx).Model(user).Omit("up_bytes", "down_bytes").Save(user).Error
 }
 
 func (r *GORMUserRepository) Delete(ctx context.Context, id uint) error {

@@ -1,6 +1,7 @@
 package http
 
 import (
+	"errors"
 	"fmt"
 	"net/http"
 	"strconv"
@@ -64,6 +65,10 @@ func (h *UserHandler) Update(c *gin.Context) {
 
 	user, err := h.userSvc.UpdateUser(c.Request.Context(), uint(id), dto)
 	if err != nil {
+		if errors.Is(err, domain.ErrNotFound) {
+			c.JSON(http.StatusNotFound, gin.H{"error": "user not found"})
+			return
+		}
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
@@ -80,6 +85,10 @@ func (h *UserHandler) Delete(c *gin.Context) {
 	}
 
 	if err := h.userSvc.DeleteUser(c.Request.Context(), uint(id)); err != nil {
+		if errors.Is(err, domain.ErrNotFound) {
+			c.JSON(http.StatusNotFound, gin.H{"error": "user not found"})
+			return
+		}
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
@@ -96,6 +105,10 @@ func (h *UserHandler) ResetTraffic(c *gin.Context) {
 	}
 
 	if err := h.userSvc.ResetTraffic(c.Request.Context(), uint(id)); err != nil {
+		if errors.Is(err, domain.ErrNotFound) {
+			c.JSON(http.StatusNotFound, gin.H{"error": "user not found"})
+			return
+		}
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
@@ -119,6 +132,10 @@ func (h *UserHandler) GetShareLink(c *gin.Context) {
 
 	shareInfo, err := h.subSvc.GetUserShareInfo(c.Request.Context(), uint(id), baseURL)
 	if err != nil {
+		if errors.Is(err, domain.ErrNotFound) {
+			c.JSON(http.StatusNotFound, gin.H{"error": "user not found"})
+			return
+		}
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
@@ -142,6 +159,10 @@ func (h *UserHandler) GetTrafficHistory(c *gin.Context) {
 
 	history, err := h.userSvc.GetTrafficHistory(c.Request.Context(), uint(id), days)
 	if err != nil {
+		if errors.Is(err, domain.ErrNotFound) {
+			c.JSON(http.StatusNotFound, gin.H{"error": "user not found"})
+			return
+		}
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
@@ -159,6 +180,10 @@ func (h *UserHandler) ResetToken(c *gin.Context) {
 
 	newToken, err := h.userSvc.ResetSubToken(c.Request.Context(), uint(id))
 	if err != nil {
+		if errors.Is(err, domain.ErrNotFound) {
+			c.JSON(http.StatusNotFound, gin.H{"error": "user not found"})
+			return
+		}
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}

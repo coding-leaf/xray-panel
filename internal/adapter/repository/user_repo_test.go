@@ -123,3 +123,51 @@ func TestUserRepo_UpdateFields(t *testing.T) {
 	}
 }
 
+func TestUserRepo_Update_OmitsTrafficCounters(t *testing.T) {
+	db := setupTestDB(t)
+	repo := NewUserRepository(db)
+	ctx := context.Background()
+
+	u := &domain.User{
+		Email:      "user_concurrent@test.com",
+		UUID:       "uuid-concurrent",
+		SubToken:   "sub-concurrent",
+		TotalBytes: 1000,
+		UpBytes:    100,
+		DownBytes:  200,
+	}
+	if err := repo.Create(ctx, u); err != nil {
+		t.Fatalf("failed to create: %v", err)
+	}
+
+	// Fetch user into memory
+	loaded, err := repo.GetByID(ctx, u.ID)
+	if err != nil {
+		t.Fatalf("GetByID failed: %v", err)
+	}
+
+	// Concurrent traffic arrives in DB while loaded is in memory
+	if err := repo.AddTraffic(ctx, u.Email, 50, 50); err != nil {
+		t.Fatalf("AddTraffic failed: %v", err)
+	}
+
+	// In memory loaded has old traffic (100, 200). We change another field like TotalBytes
+	loaded.TotalBytes = 2000
+	if err := repo.Update(ctx, loaded); err != nil {
+		t.Fatalf("Update failed: %v", err)
+	}
+
+	fresh, err := repo.GetByID(ctx, u.ID)
+	if err != nil {
+		t.Fatalf("GetByID failed: %v", err)
+	}
+	if fresh.TotalBytes != 2000 {
+		t.Errorf("expected TotalBytes=2000, got %d", fresh.TotalBytes)
+	}
+	// Traffic in DB should be 150, 250, NOT overwritten by loaded's 100, 200!
+	if fresh.UpBytes != 150 || fresh.DownBytes != 250 {
+		t.Errorf("traffic was overwritten by Update! UpBytes=%d (want 150), DownBytes=%d (want 250)", fresh.UpBytes, fresh.DownBytes)
+	}
+}
+
+

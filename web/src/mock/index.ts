@@ -1,4 +1,4 @@
-// Mock 拦截请求调度中心
+// Mock 拦截请求调度中心 (v2)
 
 import { loadMockState, saveMockState, resetMockState, MockState } from './storage'
 
@@ -16,6 +16,17 @@ export function isMockMode(): boolean {
 
 function delay<T>(data: T, ms = 120): Promise<T> {
   return new Promise((resolve) => setTimeout(() => resolve(data), ms))
+}
+
+// 辅助函数：根据 VLESS Route ID 动态置换 UUID 的第 3 节 (bytes 6:8)
+function applyRouteIdToUuid(uuid: string, routeId: number): string {
+  if (!routeId || routeId <= 0) return uuid
+  const parts = uuid.split('-')
+  if (parts.length === 5) {
+    parts[2] = routeId.toString(16).padStart(4, '0')
+    return parts.join('-')
+  }
+  return uuid
 }
 
 export async function handleMockRequest(url: string, method: string, data?: any): Promise<any> {
@@ -36,17 +47,17 @@ export async function handleMockRequest(url: string, method: string, data?: any)
       xrayStatus: {
         running: true,
         version: 'Xray 26.3.27 (Demo Engine) Linux/amd64',
-        uptimeSecs: 36800,
+        uptimeSecs: 48600,
         xrayPid: 12345,
       },
       hostStatus: {
-        cpuPercent: Math.round(15 + Math.random() * 10),
-        memUsedBytes: 256 * 1024 * 1024,
+        cpuPercent: Math.round(18 + Math.random() * 8),
+        memUsedBytes: 384 * 1024 * 1024,
         memTotalBytes: 1024 * 1024 * 1024,
-        diskUsedBytes: 8 * 1024 * 1024 * 1024,
+        diskUsedBytes: 12 * 1024 * 1024 * 1024,
         diskTotalBytes: 40 * 1024 * 1024 * 1024,
-        netInSpeed: Math.round(1024 * (50 + Math.random() * 200)),
-        netOutSpeed: Math.round(1024 * (80 + Math.random() * 300)),
+        netInSpeed: Math.round(1024 * (1200 + Math.random() * 300)),
+        netOutSpeed: Math.round(1024 * (8450 + Math.random() * 1200)),
       },
       stats: {
         totalUsers: state.users.length,
@@ -138,8 +149,8 @@ export async function handleMockRequest(url: string, method: string, data?: any)
     for (const u of state.users) {
       speeds[u.email] = {
         email: u.email,
-        upSpeed: u.isOnline ? Math.floor(Math.random() * 50000) : 0,
-        downSpeed: u.isOnline ? Math.floor(Math.random() * 2000000) : 0,
+        upSpeed: u.isOnline ? Math.floor(800000 + Math.random() * 500000) : 0,
+        downSpeed: u.isOnline ? Math.floor(6000000 + Math.random() * 3000000) : 0,
         lastActive: Date.now(),
         isOnline: u.isOnline,
       }
@@ -169,22 +180,72 @@ export async function handleMockRequest(url: string, method: string, data?: any)
       resetDay: data.resetDay || 0,
       ipLimit: data.ipLimit || 0,
       enabled: data.enabled !== false,
-      isOnline: Math.random() > 0.5,
-      upSpeed: Math.floor(Math.random() * 50000),
-      downSpeed: Math.floor(Math.random() * 200000),
+      isOnline: false,
+      upSpeed: 0,
+      downSpeed: 0,
+      createdAt: new Date().toISOString(),
     }
     state.users.push(user)
     saveMockState(state)
     return delay(user)
   }
 
+  // 批量延期
+  if (cleanUrl.endsWith('/users/batch-renew') && method === 'POST') {
+    const { ids = [], days = 30 } = data || {}
+    for (const u of state.users) {
+      if (ids.includes(u.id)) {
+        const currentExpire = u.expireTime > Date.now() ? u.expireTime : Date.now()
+        u.expireTime = currentExpire + days * 86400000
+      }
+    }
+    saveMockState(state)
+    return delay({ success: true, count: ids.length })
+  }
+
+  // 批量重置流量
+  if (cleanUrl.endsWith('/users/batch-reset-traffic') && method === 'POST') {
+    const { ids = [] } = data || {}
+    for (const u of state.users) {
+      if (ids.includes(u.id)) {
+        u.upBytes = 0
+        u.downBytes = 0
+      }
+    }
+    saveMockState(state)
+    return delay({ success: true, count: ids.length })
+  }
+
+  // 批量设置状态
+  if (cleanUrl.endsWith('/users/batch-status') && method === 'POST') {
+    const { ids = [], enabled = true } = data || {}
+    for (const u of state.users) {
+      if (ids.includes(u.id)) {
+        u.enabled = enabled
+      }
+    }
+    saveMockState(state)
+    return delay({ success: true, count: ids.length })
+  }
+
+  // 用户详情更新与删除
   const userIdMatch = cleanUrl.match(/\/users\/(\d+)$/)
   if (userIdMatch) {
     const id = parseInt(userIdMatch[1], 10)
     if (method === 'PUT') {
       const idx = state.users.findIndex((u) => u.id === id)
       if (idx !== -1) {
-        state.users[idx] = { ...state.users[idx], ...data }
+        // 模拟 v1.5.0 UpdateUserDTO：绝不覆盖已累加的流量与关键系统字段
+        const current = state.users[idx]
+        state.users[idx] = {
+          ...current,
+          ...data,
+          upBytes: current.upBytes,
+          downBytes: current.downBytes,
+          uuid: current.uuid,
+          subToken: current.subToken,
+          createdAt: current.createdAt,
+        }
         saveMockState(state)
         return delay(state.users[idx])
       }
@@ -196,16 +257,70 @@ export async function handleMockRequest(url: string, method: string, data?: any)
     }
   }
 
+  // 历史流量趋势 (Traffic History)
+  const trafficHistoryMatch = cleanUrl.match(/\/users\/(\d+)\/traffic-history$/)
+  if (trafficHistoryMatch) {
+    const days = parseInt(new URL(url, 'http://localhost').searchParams.get('days') || '14', 10)
+    const history: any[] = []
+    const today = new Date()
+    for (let i = 0; i < days; i++) {
+      const d = new Date(today.getTime() - i * 86400000)
+      const dateStr = d.toISOString().split('T')[0]
+      const baseDown = Math.floor((120 + (i % 5) * 80 + Math.sin(i * 1.5) * 60) * 1024 * 1024)
+      const baseUp = Math.floor((25 + (i % 3) * 20 + Math.cos(i * 1.2) * 15) * 1024 * 1024)
+      history.push({
+        id: i + 1,
+        date: dateStr,
+        upBytes: baseUp,
+        downBytes: baseDown,
+        totalBytes: baseUp + baseDown,
+      })
+    }
+    return delay(history)
+  }
+
+  // 获取多节点订阅与分享链接 (基于 VLESS Route ID 动态 UUID)
   const userSubMatch = cleanUrl.match(/\/users\/(\d+)\/share$/)
   if (userSubMatch) {
     const id = parseInt(userSubMatch[1], 10)
     const user = state.users.find((u) => u.id === id)
+    const links: string[] = []
+
+    const userInboundTags = (user?.inboundTags || user?.inboundTag || '').split(',').map((s: string) => s.trim())
+    const assignedInbounds = state.inbounds.filter((inb) => userInboundTags.includes(inb.tag))
+
+    for (const inb of assignedInbounds) {
+      let subRoutes: any[] = []
+      try {
+        subRoutes = JSON.parse(inb.subRoutesJson || '[]')
+      } catch {}
+
+      const enabledSubRoutes = subRoutes.filter((sr: any) => sr.enabled && sr.routeId > 0)
+      if (enabledSubRoutes.length > 0) {
+        for (const sr of enabledSubRoutes) {
+          const routeUuid = applyRouteIdToUuid(user?.uuid || 'uuid', sr.routeId)
+          const remark = sr.remark || `${inb.tag}-${sr.routeId}`
+          links.push(
+            `vless://${routeUuid}@demo.example.com:${inb.externalPort || inb.port || 443}?security=reality&sni=www.titech.ac.jp&fp=chrome&pbk=FMdWD0uS9lrXUAoMmTP5e2LLD-mk8vO8JTZmAE9vdww&sid=0123456789abcdef&type=tcp&flow=${user?.flow || 'xtls-rprx-vision'}#${encodeURIComponent(remark)}`
+          )
+        }
+      } else {
+        links.push(
+          `vless://${user?.uuid || 'uuid'}@demo.example.com:${inb.externalPort || inb.port || 443}?security=reality&sni=www.titech.ac.jp&fp=chrome&pbk=FMdWD0uS9lrXUAoMmTP5e2LLD-mk8vO8JTZmAE9vdww&sid=0123456789abcdef&type=tcp&flow=${user?.flow || 'xtls-rprx-vision'}#${encodeURIComponent(inb.tag)}`
+        )
+      }
+    }
+
+    if (!links.length) {
+      links.push(
+        `vless://${user?.uuid || 'uuid'}@demo.example.com:443?security=reality&sni=www.titech.ac.jp&fp=chrome&pbk=FMdWD0uS9lrXUAoMmTP5e2LLD-mk8vO8JTZmAE9vdww&sid=0123456789abcdef&type=tcp&flow=xtls-rprx-vision#🇯🇵+日本东京原生+(直连出口)`
+      )
+    }
+
     return delay({
       token: user?.subToken || 'mock-token',
       subUrl: `${window.location.origin}${window.location.pathname}#/sub/${user?.subToken || 'mock-token'}`,
-      links: [
-        `vless://${user?.uuid || 'uuid'}@demo.example.com:443?security=reality&sni=www.titech.ac.jp&fp=chrome&pbk=FMdWD0uS9lrXUAoMmTP5e2LLD-mk8vO8JTZmAE9vdww&sid=0123456789abcdef&type=tcp&flow=xtls-rprx-vision#🇯🇵+日本原生直连`,
-      ],
+      links,
     })
   }
 
@@ -238,9 +353,10 @@ export async function handleMockRequest(url: string, method: string, data?: any)
   if (cleanUrl.endsWith('/logs') && method === 'GET') {
     const nowStr = new Date().toISOString().replace('T', ' ').substring(0, 19).replace(/-/g, '/')
     const randomLogs = [
-      `${nowStr} 127.0.0.1:4${Math.floor(1000 + Math.random() * 9000)} accepted tcp:www.youtube.com:443 [vless-reality -> direct] email: test@yezineko.top`,
-      `${nowStr} 127.0.0.1:4${Math.floor(1000 + Math.random() * 9000)} accepted tcp:api.openai.com:443 [vless-reality -> us-test] email: master@yezineko.top`,
-      `${nowStr} [Info] app/proxyman/inbound: inbound connection from 127.0.0.1:52132 accepted`,
+      `${nowStr} 127.0.0.1:4${Math.floor(1000 + Math.random() * 9000)} accepted tcp:www.youtube.com:443 [vless-reality -> direct] email: master@yezineko.top`,
+      `${nowStr} 127.0.0.1:4${Math.floor(1000 + Math.random() * 9000)} accepted tcp:api.openai.com:443 [vless-reality -> warp-out] email: master@yezineko.top`,
+      `${nowStr} 127.0.0.1:4${Math.floor(1000 + Math.random() * 9000)} accepted tcp:hk-node.example.com:443 [vless-reality -> hk-landing] email: master@yezineko.top`,
+      `${nowStr} [Info] app/proxyman/inbound: inbound connection accepted on port 4434`,
     ]
     return delay({
       lines: [...randomLogs, ...state.logs],

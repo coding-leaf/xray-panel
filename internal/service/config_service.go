@@ -36,14 +36,19 @@ func NewConfigService(
 	inboundRepo domain.InboundRepository,
 	userRepo domain.UserRepository,
 	snapshotRepo domain.ConfigSnapshotRepository,
+	compiler ...*xray.XrayCompiler,
 ) *ConfigService {
+	c := xray.NewXrayCompiler()
+	if len(compiler) > 0 && compiler[0] != nil {
+		c = compiler[0]
+	}
 	return &ConfigService{
 		configMgr:    configMgr,
 		supervisor:   supervisor,
 		inboundRepo:  inboundRepo,
 		userRepo:     userRepo,
 		snapshotRepo: snapshotRepo,
-		compiler:     xray.NewXrayCompiler(),
+		compiler:     c,
 	}
 }
 

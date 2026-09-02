@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
@@ -77,7 +78,19 @@ func main() {
 	botHandler := telegram.NewBotHandler(botAdapter, userRepo, inboundRepo, hostMonitor, xrayManager, cfg.PublicURL)
 
 	// 4. 初始化业务用例深模块 Services
-	configSvc := service.NewConfigService(configMgr, supervisor, inboundRepo, userRepo, snapshotRepo)
+	grpcPort := 8080
+	if cfg.XrayGRPCAddr != "" {
+		if _, portStr, err := net.SplitHostPort(cfg.XrayGRPCAddr); err == nil {
+			if p, err := strconv.Atoi(portStr); err == nil && p > 0 {
+				grpcPort = p
+			}
+		} else if p, err := strconv.Atoi(cfg.XrayGRPCAddr); err == nil && p > 0 {
+			grpcPort = p
+		}
+	}
+	compiler := xray.NewXrayCompiler(grpcPort)
+
+	configSvc := service.NewConfigService(configMgr, supervisor, inboundRepo, userRepo, snapshotRepo, compiler)
 	_ = configSvc.SyncFromFile(bgCtx)
 	_ = configSvc.RecompileAndApply(bgCtx, "面板启动自动同步与编译配置")
 

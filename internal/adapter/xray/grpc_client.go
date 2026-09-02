@@ -196,6 +196,10 @@ func (c *GRPCClient) QueryTrafficStats(ctx context.Context, reset bool) ([]domai
 }
 
 func buildAccountMessage(inbound *domain.Inbound, u *domain.User) (*serial.TypedMessage, error) {
+	return BuildAccountMessage(inbound, u)
+}
+
+func BuildAccountMessage(inbound *domain.Inbound, u *domain.User) (*serial.TypedMessage, error) {
 	protocolName := inbound.Protocol
 	switch strings.ToLower(protocolName) {
 	case "vless":
@@ -224,9 +228,35 @@ func buildAccountMessage(inbound *domain.Inbound, u *domain.User) (*serial.Typed
 			Password: u.UUID,
 		}), nil
 	case "shadowsocks":
+		cipherType := shadowsocks.CipherType_AES_128_GCM
+		if inbound.SettingsJSON != "" {
+			var settings map[string]interface{}
+			if err := json.Unmarshal([]byte(inbound.SettingsJSON), &settings); err == nil {
+				var method string
+				if m, ok := settings["method"].(string); ok && m != "" {
+					method = m
+				} else if c, ok := settings["cipher"].(string); ok && c != "" {
+					method = c
+				}
+				switch strings.ToLower(strings.TrimSpace(method)) {
+				case "aes-256-gcm":
+					cipherType = shadowsocks.CipherType_AES_256_GCM
+				case "chacha20-poly1305", "chacha20-ietf-poly1305":
+					cipherType = shadowsocks.CipherType_CHACHA20_POLY1305
+				case "xchacha20-poly1305", "xchacha20-ietf-poly1305":
+					cipherType = shadowsocks.CipherType_XCHACHA20_POLY1305
+				case "none":
+					cipherType = shadowsocks.CipherType_NONE
+				case "aes-128-gcm":
+					cipherType = shadowsocks.CipherType_AES_128_GCM
+				default:
+					cipherType = shadowsocks.CipherType_AES_128_GCM
+				}
+			}
+		}
 		return serial.ToTypedMessage(&shadowsocks.Account{
 			Password:   u.UUID,
-			CipherType: shadowsocks.CipherType_AES_128_GCM,
+			CipherType: cipherType,
 		}), nil
 	default:
 		return nil, fmt.Errorf("%w: unsupported protocol %s", domain.ErrInvalidInput, protocolName)

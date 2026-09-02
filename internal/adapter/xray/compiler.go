@@ -9,10 +9,18 @@ import (
 )
 
 // XrayCompiler 强类型 Xray 配置单向编译器
-type XrayCompiler struct{}
+type XrayCompiler struct {
+	grpcPort int
+}
 
-func NewXrayCompiler() *XrayCompiler {
-	return &XrayCompiler{}
+func NewXrayCompiler(grpcPort ...int) *XrayCompiler {
+	port := 8080
+	if len(grpcPort) > 0 && grpcPort[0] > 0 {
+		port = grpcPort[0]
+	}
+	return &XrayCompiler{
+		grpcPort: port,
+	}
 }
 
 // Compile 将系统业务数据编译为合法的 Xray 官方根配置对象
@@ -81,14 +89,18 @@ func (c *XrayCompiler) Compile(
 		cfg.Inbounds = append(cfg.Inbounds, *compiledInbound)
 	}
 
-	// 注入默认 API Inbound (用于 gRPC 本地通信，默认 8080 端口)
+	// 注入默认 API Inbound (用于 gRPC 本地通信，动态端口或默认 8080)
 	apiInboundSettings, _ := json.Marshal(map[string]interface{}{
 		"address": "127.0.0.1",
 	})
+	apiPort := 8080
+	if c != nil && c.grpcPort > 0 {
+		apiPort = c.grpcPort
+	}
 	cfg.Inbounds = append(cfg.Inbounds, XrayInbound{
 		Tag:      "api",
 		Listen:   "127.0.0.1",
-		Port:     8080,
+		Port:     apiPort,
 		Protocol: "dokodemo-door",
 		Settings: apiInboundSettings,
 	})
@@ -270,9 +282,13 @@ func (c *XrayCompiler) compileInbound(inb *domain.Inbound, users []domain.User) 
 			r.ShortIds = []string{r.ShortId}
 		}
 		r.ShortId = ""     // 服务端严禁包含单数 shortId
+		if r.Dest == "" && r.Target != "" {
+			r.Dest = r.Target
+		}
 		if r.Dest == "" {
 			r.Dest = "www.titech.ac.jp:443"
 		}
+		r.Target = "" // 服务端严禁包含 target 兼容字段
 		if len(r.ServerNames) == 0 {
 			r.ServerNames = []string{"www.titech.ac.jp"}
 		}
@@ -347,6 +363,7 @@ func (c *XrayCompiler) compileOutbound(ob *domain.Outbound) (*XrayOutbound, erro
 		r.ServerNames = nil // 客户端严禁包含复数 serverNames
 		r.PrivateKey = ""   // 客户端严禁包含 privateKey
 		r.Dest = ""         // 客户端严禁包含 dest
+		r.Target = ""       // 客户端严禁包含 target
 		if r.ShortId == "" && len(r.ShortIds) > 0 {
 			r.ShortId = r.ShortIds[0]
 		}

@@ -9,6 +9,7 @@ import (
 	"panel/internal/domain"
 
 	"github.com/xtls/xray-core/infra/conf/serial"
+	"github.com/xtls/xray-core/proxy/shadowsocks"
 )
 
 func TestXrayCompiler_Compile(t *testing.T) {
@@ -231,3 +232,118 @@ func TestXrayRealityValidation(t *testing.T) {
 		t.Fatal("Expected non-nil coreConfig")
 	}
 }
+
+func TestCompiler_RealityDestAndDynamicGRPCPort(t *testing.T) {
+	c := xray.NewXrayCompiler(9090)
+
+	inbounds := []domain.Inbound{
+		{
+			Tag:      "vless-reality",
+			Listen:   "0.0.0.0",
+			Port:     443,
+			Protocol: "vless",
+			StreamSettings: `{
+				"network": "tcp",
+				"security": "reality",
+				"realitySettings": {
+					"target": "gateway.icloud.com:443",
+					"serverNames": ["gateway.icloud.com"],
+					"privateKey": "testkey"
+				}
+			}`,
+			Enabled: true,
+		},
+	}
+
+	cfg, err := c.Compile(inbounds, nil, nil, nil, nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// 1. Verify dynamic gRPC port
+	var apiInbound *xray.XrayInbound
+	for _, in := range cfg.Inbounds {
+		if in.Tag == "api" {
+			apiInbound = &in
+			break
+		}
+	}
+	if apiInbound == nil || apiInbound.Port != 9090 {
+		t.Fatalf("expected api inbound port 9090, got %v", apiInbound)
+	}
+
+	// 2. Verify reality dest normalization from target
+	var realityInbound *xray.XrayInbound
+	for _, in := range cfg.Inbounds {
+		if in.Tag == "vless-reality" {
+			realityInbound = &in
+			break
+		}
+	}
+	if realityInbound == nil || realityInbound.StreamSettings == nil || realityInbound.StreamSettings.RealitySettings == nil {
+		t.Fatalf("expected reality settings, got nil")
+	}
+	if realityInbound.StreamSettings.RealitySettings.Dest != "gateway.icloud.com:443" {
+		t.Errorf("expected dest gateway.icloud.com:443, got %q", realityInbound.StreamSettings.RealitySettings.Dest)
+	}
+}
+
+func TestBuildAccountMessage_ShadowsocksCipher(t *testing.T) {
+	user := &domain.User{UUID: "pass123"}
+
+	tests := []struct {
+		name         string
+		settingsJSON string
+		wantCipher   shadowsocks.CipherType
+	}{
+		{
+			name:         "default aes-128-gcm",
+			settingsJSON: `{}`,
+			wantCipher:   shadowsocks.CipherType_AES_128_GCM,
+		},
+		{
+			name:         "method aes-256-gcm",
+			settingsJSON: `{"method":"aes-256-gcm"}`,
+			wantCipher:   shadowsocks.CipherType_AES_256_GCM,
+		},
+		{
+			name:         "cipher chacha20-poly1305",
+			settingsJSON: `{"cipher":"chacha20-poly1305"}`,
+			wantCipher:   shadowsocks.CipherType_CHACHA20_POLY1305,
+		},
+		{
+			name:         "case insensitive and trimmed",
+			settingsJSON: `{"method":" ChaCha20-Poly1305 "}`,
+			wantCipher:   shadowsocks.CipherType_CHACHA20_POLY1305,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			inbound := &domain.Inbound{
+				Protocol:     "shadowsocks",
+				SettingsJSON: tt.settingsJSON,
+			}
+			msg, err := xray.BuildAccountMessage(inbound, user)
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			raw, err := msg.GetInstance()
+			if err != nil {
+				t.Fatalf("failed to get instance: %v", err)
+			}
+			acc, ok := raw.(*shadowsocks.Account)
+			if !ok {
+				t.Fatalf("expected *shadowsocks.Account, got %T", raw)
+			}
+			if acc.CipherType != tt.wantCipher {
+				t.Errorf("expected cipher %v, got %v", tt.wantCipher, acc.CipherType)
+			}
+			if acc.Password != "pass123" {
+				t.Errorf("expected password pass123, got %s", acc.Password)
+			}
+		})
+	}
+}
+
+

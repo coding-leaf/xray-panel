@@ -1,7 +1,7 @@
 # 🚀 Xray Decoupled Panel (解耦运维监控与分流管理面板)
 
 <p align="center">
-  <img src="https://img.shields.io/badge/Version-v1.4.2-indigo?style=flat-square" alt="Version">
+  <img src="https://img.shields.io/badge/Version-v1.5.0-indigo?style=flat-square" alt="Version">
   <img src="https://img.shields.io/badge/Go-1.22+-00ADD8?style=flat-square&logo=go" alt="Go Version">
   <img src="https://img.shields.io/badge/Vue-3.4+-4FC08D?style=flat-square&logo=vue.js" alt="Vue Version">
   <img src="https://img.shields.io/badge/Architecture-Clean%20Architecture-blue?style=flat-square" alt="Clean Architecture">
@@ -27,9 +27,19 @@
 
 ## ⚡ 核心亮点 (Core Highlights)
 
+- 🔥 **真正零断网热重载 (True Zero-Downtime Hot Reloading)**：
+  - 用户增删改查、配额调整、批量续期 100% 走 Xray 原生 gRPC API 动态热同步，并配合 `SaveConfigQuietly` 静默持久化回写磁盘，**完全不重启 Xray 守护进程，现存长连接零中断**。
+  - 仅在入站、出站、全局路由分流规则或 DNS 等底层架构发生变更时，才执行平滑内核重载。
+- 🔄 **全闭环生命周期与秒级自恢复 (Full Lifecycle Closed-Loop)**：
+  - 静态编译与 5 秒定时同步严格统一以 `u.IsActive()` 为准，彻底杜绝停用、过期或超额的“幽灵用户”死灰复燃。
+  - 用户流量重置、月度重置或续期后，系统自动通过 gRPC 重新激活入网，恢复即刻生效。
+- 🛡️ **DTO 隔离与并发流量计数防回退 (Traffic Counter Race Protection)**：
+  - 引入专用的 `UpdateUserDTO` 隔离用户可修改字段，在 GORM 数据持久化层显式忽略 `up_bytes` 与 `down_bytes` 字段更新，杜绝并发请求冲掉正在累加的实时流量。
 - 🌐 **单入站多通道解耦分流 (Decoupled Relaying)**：
   - 首创 **VLESS Route ID 动态 UUID 映射** 机制，单端口（如 443 Reality）可挂载数十条不同国家/WARP 的独立落地出口。
   - **1 步极速发布**：支持直接从落地出口一键绑定发布至主入口网关，秒级生成独立订阅节点。
+- 🎯 **协议与配置规范完全对齐**：
+  - REALITY 配置全面规范化为 `dest` 并向下兼容旧版 `target`；编译器动态支持 `-xray-grpc` 端口；Shadowsocks 动态自适应 AES-128-GCM / AES-256-GCM / ChaCha20-Poly1305。
 - 🎭 **纯前端 Mock 演示沙盒 (GitHub Pages)**：
   - 内置基于 LocalStorage 的纯前端数据仿真引擎，无需后端服务器即可完整体验节点增删、通道编排与扫码订阅。
 - 🧩 **极致解耦与单二进制交付**：

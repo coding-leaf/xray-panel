@@ -6,6 +6,7 @@ import "context"
 type UserRepository interface {
 	Create(ctx context.Context, user *User) error
 	Update(ctx context.Context, user *User) error
+	UpdateFields(ctx context.Context, id uint, values map[string]interface{}) error
 	Delete(ctx context.Context, id uint) error
 	GetByID(ctx context.Context, id uint) (*User, error)
 	GetByUUID(ctx context.Context, uuid string) (*User, error)

@@ -49,17 +49,21 @@ func (h *UserHandler) Create(c *gin.Context) {
 }
 
 func (h *UserHandler) Update(c *gin.Context) {
-	var user domain.User
-	if err := c.ShouldBindJSON(&user); err != nil {
+	var dto domain.UpdateUserDTO
+	if err := c.ShouldBindJSON(&dto); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
 
 	idStr := c.Param("id")
-	id, _ := strconv.Atoi(idStr)
-	user.ID = uint(id)
+	id, err := strconv.Atoi(idStr)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid user id"})
+		return
+	}
 
-	if err := h.userSvc.UpdateUser(c.Request.Context(), &user); err != nil {
+	user, err := h.userSvc.UpdateUser(c.Request.Context(), uint(id), dto)
+	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}

@@ -108,14 +108,38 @@ func (s *UserService) CreateUser(ctx context.Context, dto CreateUserDTO) (*domai
 	return user, nil
 }
 
-func (s *UserService) UpdateUser(ctx context.Context, user *domain.User) error {
-	oldUser, err := s.userRepo.GetByID(ctx, user.ID)
+func (s *UserService) UpdateUser(ctx context.Context, id uint, dto domain.UpdateUserDTO) (*domain.User, error) {
+	oldUser, err := s.userRepo.GetByID(ctx, id)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	oldTags := oldUser.GetInboundTagList()
-	newTags := user.GetInboundTagList()
+
+	// 仅合并允许修改的业务字段，严格保留 UpBytes、DownBytes、UUID、SubToken、CreatedAt
+	tags := dto.InboundTags
+	if len(tags) == 0 && dto.InboundTag != "" {
+		tags = []string{dto.InboundTag}
+	}
+	if len(tags) > 0 {
+		oldUser.InboundTags = strings.Join(tags, ",")
+		if dto.InboundTag != "" {
+			oldUser.InboundTag = dto.InboundTag
+		} else {
+			oldUser.InboundTag = tags[0]
+		}
+	}
+	oldUser.Flow = dto.Flow
+	oldUser.TotalBytes = dto.TotalBytes
+	oldUser.ExpireTime = dto.ExpireTime
+	oldUser.ResetDay = dto.ResetDay
+	oldUser.IPLimit = dto.IPLimit
+	if dto.Enabled != nil {
+		oldUser.Enabled = *dto.Enabled
+	}
+	oldUser.UpdatedAt = time.Now()
+
+	newTags := oldUser.GetInboundTagList()
 
 	// 找出需要移除的节点
 	newTagSet := make(map[string]bool)
@@ -124,27 +148,38 @@ func (s *UserService) UpdateUser(ctx context.Context, user *domain.User) error {
 	}
 	for _, oldT := range oldTags {
 		if !newTagSet[oldT] {
-			_ = s.xrayManager.RemoveUser(ctx, oldT, oldUser.Email)
+			if s.xrayManager != nil {
+				_ = s.xrayManager.RemoveUser(ctx, oldT, oldUser.Email)
+			}
 		}
 	}
 
 	// 注入/刷新新节点
-	if user.IsActive() {
+	if oldUser.IsActive() {
 		for _, newT := range newTags {
-			_ = s.xrayManager.AddUser(ctx, newT, user)
+			if s.xrayManager != nil {
+				_ = s.xrayManager.AddUser(ctx, newT, oldUser)
+			}
 		}
 	} else {
 		for _, newT := range newTags {
-			_ = s.xrayManager.RemoveUser(ctx, newT, user.Email)
+			if s.xrayManager != nil {
+				_ = s.xrayManager.RemoveUser(ctx, newT, oldUser.Email)
+			}
 		}
 	}
 
 	if s.configSvc != nil {
-		_ = s.configSvc.SyncUserToFile(ctx, newTags, user, false)
+		_ = s.configSvc.SyncUserToFile(ctx, newTags, oldUser, false)
 	}
 
-	return s.userRepo.Update(ctx, user)
+	if err := s.userRepo.Update(ctx, oldUser); err != nil {
+		return nil, err
+	}
+
+	return oldUser, nil
 }
+
 
 func (s *UserService) DeleteUser(ctx context.Context, id uint) error {
 	user, err := s.userRepo.GetByID(ctx, id)
@@ -214,12 +249,23 @@ func (s *UserService) BatchRenew(ctx context.Context, ids []uint, addDays int) e
 			continue
 		}
 		now := time.Now().UnixMilli()
+		var newExpireTime int64
 		if u.ExpireTime <= 0 || u.ExpireTime < now {
-			u.ExpireTime = time.Now().AddDate(0, 0, addDays).UnixMilli()
+			newExpireTime = time.Now().AddDate(0, 0, addDays).UnixMilli()
 		} else {
-			u.ExpireTime = time.UnixMilli(u.ExpireTime).AddDate(0, 0, addDays).UnixMilli()
+			newExpireTime = time.UnixMilli(u.ExpireTime).AddDate(0, 0, addDays).UnixMilli()
 		}
-		_ = s.UpdateUser(ctx, u)
+		dto := domain.UpdateUserDTO{
+			InboundTags: u.GetInboundTagList(),
+			InboundTag:  u.InboundTag,
+			Flow:        u.Flow,
+			TotalBytes:  u.TotalBytes,
+			ExpireTime:  newExpireTime,
+			ResetDay:    u.ResetDay,
+			IPLimit:     u.IPLimit,
+			Enabled:     &u.Enabled,
+		}
+		_, _ = s.UpdateUser(ctx, id, dto)
 	}
 	return nil
 }
@@ -237,8 +283,17 @@ func (s *UserService) BatchSetStatus(ctx context.Context, ids []uint, enabled bo
 		if err != nil {
 			continue
 		}
-		u.Enabled = enabled
-		_ = s.UpdateUser(ctx, u)
+		dto := domain.UpdateUserDTO{
+			InboundTags: u.GetInboundTagList(),
+			InboundTag:  u.InboundTag,
+			Flow:        u.Flow,
+			TotalBytes:  u.TotalBytes,
+			ExpireTime:  u.ExpireTime,
+			ResetDay:    u.ResetDay,
+			IPLimit:     u.IPLimit,
+			Enabled:     &enabled,
+		}
+		_, _ = s.UpdateUser(ctx, id, dto)
 	}
 	return nil
 }

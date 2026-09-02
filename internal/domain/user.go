@@ -1,6 +1,7 @@
 package domain
 
 import (
+	"encoding/json"
 	"strings"
 	"time"
 )
@@ -101,3 +102,55 @@ type UserShareResponse struct {
 	AllSubURL  string          `json:"allSubUrl"`
 	Nodes      []NodeShareInfo `json:"nodes"`
 }
+
+type UpdateUserDTO struct {
+	InboundTags []string `json:"inboundTags"`
+	InboundTag  string   `json:"inboundTag"`
+	Flow        string   `json:"flow"`
+	TotalBytes  int64    `json:"totalBytes"`
+	ExpireTime  int64    `json:"expireTime"`
+	ResetDay    int      `json:"resetDay"`
+	IPLimit     int      `json:"ipLimit"`
+	Enabled     *bool    `json:"enabled"`
+}
+
+func (u *UpdateUserDTO) UnmarshalJSON(data []byte) error {
+	type Alias UpdateUserDTO
+	aux := &struct {
+		RawInboundTags interface{} `json:"inboundTags"`
+		*Alias
+	}{
+		Alias: (*Alias)(u),
+	}
+	if err := json.Unmarshal(data, aux); err != nil {
+		return err
+	}
+	if aux.RawInboundTags != nil {
+		switch v := aux.RawInboundTags.(type) {
+		case string:
+			if v != "" {
+				parts := strings.Split(v, ",")
+				var tags []string
+				for _, p := range parts {
+					trimmed := strings.TrimSpace(p)
+					if trimmed != "" {
+						tags = append(tags, trimmed)
+					}
+				}
+				u.InboundTags = tags
+			} else {
+				u.InboundTags = nil
+			}
+		case []interface{}:
+			var tags []string
+			for _, item := range v {
+				if s, ok := item.(string); ok && strings.TrimSpace(s) != "" {
+					tags = append(tags, strings.TrimSpace(s))
+				}
+			}
+			u.InboundTags = tags
+		}
+	}
+	return nil
+}
+

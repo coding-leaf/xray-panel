@@ -13,6 +13,7 @@ type mockSubUserRepo struct {
 
 func (m *mockSubUserRepo) Create(ctx context.Context, user *domain.User) error { return nil }
 func (m *mockSubUserRepo) Update(ctx context.Context, user *domain.User) error { return nil }
+func (m *mockSubUserRepo) UpdateFields(ctx context.Context, id uint, values map[string]interface{}) error { return nil }
 func (m *mockSubUserRepo) Delete(ctx context.Context, id uint) error            { return nil }
 func (m *mockSubUserRepo) GetByID(ctx context.Context, id uint) (*domain.User, error) {
 	return m.user, nil

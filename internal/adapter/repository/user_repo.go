@@ -65,10 +65,23 @@ func (r *GORMUserRepository) GetBySubToken(ctx context.Context, token string) (*
 	return &user, err
 }
 
+func (r *GORMUserRepository) UpdateFields(ctx context.Context, id uint, values map[string]interface{}) error {
+	return r.db.WithContext(ctx).Model(&domain.User{}).Where("id = ?", id).Updates(values).Error
+}
+
 func (r *GORMUserRepository) ListByInboundTag(ctx context.Context, tag string) ([]domain.User, error) {
-	var users []domain.User
-	err := r.db.WithContext(ctx).Where("inbound_tag = ? OR inbound_tags LIKE ?", tag, "%"+tag+"%").Find(&users).Error
-	return users, err
+	var candidates []domain.User
+	err := r.db.WithContext(ctx).Where("inbound_tag = ? OR inbound_tags LIKE ?", tag, "%"+tag+"%").Find(&candidates).Error
+	if err != nil {
+		return nil, err
+	}
+	matched := make([]domain.User, 0, len(candidates))
+	for _, u := range candidates {
+		if u.HasInbound(tag) {
+			matched = append(matched, u)
+		}
+	}
+	return matched, nil
 }
 
 func (r *GORMUserRepository) ListAll(ctx context.Context) ([]domain.User, error) {

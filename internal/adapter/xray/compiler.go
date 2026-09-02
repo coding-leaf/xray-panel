@@ -241,7 +241,7 @@ func (c *XrayCompiler) compileInbound(inb *domain.Inbound, users []domain.User) 
 	// 收集并投影授权到该 Inbound 的用户 Clients
 	var clients []XrayClient
 	for _, u := range users {
-		if !u.Enabled {
+		if !u.IsActive() {
 			continue
 		}
 		if !u.HasInbound(inb.Tag) {

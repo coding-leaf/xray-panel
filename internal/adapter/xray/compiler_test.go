@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"testing"
+	"time"
 
 	"panel/internal/adapter/xray"
 	"panel/internal/domain"
@@ -345,5 +346,123 @@ func TestBuildAccountMessage_ShadowsocksCipher(t *testing.T) {
 		})
 	}
 }
+
+func TestCompiler_FilterInactiveUsers(t *testing.T) {
+	compiler := xray.NewXrayCompiler()
+
+	inbounds := []domain.Inbound{
+		{
+			ID:       1,
+			Tag:      "vless-in",
+			Port:     4433,
+			Listen:   "0.0.0.0",
+			Protocol: "vless",
+			Enabled:  true,
+		},
+	}
+	outbounds := []domain.Outbound{
+		{
+			Tag:      "direct",
+			Protocol: "freedom",
+		},
+	}
+
+	now := time.Now()
+	activeUser := domain.User{
+		Email:       "active@test.com",
+		UUID:        "11111111-1111-1111-1111-111111111111",
+		InboundTags: "vless-in",
+		Enabled:     true,
+		TotalBytes:  1000,
+		UpBytes:     100,
+		DownBytes:   200,
+		ExpireTime:  now.Add(24 * time.Hour).UnixMilli(),
+	}
+	disabledUser := domain.User{
+		Email:       "disabled@test.com",
+		UUID:        "22222222-2222-2222-2222-222222222222",
+		InboundTags: "vless-in",
+		Enabled:     false,
+		TotalBytes:  1000,
+		UpBytes:     0,
+		DownBytes:   0,
+		ExpireTime:  now.Add(24 * time.Hour).UnixMilli(),
+	}
+	expiredUser := domain.User{
+		Email:       "expired@test.com",
+		UUID:        "33333333-3333-3333-3333-333333333333",
+		InboundTags: "vless-in",
+		Enabled:     true,
+		TotalBytes:  1000,
+		UpBytes:     100,
+		DownBytes:   100,
+		ExpireTime:  now.Add(-1 * time.Hour).UnixMilli(),
+	}
+	overQuotaUser := domain.User{
+		Email:       "overquota@test.com",
+		UUID:        "44444444-4444-4444-4444-444444444444",
+		InboundTags: "vless-in",
+		Enabled:     true,
+		TotalBytes:  1000,
+		UpBytes:     600,
+		DownBytes:   500,
+		ExpireTime:  now.Add(24 * time.Hour).UnixMilli(),
+	}
+
+	users := []domain.User{activeUser, disabledUser, expiredUser, overQuotaUser}
+
+	cfg, err := compiler.Compile(inbounds, outbounds, nil, nil, users)
+	if err != nil {
+		t.Fatalf("Compile failed: %v", err)
+	}
+
+	var targetInb *xray.XrayInbound
+	for i := range cfg.Inbounds {
+		if cfg.Inbounds[i].Tag == "vless-in" {
+			targetInb = &cfg.Inbounds[i]
+			break
+		}
+	}
+	if targetInb == nil {
+		t.Fatal("vless-in inbound not found in compiled config")
+	}
+
+	var settings map[string]interface{}
+	if err := json.Unmarshal(targetInb.Settings, &settings); err != nil {
+		t.Fatalf("Failed to unmarshal settings: %v", err)
+	}
+
+	rawClients, ok := settings["clients"].([]interface{})
+	if !ok {
+		t.Fatalf("Expected clients in settings, got %v", settings["clients"])
+	}
+
+	clientEmails := make(map[string]bool)
+	for _, rawClient := range rawClients {
+		cMap, ok := rawClient.(map[string]interface{})
+		if ok {
+			if email, ok := cMap["email"].(string); ok {
+				clientEmails[email] = true
+			}
+		}
+	}
+
+	if !clientEmails["active@test.com"] {
+		t.Errorf("Expected active user active@test.com to be included in clients")
+	}
+	if clientEmails["disabled@test.com"] {
+		t.Errorf("Expected disabled user disabled@test.com to be excluded from clients")
+	}
+	if clientEmails["expired@test.com"] {
+		t.Errorf("Expected expired user expired@test.com to be excluded from clients")
+	}
+	if clientEmails["overquota@test.com"] {
+		t.Errorf("Expected over-quota user overquota@test.com to be excluded from clients")
+	}
+	if len(rawClients) != 1 {
+		t.Errorf("Expected exactly 1 client, got %d", len(rawClients))
+	}
+}
+
 
 

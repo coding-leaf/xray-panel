@@ -116,8 +116,8 @@ func (j *TrafficSyncJob) syncOnce(ctx context.Context) {
 					_ = j.trafficLogRepo.RecordTraffic(ctx, user.ID, s.Tag, up, down, today)
 				}
 
-				// 检查是否超出限额，超出则立即从 Xray 所有节点剔除
-				if user.IsTrafficExceeded() {
+				// 检查用户是否处于非活跃状态（禁用、过期或超额），非活跃则立即从 Xray 所有节点剔除
+				if !user.IsActive() {
 					for _, t := range user.GetInboundTagList() {
 						_ = j.xrayManager.RemoveUser(ctx, t, user.Email)
 					}

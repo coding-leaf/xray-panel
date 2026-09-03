@@ -153,9 +153,13 @@ if u.Enabled && u.TotalBytes > 0 && (u.UpBytes + u.DownBytes) >= u.TotalBytes {
 
 ## 4. SSE 协议与接口设计
 
-### 4.1 接口定义
+### 4.1 接口与鉴权安全加固 (Security Hardening)
 - **URL**: `GET /api/stream/traffic`
-- **鉴权**: 优先从 Header `Authorization: Bearer <token>` 提取，若不存在则从 Query 参数 `?token=<token>` 提取。
+- **安全防泄漏鉴权机制**：
+  - **风险消除**：在生产反代环境（如 Nginx、Caddy、Cloudflare）中，若将长期 JWT 直接置于 URL Query (`?token=...`)，会被访问日志（Access Logs）与浏览器历史以明文持久化记录，产生凭证泄漏风险。
+  - **实现方案**：
+    1. **方案 A (前端优先推荐)**：前端采用基于原生 `fetch` 与 `ReadableStream` 的流式客户端，直接通过标准 HTTP 请求头携带 `Authorization: Bearer <jwt>`，既符合 REST/JWT 安全规范，又避免任何 URL 日志明文泄露。
+    2. **方案 B (标准 EventSource 兼容)**：若使用浏览器原生 `EventSource`，客户端在连接前调用 `POST /api/auth/stream-ticket` 换取有效期仅 30 秒的单次临时票据（Single-use Ephemeral Ticket），后端通过 `?ticket=...` 验证后立即作废。
 - **HTTP 响应头**:
   ```http
   Content-Type: text/event-stream
@@ -164,7 +168,10 @@ if u.Enabled && u.TotalBytes > 0 && (u.UpBytes + u.DownBytes) >= u.TotalBytes {
   X-Accel-Buffering: no
   Access-Control-Allow-Origin: *
   ```
-- **保活机制**：定时器每 15 秒发送一次 `:keepalive\n\n` 空注释行，防止网关连接断开。
+- **慢客户端背压与僵尸连接防护 (Backpressure & Zombie Connection Shield)**：
+  - 每个连接的广播缓冲通道大小设为 16 帧。广播时使用 `select { case ch <- msg: default: }`，对网络滞后的慢客户端直接丢弃中间帧，绝不阻塞后端采样主协程。
+  - 监听 `c.Request.Context().Done()`，在客户端断开或心跳写入错误时立即退出循环并从 `TrafficHub` 注销通道，防止半开 TCP 导致 Goroutine 泄漏。
+  - **保活机制**：定时器每 15 秒向长连接输出一次 `:keepalive\n\n` 空注释行，防止网关连接断开。
 
 ### 4.2 SSE 数据帧格式 (Event: `traffic`)
 ```json
@@ -202,16 +209,46 @@ if u.Enabled && u.TotalBytes > 0 && (u.UpBytes + u.DownBytes) >= u.TotalBytes {
 
 ---
 
-## 5. 前端架构与交互优化
+## 5. 并发控制与异常韧性 (Concurrency & Resiliency)
 
-### 5.1 通信层服务 `trafficStream.ts`
-- **单例模式**：维护唯一的 `EventSource` 连接，供 `UsersView` 和 `DashboardView` 订阅。
+### 5.1 细粒度并发锁模型（无锁 I/O 原则）
+`TrafficHub` 必须严格遵循“持有锁期间严禁执行任何网络/磁盘 I/O”的原则：
+- 使用 `sync.RWMutex` 隔离保护内部状态。
+- **1 秒高频采样流程**：
+  1. 调用 gRPC `QueryTrafficStats`（在锁外执行）。
+  2. 获取写锁 `mu.Lock()`：
+     - 原子累加增量并更新 EMA 速率；
+     - 识别达到超额配额的待封禁用户列表；
+     - 克隆一份轻量级快照用于 SSE 序列化；
+     - 释放写锁 `mu.Unlock()`（锁持有时间 $< 50\mu s$）。
+  3. 对超额用户，在锁外逐个调用 gRPC `RemoveUser` 实施断网阻断。
+  4. 将序列化后的 JSON 数据异步推送到各活跃客户端通道（在锁外执行）。
+
+### 5.2 全生命周期状态联动 (Lifecycle Event Hooks)
+为防止内存态与 SQLite 出现脏数据漂移，以下业务动作必须触发生命周期同步：
+1. **用户更新与改名 (`UpdateUser`)**：若管理员修改了用户邮箱或归属 Inbound Tag，必须先将旧邮箱的脏增量刷盘，注销旧 Key，再注册新 Key。
+2. **用户删除 (`DeleteUser`)**：先持久化未落盘增量，随后从 `TrafficHub` 内存映射中彻底抹除。
+3. **管理员手动重置 (`ResetTraffic`)**：同时重置数据库与 `TrafficHub` 中的计数（`UpBytes=0, DownBytes=0, DirtyUp=0, DirtyDown=0`）。
+4. **每月自动重置 (`CheckAndResetMonthlyTraffic`)**：当到达每月配额重置日触发清零时，同步重置内存态。
+5. **零点跨日精准划归 (Midnight Rollover)**：当系统检测到自然日跨越（23:59:59 -> 00:00:00）时，触发一次即时刷盘，确保昨天的 `traffic_logs` 完整封账，今日流量从零洁净统计。
+
+### 5.3 核心故障隔离 (Fault Isolation)
+- 若 Xray 核心进程被管理员手动重启、崩溃或由于配置变动短暂停机，gRPC `QueryTrafficStats` 返回连接不可用错误：
+  - 采样器进入防御静默态，将瞬时速率逐渐衰减至 0，**严禁重置或清空已累积的用户累计流量与 Dirty 增量**。
+  - gRPC 客户端内建带退避的平滑重连，Xray 恢复就绪后自动衔接，保障流量统计不跳变、不丢失。
+
+---
+
+## 6. 前端架构与交互优化
+
+### 6.1 通信层服务 `trafficStream.ts`
+- **单例模式**：维护唯一的流式连接（基于 `fetch` + `ReadableStream` 流式读取），供 `UsersView` 和 `DashboardView` 订阅。
 - **页面可见性自适应**：
   - 监听 `document.visibilitychange`：切到后台标签页时暂停高频计算，切回前台时触发一次快速数据对齐并恢复推流，节省客户端 CPU。
 - **智能降级策略**：
-  - 若 `EventSource` 发生错误且连续重连 3 次失败（针对 Nginx 误配流控或特殊代理环境），自动切换为每 2 秒轮询一次 `/api/users/speeds`，界面右上角静默处理，确保系统 100% 可用。
+  - 若流式连接发生错误且连续重试 3 次失败（针对特殊网络代理环境），自动无缝降级切换为每 2 秒轮询一次 `/api/users/speeds`，界面右上角静默保底，确保系统 100% 可用。
 
-### 5.2 用户列表页 (`UsersView.vue`) 响应式就地 Patch
+### 6.2 用户列表页 (`UsersView.vue`) 响应式就地 Patch
 - 原有逻辑：仅修改 `user.upSpeed` / `user.downSpeed`。
 - 优化后逻辑：
   ```ts
@@ -236,28 +273,29 @@ if u.Enabled && u.TotalBytes > 0 && (u.UpBytes + u.DownBytes) >= u.TotalBytes {
   ```
 - **视觉动画平滑**：为用量进度条增加 `transition: width 0.8s cubic-bezier(0.4, 0, 0.2, 1)`，使进度条随实时流量产生流式滑动动画，彻底摆脱生硬的跳变。
 
-### 5.3 仪表盘 (`DashboardView.vue`) 监控精准化
+### 6.3 仪表盘 (`DashboardView.vue`) 监控精准化
 - **真实业务吞吐**：将原本来自系统底层网卡 `gopsutil`（混杂操作系统其他网络开销）的速率卡片，替换为 Xray 真实的 `global.upSpeed` 与 `global.downSpeed`。
 - **入站节点实时速率**：入站节点表格中新增“实时网速”列，直观呈现各个协议节点（VLESS、Trojan、Shadowsocks 等）的分流承载负载。
 
 ---
 
-## 6. 自审检查清单 (Self-Review Checklist)
+## 7. 深度自审检查清单 (Self-Review Checklist)
 
 1. **占位符检查 (Placeholder Scan)**：全文无任何 TODO、TBD 或含糊其辞的描述，数据结构、算法参数、SQL 语句均已精确定义。
 2. **一致性检查 (Internal Consistency)**：
    - 内存流转轨的累加量与异步批量持久化轨的数据扣减机制保持严格守恒。
-   - `ResetTraffic` 接口同时操作 SQLite 与 `TrafficHub`，消除了缓存不一致性。
+   - `ResetTraffic` 与月度自动重置同时操作 SQLite 与 `TrafficHub`，消除了任何缓存不一致隐患。
    - 优雅退出与未落盘增量的处理形成闭环。
 3. **范围聚焦检查 (Scope Check)**：紧扣流量灵敏度、数据同步与性能优化，未引入与本目标无关的重构，规模适中且可在一个标准迭代计划内完成。
 4. **二义性消除 (Ambiguity Check)**：
-   - 明确了 EventSource 的鉴权通过 Query Param `?token=` 落地。
+   - 明确了流式客户端优先走标准 Header 鉴权以防 URL 日志泄密。
    - 明确了 Nginx 代理缓冲通过 `X-Accel-Buffering: no` 破除。
+   - 明确了细粒度锁与无锁 I/O 执行边界，确保锁持有时间 $< 50\mu s$。
    - 明确了 EMA 指数平滑算法参数（$\alpha=0.4$）以及低速截断归零的阈值。
 
 ---
 
-## 7. 实施分步计划预告
+## 8. 实施分步计划预告
 
 1. **阶段 1：后端核心与算法构建**：
    - 实现 `TrafficHub` 内存态、EMA 平滑算法、初始化加载与单测。

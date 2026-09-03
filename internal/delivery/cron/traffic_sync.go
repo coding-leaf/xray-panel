@@ -48,20 +48,32 @@ func (j *TrafficSyncJob) Start(ctx context.Context) {
 
 	slog.Info("Traffic sync job started", slog.Duration("interval", j.interval))
 
+	// 1. 专属核心高频协程：执行 5s 流量同步、实时速率计算与到期/超额踢人 (完全隔绝外部网络 I/O 阻塞)
 	go func() {
 		defer ticker.Stop()
-		defer alertTicker.Stop()
-
 		for {
 			select {
 			case <-ctx.Done():
 				return
 			case <-ticker.C:
 				j.syncOnce(ctx)
+			}
+		}
+	}()
+
+	// 2. 独立外部告警与周期维护协程：执行 Telegram 外部网络通知与月度流量重置
+	go func() {
+		defer alertTicker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
 			case <-alertTicker.C:
-				_ = j.alertSvc.CheckTrafficQuotas(ctx)
-				_ = j.alertSvc.CheckSystemLoad(ctx)
-				_ = j.alertSvc.CheckCertificates(ctx)
+				if j.alertSvc != nil {
+					_ = j.alertSvc.CheckTrafficQuotas(ctx)
+					_ = j.alertSvc.CheckSystemLoad(ctx)
+					_ = j.alertSvc.CheckCertificates(ctx)
+				}
 				if j.userSvc != nil {
 					_ = j.userSvc.CheckAndResetMonthlyTraffic(ctx)
 				}
@@ -101,6 +113,11 @@ func (j *TrafficSyncJob) syncOnce(ctx context.Context) {
 		}
 
 		if s.Type == domain.TrafficStatTypeUser {
+			// 若该用户在最近 6 秒内刚被执行重置，跳过本轮增量累加（过滤重置前的在途残留增量）
+			if domain.IsUserRecentlyReset(s.Tag, 6000) {
+				continue
+			}
+
 			_ = j.userRepo.AddTraffic(ctx, s.Tag, up, down)
 			if up > 0 {
 				userDeltaUp[s.Tag] += up

@@ -22,6 +22,7 @@ type UserSpeedStatus struct {
 var (
 	speedTrackerMu sync.RWMutex
 	speedTracker   = make(map[string]*UserSpeedRecord)
+	userResetTimes = make(map[string]int64)
 )
 
 func SetUserRuntimeSpeed(email string, upSpeed, downSpeed, lastActive int64) {
@@ -37,6 +38,36 @@ func SetUserRuntimeSpeed(email string, upSpeed, downSpeed, lastActive int64) {
 	if lastActive > 0 {
 		rec.LastActive = lastActive
 	}
+}
+
+// RecordUserTrafficReset 记录用户流量重置时刻（Unix 毫秒），并清空当前瞬时速率
+func RecordUserTrafficReset(email string) {
+	speedTrackerMu.Lock()
+	defer speedTrackerMu.Unlock()
+	userResetTimes[email] = time.Now().UnixMilli()
+	if rec := speedTracker[email]; rec != nil {
+		rec.UpSpeed = 0
+		rec.DownSpeed = 0
+	}
+}
+
+// IsUserRecentlyReset 检查用户是否在最近 windowMs 毫秒内刚被重置（在窗口期内过滤在途残留增量）
+func IsUserRecentlyReset(email string, windowMs int64) bool {
+	speedTrackerMu.RLock()
+	defer speedTrackerMu.RUnlock()
+	resetTime, ok := userResetTimes[email]
+	if !ok {
+		return false
+	}
+	return (time.Now().UnixMilli() - resetTime) < windowMs
+}
+
+// RemoveUserRuntimeSpeed 从内存中安全清理已删除用户的速率追踪状态，防止幽灵对象常驻内存泄漏
+func RemoveUserRuntimeSpeed(email string) {
+	speedTrackerMu.Lock()
+	defer speedTrackerMu.Unlock()
+	delete(speedTracker, email)
+	delete(userResetTimes, email)
 }
 
 func GetUserRuntimeSpeed(email string) (upSpeed, downSpeed, lastActive int64, isOnline bool) {

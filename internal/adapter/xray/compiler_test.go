@@ -464,5 +464,74 @@ func TestCompiler_FilterInactiveUsers(t *testing.T) {
 	}
 }
 
+func TestCompiler_ShadowsocksMethodBuild(t *testing.T) {
+	c := xray.NewXrayCompiler(8080)
+
+	t.Run("Shadowsocks with active user generates method and builds in Xray-core", func(t *testing.T) {
+		inbounds := []domain.Inbound{
+			{
+				Tag:          "ss-in",
+				Listen:       "0.0.0.0",
+				Port:         8388,
+				Protocol:     "shadowsocks",
+				SettingsJSON: `{"method":"aes-128-gcm","network":"tcp,udp"}`,
+				Enabled:      true,
+			},
+		}
+		users := []domain.User{
+			{
+				Email:       "ss-user@test.com",
+				UUID:        "test-password-123",
+				Enabled:     true,
+				InboundTags: "ss-in",
+			},
+		}
+		outbounds := []domain.Outbound{{Tag: "direct", Protocol: "freedom"}}
+
+		jsonBytes, err := c.CompileToJSON(inbounds, outbounds, nil, nil, users)
+		if err != nil {
+			t.Fatalf("CompileToJSON failed: %v", err)
+		}
+
+		coreConfig, err := serial.DecodeJSONConfig(bytes.NewReader(jsonBytes))
+		if err != nil {
+			t.Fatalf("DecodeJSONConfig failed: %v", err)
+		}
+		_, err = coreConfig.Build()
+		if err != nil {
+			t.Fatalf("coreConfig.Build() failed for Shadowsocks with user: %v", err)
+		}
+	})
+
+	t.Run("Shadowsocks placeholder client generates method and builds in Xray-core", func(t *testing.T) {
+		inbounds := []domain.Inbound{
+			{
+				Tag:          "ss-empty-in",
+				Listen:       "0.0.0.0",
+				Port:         8389,
+				Protocol:     "shadowsocks",
+				SettingsJSON: `{"method":"chacha20-poly1305","network":"tcp,udp"}`,
+				Enabled:      true,
+			},
+		}
+		outbounds := []domain.Outbound{{Tag: "direct", Protocol: "freedom"}}
+
+		jsonBytes, err := c.CompileToJSON(inbounds, outbounds, nil, nil, nil)
+		if err != nil {
+			t.Fatalf("CompileToJSON failed: %v", err)
+		}
+
+		coreConfig, err := serial.DecodeJSONConfig(bytes.NewReader(jsonBytes))
+		if err != nil {
+			t.Fatalf("DecodeJSONConfig failed: %v", err)
+		}
+		_, err = coreConfig.Build()
+		if err != nil {
+			t.Fatalf("coreConfig.Build() failed for Shadowsocks placeholder: %v", err)
+		}
+	})
+}
+
+
 
 

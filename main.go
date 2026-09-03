@@ -2,6 +2,8 @@ package main
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -25,7 +27,7 @@ import (
 )
 
 var (
-	Version   = "v1.4.2"
+	Version   = "v1.5.1"
 	Commit    = "dev"
 	BuildTime = "unknown"
 )
@@ -65,6 +67,26 @@ func main() {
 
 	// 加载 Telegram 设置
 	bgCtx := context.Background()
+
+	// 确保 JWT Secret 安全初始化 (优先使用环境变量/参数，未指定则从数据库加载或自动生成高熵密钥)
+	if cfg.JWTSecret == "" || cfg.JWTSecret == "super-secret-key-change-me" {
+		savedSecret, err := settingRepo.Get(bgCtx, "jwt_secret")
+		if err == nil && savedSecret != "" {
+			cfg.JWTSecret = savedSecret
+		} else {
+			randomBytes := make([]byte, 32)
+			if _, err := rand.Read(randomBytes); err != nil {
+				slog.Error("Failed to generate secure random JWT secret", slog.String("error", err.Error()))
+				os.Exit(1)
+			}
+			cfg.JWTSecret = hex.EncodeToString(randomBytes)
+			if err := settingRepo.Set(bgCtx, "jwt_secret", cfg.JWTSecret); err != nil {
+				slog.Warn("Failed to persist JWT secret to database", slog.String("error", err.Error()))
+			} else {
+				slog.Info("Generated and persisted secure high-entropy JWT secret")
+			}
+		}
+	}
 	tgToken, _ := settingRepo.Get(bgCtx, "tg_bot_token")
 	tgChatIDStr, _ := settingRepo.Get(bgCtx, "tg_admin_chat_id")
 	var tgChatID int64

@@ -337,7 +337,7 @@
             />
           </div>
           <div>
-            <label class="block text-gray-300 mb-1">当前 6 位动态码 (可选)</label>
+            <label class="block text-gray-300 mb-1">当前 6 位动态码 (必填)</label>
             <input
               v-model="disablePasscode"
               type="text"
@@ -352,7 +352,7 @@
           <button @click="showDisableModal = false" class="px-3 py-2 bg-gray-800 hover:bg-gray-700 text-gray-300 text-xs rounded-xl">取消</button>
           <button
             @click="confirmDisable2FA"
-            :disabled="disabling2FA || !disablePassword"
+            :disabled="disabling2FA || !disablePassword || disablePasscode.length !== 6"
             class="px-4 py-2 bg-red-600 hover:bg-red-500 text-white text-xs font-bold rounded-xl transition-all disabled:opacity-50"
           >
             {{ disabling2FA ? '关闭中...' : '确认关闭' }}
@@ -517,6 +517,10 @@ const confirmEnable2FA = async () => {
 const confirmDisable2FA = async () => {
   if (!disablePassword.value) {
     toast.warning('请输入密码确认')
+    return
+  }
+  if (!disablePasscode.value || disablePasscode.value.length !== 6) {
+    toast.warning('请输入 6 位 2FA 动态码')
     return
   }
   disabling2FA.value = true

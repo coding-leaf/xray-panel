@@ -206,7 +206,10 @@ func (s *UserService) DeleteUser(ctx context.Context, id uint) error {
 		return err
 	}
 
-	// 3. 从物理 config.json 移除
+	// 3. 清理内存运行时速率追踪器，杜绝幽灵对象内存泄漏
+	domain.RemoveUserRuntimeSpeed(user.Email)
+
+	// 4. 从物理 config.json 移除
 	if s.configSvc != nil {
 		_ = s.configSvc.SyncUserToFile(ctx, nil, user, true)
 	}
@@ -242,14 +245,17 @@ func (s *UserService) ResetTraffic(ctx context.Context, id uint) error {
 	if err != nil {
 		return err
 	}
-	if user != nil && user.IsActive() {
-		if s.xrayManager != nil {
-			for _, t := range user.GetInboundTagList() {
-				_ = s.xrayManager.AddUser(ctx, t, user)
+	if user != nil {
+		domain.RecordUserTrafficReset(user.Email)
+		if user.IsActive() {
+			if s.xrayManager != nil {
+				for _, t := range user.GetInboundTagList() {
+					_ = s.xrayManager.AddUser(ctx, t, user)
+				}
 			}
-		}
-		if s.configSvc != nil {
-			_ = s.configSvc.SyncUserToFile(ctx, user.GetInboundTagList(), user, false)
+			if s.configSvc != nil {
+				_ = s.configSvc.SyncUserToFile(ctx, user.GetInboundTagList(), user, false)
+			}
 		}
 	}
 	return nil
@@ -333,6 +339,7 @@ func (s *UserService) CheckAndResetMonthlyTraffic(ctx context.Context) error {
 	now := time.Now()
 	today := now.Day()
 	currentYearMonth := now.Year()*100 + int(now.Month())
+	lastDayOfMonth := time.Date(now.Year(), now.Month()+1, 0, 0, 0, 0, 0, now.Location()).Day()
 
 	users, err := s.userRepo.ListAll(ctx)
 	if err != nil {
@@ -340,8 +347,20 @@ func (s *UserService) CheckAndResetMonthlyTraffic(ctx context.Context) error {
 	}
 	anyActiveReset := false
 	for _, u := range users {
-		if u.ResetDay > 0 && u.ResetDay == today && u.LastResetMonth != currentYearMonth {
+		if u.ResetDay <= 0 {
+			continue
+		}
+
+		// 自适应当月最大天数（如平年 2 月为 28，小月为 30，设为 31 号的用户将在该月最后一天重置）
+		effectiveResetDay := u.ResetDay
+		if effectiveResetDay > lastDayOfMonth {
+			effectiveResetDay = lastDayOfMonth
+		}
+
+		// 当今天已达到或越过有效重置日，且本月尚未重置时触发（具备短月份自适应与停机恢复补偿能力）
+		if today >= effectiveResetDay && u.LastResetMonth != currentYearMonth {
 			_ = s.userRepo.ResetTraffic(ctx, u.ID)
+			domain.RecordUserTrafficReset(u.Email)
 			u.UpBytes = 0
 			u.DownBytes = 0
 			u.LastResetMonth = currentYearMonth

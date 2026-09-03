@@ -238,6 +238,19 @@ func (c *XrayCompiler) compileInbound(inb *domain.Inbound, users []domain.User) 
 		}
 	}
 
+	// 提取 Shadowsocks 加密方法
+	ssMethod := "aes-128-gcm"
+	if protocolLower == "shadowsocks" && inb.SettingsJSON != "" {
+		var ssSettings map[string]interface{}
+		if err := json.Unmarshal([]byte(inb.SettingsJSON), &ssSettings); err == nil {
+			if m, ok := ssSettings["method"].(string); ok && m != "" {
+				ssMethod = m
+			} else if c, ok := ssSettings["cipher"].(string); ok && c != "" {
+				ssMethod = c
+			}
+		}
+	}
+
 	// 收集并投影授权到该 Inbound 的用户 Clients
 	var clients []XrayClient
 	for _, u := range users {
@@ -259,8 +272,11 @@ func (c *XrayCompiler) compileInbound(inb *domain.Inbound, users []domain.User) 
 			client.Flow = inboundFlow
 		case "vmess":
 			client.ID = u.UUID
-		case "trojan", "shadowsocks":
+		case "trojan":
 			client.Password = u.UUID
+		case "shadowsocks":
+			client.Password = u.UUID
+			client.Method = ssMethod
 		default:
 			client.ID = u.UUID
 		}
@@ -309,13 +325,17 @@ func (c *XrayCompiler) compileInbound(inb *domain.Inbound, users []domain.User) 
 			// 保留原本存在于 settingsJson 的 clients
 		} else {
 			placeholderID := "00000000-0000-0000-0000-000000000001"
-			clients = append(clients, XrayClient{
+			placeholderClient := XrayClient{
 				ID:       placeholderID,
 				Password: placeholderID,
 				Email:    "default@panel.local",
 				Flow:     inboundFlow,
 				Level:    0,
-			})
+			}
+			if protocolLower == "shadowsocks" {
+				placeholderClient.Method = ssMethod
+			}
+			clients = append(clients, placeholderClient)
 			settingsMap["clients"] = clients
 		}
 	} else {

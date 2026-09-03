@@ -46,17 +46,28 @@ func SetupRouter(handlers *Handlers, jwtSecret string, staticFS fs.FS) *gin.Engi
 		c.Next()
 	})
 
+	// 限制请求体大小上限为 10MB，防止超大恶意数据包打爆内存引发 OOM
+	r.Use(func(c *gin.Context) {
+		if c.Request.Body != nil {
+			c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, 10<<20)
+		}
+		c.Next()
+	})
+
+	// 公开订阅接口防刷限流 (单 IP 每分钟最多 60 次，保护 SQLite 资源)
+	subLimiter := middleware.NewRateLimiter("60-M")
+
 	// 根路径公开订阅接口 (兼容 /sub/:token 与 /sub?token=...)
-	r.GET("/sub/:token", handlers.Sub.GetSubscription)
-	r.GET("/sub", handlers.Sub.GetSubscription)
+	r.GET("/sub/:token", subLimiter, handlers.Sub.GetSubscription)
+	r.GET("/sub", subLimiter, handlers.Sub.GetSubscription)
 
 	api := r.Group("/api")
 	{
 		// 公开接口 (登录限制每分钟最多 5 次请求)
 		loginLimiter := middleware.NewRateLimiter("5-M")
 		api.POST("/auth/login", loginLimiter, handlers.Auth.Login)
-		api.GET("/sub/:token", handlers.Sub.GetSubscription)
-		api.GET("/sub", handlers.Sub.GetSubscription)
+		api.GET("/sub/:token", subLimiter, handlers.Sub.GetSubscription)
+		api.GET("/sub", subLimiter, handlers.Sub.GetSubscription)
 
 		// 管理受保护接口 (JWT 鉴权)
 		authGroup := api.Group("")

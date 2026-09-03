@@ -37,7 +37,18 @@ func (r *GormTrafficLogRepository) RecordTraffic(ctx context.Context, userID uin
 				Date:      date,
 				CreatedAt: time.Now(),
 			}
-			return r.db.WithContext(ctx).Create(&newLog).Error
+			createErr := r.db.WithContext(ctx).Create(&newLog).Error
+			if createErr == nil {
+				return nil
+			}
+			// 若并发写入命中唯一索引冲突，安全回退为累加更新
+			return r.db.WithContext(ctx).Model(&domain.TrafficLog{}).
+				Where("user_email = ? AND date = ?", email, date).
+				Updates(map[string]interface{}{
+					"up_bytes":   gorm.Expr("up_bytes + ?", upBytes),
+					"down_bytes": gorm.Expr("down_bytes + ?", downBytes),
+					"user_id":    userID,
+				}).Error
 		}
 		return err
 	}

@@ -85,15 +85,30 @@ func (m *mockUserRepo) ResetTraffic(ctx context.Context, id uint) error {
 }
 
 func TestCheckAndResetMonthlyTraffic(t *testing.T) {
-	today := time.Now().Day()
-	nowMonth := time.Now().Year()*100 + int(time.Now().Month())
+	now := time.Now()
+	today := now.Day()
+	nowMonth := now.Year()*100 + int(now.Month())
 	lastMonth := 202601
+	lastDayOfMonth := time.Date(now.Year(), now.Month()+1, 0, 0, 0, 0, 0, now.Location()).Day()
 
 	repo := &mockUserRepo{
 		users: []domain.User{
 			{ID: 1, Email: "user1@test.com", ResetDay: today, LastResetMonth: lastMonth, UpBytes: 1024, DownBytes: 2048},
 			{ID: 2, Email: "user2@test.com", ResetDay: today, LastResetMonth: nowMonth, UpBytes: 5000, DownBytes: 5000}, // 本月已重置过，不能再重置
+			{ID: 3, Email: "user3@test.com", ResetDay: 1, LastResetMonth: lastMonth, UpBytes: 3000, DownBytes: 3000},     // 停机补偿：重置日为 1 号但未重置，应补偿重置
 		},
+	}
+
+	// 如果今天是月末最后一天，添加一个 ResetDay=31 的用户测试短月自适应
+	if today == lastDayOfMonth {
+		repo.users = append(repo.users, domain.User{
+			ID:             4,
+			Email:          "user4@test.com",
+			ResetDay:       31,
+			LastResetMonth: lastMonth,
+			UpBytes:        8000,
+			DownBytes:      8000,
+		})
 	}
 
 	svc := NewUserService(repo, nil, nil, nil, nil)
@@ -109,6 +124,18 @@ func TestCheckAndResetMonthlyTraffic(t *testing.T) {
 	u2, _ := repo.GetByID(context.Background(), 2)
 	if u2.UpBytes != 5000 || u2.DownBytes != 5000 {
 		t.Errorf("user2 should NOT be reset again, got %+v", u2)
+	}
+
+	u3, _ := repo.GetByID(context.Background(), 3)
+	if u3.UpBytes != 0 || u3.DownBytes != 0 || u3.LastResetMonth != nowMonth {
+		t.Errorf("user3 (catch-up) should be reset, got %+v", u3)
+	}
+
+	if today == lastDayOfMonth {
+		u4, _ := repo.GetByID(context.Background(), 4)
+		if u4.UpBytes != 0 || u4.DownBytes != 0 || u4.LastResetMonth != nowMonth {
+			t.Errorf("user4 (short-month 31st clamped) should be reset on last day of month, got %+v", u4)
+		}
 	}
 }
 

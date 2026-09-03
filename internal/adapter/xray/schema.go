@@ -47,6 +47,7 @@ type XrayPolicySystem struct {
 type XrayClient struct {
 	ID       string `json:"id,omitempty"`       // VLESS / VMess UUID
 	Password string `json:"password,omitempty"` // Trojan / Shadowsocks
+	Method   string `json:"method,omitempty"`   // Shadowsocks cipher method
 	Email    string `json:"email,omitempty"`
 	Flow     string `json:"flow,omitempty"`     // xtls-rprx-vision
 	Level    int    `json:"level,omitempty"`

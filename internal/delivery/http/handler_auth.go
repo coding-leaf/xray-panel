@@ -176,7 +176,7 @@ func (h *AuthHandler) Enable2FA(c *gin.Context) {
 
 type Disable2FARequest struct {
 	Password string `json:"password" binding:"required"`
-	Passcode string `json:"passcode"`
+	Passcode string `json:"passcode" binding:"required,len=6"`
 }
 
 func (h *AuthHandler) Disable2FA(c *gin.Context) {
@@ -198,11 +198,14 @@ func (h *AuthHandler) Disable2FA(c *gin.Context) {
 		return
 	}
 
-	if admin.TOTPEnabled && admin.TOTPSecret != "" && req.Passcode != "" {
-		if !totp.Validate(req.Passcode, admin.TOTPSecret) {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid 2fa passcode"})
-			return
-		}
+	if !admin.TOTPEnabled {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "2fa is not enabled"})
+		return
+	}
+
+	if admin.TOTPSecret == "" || !totp.Validate(req.Passcode, admin.TOTPSecret) {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid 2fa passcode"})
+		return
 	}
 
 	admin.TOTPEnabled = false

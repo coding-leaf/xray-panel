@@ -38,6 +38,7 @@ func (h *SettingHandler) GetSettings(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
+	delete(settings, "jwt_secret")
 	c.JSON(http.StatusOK, settings)
 }
 
@@ -49,22 +50,29 @@ func (h *SettingHandler) SaveSettings(c *gin.Context) {
 	}
 
 	for k, v := range body {
-		if v == nil {
+		if v == nil || k == "jwt_secret" {
 			continue
 		}
 		strVal := fmt.Sprintf("%v", v)
 		_ = h.settingRepo.Set(c.Request.Context(), k, strVal)
 	}
 
-	configPath := fmt.Sprintf("%v", body["xray_config_path"])
-	binPath := fmt.Sprintf("%v", body["xray_bin_path"])
-	serviceName := fmt.Sprintf("%v", body["xray_service_name"])
+	var configPath, binPath, serviceName string
+	if v, ok := body["xray_config_path"].(string); ok && v != "" {
+		configPath = v
+	}
+	if v, ok := body["xray_bin_path"].(string); ok && v != "" {
+		binPath = v
+	}
+	if v, ok := body["xray_service_name"].(string); ok && v != "" {
+		serviceName = v
+	}
 
 	// 动态更新配置管理器与 supervisor
-	if h.configMgr != nil && configPath != "<nil>" && configPath != "" {
+	if h.configMgr != nil && configPath != "" {
 		h.configMgr.UpdateConfig(configPath, binPath)
 	}
-	if h.supervisor != nil && serviceName != "<nil>" && serviceName != "" {
+	if h.supervisor != nil && serviceName != "" {
 		h.supervisor.UpdateConfig(serviceName, binPath)
 	}
 

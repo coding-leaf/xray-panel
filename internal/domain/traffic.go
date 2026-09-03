@@ -20,10 +20,10 @@ type TrafficStat struct {
 type TrafficLog struct {
 	ID        uint      `gorm:"primaryKey;autoIncrement" json:"id"`
 	UserID    uint      `gorm:"index" json:"userId"`
-	UserEmail string    `gorm:"type:varchar(128);index" json:"userEmail"`
+	UserEmail string    `gorm:"type:varchar(128);uniqueIndex:idx_user_email_date" json:"userEmail"`
 	UpBytes   int64     `json:"upBytes"`
 	DownBytes int64     `json:"downBytes"`
-	Date      string    `gorm:"type:varchar(10);index" json:"date"` // YYYY-MM-DD
+	Date      string    `gorm:"type:varchar(10);uniqueIndex:idx_user_email_date" json:"date"` // YYYY-MM-DD
 	CreatedAt time.Time `json:"createdAt"`
 }
 

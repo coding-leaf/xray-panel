@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net"
 	"strconv"
@@ -126,18 +127,27 @@ func (s *ConfigService) SaveConfigQuietly(ctx context.Context, remark string) er
 	// 2. 读取 Outbounds
 	outbounds, err := s.ListOutbounds(ctx)
 	if err != nil {
+		if !errors.Is(err, domain.ErrNotFound) {
+			return fmt.Errorf("read outbounds failed, abort saving to protect config: %w", err)
+		}
 		outbounds = nil
 	}
 
 	// 3. 读取 Routing
 	routing, err := s.GetRoutingConfig(ctx)
 	if err != nil {
+		if !errors.Is(err, domain.ErrNotFound) {
+			return fmt.Errorf("read routing failed, abort saving to protect config: %w", err)
+		}
 		routing = nil
 	}
 
 	// 4. 读取 DNS
 	dns, err := s.GetDNSConfig(ctx)
 	if err != nil {
+		if !errors.Is(err, domain.ErrNotFound) {
+			return fmt.Errorf("read dns failed, abort saving to protect config: %w", err)
+		}
 		dns = nil
 	}
 
@@ -392,7 +402,10 @@ func (s *ConfigService) ListOutbounds(ctx context.Context) ([]domain.Outbound, e
 }
 
 func (s *ConfigService) SaveOutbound(ctx context.Context, outbound domain.Outbound) error {
-	existingList, _ := s.ListOutbounds(ctx)
+	existingList, err := s.ListOutbounds(ctx)
+	if err != nil && !errors.Is(err, domain.ErrNotFound) {
+		return fmt.Errorf("read outbounds failed, abort saving to protect config: %w", err)
+	}
 	found := false
 	var updatedList []domain.Outbound
 	for _, ob := range existingList {
@@ -412,7 +425,10 @@ func (s *ConfigService) SaveOutbound(ctx context.Context, outbound domain.Outbou
 }
 
 func (s *ConfigService) DeleteOutbound(ctx context.Context, tag string) error {
-	existingList, _ := s.ListOutbounds(ctx)
+	existingList, err := s.ListOutbounds(ctx)
+	if err != nil && !errors.Is(err, domain.ErrNotFound) {
+		return fmt.Errorf("read outbounds failed, abort deleting to protect config: %w", err)
+	}
 	var updatedList []domain.Outbound
 	for _, ob := range existingList {
 		if ob.Tag != tag {
@@ -429,8 +445,14 @@ func (s *ConfigService) saveOutboundsListAndRecompile(ctx context.Context, outbo
 	if s.inboundRepo != nil {
 		inbounds, _ = s.inboundRepo.ListAll(ctx)
 	}
-	routing, _ := s.GetRoutingConfig(ctx)
-	dns, _ := s.GetDNSConfig(ctx)
+	routing, err := s.GetRoutingConfig(ctx)
+	if err != nil && !errors.Is(err, domain.ErrNotFound) {
+		return fmt.Errorf("read routing failed, abort saving to protect config: %w", err)
+	}
+	dns, err := s.GetDNSConfig(ctx)
+	if err != nil && !errors.Is(err, domain.ErrNotFound) {
+		return fmt.Errorf("read dns failed, abort saving to protect config: %w", err)
+	}
 	var users []domain.User
 	if s.userRepo != nil {
 		users, _ = s.userRepo.ListAll(ctx)
@@ -477,8 +499,14 @@ func (s *ConfigService) SaveRoutingConfig(ctx context.Context, cfg *domain.Routi
 	if s.inboundRepo != nil {
 		inbounds, _ = s.inboundRepo.ListAll(ctx)
 	}
-	outbounds, _ := s.ListOutbounds(ctx)
-	dns, _ := s.GetDNSConfig(ctx)
+	outbounds, err := s.ListOutbounds(ctx)
+	if err != nil && !errors.Is(err, domain.ErrNotFound) {
+		return fmt.Errorf("read outbounds failed, abort saving to protect config: %w", err)
+	}
+	dns, err := s.GetDNSConfig(ctx)
+	if err != nil && !errors.Is(err, domain.ErrNotFound) {
+		return fmt.Errorf("read dns failed, abort saving to protect config: %w", err)
+	}
 	var users []domain.User
 	if s.userRepo != nil {
 		users, _ = s.userRepo.ListAll(ctx)
@@ -528,8 +556,14 @@ func (s *ConfigService) SaveDNSConfig(ctx context.Context, cfg *domain.DNSConfig
 	if s.inboundRepo != nil {
 		inbounds, _ = s.inboundRepo.ListAll(ctx)
 	}
-	outbounds, _ := s.ListOutbounds(ctx)
-	routing, _ := s.GetRoutingConfig(ctx)
+	outbounds, err := s.ListOutbounds(ctx)
+	if err != nil && !errors.Is(err, domain.ErrNotFound) {
+		return fmt.Errorf("read outbounds failed, abort saving to protect config: %w", err)
+	}
+	routing, err := s.GetRoutingConfig(ctx)
+	if err != nil && !errors.Is(err, domain.ErrNotFound) {
+		return fmt.Errorf("read routing failed, abort saving to protect config: %w", err)
+	}
 	var users []domain.User
 	if s.userRepo != nil {
 		users, _ = s.userRepo.ListAll(ctx)

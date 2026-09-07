@@ -114,6 +114,9 @@
 
 ## 🏗️ 架构分层 (Clean Architecture)
 
+> 💡 详细的业务领域模型、单端口多出口分流、4 层 Scoped 路由编排机制与双轨运行时架构全景图解请参阅：
+> 👉 **[架构与系统逻辑全景图解 (docs/ARCHITECTURE_AND_LOGIC.md)](docs/ARCHITECTURE_AND_LOGIC.md)**
+
 ```
 internal/
 ├── app/               # 应用生命周期契约与服务抽象 (Service, ServiceFunc)

@@ -7,6 +7,9 @@ export interface MockState {
   dns: any
   users: any[]
   logs: string[]
+  settings?: any
+  snapshots?: any[]
+  geodata?: any
 }
 
 const STORAGE_KEY = 'xray_panel_demo_state_v3'
@@ -442,6 +445,47 @@ const DEFAULT_RAW_STATE: MockState = {
     '2026/09/07 22:48:15 127.0.0.1:54322 accepted tcp:api.openai.com:443 [vless-reality -> warp-out] email: master@yezineko.top',
     '2026/09/07 22:48:30 127.0.0.1:54323 accepted tcp:hk-node.example.com:443 [vless-reality -> hk-landing] email: master@yezineko.top',
   ],
+  settings: {
+    xray_service_name: 'xray',
+    xray_grpc_addr: '127.0.0.1:8080',
+    xray_config_path: '/usr/local/etc/xray/config.json',
+    xray_bin_path: '/usr/local/bin/xray',
+    xray_geodata_dir: '/usr/local/share/xray',
+    public_url: 'https://demo.example.com:9000',
+    sub_domain: 'sub.example.com',
+    public_port: 443,
+    tg_bot_token: '123456789:ABCdefGHIjklMNOpqrSTUvwxYZ',
+    tg_admin_chat_id: '987654321',
+    totpEnabled: false,
+  },
+  snapshots: [
+    {
+      id: 1,
+      remark: 'v1.6.0 gRPC 架构初始化快照',
+      createdAt: new Date(now - 3600000).toISOString(),
+      content: JSON.stringify(
+        {
+          inbounds: [
+            {
+              tag: 'vless-reality',
+              port: 4434,
+              protocol: 'vless',
+            },
+          ],
+        },
+        null,
+        2
+      ),
+    },
+  ],
+  geodata: {
+    platform: 'Xray Core (gRPC Runtime)',
+    geoipExists: true,
+    geoipSize: 8941200,
+    geositeExists: true,
+    geositeSize: 23518400,
+    targetDirectory: '/usr/local/share/xray',
+  },
 }
 
 export function loadMockState(): MockState {
@@ -456,7 +500,14 @@ export function loadMockState(): MockState {
 
     const raw = localStorage.getItem(STORAGE_KEY)
     if (raw) {
-      return JSON.parse(raw)
+      const parsed = JSON.parse(raw)
+      return {
+        ...DEFAULT_RAW_STATE,
+        ...parsed,
+        settings: { ...DEFAULT_RAW_STATE.settings, ...(parsed.settings || {}) },
+        geodata: { ...DEFAULT_RAW_STATE.geodata, ...(parsed.geodata || {}) },
+        snapshots: parsed.snapshots && parsed.snapshots.length ? parsed.snapshots : DEFAULT_RAW_STATE.snapshots,
+      }
     }
   } catch (e) {
     console.error('Failed to load mock state from localStorage', e)

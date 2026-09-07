@@ -1,4 +1,4 @@
-// Mock 拦截请求调度中心 (v2)
+// Mock 拦截请求调度中心 (v3 - gRPC 运行时架构)
 
 import { loadMockState, saveMockState, resetMockState, MockState } from './storage'
 
@@ -16,6 +16,15 @@ export function isMockMode(): boolean {
 
 function delay<T>(data: T, ms = 120): Promise<T> {
   return new Promise((resolve) => setTimeout(() => resolve(data), ms))
+}
+
+// 辅助函数：安全 Base64 编码（支持 Unicode 字符串，防止 btoa 异常）
+function safeBtoa(str: string): string {
+  try {
+    return btoa(encodeURIComponent(str).replace(/%([0-9A-F]{2})/g, (_, p1) => String.fromCharCode(parseInt(p1, 16))))
+  } catch {
+    return btoa(str)
+  }
 }
 
 // 辅助函数：根据 VLESS Route ID 动态置换 UUID 的第 3 节 (bytes 6:8)
@@ -47,6 +56,8 @@ export async function handleMockRequest(url: string, method: string, data?: any)
     const totalUp = state.users.reduce((acc, u) => acc + (u.upBytes || 0), 0)
     const totalDown = state.users.reduce((acc, u) => acc + (u.downBytes || 0), 0)
     const activeUsers = state.users.filter((u) => u.isOnline).length
+    const netUpSpeed = Math.round(1024 * (1200 + Math.random() * 300))
+    const netDownSpeed = Math.round(1024 * (8450 + Math.random() * 1200))
 
     return delay({
       metrics: {
@@ -57,8 +68,10 @@ export async function handleMockRequest(url: string, method: string, data?: any)
         diskUsagePercent: 30.0,
         diskUsedBytes: 12 * 1024 * 1024 * 1024,
         diskTotalBytes: 40 * 1024 * 1024 * 1024,
-        netUpSpeed: Math.round(1024 * (1200 + Math.random() * 300)),
-        netDownSpeed: Math.round(1024 * (8450 + Math.random() * 1200)),
+        netUpSpeedBps: netUpSpeed,
+        netDownSpeedBps: netDownSpeed,
+        netTotalSent: totalUp,
+        netTotalRecv: totalDown,
         uptimeSeconds: 48600,
         xrayRunning: true,
         xrayVersion: 'Xray 26.3.27 (gRPC Runtime) Linux/amd64',
@@ -84,8 +97,8 @@ export async function handleMockRequest(url: string, method: string, data?: any)
         memTotalBytes: 1024 * 1024 * 1024,
         diskUsedBytes: 12 * 1024 * 1024 * 1024,
         diskTotalBytes: 40 * 1024 * 1024 * 1024,
-        netInSpeed: Math.round(1024 * (1200 + Math.random() * 300)),
-        netOutSpeed: Math.round(1024 * (8450 + Math.random() * 1200)),
+        netInSpeed: netUpSpeed,
+        netOutSpeed: netDownSpeed,
       },
       stats: {
         totalUsers: state.users.length,
@@ -165,7 +178,7 @@ export async function handleMockRequest(url: string, method: string, data?: any)
     return delay(state.routing)
   }
 
-  if (cleanUrl.endsWith('/routing') && method === 'PUT') {
+  if (cleanUrl.endsWith('/routing') && (method === 'POST' || method === 'PUT')) {
     state.routing = data
     saveMockState(state)
     return delay({ success: true })
@@ -263,7 +276,7 @@ export async function handleMockRequest(url: string, method: string, data?: any)
     if (method === 'PUT') {
       const idx = state.users.findIndex((u) => u.id === id)
       if (idx !== -1) {
-        // 模拟 v1.5.0 UpdateUserDTO：绝不覆盖已累加的流量与关键系统字段
+        // 模拟 UpdateUserDTO：绝不覆盖已累加的流量与关键系统字段
         const current = state.users[idx]
         state.users[idx] = {
           ...current,
@@ -356,13 +369,13 @@ export async function handleMockRequest(url: string, method: string, data?: any)
           path: '/vmess',
           tls: 'none',
         }
-        links.push(`vmess://${btoa(unescape(encodeURIComponent(JSON.stringify(vmessObj))))}`)
+        links.push(`vmess://${safeBtoa(JSON.stringify(vmessObj))}`)
       } else if (proto === 'trojan') {
         links.push(
           `trojan://${user?.uuid || 'password'}@${extHost}:${port}?security=reality&sni=gateway.icloud.com&fp=chrome&pbk=FMdWD0uS9lrXUAoMmTP5e2LLD-mk8vO8JTZmAE9vdww&sid=0123456789abcdef&type=tcp#${encodeURIComponent(inb.tag)}`
         )
       } else if (proto === 'shadowsocks' || proto === 'ss') {
-        const ssAuth = btoa(`2022-blake3-aes-128-gcm:${user?.uuid || 'password'}`)
+        const ssAuth = safeBtoa(`2022-blake3-aes-128-gcm:${user?.uuid || 'password'}`)
         links.push(`ss://${ssAuth}@${extHost}:${port}#${encodeURIComponent(inb.tag)}`)
       }
     }
@@ -380,12 +393,23 @@ export async function handleMockRequest(url: string, method: string, data?: any)
     })
   }
 
-  if (cleanUrl.match(/\/users\/(\d+)\/reset-token$/)) {
-    return delay({ subToken: Math.random().toString(36).substring(2, 18) })
+  // 重置订阅 Token
+  const resetTokenMatch = cleanUrl.match(/\/users\/(\d+)\/reset-token$/)
+  if (resetTokenMatch && method === 'POST') {
+    const id = parseInt(resetTokenMatch[1], 10)
+    const newToken = Math.random().toString(36).substring(2, 18) + Math.random().toString(36).substring(2, 18)
+    const user = state.users.find((u) => u.id === id)
+    if (user) {
+      user.subToken = newToken
+      saveMockState(state)
+    }
+    return delay({ subToken: newToken })
   }
 
-  if (cleanUrl.match(/\/users\/(\d+)\/reset-traffic$/)) {
-    const id = parseInt(cleanUrl.match(/\/users\/(\d+)\/reset-traffic$/)![1], 10)
+  // 重置单用户已用流量
+  const resetTrafficMatch = cleanUrl.match(/\/users\/(\d+)\/reset-traffic$/)
+  if (resetTrafficMatch && method === 'POST') {
+    const id = parseInt(resetTrafficMatch[1], 10)
     const user = state.users.find((u) => u.id === id)
     if (user) {
       user.upBytes = 0
@@ -399,7 +423,7 @@ export async function handleMockRequest(url: string, method: string, data?: any)
   if (cleanUrl.endsWith('/dns') && method === 'GET') {
     return delay(state.dns)
   }
-  if (cleanUrl.endsWith('/dns') && method === 'PUT') {
+  if (cleanUrl.endsWith('/dns') && (method === 'POST' || method === 'PUT')) {
     state.dns = data
     saveMockState(state)
     return delay({ success: true })
@@ -421,7 +445,7 @@ export async function handleMockRequest(url: string, method: string, data?: any)
     })
   }
 
-  // 9. Config JSON
+  // 9. Config JSON 与快照
   if (cleanUrl.endsWith('/config/raw') && method === 'GET') {
     return delay({
       raw: JSON.stringify(
@@ -435,6 +459,145 @@ export async function handleMockRequest(url: string, method: string, data?: any)
         2
       ),
     })
+  }
+
+  if (cleanUrl.endsWith('/config/snapshots') && method === 'GET') {
+    return delay(state.snapshots || [])
+  }
+
+  const rollbackMatch = cleanUrl.match(/\/config\/snapshots\/(\d+)\/rollback$/)
+  if (rollbackMatch && method === 'POST') {
+    const id = parseInt(rollbackMatch[1], 10)
+    const snap = (state.snapshots || []).find((s: any) => s.id === id)
+    if (snap && snap.content) {
+      try {
+        const parsed = JSON.parse(snap.content)
+        if (parsed.inbounds) state.inbounds = parsed.inbounds
+        if (parsed.outbounds) state.outbounds = parsed.outbounds
+        if (parsed.routing) state.routing = parsed.routing
+        if (parsed.dns) state.dns = parsed.dns
+        saveMockState(state)
+      } catch {}
+    }
+    return delay({ success: true })
+  }
+
+  if (cleanUrl.endsWith('/config/validate') && method === 'POST') {
+    try {
+      if (typeof data === 'string') {
+        JSON.parse(data)
+      }
+      return delay({ valid: true, message: 'Official Xray-core 26.x syntax pre-check 100% passed.' })
+    } catch (e: any) {
+      return delay({ valid: false, message: 'JSON 语法错误: ' + (e?.message || 'Invalid syntax') })
+    }
+  }
+
+  if (cleanUrl.endsWith('/config/save') && method === 'POST') {
+    try {
+      let parsed = data
+      if (typeof data === 'string') {
+        parsed = JSON.parse(data)
+      }
+      if (parsed.inbounds) state.inbounds = parsed.inbounds
+      if (parsed.outbounds) state.outbounds = parsed.outbounds
+      if (parsed.routing) state.routing = parsed.routing
+      if (parsed.dns) state.dns = parsed.dns
+
+      const snaps = state.snapshots || []
+      const newSnapId = snaps.reduce((max: number, s: any) => Math.max(max, s.id || 0), 0) + 1
+      snaps.unshift({
+        id: newSnapId,
+        remark: 'Web 面板在线保存快照',
+        createdAt: new Date().toISOString(),
+        content: typeof data === 'string' ? data : JSON.stringify(data, null, 2),
+      })
+      state.snapshots = snaps.slice(0, 10)
+      saveMockState(state)
+      return delay({ success: true })
+    } catch (e: any) {
+      return delay({ success: false, message: '配置保存失败: ' + e?.message }, 200)
+    }
+  }
+
+  // 10. Settings 系统设置与 2FA
+  if (cleanUrl.endsWith('/settings') && method === 'GET') {
+    return delay(state.settings || {})
+  }
+
+  if (cleanUrl.endsWith('/settings') && method === 'POST') {
+    state.settings = { ...state.settings, ...data }
+    saveMockState(state)
+    return delay({ success: true })
+  }
+
+  if (cleanUrl.endsWith('/settings/test-telegram') && method === 'POST') {
+    return delay({ success: true, message: 'Telegram 测试消息已成功发送至管理员客户端' })
+  }
+
+  if (cleanUrl.endsWith('/auth/info') && method === 'GET') {
+    return delay({
+      username: 'admin',
+      totpEnabled: !!state.settings?.totpEnabled,
+    })
+  }
+
+  if (cleanUrl.endsWith('/auth/change-password') && method === 'POST') {
+    return delay({ success: true })
+  }
+
+  if (cleanUrl.endsWith('/auth/2fa/setup') && method === 'GET') {
+    return delay({
+      secret: 'JBSWY3DPEHPK3PXP',
+      otpauthUrl: 'otpauth://totp/XrayPanel:admin?secret=JBSWY3DPEHPK3PXP&issuer=XrayPanel',
+    })
+  }
+
+  if (cleanUrl.endsWith('/auth/2fa/enable') && method === 'POST') {
+    if (!state.settings) state.settings = {}
+    state.settings.totpEnabled = true
+    saveMockState(state)
+    return delay({ success: true })
+  }
+
+  if (cleanUrl.endsWith('/auth/2fa/disable') && method === 'POST') {
+    if (!state.settings) state.settings = {}
+    state.settings.totpEnabled = false
+    saveMockState(state)
+    return delay({ success: true })
+  }
+
+  // 11. GeoData 规则库
+  if (cleanUrl.endsWith('/geodata/status') && method === 'GET') {
+    return delay(
+      state.geodata || {
+        platform: 'Xray Core (gRPC Runtime)',
+        geoipExists: true,
+        geoipSize: 8941200,
+        geositeExists: true,
+        geositeSize: 23518400,
+        targetDirectory: '/usr/local/share/xray',
+      }
+    )
+  }
+
+  if (cleanUrl.endsWith('/geodata/update') && method === 'POST') {
+    return delay({ success: true, message: 'GeoData 规则库更新任务已在后台启动' })
+  }
+
+  if (cleanUrl.endsWith('/geodata/progress') && method === 'GET') {
+    return delay({
+      isUpdating: false,
+      percentage: 100,
+      step: 'done',
+      message: 'GeoData 规则库已成功更新并平滑重载至 Xray-core 运行时！',
+      speedBps: 2450000,
+    })
+  }
+
+  // 12. Service 重启
+  if (cleanUrl.endsWith('/service/restart') && method === 'POST') {
+    return delay({ success: true, message: 'Xray 核心已成功平滑重启' })
   }
 
   // 默认返回成功

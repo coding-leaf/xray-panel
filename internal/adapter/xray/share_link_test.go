@@ -154,4 +154,33 @@ func TestBuildShareLink_FullParameterParity(t *testing.T) {
 			t.Errorf("expected xhttp mode to be stream-up, got: %s", node.GetParam("mode"))
 		}
 	})
+
+	t.Run("VLESS XHTTP Reality with user flow does NOT emit flow", func(t *testing.T) {
+		userWithFlow := &domain.User{
+			UUID:  "11111111-2222-3333-4444-555555555555",
+			Email: "test@example.com",
+			Flow:  "xtls-rprx-vision",
+		}
+		inbound := &domain.Inbound{
+			Tag:            "vless-xhttp-reality",
+			Protocol:       "vless",
+			Port:           443,
+			ExternalHost:   "1.2.3.4",
+			StreamSettings: `{"network":"xhttp","security":"reality","realitySettings":{"publicKey":"test-pbk","serverName":"example.com"}}`,
+		}
+
+		node := xray.InboundToNodeConfig(inbound, userWithFlow, "", 0)
+		if node.GetParam("flow") != "" {
+			t.Errorf("expected empty flow in NodeConfig for xhttp, got: %s", node.GetParam("flow"))
+		}
+
+		link := xray.BuildShareLink(inbound, userWithFlow, "", 0)
+		u, err := url.Parse(link)
+		if err != nil {
+			t.Fatalf("failed to parse link: %v", err)
+		}
+		if u.Query().Get("flow") != "" {
+			t.Errorf("expected no flow query param for xhttp reality, got: %s", u.Query().Get("flow"))
+		}
+	})
 }

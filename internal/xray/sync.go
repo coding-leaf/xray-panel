@@ -127,7 +127,14 @@ func SyncToDiskConfig(db *bbolt.DB, templatePath, targetPath string) error {
 			switch protocolLower {
 			case "vless":
 				client["id"] = u.UUID
-				if u.Flow != "" {
+				var streamSettings map[string]interface{}
+				if ss, ok := inbMap["streamSettings"].(map[string]interface{}); ok && ss != nil {
+					streamSettings = ss
+				}
+				net, _ := streamSettings["network"].(string)
+				netLower := strings.ToLower(net)
+				isNonTCP := netLower != "" && netLower != "tcp"
+				if !isNonTCP && u.Flow != "" && u.Flow != "none" {
 					client["flow"] = u.Flow
 				}
 			case "vmess":

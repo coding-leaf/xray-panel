@@ -212,6 +212,7 @@ func TestVlessFormatter_FullCombinations(t *testing.T) {
 			"path":     "/my-xhttp-path",
 			"mode":     "auto",
 			"host":     "origin.com",
+			"flow":     "xtls-rprx-vision", // 模拟错误传入的 flow，断言必须被自动过滤
 		},
 	}
 	linkXhttp, err := protocol.FormatLink(nodeXhttp)
@@ -222,6 +223,25 @@ func TestVlessFormatter_FullCombinations(t *testing.T) {
 	qXhttp := uXhttp.Query()
 	if qXhttp.Get("type") != "xhttp" || qXhttp.Get("path") != "/my-xhttp-path" || qXhttp.Get("mode") != "auto" || qXhttp.Get("host") != "origin.com" {
 		t.Errorf("unexpected xhttp params: %+v", qXhttp)
+	}
+	if qXhttp.Get("flow") != "" {
+		t.Errorf("expected empty flow for xhttp, but got: %s", qXhttp.Get("flow"))
+	}
+
+	clashXhttp, err := protocol.ToClash(nodeXhttp)
+	if err != nil {
+		t.Fatalf("failed to convert xhttp to clash: %v", err)
+	}
+	if clashXhttp["flow"] != nil && clashXhttp["flow"] != "" {
+		t.Errorf("expected empty clash flow for xhttp, but got: %v", clashXhttp["flow"])
+	}
+
+	singboxXhttp, err := protocol.ToSingBox(nodeXhttp)
+	if err != nil {
+		t.Fatalf("failed to convert xhttp to singbox: %v", err)
+	}
+	if singboxXhttp["flow"] != nil && singboxXhttp["flow"] != "" {
+		t.Errorf("expected empty singbox flow for xhttp, but got: %v", singboxXhttp["flow"])
 	}
 
 	// 3. WS + CDN 回源组合

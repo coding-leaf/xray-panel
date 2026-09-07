@@ -336,6 +336,17 @@ export async function handleMockRequest(url: string, method: string, data?: any)
       const port = inb.externalPort || inb.port || 443
 
       if (proto === 'vless') {
+        let network = 'tcp'
+        let security = 'none'
+        try {
+          const stream = JSON.parse(inb.streamSettings || '{}')
+          if (stream.network) network = stream.network.toLowerCase()
+          if (stream.security) security = stream.security.toLowerCase()
+        } catch {}
+
+        const isTcpVision = (network === 'tcp' || network === '') && (security === 'reality' || security === 'tls')
+        const flowParam = isTcpVision ? `&flow=${user?.flow || 'xtls-rprx-vision'}` : ''
+
         let subRoutes: any[] = []
         try {
           subRoutes = JSON.parse(inb.subRoutesJson || '[]')
@@ -347,12 +358,12 @@ export async function handleMockRequest(url: string, method: string, data?: any)
             const routeUuid = applyRouteIdToUuid(user?.uuid || 'uuid', sr.routeId)
             const remark = sr.remark || `${inb.tag}-${sr.routeId}`
             links.push(
-              `vless://${routeUuid}@${extHost}:${port}?security=reality&sni=www.titech.ac.jp&fp=chrome&pbk=FMdWD0uS9lrXUAoMmTP5e2LLD-mk8vO8JTZmAE9vdww&sid=0123456789abcdef&type=tcp&flow=${user?.flow || 'xtls-rprx-vision'}#${encodeURIComponent(remark)}`
+              `vless://${routeUuid}@${extHost}:${port}?security=reality&sni=www.titech.ac.jp&fp=chrome&pbk=FMdWD0uS9lrXUAoMmTP5e2LLD-mk8vO8JTZmAE9vdww&sid=0123456789abcdef&type=${network}${flowParam}#${encodeURIComponent(remark)}`
             )
           }
         } else {
           links.push(
-            `vless://${user?.uuid || 'uuid'}@${extHost}:${port}?security=reality&sni=www.titech.ac.jp&fp=chrome&pbk=FMdWD0uS9lrXUAoMmTP5e2LLD-mk8vO8JTZmAE9vdww&sid=0123456789abcdef&type=tcp&flow=${user?.flow || 'xtls-rprx-vision'}#${encodeURIComponent(inb.tag)}`
+            `vless://${user?.uuid || 'uuid'}@${extHost}:${port}?security=reality&sni=www.titech.ac.jp&fp=chrome&pbk=FMdWD0uS9lrXUAoMmTP5e2LLD-mk8vO8JTZmAE9vdww&sid=0123456789abcdef&type=${network}${flowParam}#${encodeURIComponent(inb.tag)}`
           )
         }
       } else if (proto === 'vmess') {

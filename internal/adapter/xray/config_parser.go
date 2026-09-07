@@ -403,6 +403,18 @@ func InboundToNodeConfig(inbound *domain.Inbound, user *domain.User, hostDomain 
 		node.SetParam("flow", user.Flow)
 	}
 
+	// 协议与传输层强约束：flow (XTLS Vision) 仅限 VLESS 协议且传输为 TCP + (REALITY 或 TLS)。
+	// 对于非 TCP 传输（如 xhttp, splithttp, ws, grpc）或非 TLS/REALITY，强制剔除 flow 参数杜绝污染。
+	netLower := strings.ToLower(node.GetParam("type"))
+	secLower := strings.ToLower(node.GetParam("security"))
+	if strings.ToLower(node.Protocol) == "vless" {
+		if (netLower != "tcp" && netLower != "") || (secLower != "reality" && secLower != "tls") {
+			delete(node.Params, "flow")
+		}
+	} else {
+		delete(node.Params, "flow")
+	}
+
 	if method, ok := settingsMap["method"].(string); ok && method != "" {
 		node.SetParam("method", method)
 	}

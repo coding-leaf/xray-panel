@@ -76,7 +76,8 @@ func (f *VlessFormatter) FormatLink(node *NodeConfig) (string, error) {
 	}
 
 	// 3. 流控参数 (Flow 控制，如 Vision)
-	if network == "tcp" && (security == "reality" || security == "tls") {
+	// XTLS Vision 严格仅限 TCP + (REALITY 或 TLS) 传输层，其余协议（如 xhttp、ws、grpc）严禁携带 flow
+	if (network == "tcp" || network == "") && (security == "reality" || security == "tls") {
 		flow := node.GetParam("flow")
 		if flow == "" {
 			flow = "xtls-rprx-vision"
@@ -84,8 +85,6 @@ func (f *VlessFormatter) FormatLink(node *NodeConfig) (string, error) {
 		if flow != "none" {
 			v.Set("flow", flow)
 		}
-	} else if flow := node.GetParam("flow"); flow != "" && flow != "none" {
-		v.Set("flow", flow)
 	}
 
 	// 4. 传输协议特定参数 (XHTTP / WS / gRPC / HTTPUpgrade / CDN 回源)
@@ -199,10 +198,12 @@ func (f *VlessFormatter) ToClash(node *NodeConfig) (map[string]interface{}, erro
 	if allowInsecure := node.GetParam("allowInsecure", node.GetParam("insecure")); allowInsecure == "1" || allowInsecure == "true" {
 		proxy["skip-cert-verify"] = true
 	}
-	if flow := node.GetParam("flow"); flow != "" && flow != "none" {
-		proxy["flow"] = flow
-	} else if network == "tcp" && isTLS {
-		proxy["flow"] = "xtls-rprx-vision"
+	if (network == "tcp" || network == "") && isTLS {
+		if flow := node.GetParam("flow"); flow != "" && flow != "none" {
+			proxy["flow"] = flow
+		} else {
+			proxy["flow"] = "xtls-rprx-vision"
+		}
 	}
 	if fp := node.GetParam("fp"); fp != "" {
 		proxy["client-fingerprint"] = fp
@@ -253,10 +254,12 @@ func (f *VlessFormatter) ToSingBox(node *NodeConfig) (map[string]interface{}, er
 	}
 
 	isTLS := security == "tls" || security == "reality"
-	if flow := node.GetParam("flow"); flow != "" && flow != "none" {
-		outbound["flow"] = flow
-	} else if network == "tcp" && isTLS {
-		outbound["flow"] = "xtls-rprx-vision"
+	if (network == "tcp" || network == "") && isTLS {
+		if flow := node.GetParam("flow"); flow != "" && flow != "none" {
+			outbound["flow"] = flow
+		} else {
+			outbound["flow"] = "xtls-rprx-vision"
+		}
 	}
 
 	if isTLS {

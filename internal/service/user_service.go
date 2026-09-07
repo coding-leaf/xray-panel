@@ -187,7 +187,6 @@ func (s *UserService) UpdateUser(ctx context.Context, id uint, dto domain.Update
 	return oldUser, nil
 }
 
-
 func (s *UserService) DeleteUser(ctx context.Context, id uint) error {
 	user, err := s.userRepo.GetByID(ctx, id)
 	if err != nil {

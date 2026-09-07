@@ -4,21 +4,22 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
-	"errors"
 	"fmt"
 	"log/slog"
 	"net"
-	"net/http"
 	"os"
 	"os/signal"
 	"strconv"
 	"syscall"
 	"time"
 
+	"golang.org/x/sync/errgroup"
+
 	"panel/internal/adapter/monitor"
 	"panel/internal/adapter/repository"
 	"panel/internal/adapter/telegram"
 	"panel/internal/adapter/xray"
+	"panel/internal/app"
 	"panel/internal/config"
 	deliveryCron "panel/internal/delivery/cron"
 	deliveryHTTP "panel/internal/delivery/http"
@@ -27,7 +28,7 @@ import (
 )
 
 var (
-	Version   = "v1.5.1"
+	Version   = "v1.6.0"
 	Commit    = "dev"
 	BuildTime = "unknown"
 )
@@ -50,6 +51,13 @@ func main() {
 		slog.Error("Failed to init SQLite", slog.String("error", err.Error()))
 		os.Exit(1)
 	}
+
+	sqlDB, err := db.DB()
+	if err != nil {
+		slog.Error("Failed to acquire raw DB handle", slog.String("error", err.Error()))
+		os.Exit(1)
+	}
+	storage := sqlDB
 
 	userRepo := repository.NewUserRepository(db)
 	inboundRepo := repository.NewInboundRepository(db)
@@ -142,41 +150,78 @@ func main() {
 	staticFS := getStaticFS()
 	router := deliveryHTTP.SetupRouter(handlers, cfg.JWTSecret, staticFS)
 
-	server := &http.Server{
-		Addr:    fmt.Sprintf(":%s", cfg.ListenPort),
-		Handler: router,
-	}
+	// 6. 生命周期管理与统一服务编排调度
+	rootCtx, stopSignals := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stopSignals()
 
-	// 6. 生命周期管理与优雅关机
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-	defer stop()
-
-	// 启动后台定时任务 (5 秒轮询实时上下行与在线状态)
+	httpSvc := deliveryHTTP.NewServer(cfg.ListenPort, router, deliveryHTTP.WithShutdownTimeout(5*time.Second))
 	syncJob := deliveryCron.NewTrafficSyncJob(xrayManager, userRepo, inboundRepo, trafficLogRepo, alertSvc, userSvc, 5*time.Second)
-	syncJob.Start(ctx)
 
-	// 启动 Telegram Bot 轮询
-	botHandler.StartPolling(ctx)
-
-	// 启动 HTTP 服务
-	go func() {
-		slog.Info("Panel HTTP server listening", slog.String("addr", server.Addr))
-		if err := server.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
-			slog.Error("HTTP server error", slog.String("error", err.Error()))
-			os.Exit(1)
-		}
-	}()
-
-	<-ctx.Done()
-	slog.Info("Shutting down panel gracefully...")
-
-	shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-
-	if err := server.Shutdown(shutdownCtx); err != nil {
-		slog.Error("Server forced shutdown", slog.String("error", err.Error()))
+	services := []struct {
+		name    string
+		service app.Service
+	}{
+		{name: "HTTP Server", service: httpSvc},
+		{name: "Traffic Sync Job", service: syncJob},
+		{name: "Telegram Bot", service: botHandler},
 	}
-	_ = grpcClient.Close()
+
+	// 使用 errgroup.WithContext 统一拉起所有 Service
+	g, gCtx := errgroup.WithContext(rootCtx)
+
+	for _, s := range services {
+		svc := s
+		g.Go(func() error {
+			slog.Info("Starting service", slog.String("name", svc.name))
+			if err := svc.service.Start(gCtx); err != nil {
+				slog.Error("Service exited with error", slog.String("name", svc.name), slog.String("error", err.Error()))
+				return fmt.Errorf("%s: %w", svc.name, err)
+			}
+			if gCtx.Err() == nil {
+				err := fmt.Errorf("service %s stopped unexpectedly", svc.name)
+				slog.Error("Service stopped unexpectedly", slog.String("name", svc.name))
+				return err
+			}
+			slog.Info("Service stopped cleanly", slog.String("name", svc.name))
+			return nil
+		})
+	}
+
+	slog.Info("All background services orchestrated and running")
+
+	// 等待所有服务退出 (任一服务异常崩溃或收到外部终止信号时，级联通知所有服务优雅退出)
+	var exitCode int
+	if err := g.Wait(); err != nil {
+		slog.Error("Application terminated due to service failure", slog.String("error", err.Error()))
+		exitCode = 1
+	} else {
+		slog.Info("All background services shut down gracefully")
+	}
+
+	// 退出阶段：释放外部连接与数据库锁
+	slog.Info("Executing application cleanup phases...")
+
+	// 阶段 1: 关闭外部客户端连接
+	slog.Info("[Phase 1/2] Closing Xray gRPC client connection...")
+	if err := grpcClient.Close(); err != nil {
+		slog.Warn("Failed to close Xray gRPC client cleanly", slog.String("error", err.Error()))
+	} else {
+		slog.Info("Xray gRPC client connection closed successfully")
+	}
+
+	// 阶段 2: 所有服务退出后，统一调用 storage.Close() 释放数据库锁，再退出主进程
+	slog.Info("[Phase 2/2] Closing database storage to release database file lock...")
+	if err := storage.Close(); err != nil {
+		slog.Error("Failed to close database storage", slog.String("error", err.Error()))
+		if exitCode == 0 {
+			exitCode = 1
+		}
+	} else {
+		slog.Info("Database storage closed and file locks released successfully")
+	}
 
 	slog.Info("Panel server exited safely")
+	if exitCode != 0 {
+		os.Exit(exitCode)
+	}
 }

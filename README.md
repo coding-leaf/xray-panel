@@ -1,7 +1,7 @@
 # 🚀 Xray Decoupled Panel (解耦运维监控与分流管理面板)
 
 <p align="center">
-  <img src="https://img.shields.io/badge/Version-v1.5.1-indigo?style=flat-square" alt="Version">
+  <img src="https://img.shields.io/badge/Version-v1.6.0-indigo?style=flat-square" alt="Version">
   <img src="https://img.shields.io/badge/Go-1.22+-00ADD8?style=flat-square&logo=go" alt="Go Version">
   <img src="https://img.shields.io/badge/Vue-3.4+-4FC08D?style=flat-square&logo=vue.js" alt="Vue Version">
   <img src="https://img.shields.io/badge/Architecture-Clean%20Architecture-blue?style=flat-square" alt="Clean Architecture">
@@ -19,7 +19,7 @@
 
 ---
 
-**Xray Decoupled Panel** 是一款基于 Go 与 Vue 3 构建的 Xray 单机运维监控、节点分流与聚合订阅管理面板。项目采用解耦设计，通过 Xray 原生 gRPC API 与系统服务进行交互管理，支持多入站/多出站分流编排、用户流量统计与聚合订阅分发。
+**Xray Decoupled Panel** 是一款基于 Go 与 Vue 3 构建的高性能 Xray 运维监控、节点分流与聚合订阅管理面板。项目采用彻底解耦的运行时架构，通过 Xray 官方原生 gRPC API (`HandlerService` / `StatsService`) 与系统服务直接通信交互，将动态用户状态与物理静态 `config.json` 完全解耦，支持用户毫秒级热增删、多入站/多出站分流编排、用户实时流量监控与多客户端聚合订阅分发。
 
 ---
 
@@ -34,24 +34,34 @@
 
 ## ⚡ 核心功能与特性 (Features)
 
-- 🔄 **动态用户管理与热重载**：
-  - 日常用户增删改查、配额调整、批量续期走 Xray 原生 gRPC API 动态同步，并配合静默持久化回写磁盘，无需频繁重启 Xray 进程；
-  - 仅在入站、出站、全局路由分流规则或 DNS 发生变更时执行平滑内核重载。
+- 🚀 **Xray 原生 gRPC 运行时热重载与状态解耦**：
+  - 深度接入 Xray 官方 gRPC API（`HandlerService` 与 `StatsService`），用户增删与状态变更通过 gRPC 协议毫秒级下发至运行中内核；
+  - 运行中长连接（WebSocket、gRPC、VLESS REALITY）零中断、不掉线，彻底告别传统面板修改 `config.json` 并强制重启 Xray 进程引发的连接中断问题；
+  - 仅在入站、出站、全局路由分流规则或 DNS 发生结构性变更时才执行平滑内核重载。
+- 💾 **嵌入式 BoltDB ACID 事务持久化与自动补偿**：
+  - 引入轻量级嵌入式 ACID 键值存储（bbolt），实现本地用户与凭据强一致持久化；
+  - 配备分布式协调与逆向补偿机制：gRPC 下发失败绝不提交 DB 事务，DB 持久化异常自动触发 gRPC 逆向补偿回滚，杜绝内存与磁盘间的脏状态与幽灵用户。
+- ❄️ **冷启动双轨落盘容灾 (`SyncToDiskConfig`)**：
+  - 系统关机、守护退出或手动触发时，自动将 BoltDB 动态用户集合安全合并落盘至 `config.json`，确保断电或冷启动时 Xray 核心能够零延迟恢复全量用户。
+- 🎯 **多协议多态账户适配与废弃字段彻底淘汰**：
+  - 统一支持 VLESS (Vision/Reality)、VMess、Trojan、Shadowsocks (2022/AEAD) 等主流协议多态 Account 结构与订阅分享转换；
+  - 彻底淘汰并移除 VMess 协议已废弃且存在安全隐患的 `alterId`，严格遵循现代 Xray 官方规范（强制 `alterId=0` / AEAD 加密）。
+- 🔄 **统一服务生命周期编排 (`app.Service`)**：
+  - 抽象标准 `app.Service` 契约，基于 `errgroup` 统一调度 HTTP Server、Telegram Bot Poller、Traffic Sync 定时轮询；
+  - 支持系统退出信号拦截、优雅关机（HTTP 活跃 Keep-Alive 连接排空）与有序资源释放（先关 gRPC 连接，再释放数据库文件锁）。
 - 🛡️ **并发流量统计防冲正**：
   - 采用字段隔离更新与重置时间窗口过滤，避免并发写入或旧周期增量冲正刚归零的流量。
 - 🌐 **单入站多通道分流 (VLESS Route)**：
   - 支持基于 VLESS UUID 映射的多出口分流机制，单个入站端口可按用户线路映射到不同落地出站，生成独立订阅节点。
-- 🎯 **协议与配置规范对齐**：
-  - 支持 VLESS、VMess、Trojan、Shadowsocks 等协议；REALITY 服务端参数规范化清洗；Shadowsocks 客户端配置加密算法支持；Trojan / VMess 订阅链接补齐 SNI、ALPN、WebSocket 路径与 Host 头。
 - 🎭 **纯前端 Mock 演示沙盒 (GitHub Pages)**：
-  - 内置基于 LocalStorage 的纯前端数据仿真引擎，无需后端服务器即可完整体验节点增删、通道编排与扫码订阅。
+  - 内置升级版 LocalStorage v3 数据仿真引擎，无需后端服务器即可完整体验多协议节点增删、通道编排与扫码订阅。
 - 🧩 **单二进制交付**：
-  - 前端基于 Vue 3 + Tailwind CSS 构建，所有静态资源通过 Go `//go:embed` 编译进单一二进制文件，无外部静态资源依赖，便于部署。
+  - 前端基于 Vue 3 + Tailwind CSS 构建，所有静态资源通过 Go `//go:embed` 编译进单一二进制文件，无外部静态资源依赖，极简运维。
 - 📊 **实时监控与在线追踪**：
   - 采集主机 CPU、内存、磁盘与双向网卡吞吐速率；
-  - 基于 Xray gRPC `StatsService` 的定时轮询机制，追踪用户瞬时速率与在线连接状态。
+  - 基于 Xray gRPC `StatsService` 定时轮询，精准追踪用户瞬时速率与在线连接状态。
 - 🔗 **聚合订阅与二维码分发**：
-  - 采用独立 `subToken` 鉴权，支持多协议节点的统一聚合与单节点/全节点订阅导出。
+  - 采用独立 `subToken` 鉴权，支持通用 Base64、Clash / Mihomo、Sing-box 等主流订阅格式导出与二维码扫码。
 - 🌍 **GeoData 规则库热更新**：
   - 支持在线拉取 `geoip.dat` 与 `geosite.dat` 规则库并平滑重载。
 - 🤖 **Telegram 运维机器人**：
@@ -61,7 +71,28 @@
 
 ---
 
-## 📝 最近更新日志 (v1.5.1)
+## 📝 最近更新日志 (v1.6.0)
+
+- **Xray-core 原生 gRPC 运行时热重载架构落地**：
+  - 新增 `internal/xray` 高性能运行时协调器，全面接入官方 `proxyman/command.HandlerServiceClient`，实现用户增删（AddUser / RemoveUser）毫秒级动态下发；
+  - 接入官方 `stats/command.StatsServiceClient`，实施无锁、低开销的实时用户双向流量采集；
+  - 彻底解耦动态用户状态与物理静态 `config.json`，用户变动时长连接不断线、零重启。
+- **嵌入式 BoltDB ACID 事务存储与故障补偿回滚**：
+  - 新增 `internal/storage` 模块，提供基于 bbolt 的嵌入式强一致持久化；
+  - 引入双向事务安全与自动逆向补偿机制：gRPC 调用失败中止提交，DB 写入异常自动调用 gRPC 逆向回滚，保障内存与磁盘强一致。
+- **冷启动容灾回写管道 (`SyncToDiskConfig`)**：
+  - 提供安全落盘合并引擎，在服务退出或手动触发时将 BoltDB 动态用户集合原子写回物理 `config.json`，确保冷启动与停机恢复零数据漂移。
+- **多协议多态账户体系与废弃字段彻底淘汰**：
+  - 新增 `internal/protocol` 领域格式化引擎，原生支持 VLESS (Vision/Reality)、VMess、Trojan、Shadowsocks 等协议的多态序列化与分享链接转换；
+  - 全面清理过时 `alterId` 字段，严格对齐现代 Xray 规范，VMess 强制启用 AEAD 加密；
+  - 新增 `internal/sub` 聚合订阅导出器，支持通用 Base64、Clash/Mihomo 与 Sing-box 订阅转换。
+- **全链路生命周期纳管与优雅退出**：
+  - 抽象 `app.Service` 标准接口，通过 `errgroup.WithContext` 统一拉起并编排 HTTP Server、Traffic Sync Job 与 Telegram Bot；
+  - 优雅关机支持 Keep-Alive 连接排空，退出阶段按序关闭 gRPC 连接并释放数据库独占文件锁。
+- **纯前端演示沙盒全面升级 (v3)**：
+  - 升级 LocalStorage 演示沙盒至 v3 引擎，支持多协议节点生成、实时指标仪表盘与 gRPC 运行时交互日志仿真。
+
+### 历史版本 (v1.5.1)
 
 - **安全性加固**：
   - 修复 TOTP 2FA 关闭时的参数校验逻辑，强制要求输入 6 位动态验证码；
@@ -85,16 +116,21 @@
 
 ```
 internal/
-├── domain/            # 业务领域实体与接口契约（Inbound, Outbound, User, Route）
-├── service/           # 核心用例（ConfigService 单向编译管道, UserService, AlertService）
+├── app/               # 应用生命周期契约与服务抽象 (Service, ServiceFunc)
+├── domain/            # 业务领域实体与接口契约 (Inbound, Outbound, User, Route)
+├── protocol/          # 多协议多态格式化与订阅生成 (VLESS, VMess, Trojan, Shadowsocks)
+├── service/           # 核心用例与编译管道 (ConfigService, UserService, AlertService, SubService)
+├── storage/           # 嵌入式 ACID 键值存储 (bbolt 持久化与编解码器)
+├── sub/               # 聚合订阅导出器 (Base64, Clash/Mihomo, Sing-box)
+├── xray/              # Xray 原生 gRPC Client、运行时协调器与冷启动落盘引擎
 ├── adapter/           # 外部系统适配实现
-│   ├── xray/          # Xray 强类型 Compiler、gRPC 客户端与 Systemd Supervisor
+│   ├── xray/          # 强类型 Compiler、Config Parser 与 Supervisor
 │   ├── repository/    # SQLite & GORM 仓储实现（WAL 模式加固）
-│   ├── telegram/      # Telegram Bot 适配器
-│   └── monitor/       # gopsutil 硬件指标采集
-└── delivery/          # 传输接入层
-    ├── http/          # RESTful API、Gin 路由与限流/鉴权中间件
-    └── cron/          # 流量同步与状态轮询定时任务
+│   ├── telegram/      # Telegram Bot 适配器与告警通知
+│   └── monitor/       # gopsutil 硬件性能指标采集
+└── delivery/          # 传输接入与服务暴露层
+    ├── http/          # RESTful API、Gin 路由、优雅停机 Server 与防护中间件
+    └── cron/          # 流量同步与状态轮询调度
 ```
 
 ---

@@ -4,13 +4,17 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"net/http"
 	"strings"
 	"time"
 
+	"panel/internal/app"
 	"panel/internal/domain"
 
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 )
+
+var _ app.Service = (*BotHandler)(nil)
 
 type BotHandler struct {
 	adapter     *BotAdapter
@@ -58,55 +62,115 @@ func (h *BotHandler) registerBotCommands(bot *tgbotapi.BotAPI) {
 	}
 }
 
-func (h *BotHandler) StartPolling(ctx context.Context) {
-	go func() {
-		for {
-			h.adapter.mu.RLock()
-			bot := h.adapter.bot
-			h.adapter.mu.RUnlock()
+type contextAwareHTTPClient struct {
+	base tgbotapi.HTTPClient
+	ctx  context.Context
+}
 
-			if bot == nil {
+func (c *contextAwareHTTPClient) Do(req *http.Request) (*http.Response, error) {
+	if c.ctx != nil {
+		req = req.WithContext(c.ctx)
+	}
+	if c.base != nil {
+		return c.base.Do(req)
+	}
+	return http.DefaultClient.Do(req)
+}
+
+// Start runs the Telegram bot polling loop as an app.Service.
+// When ctx is canceled, it immediately stops long-polling and returns cleanly.
+func (h *BotHandler) Start(ctx context.Context) error {
+	slog.Info("Telegram Bot service started")
+
+	for {
+		if ctx.Err() != nil {
+			slog.Info("Telegram Bot service stopped gracefully")
+			return nil
+		}
+
+		h.adapter.mu.RLock()
+		bot := h.adapter.bot
+		h.adapter.mu.RUnlock()
+
+		if bot == nil {
+			select {
+			case <-ctx.Done():
+				slog.Info("Telegram Bot service stopped gracefully")
+				return nil
+			case <-h.adapter.ReloadChan:
+				continue
+			case <-time.After(3 * time.Second):
+				continue
+			}
+		}
+
+		// 自动注册云端 Menu 按钮指令列表
+		h.registerBotCommands(bot)
+
+		// 注入感知 context 的 HTTP 客户端，当 ctx 取消时立即中断底层 HTTP 长轮询连接
+		origClient := bot.Client
+		bot.Client = &contextAwareHTTPClient{
+			base: origClient,
+			ctx:  ctx,
+		}
+
+		u := tgbotapi.NewUpdate(0)
+		u.Timeout = 30
+		slog.Info("Telegram Bot long polling started", slog.String("username", bot.Self.UserName))
+
+	pollLoop:
+		for {
+			select {
+			case <-ctx.Done():
+				slog.Info("Telegram Bot context canceled, disconnecting long-polling...")
+				break pollLoop
+			case <-h.adapter.ReloadChan:
+				slog.Info("Telegram Bot reloading configuration...")
+				break pollLoop
+			default:
+			}
+
+			updates, err := bot.GetUpdates(u)
+			if err != nil {
+				if ctx.Err() != nil {
+					slog.Info("Telegram Bot context canceled during updates fetch")
+					break pollLoop
+				}
+				// 针对网络偶发波动退避重试，允许被 context 或 reload 立即打断
 				select {
 				case <-ctx.Done():
-					return
+					break pollLoop
 				case <-h.adapter.ReloadChan:
-					continue
+					break pollLoop
 				case <-time.After(3 * time.Second):
-					continue
+					continue pollLoop
 				}
 			}
 
-			// 自动注册云端 Menu 按钮指令列表
-			h.registerBotCommands(bot)
-
-			u := tgbotapi.NewUpdate(0)
-			u.Timeout = 30
-			updates := bot.GetUpdatesChan(u)
-			slog.Info("Telegram Bot long polling started", slog.String("username", bot.Self.UserName))
-
-			pollCtx, cancelPoll := context.WithCancel(ctx)
-
-		pollLoop:
-			for {
-				select {
-				case <-pollCtx.Done():
-					break pollLoop
-				case <-h.adapter.ReloadChan:
-					cancelPoll()
-					bot.StopReceivingUpdates()
-					break pollLoop
-				case update, ok := <-updates:
-					if !ok {
-						cancelPoll()
-						break pollLoop
-					}
-					if update.Message != nil {
-						h.handleMessage(ctx, update.Message)
-					}
+			for _, update := range updates {
+				if update.UpdateID >= u.Offset {
+					u.Offset = update.UpdateID + 1
+				}
+				if update.Message != nil {
+					h.handleMessage(ctx, update.Message)
 				}
 			}
-			cancelPoll()
 		}
+
+		// 还原原始 Client
+		bot.Client = origClient
+
+		if ctx.Err() != nil {
+			slog.Info("Telegram Bot service stopped gracefully")
+			return nil
+		}
+	}
+}
+
+// StartPolling provides backward compatibility for asynchronous callers.
+func (h *BotHandler) StartPolling(ctx context.Context) {
+	go func() {
+		_ = h.Start(ctx)
 	}()
 }
 

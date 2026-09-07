@@ -13,6 +13,7 @@ require (
 	github.com/shirou/gopsutil/v3 v3.24.5
 	github.com/ulule/limiter/v3 v3.11.2
 	github.com/xtls/xray-core v1.260327.0
+	go.etcd.io/bbolt v1.5.0
 	golang.org/x/crypto v0.55.0
 	google.golang.org/grpc v1.83.2
 	gorm.io/gorm v1.31.2

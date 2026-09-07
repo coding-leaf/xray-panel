@@ -14,8 +14,12 @@ import (
 
 type mockSubUserRepo struct{}
 
-func (m *mockSubUserRepo) GetByID(ctx context.Context, id uint) (*domain.User, error)     { return nil, nil }
-func (m *mockSubUserRepo) GetByUUID(ctx context.Context, uuid string) (*domain.User, error) { return nil, nil }
+func (m *mockSubUserRepo) GetByID(ctx context.Context, id uint) (*domain.User, error) {
+	return nil, nil
+}
+func (m *mockSubUserRepo) GetByUUID(ctx context.Context, uuid string) (*domain.User, error) {
+	return nil, nil
+}
 func (m *mockSubUserRepo) GetByEmail(ctx context.Context, email string) (*domain.User, error) {
 	return nil, nil
 }
@@ -38,7 +42,7 @@ func (m *mockSubUserRepo) Update(ctx context.Context, u *domain.User) error   { 
 func (m *mockSubUserRepo) UpdateFields(ctx context.Context, id uint, fields map[string]interface{}) error {
 	return nil
 }
-func (m *mockSubUserRepo) Delete(ctx context.Context, id uint) error          { return nil }
+func (m *mockSubUserRepo) Delete(ctx context.Context, id uint) error { return nil }
 func (m *mockSubUserRepo) AddTraffic(ctx context.Context, email string, up, down int64) error {
 	return nil
 }
@@ -58,7 +62,7 @@ func (m *mockSubInboundRepo) GetByTag(ctx context.Context, tag string) (*domain.
 }
 func (m *mockSubInboundRepo) Create(ctx context.Context, inb *domain.Inbound) error { return nil }
 func (m *mockSubInboundRepo) Update(ctx context.Context, inb *domain.Inbound) error { return nil }
-func (m *mockSubInboundRepo) Delete(ctx context.Context, id uint) error              { return nil }
+func (m *mockSubInboundRepo) Delete(ctx context.Context, id uint) error             { return nil }
 func (m *mockSubInboundRepo) AddTraffic(ctx context.Context, tag string, up, down int64) error {
 	return nil
 }

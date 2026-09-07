@@ -35,8 +35,8 @@ func TestConfigManager_ConcurrentAtomicWriteAndRead(t *testing.T) {
 		go func(id int) {
 			defer wg.Done()
 			payload := map[string]interface{}{
-				"api": map[string]interface{}{"tag": "api"},
-				"log": map[string]interface{}{"loglevel": "warning"},
+				"api":  map[string]interface{}{"tag": "api"},
+				"log":  map[string]interface{}{"loglevel": "warning"},
 				"meta": id,
 			}
 			b, _ := json.Marshal(payload)

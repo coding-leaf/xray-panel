@@ -3,9 +3,9 @@ package xray
 import (
 	"bytes"
 	"context"
-	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"net"
 	"net/url"
 	"os"
 	"os/exec"
@@ -16,6 +16,7 @@ import (
 	"panel/internal/domain"
 	"panel/internal/pkg/jsonc"
 	"panel/internal/pkg/logger"
+	"panel/internal/protocol"
 )
 
 type ConfigManager struct {
@@ -221,9 +222,11 @@ func cleanHost(raw string) string {
 			return u.Hostname()
 		}
 	}
-	if strings.Contains(raw, ":") && !strings.Contains(raw, "]") {
-		return strings.Split(raw, ":")[0]
+	if h, _, err := net.SplitHostPort(raw); err == nil {
+		return h
 	}
+	raw = strings.TrimPrefix(raw, "[")
+	raw = strings.TrimSuffix(raw, "]")
 	return raw
 }
 
@@ -241,8 +244,12 @@ func ApplyVlessRouteToUUID(rawUUID string, routeID uint16) string {
 	return strings.Join(parts, "-")
 }
 
-// BuildShareLink 生成标准 Xray 分享链接 (vless://, vmess://, trojan://)
-func BuildShareLink(inbound *domain.Inbound, user *domain.User, hostDomain string, defaultPort int) string {
+// InboundToNodeConfig 将 domain.Inbound 与 domain.User 转换为通用的 protocol.NodeConfig
+func InboundToNodeConfig(inbound *domain.Inbound, user *domain.User, hostDomain string, defaultPort int) *protocol.NodeConfig {
+	if inbound == nil || user == nil {
+		return nil
+	}
+
 	targetHost := cleanHost(inbound.ExternalHost)
 	if targetHost == "" {
 		targetHost = cleanHost(hostDomain)
@@ -274,99 +281,9 @@ func BuildShareLink(inbound *domain.Inbound, user *domain.User, hostDomain strin
 		security = secVal
 	}
 
-	// 提取 TLS / REALITY 关键配置
-	tlsSNI := ""
-	tlsALPN := ""
-	if tlsSettings, ok := streamMap["tlsSettings"].(map[string]interface{}); ok {
-		if serverName, ok := tlsSettings["serverName"].(string); ok && serverName != "" {
-			tlsSNI = serverName
-		}
-		if alpnArr, ok := tlsSettings["alpn"].([]interface{}); ok && len(alpnArr) > 0 {
-			var alpns []string
-			for _, a := range alpnArr {
-				alpns = append(alpns, fmt.Sprintf("%v", a))
-			}
-			tlsALPN = strings.Join(alpns, ",")
-		}
-	}
-
-	realitySNI := ""
-	realityShortID := ""
-	realityPBK := ""
-	realitySPX := ""
-	realityFP := "chrome"
-	if realitySettings, ok := streamMap["realitySettings"].(map[string]interface{}); ok {
-		if pbk, ok := realitySettings["publicKey"].(string); ok && pbk != "" {
-			realityPBK = pbk
-		} else if privKey, ok := realitySettings["privateKey"].(string); ok && privKey != "" {
-			realityPBK = DerivePublicKeyFromPrivate(privKey)
-		}
-
-		// 自适应单数 serverName 与复数 serverNames
-		if sn, ok := realitySettings["serverName"].(string); ok && sn != "" {
-			realitySNI = sn
-		} else if serverNames, ok := realitySettings["serverNames"].([]interface{}); ok && len(serverNames) > 0 {
-			realitySNI = fmt.Sprintf("%v", serverNames[0])
-		}
-
-		// 自适应单数 shortId 与复数 shortIds
-		if sid, ok := realitySettings["shortId"].(string); ok && sid != "" {
-			realityShortID = sid
-		} else if shortIds, ok := realitySettings["shortIds"].([]interface{}); ok && len(shortIds) > 0 {
-			for _, sidRaw := range shortIds {
-				sidStr := fmt.Sprintf("%v", sidRaw)
-				if sidStr != "" {
-					realityShortID = sidStr
-					break
-				}
-			}
-		}
-
-		if spx, ok := realitySettings["spiderX"].(string); ok && spx != "" {
-			realitySPX = spx
-		}
-		if fp, ok := realitySettings["fingerprint"].(string); ok && fp != "" {
-			realityFP = fp
-		}
-	}
-
-	// 提取 WebSocket / gRPC / xHTTP 传输层参数
-	wsPath := ""
-	wsHost := ""
-	if wsSettings, ok := streamMap["wsSettings"].(map[string]interface{}); ok {
-		if path, ok := wsSettings["path"].(string); ok && path != "" {
-			wsPath = path
-		}
-		if headers, ok := wsSettings["headers"].(map[string]interface{}); ok {
-			if h, ok := headers["Host"].(string); ok && h != "" {
-				wsHost = h
-			} else if h, ok := headers["host"].(string); ok && h != "" {
-				wsHost = h
-			}
-		}
-		if wsHost == "" {
-			if h, ok := wsSettings["host"].(string); ok && h != "" {
-				wsHost = h
-			}
-		}
-	}
-
-	grpcServiceName := ""
-	if grpcSettings, ok := streamMap["grpcSettings"].(map[string]interface{}); ok {
-		if serviceName, ok := grpcSettings["serviceName"].(string); ok && serviceName != "" {
-			grpcServiceName = serviceName
-		}
-	}
-
-	xhttpPath := ""
-	xhttpMode := ""
-	if xhttpSettings, ok := streamMap["xhttpSettings"].(map[string]interface{}); ok {
-		if p, ok := xhttpSettings["path"].(string); ok && p != "" {
-			xhttpPath = p
-		}
-		if m, ok := xhttpSettings["mode"].(string); ok && m != "" {
-			xhttpMode = m
-		}
+	effectiveUUID := user.UUID
+	if inbound.RouteID > 0 && (inbound.Protocol == "" || strings.EqualFold(inbound.Protocol, "vless")) {
+		effectiveUUID = ApplyVlessRouteToUUID(user.UUID, inbound.RouteID)
 	}
 
 	remark := inbound.Remark
@@ -374,150 +291,170 @@ func BuildShareLink(inbound *domain.Inbound, user *domain.User, hostDomain strin
 		remark = inbound.Tag
 	}
 
-	switch strings.ToLower(inbound.Protocol) {
-	case "vless":
-		v := url.Values{}
-		v.Set("type", network)
-		v.Set("security", security)
-		v.Set("encryption", "none")
+	node := protocol.NewNodeConfig(remark, inbound.Protocol, targetHost, targetPort, effectiveUUID)
+	node.SetParam("type", network)
+	node.SetParam("security", security)
 
-		if security == "reality" {
-			v.Set("fp", realityFP)
-			if realityPBK != "" {
-				v.Set("pbk", realityPBK)
+	// 提取 TLS / REALITY 关键配置
+	if tlsSettings, ok := streamMap["tlsSettings"].(map[string]interface{}); ok {
+		if serverName, ok := tlsSettings["serverName"].(string); ok && serverName != "" {
+			node.SetParam("sni", serverName)
+		}
+		if alpnArr, ok := tlsSettings["alpn"].([]interface{}); ok && len(alpnArr) > 0 {
+			var alpns []string
+			for _, a := range alpnArr {
+				alpns = append(alpns, fmt.Sprintf("%v", a))
 			}
-			if realitySNI != "" {
-				v.Set("sni", realitySNI)
-			}
-			if realityShortID != "" {
-				v.Set("sid", realityShortID)
-			}
-			if realitySPX != "" {
-				v.Set("spx", realitySPX)
-			}
-		} else if security == "tls" {
-			v.Set("fp", "chrome")
-			if tlsSNI != "" {
-				v.Set("sni", tlsSNI)
-			}
-			if tlsALPN != "" {
-				v.Set("alpn", tlsALPN)
-			}
+			node.SetParam("alpn", strings.Join(alpns, ","))
+		}
+	}
+
+	if realitySettings, ok := streamMap["realitySettings"].(map[string]interface{}); ok {
+		if pbk, ok := realitySettings["publicKey"].(string); ok && pbk != "" {
+			node.SetParam("pbk", pbk)
+		} else if privKey, ok := realitySettings["privateKey"].(string); ok && privKey != "" {
+			node.SetParam("pbk", DerivePublicKeyFromPrivate(privKey))
 		}
 
-		// TCP 下的 flow 属性 (xtls-rprx-vision)
-		if network == "tcp" && (security == "reality" || security == "tls") {
-			var settingsMap map[string]interface{}
-			_ = json.Unmarshal([]byte(inbound.SettingsJSON), &settingsMap)
-			flow := ""
-			if f, ok := settingsMap["flow"].(string); ok && f != "" {
-				flow = f
-			} else if user.Flow != "" {
-				flow = user.Flow
-			} else {
-				flow = "xtls-rprx-vision"
-			}
-			if flow != "" {
-				v.Set("flow", flow)
+		if sn, ok := realitySettings["serverName"].(string); ok && sn != "" {
+			node.SetParam("sni", sn)
+		} else if serverNames, ok := realitySettings["serverNames"].([]interface{}); ok && len(serverNames) > 0 {
+			node.SetParam("sni", fmt.Sprintf("%v", serverNames[0]))
+		}
+
+		if sid, ok := realitySettings["shortId"].(string); ok && sid != "" {
+			node.SetParam("sid", sid)
+		} else if shortIds, ok := realitySettings["shortIds"].([]interface{}); ok && len(shortIds) > 0 {
+			for _, sidRaw := range shortIds {
+				sidStr := fmt.Sprintf("%v", sidRaw)
+				if sidStr != "" {
+					node.SetParam("sid", sidStr)
+					break
+				}
 			}
 		}
 
-		if network == "xhttp" {
-			if xhttpPath != "" {
-				v.Set("path", xhttpPath)
-			}
-			if xhttpMode != "" {
-				v.Set("mode", xhttpMode)
-			}
-		} else if network == "ws" {
-			if wsPath != "" {
-				v.Set("path", wsPath)
-			}
-			if wsHost != "" {
-				v.Set("host", wsHost)
-			}
-		} else if network == "grpc" {
-			if grpcServiceName != "" {
-				v.Set("serviceName", grpcServiceName)
-			}
+		if spx, ok := realitySettings["spiderX"].(string); ok && spx != "" {
+			node.SetParam("spx", spx)
 		}
+		if fp, ok := realitySettings["fingerprint"].(string); ok && fp != "" {
+			node.SetParam("fp", fp)
+		} else {
+			node.SetParam("fp", "chrome")
+		}
+	}
 
-		effectiveUUID := user.UUID
-		if inbound.RouteID > 0 {
-			effectiveUUID = ApplyVlessRouteToUUID(user.UUID, inbound.RouteID)
+	// 提取 WebSocket / gRPC / xHTTP 传输层参数
+	if wsSettings, ok := streamMap["wsSettings"].(map[string]interface{}); ok {
+		if path, ok := wsSettings["path"].(string); ok && path != "" {
+			node.SetParam("path", path)
 		}
-		return fmt.Sprintf("vless://%s@%s:%d?%s#%s", effectiveUUID, targetHost, targetPort, v.Encode(), url.QueryEscape(remark))
+		if headers, ok := wsSettings["headers"].(map[string]interface{}); ok {
+			if h, ok := headers["Host"].(string); ok && h != "" {
+				node.SetParam("host", h)
+			} else if h, ok := headers["host"].(string); ok && h != "" {
+				node.SetParam("host", h)
+			}
+		}
+		if node.GetParam("host") == "" {
+			if h, ok := wsSettings["host"].(string); ok && h != "" {
+				node.SetParam("host", h)
+			}
+		}
+	}
 
-	case "trojan":
-		v := url.Values{}
-		v.Set("type", network)
-		v.Set("security", security)
-		if security == "tls" {
-			if tlsSNI != "" {
-				v.Set("sni", tlsSNI)
-			}
-			if tlsALPN != "" {
-				v.Set("alpn", tlsALPN)
-			}
+	if grpcSettings, ok := streamMap["grpcSettings"].(map[string]interface{}); ok {
+		if serviceName, ok := grpcSettings["serviceName"].(string); ok && serviceName != "" {
+			node.SetParam("serviceName", serviceName)
 		}
-		if network == "ws" {
-			if wsPath != "" {
-				v.Set("path", wsPath)
-			}
-			if wsHost != "" {
-				v.Set("host", wsHost)
-			}
-		} else if network == "grpc" {
-			if grpcServiceName != "" {
-				v.Set("serviceName", grpcServiceName)
-			}
-		}
-		return fmt.Sprintf("trojan://%s@%s:%d?%s#%s", user.UUID, targetHost, targetPort, v.Encode(), url.QueryEscape(remark))
+	}
 
-	case "shadowsocks":
-		var settingsMap map[string]interface{}
-		_ = json.Unmarshal([]byte(inbound.SettingsJSON), &settingsMap)
-		method, _ := settingsMap["method"].(string)
-		if method == "" {
-			method = "aes-128-gcm"
+	if xhttpSettings, ok := streamMap["xhttpSettings"].(map[string]interface{}); ok {
+		if p, ok := xhttpSettings["path"].(string); ok && p != "" {
+			node.SetParam("path", p)
 		}
-		auth := fmt.Sprintf("%s:%s", method, user.UUID)
-		encodedAuth := base64.URLEncoding.EncodeToString([]byte(auth))
-		return fmt.Sprintf("ss://%s@%s:%d#%s", encodedAuth, targetHost, targetPort, url.QueryEscape(remark))
+		if m, ok := xhttpSettings["mode"].(string); ok && m != "" {
+			node.SetParam("mode", m)
+		}
+		if h, ok := xhttpSettings["host"].(string); ok && h != "" {
+			node.SetParam("host", h)
+		} else if headers, ok := xhttpSettings["headers"].(map[string]interface{}); ok {
+			if h, ok := headers["Host"].(string); ok && h != "" {
+				node.SetParam("host", h)
+			} else if h, ok := headers["host"].(string); ok && h != "" {
+				node.SetParam("host", h)
+			}
+		}
+	}
 
-	case "vmess":
-		vmessObj := map[string]interface{}{
-			"v":    "2",
-			"ps":   remark,
-			"add":  targetHost,
-			"port": targetPort,
-			"id":   user.UUID,
-			"aid":  0,
-			"net":  network,
-			"type": "none",
-			"tls":  security,
-		}
-		if security == "tls" && tlsSNI != "" {
-			vmessObj["sni"] = tlsSNI
-		}
-		if network == "ws" {
-			if wsPath != "" {
-				vmessObj["path"] = wsPath
-			}
-			if wsHost != "" {
-				vmessObj["host"] = wsHost
-			}
-		} else if network == "grpc" {
-			if grpcServiceName != "" {
-				vmessObj["path"] = grpcServiceName
+	// 提取 SettingsJSON (flow / method)
+	var settingsMap map[string]interface{}
+	_ = json.Unmarshal([]byte(inbound.SettingsJSON), &settingsMap)
+	if f, ok := settingsMap["flow"].(string); ok && f != "" {
+		node.SetParam("flow", f)
+	} else if clients, ok := settingsMap["clients"].([]interface{}); ok && len(clients) > 0 {
+		if cMap, ok := clients[0].(map[string]interface{}); ok {
+			if f, ok := cMap["flow"].(string); ok && f != "" {
+				node.SetParam("flow", f)
 			}
 		}
-		rawJSON, _ := json.Marshal(vmessObj)
-		return "vmess://" + base64.StdEncoding.EncodeToString(rawJSON)
+	}
+	if node.GetParam("flow") == "" && user.Flow != "" {
+		node.SetParam("flow", user.Flow)
+	}
 
-	default:
+	if method, ok := settingsMap["method"].(string); ok && method != "" {
+		node.SetParam("method", method)
+	}
+
+	return node
+}
+
+// InboundsToNodeConfigs 将一组 Inbound 和 User 转换为 []*protocol.NodeConfig
+func InboundsToNodeConfigs(inbounds []domain.Inbound, user *domain.User, hostDomain string, defaultPort int, tagFilter string) []*protocol.NodeConfig {
+	var nodes []*protocol.NodeConfig
+	for _, in := range inbounds {
+		if !in.Enabled || !user.HasInbound(in.Tag) {
+			continue
+		}
+		if tagFilter != "" && in.Tag != tagFilter {
+			continue
+		}
+		subRoutes := in.GetSubRoutes()
+		if len(subRoutes) == 0 {
+			if node := InboundToNodeConfig(&in, user, hostDomain, defaultPort); node != nil {
+				nodes = append(nodes, node)
+			}
+			continue
+		}
+		for _, sr := range subRoutes {
+			if !sr.Enabled {
+				continue
+			}
+			tempInbound := in
+			if sr.Name != "" {
+				tempInbound.Remark = sr.Name
+			}
+			tempInbound.RouteID = sr.RouteID
+			if node := InboundToNodeConfig(&tempInbound, user, hostDomain, defaultPort); node != nil {
+				nodes = append(nodes, node)
+			}
+		}
+	}
+	return nodes
+}
+
+// BuildShareLink 生成标准 Xray 分享链接 (基于 protocol.Registry 策略模式)
+func BuildShareLink(inbound *domain.Inbound, user *domain.User, hostDomain string, defaultPort int) string {
+	node := InboundToNodeConfig(inbound, user, hostDomain, defaultPort)
+	if node == nil {
 		return ""
 	}
+	link, err := protocol.FormatLink(node)
+	if err != nil {
+		return ""
+	}
+	return link
 }
 
 // BuildShareLinksForInbound 为单个入站生成一组分享链接 (若配置了 SubRoutes 则导出所有启用的分流线路，否则导出单节点)

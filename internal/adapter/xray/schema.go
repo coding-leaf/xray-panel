@@ -4,14 +4,14 @@ import "encoding/json"
 
 // XrayConfigFile 代表 Xray-core 官方根配置
 type XrayConfigFile struct {
-	Log       *XrayLogConfig      `json:"log,omitempty"`
-	API       *XrayAPIConfig      `json:"api,omitempty"`
-	Stats     *XrayStatsConfig    `json:"stats,omitempty"`
-	Policy    *XrayPolicyConfig   `json:"policy,omitempty"`
-	DNS       *XrayDNSConfig      `json:"dns,omitempty"`
-	Routing   *XrayRoutingConfig  `json:"routing,omitempty"`
-	Inbounds  []XrayInbound       `json:"inbounds"`
-	Outbounds []XrayOutbound      `json:"outbounds"`
+	Log       *XrayLogConfig     `json:"log,omitempty"`
+	API       *XrayAPIConfig     `json:"api,omitempty"`
+	Stats     *XrayStatsConfig   `json:"stats,omitempty"`
+	Policy    *XrayPolicyConfig  `json:"policy,omitempty"`
+	DNS       *XrayDNSConfig     `json:"dns,omitempty"`
+	Routing   *XrayRoutingConfig `json:"routing,omitempty"`
+	Inbounds  []XrayInbound      `json:"inbounds"`
+	Outbounds []XrayOutbound     `json:"outbounds"`
 }
 
 type XrayLogConfig struct {
@@ -49,7 +49,7 @@ type XrayClient struct {
 	Password string `json:"password,omitempty"` // Trojan / Shadowsocks
 	Method   string `json:"method,omitempty"`   // Shadowsocks cipher method
 	Email    string `json:"email,omitempty"`
-	Flow     string `json:"flow,omitempty"`     // xtls-rprx-vision
+	Flow     string `json:"flow,omitempty"` // xtls-rprx-vision
 	Level    int    `json:"level,omitempty"`
 }
 
@@ -152,7 +152,7 @@ type XrayOutbound struct {
 }
 
 type XrayRoutingRule struct {
-	Type        string   `json:"type"`                 // field
+	Type        string   `json:"type"` // field
 	Tag         string   `json:"tag,omitempty"`
 	InboundTag  []string `json:"inboundTag,omitempty"`
 	OutboundTag string   `json:"outboundTag"`

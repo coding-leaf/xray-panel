@@ -218,12 +218,12 @@ func (s *GeoDataService) runUpdateWorker() {
 }
 
 type progressWriter struct {
-	total       int64
-	downloaded  int64
-	lastTime    time.Time
-	lastBytes   int64
-	speedBps    int64
-	onProgress  func(downloaded, total, speed int64)
+	total      int64
+	downloaded int64
+	lastTime   time.Time
+	lastBytes  int64
+	speedBps   int64
+	onProgress func(downloaded, total, speed int64)
 }
 
 func (pw *progressWriter) Write(p []byte) (int, error) {
@@ -271,8 +271,8 @@ func (s *GeoDataService) downloadWithProgress(client *http.Client, url, destPath
 
 	totalSize := resp.ContentLength
 	pw := &progressWriter{
-		total:     totalSize,
-		lastTime:  time.Now(),
+		total:    totalSize,
+		lastTime: time.Now(),
 		onProgress: func(downloaded, total, speed int64) {
 			pct := startPct
 			if total > 0 {

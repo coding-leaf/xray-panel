@@ -68,12 +68,22 @@ func (m *mockUserRepo) GetByID(ctx context.Context, id uint) (*domain.User, erro
 	}
 	return nil, domain.ErrNotFound
 }
-func (m *mockUserRepo) GetByUUID(ctx context.Context, uuid string) (*domain.User, error) { return nil, nil }
-func (m *mockUserRepo) GetByEmail(ctx context.Context, email string) (*domain.User, error) { return nil, nil }
-func (m *mockUserRepo) GetBySubToken(ctx context.Context, token string) (*domain.User, error) { return nil, nil }
-func (m *mockUserRepo) ListByInboundTag(ctx context.Context, tag string) ([]domain.User, error) { return nil, nil }
+func (m *mockUserRepo) GetByUUID(ctx context.Context, uuid string) (*domain.User, error) {
+	return nil, nil
+}
+func (m *mockUserRepo) GetByEmail(ctx context.Context, email string) (*domain.User, error) {
+	return nil, nil
+}
+func (m *mockUserRepo) GetBySubToken(ctx context.Context, token string) (*domain.User, error) {
+	return nil, nil
+}
+func (m *mockUserRepo) ListByInboundTag(ctx context.Context, tag string) ([]domain.User, error) {
+	return nil, nil
+}
 func (m *mockUserRepo) ListAll(ctx context.Context) ([]domain.User, error) { return m.users, nil }
-func (m *mockUserRepo) AddTraffic(ctx context.Context, email string, up, down int64) error { return nil }
+func (m *mockUserRepo) AddTraffic(ctx context.Context, email string, up, down int64) error {
+	return nil
+}
 func (m *mockUserRepo) ResetTraffic(ctx context.Context, id uint) error {
 	for i := range m.users {
 		if m.users[i].ID == id {
@@ -95,7 +105,7 @@ func TestCheckAndResetMonthlyTraffic(t *testing.T) {
 		users: []domain.User{
 			{ID: 1, Email: "user1@test.com", ResetDay: today, LastResetMonth: lastMonth, UpBytes: 1024, DownBytes: 2048},
 			{ID: 2, Email: "user2@test.com", ResetDay: today, LastResetMonth: nowMonth, UpBytes: 5000, DownBytes: 5000}, // 本月已重置过，不能再重置
-			{ID: 3, Email: "user3@test.com", ResetDay: 1, LastResetMonth: lastMonth, UpBytes: 3000, DownBytes: 3000},     // 停机补偿：重置日为 1 号但未重置，应补偿重置
+			{ID: 3, Email: "user3@test.com", ResetDay: 1, LastResetMonth: lastMonth, UpBytes: 3000, DownBytes: 3000},    // 停机补偿：重置日为 1 号但未重置，应补偿重置
 		},
 	}
 
@@ -667,5 +677,3 @@ func TestUserService_ZeroDowntimeAndAutoRestore(t *testing.T) {
 		}
 	})
 }
-
-

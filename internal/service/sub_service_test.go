@@ -13,8 +13,10 @@ type mockSubUserRepo struct {
 
 func (m *mockSubUserRepo) Create(ctx context.Context, user *domain.User) error { return nil }
 func (m *mockSubUserRepo) Update(ctx context.Context, user *domain.User) error { return nil }
-func (m *mockSubUserRepo) UpdateFields(ctx context.Context, id uint, values map[string]interface{}) error { return nil }
-func (m *mockSubUserRepo) Delete(ctx context.Context, id uint) error            { return nil }
+func (m *mockSubUserRepo) UpdateFields(ctx context.Context, id uint, values map[string]interface{}) error {
+	return nil
+}
+func (m *mockSubUserRepo) Delete(ctx context.Context, id uint) error { return nil }
 func (m *mockSubUserRepo) GetByID(ctx context.Context, id uint) (*domain.User, error) {
 	return m.user, nil
 }
@@ -75,5 +77,68 @@ func TestSubService_OnlySubTokenAllowed(t *testing.T) {
 	_, err = svc.GetSubscriptionByToken(context.Background(), "11111111-2222-3333-4444-555555555555", "", "")
 	if err == nil {
 		t.Fatalf("expected error when querying by raw UUID, but succeeded!")
+	}
+}
+
+type mockSubInboundRepo struct {
+	inbounds []domain.Inbound
+}
+
+func (m *mockSubInboundRepo) Create(ctx context.Context, in *domain.Inbound) error { return nil }
+func (m *mockSubInboundRepo) Update(ctx context.Context, in *domain.Inbound) error { return nil }
+func (m *mockSubInboundRepo) Delete(ctx context.Context, id uint) error            { return nil }
+func (m *mockSubInboundRepo) GetByID(ctx context.Context, id uint) (*domain.Inbound, error) {
+	return nil, nil
+}
+func (m *mockSubInboundRepo) GetByTag(ctx context.Context, tag string) (*domain.Inbound, error) {
+	return nil, nil
+}
+func (m *mockSubInboundRepo) ListAll(ctx context.Context) ([]domain.Inbound, error) {
+	return m.inbounds, nil
+}
+func (m *mockSubInboundRepo) ListEnabled(ctx context.Context) ([]domain.Inbound, error) {
+	return m.inbounds, nil
+}
+func (m *mockSubInboundRepo) AddTraffic(ctx context.Context, tag string, upBytes, downBytes int64) error {
+	return nil
+}
+
+func TestSubService_ExportUserSubscription_Formats(t *testing.T) {
+	user := &domain.User{
+		ID:          1,
+		Email:       "test@example.com",
+		UUID:        "11111111-2222-3333-4444-555555555555",
+		SubToken:    "valid_sub_token_789",
+		InboundTags: "node-vless",
+		Enabled:     true,
+	}
+	userRepo := &mockSubUserRepo{user: user}
+	inboundRepo := &mockSubInboundRepo{
+		inbounds: []domain.Inbound{
+			{
+				Tag:            "node-vless",
+				Protocol:       "vless",
+				Port:           443,
+				Listen:         "127.0.0.1",
+				ExternalHost:   "node.example.com",
+				Enabled:        true,
+				StreamSettings: `{"network":"tcp","security":"none"}`,
+			},
+		},
+	}
+	svc := NewSubService(userRepo, inboundRepo, nil)
+
+	formats := []string{"base64", "raw", "clash", "sing-box"}
+	for _, fmtStr := range formats {
+		payload, output, err := svc.ExportUserSubscription(context.Background(), "valid_sub_token_789", "", "", fmtStr)
+		if err != nil {
+			t.Fatalf("format %s failed: %v", fmtStr, err)
+		}
+		if payload == nil {
+			t.Fatalf("format %s returned nil payload", fmtStr)
+		}
+		if len(output) == 0 {
+			t.Fatalf("format %s returned empty output", fmtStr)
+		}
 	}
 }

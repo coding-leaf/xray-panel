@@ -202,9 +202,9 @@ func TestXrayRealityValidation(t *testing.T) {
 
 	outbounds := []domain.Outbound{
 		{
-			Tag:          "us-reality-exit",
-			Protocol:     "vless",
-			SettingsJSON: `{"vnext":[{"address":"1.2.3.4","port":443,"users":[{"id":"7117295b-4362-0000-a133-b969344dfcd5","encryption":"none"}]}]}`,
+			Tag:            "us-reality-exit",
+			Protocol:       "vless",
+			SettingsJSON:   `{"vnext":[{"address":"1.2.3.4","port":443,"users":[{"id":"7117295b-4362-0000-a133-b969344dfcd5","encryption":"none"}]}]}`,
 			StreamSettings: `{"network":"tcp","security":"reality","realitySettings":{"serverNames":["apple.com"],"publicKey":"abc","shortIds":["123456"]}}`,
 		},
 	}
@@ -531,7 +531,3 @@ func TestCompiler_ShadowsocksMethodBuild(t *testing.T) {
 		}
 	})
 }
-
-
-
-

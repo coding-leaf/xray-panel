@@ -139,6 +139,56 @@ func (c *GRPCClient) RemoveUser(ctx context.Context, inboundTag string, email st
 	return nil
 }
 
+// AddInboundUser 动态添加入站用户 (兼容方法)
+func (c *GRPCClient) AddInboundUser(inboundTag string, email string, uuid string, flow string) error {
+	inbound := &domain.Inbound{
+		Tag:      inboundTag,
+		Protocol: "vless",
+	}
+	if flow != "" {
+		inbound.StreamSettings = `{"network":"tcp","security":"reality"}`
+	}
+	user := &domain.User{
+		Email: email,
+		UUID:  uuid,
+		Flow:  flow,
+	}
+	return c.AddUser(context.Background(), inbound, user)
+}
+
+// RemoveInboundUser 动态移除入站用户 (兼容方法)
+func (c *GRPCClient) RemoveInboundUser(inboundTag string, email string) error {
+	return c.RemoveUser(context.Background(), inboundTag, email)
+}
+
+// QueryTraffic 查询指定模式的流量数据 (兼容方法)
+func (c *GRPCClient) QueryTraffic(pattern string, reset bool) (map[string]int64, error) {
+	_, err := c.getConn(context.Background())
+	if err != nil {
+		return nil, err
+	}
+
+	req := &statsCommand.QueryStatsRequest{
+		Pattern: pattern,
+		Reset_:  reset,
+	}
+
+	resp, err := c.statsCli.QueryStats(context.Background(), req)
+	if err != nil {
+		return nil, fmt.Errorf("xray query stats failed: %w", err)
+	}
+
+	result := make(map[string]int64)
+	if resp != nil {
+		for _, stat := range resp.GetStat() {
+			if stat != nil {
+				result[stat.GetName()] = stat.GetValue()
+			}
+		}
+	}
+	return result, nil
+}
+
 // QueryTrafficStats 查询流量统计
 func (c *GRPCClient) QueryTrafficStats(ctx context.Context, reset bool) ([]domain.TrafficStat, error) {
 	_, err := c.getConn(ctx)

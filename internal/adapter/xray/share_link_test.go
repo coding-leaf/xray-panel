@@ -116,4 +116,42 @@ func TestBuildShareLink_FullParameterParity(t *testing.T) {
 			t.Errorf("expected reality pbk to be test-pbk, got %s", q.Get("pbk"))
 		}
 	})
+
+	t.Run("IPv6 address preserved without truncation (cleanHost bug fix)", func(t *testing.T) {
+		inbound := &domain.Inbound{
+			Tag:            "vless-ipv6",
+			Protocol:       "vless",
+			Port:           443,
+			ExternalHost:   "2408:8207:dead:beef::1", // 裸 IPv6
+			StreamSettings: `{"network":"tcp","security":"none"}`,
+		}
+
+		link := xray.BuildShareLink(inbound, user, "", 0)
+		if !strings.Contains(link, "@[2408:8207:dead:beef::1]:443") {
+			t.Fatalf("expected bracketed IPv6 in link, got: %s", link)
+		}
+
+		node := xray.InboundToNodeConfig(inbound, user, "", 0)
+		if node.Address != "2408:8207:dead:beef::1" {
+			t.Errorf("expected raw IPv6 address preserved in NodeConfig, got: %s", node.Address)
+		}
+	})
+
+	t.Run("XHTTP host header extraction", func(t *testing.T) {
+		inbound := &domain.Inbound{
+			Tag:            "vless-xhttp",
+			Protocol:       "vless",
+			Port:           443,
+			ExternalHost:   "1.2.3.4",
+			StreamSettings: `{"network":"xhttp","security":"none","xhttpSettings":{"path":"/xhttp-path","mode":"stream-up","host":"xhttp.origin.com"}}`,
+		}
+
+		node := xray.InboundToNodeConfig(inbound, user, "", 0)
+		if node.GetParam("host") != "xhttp.origin.com" {
+			t.Errorf("expected xhttp host to be xhttp.origin.com, got: %s", node.GetParam("host"))
+		}
+		if node.GetParam("mode") != "stream-up" {
+			t.Errorf("expected xhttp mode to be stream-up, got: %s", node.GetParam("mode"))
+		}
+	})
 }

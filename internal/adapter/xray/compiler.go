@@ -297,7 +297,7 @@ func (c *XrayCompiler) compileInbound(inb *domain.Inbound, users []domain.User) 
 		if len(r.ShortIds) == 0 && r.ShortId != "" {
 			r.ShortIds = []string{r.ShortId}
 		}
-		r.ShortId = ""     // 服务端严禁包含单数 shortId
+		r.ShortId = "" // 服务端严禁包含单数 shortId
 		if r.Dest == "" && r.Target != "" {
 			r.Dest = r.Target
 		}
@@ -387,7 +387,7 @@ func (c *XrayCompiler) compileOutbound(ob *domain.Outbound) (*XrayOutbound, erro
 		if r.ShortId == "" && len(r.ShortIds) > 0 {
 			r.ShortId = r.ShortIds[0]
 		}
-		r.ShortIds = nil    // 客户端严禁包含复数 shortIds
+		r.ShortIds = nil // 客户端严禁包含复数 shortIds
 	}
 
 	settingsStr := strings.TrimSpace(ob.SettingsJSON)

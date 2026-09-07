@@ -3,6 +3,7 @@ package http
 import (
 	"fmt"
 	"net/http"
+	"strings"
 
 	"panel/internal/service"
 
@@ -29,8 +30,12 @@ func (h *SubHandler) GetSubscription(c *gin.Context) {
 
 	tagFilter := c.Query("tag")
 	reqHost := c.Request.Host
+	format := c.Query("format")
+	if format == "" {
+		format = c.Query("type")
+	}
 
-	payload, err := h.subSvc.GetSubscriptionByToken(c.Request.Context(), token, tagFilter, reqHost)
+	payload, output, err := h.subSvc.ExportUserSubscription(c.Request.Context(), token, tagFilter, reqHost, format)
 	if err != nil {
 		c.String(http.StatusForbidden, err.Error())
 		return
@@ -42,12 +47,21 @@ func (h *SubHandler) GetSubscription(c *gin.Context) {
 		expireSec = payload.ExpireTime / 1000
 	}
 	c.Header("Subscription-Userinfo", fmt.Sprintf("upload=%d; download=%d; total=%d; expire=%d", payload.UpBytes, payload.DownBytes, payload.TotalBytes, expireSec))
-	c.Header("Content-Type", "text/plain; charset=utf-8")
+
+	switch strings.ToLower(strings.TrimSpace(format)) {
+	case "clash", "clash-meta", "mihomo":
+		c.Header("Content-Type", "application/yaml; charset=utf-8")
+	case "sing-box", "singbox":
+		c.Header("Content-Type", "application/json; charset=utf-8")
+	default:
+		c.Header("Content-Type", "text/plain; charset=utf-8")
+	}
+
 	c.Header("Profile-Update-Interval", "24")
 	c.Header("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0")
 	c.Header("Pragma", "no-cache")
 	c.Header("Expires", "0")
 
-	// 返回 Base64 编码的标准节点订阅
-	c.String(http.StatusOK, payload.Base64Data)
+	// 返回对应格式的订阅内容
+	c.String(http.StatusOK, output)
 }

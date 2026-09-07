@@ -3,11 +3,15 @@ package cron
 import (
 	"context"
 	"log/slog"
+	"sync"
 	"time"
 
+	"panel/internal/app"
 	"panel/internal/domain"
 	"panel/internal/service"
 )
+
+var _ app.Service = (*TrafficSyncJob)(nil)
 
 type TrafficSyncJob struct {
 	xrayManager    domain.XrayManager
@@ -42,27 +46,20 @@ func NewTrafficSyncJob(
 	}
 }
 
-func (j *TrafficSyncJob) Start(ctx context.Context) {
+func (j *TrafficSyncJob) Start(ctx context.Context) error {
 	ticker := time.NewTicker(j.interval)
+	defer ticker.Stop()
+
 	alertTicker := time.NewTicker(5 * time.Minute)
 
 	slog.Info("Traffic sync job started", slog.Duration("interval", j.interval))
 
-	// 1. 专属核心高频协程：执行 5s 流量同步、实时速率计算与到期/超额踢人 (完全隔绝外部网络 I/O 阻塞)
-	go func() {
-		defer ticker.Stop()
-		for {
-			select {
-			case <-ctx.Done():
-				return
-			case <-ticker.C:
-				j.syncOnce(ctx)
-			}
-		}
-	}()
+	var wg sync.WaitGroup
 
-	// 2. 独立外部告警与周期维护协程：执行 Telegram 外部网络通知与月度流量重置
+	// 1. 独立外部告警与周期维护协程：执行 Telegram 外部网络通知与月度流量重置
+	wg.Add(1)
 	go func() {
+		defer wg.Done()
 		defer alertTicker.Stop()
 		for {
 			select {
@@ -80,9 +77,30 @@ func (j *TrafficSyncJob) Start(ctx context.Context) {
 			}
 		}
 	}()
+
+	// 2. 核心流量监控采集循环：基于 time.Ticker 循环采集，收到 ctx.Done() 后执行最后一次数据刷盘
+	for {
+		select {
+		case <-ctx.Done():
+			slog.Info("Traffic sync job received stop signal, executing final data flush...")
+			flushCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			j.syncOnce(flushCtx)
+			cancel()
+
+			wg.Wait()
+			slog.Info("Traffic sync job stopped gracefully")
+			return nil
+		case <-ticker.C:
+			j.syncOnce(ctx)
+		}
+	}
 }
 
 func (j *TrafficSyncJob) syncOnce(ctx context.Context) {
+	if j.xrayManager == nil {
+		return
+	}
+
 	// 查询增量统计数据并重置计数
 	stats, err := j.xrayManager.QueryTrafficStats(ctx, true)
 	if err != nil {
@@ -99,6 +117,10 @@ func (j *TrafficSyncJob) syncOnce(ctx context.Context) {
 	// 临时聚合本次轮询的速率
 	userDeltaUp := make(map[string]int64)
 	userDeltaDown := make(map[string]int64)
+
+	// 确保重置 Xray 统计后，数据的写入持久化不受父级 ctx 取消影响，使用独立的超时保护以杜绝数据丢失
+	writeCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+	defer cancel()
 
 	for _, s := range stats {
 		if s.Value <= 0 {
@@ -118,7 +140,9 @@ func (j *TrafficSyncJob) syncOnce(ctx context.Context) {
 				continue
 			}
 
-			_ = j.userRepo.AddTraffic(ctx, s.Tag, up, down)
+			if j.userRepo != nil {
+				_ = j.userRepo.AddTraffic(writeCtx, s.Tag, up, down)
+			}
 			if up > 0 {
 				userDeltaUp[s.Tag] += up
 			}
@@ -127,21 +151,25 @@ func (j *TrafficSyncJob) syncOnce(ctx context.Context) {
 			}
 
 			// 异步/同步写入每日历史记录
-			user, err := j.userRepo.GetByEmail(ctx, s.Tag)
-			if err == nil && user != nil {
-				if j.trafficLogRepo != nil {
-					_ = j.trafficLogRepo.RecordTraffic(ctx, user.ID, s.Tag, up, down, today)
-				}
+			if j.userRepo != nil {
+				user, err := j.userRepo.GetByEmail(writeCtx, s.Tag)
+				if err == nil && user != nil {
+					if j.trafficLogRepo != nil {
+						_ = j.trafficLogRepo.RecordTraffic(writeCtx, user.ID, s.Tag, up, down, today)
+					}
 
-				// 检查用户是否处于非活跃状态（禁用、过期或超额），非活跃则立即从 Xray 所有节点剔除
-				if !user.IsActive() {
-					for _, t := range user.GetInboundTagList() {
-						_ = j.xrayManager.RemoveUser(ctx, t, user.Email)
+					// 检查用户是否处于非活跃状态（禁用、过期或超额），非活跃则立即从 Xray 所有节点剔除
+					if !user.IsActive() {
+						for _, t := range user.GetInboundTagList() {
+							_ = j.xrayManager.RemoveUser(writeCtx, t, user.Email)
+						}
 					}
 				}
 			}
 		} else if s.Type == domain.TrafficStatTypeInbound {
-			_ = j.inboundRepo.AddTraffic(ctx, s.Tag, up, down)
+			if j.inboundRepo != nil {
+				_ = j.inboundRepo.AddTraffic(writeCtx, s.Tag, up, down)
+			}
 		}
 	}
 

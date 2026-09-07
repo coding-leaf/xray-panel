@@ -41,6 +41,13 @@ func (b *BotAdapter) Init() error {
 	return nil
 }
 
+// SetBotForTest injects a custom BotAPI instance for unit testing.
+func (b *BotAdapter) SetBotForTest(bot *tgbotapi.BotAPI) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.bot = bot
+}
+
 func (b *BotAdapter) UpdateConfig(botToken string, adminChatID int64) error {
 	b.mu.Lock()
 	b.botToken = botToken

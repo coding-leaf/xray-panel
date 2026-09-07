@@ -43,10 +43,38 @@ export async function handleMockRequest(url: string, method: string, data?: any)
 
   // 2. Dashboard 仪表盘
   if (cleanUrl.endsWith('/dashboard') && method === 'GET') {
+    const totalTraffic = state.users.reduce((acc, u) => acc + (u.upBytes || 0) + (u.downBytes || 0), 0)
+    const totalUp = state.users.reduce((acc, u) => acc + (u.upBytes || 0), 0)
+    const totalDown = state.users.reduce((acc, u) => acc + (u.downBytes || 0), 0)
+    const activeUsers = state.users.filter((u) => u.isOnline).length
+
     return delay({
+      metrics: {
+        cpuUsagePercent: Math.round(18 + Math.random() * 8),
+        memoryUsagePercent: 37.5,
+        memoryUsedBytes: 384 * 1024 * 1024,
+        memoryTotalBytes: 1024 * 1024 * 1024,
+        diskUsagePercent: 30.0,
+        diskUsedBytes: 12 * 1024 * 1024 * 1024,
+        diskTotalBytes: 40 * 1024 * 1024 * 1024,
+        netUpSpeed: Math.round(1024 * (1200 + Math.random() * 300)),
+        netDownSpeed: Math.round(1024 * (8450 + Math.random() * 1200)),
+        uptimeSeconds: 48600,
+        xrayRunning: true,
+        xrayVersion: 'Xray 26.3.27 (gRPC Runtime) Linux/amd64',
+      },
+      service: {
+        active: true,
+        subState: 'running',
+      },
+      userCount: state.users.length,
+      activeUsers,
+      inbounds: state.inbounds,
+      totalUp,
+      totalDown,
       xrayStatus: {
         running: true,
-        version: 'Xray 26.3.27 (Demo Engine) Linux/amd64',
+        version: 'Xray 26.3.27 (gRPC Runtime) Linux/amd64',
         uptimeSecs: 48600,
         xrayPid: 12345,
       },
@@ -61,10 +89,10 @@ export async function handleMockRequest(url: string, method: string, data?: any)
       },
       stats: {
         totalUsers: state.users.length,
-        onlineUsers: state.users.filter((u) => u.isOnline).length,
+        onlineUsers: activeUsers,
         totalInbounds: state.inbounds.length,
         totalOutbounds: state.outbounds.length,
-        totalTrafficBytes: state.users.reduce((acc, u) => acc + (u.upBytes || 0) + (u.downBytes || 0), 0),
+        totalTrafficBytes: totalTraffic,
       },
     })
   }
@@ -279,7 +307,7 @@ export async function handleMockRequest(url: string, method: string, data?: any)
     return delay(history)
   }
 
-  // 获取多节点订阅与分享链接 (基于 VLESS Route ID 动态 UUID)
+  // 获取多节点订阅与分享链接 (支持 VLESS Vision、VMess、Trojan、Shadowsocks 等多协议)
   const userSubMatch = cleanUrl.match(/\/users\/(\d+)\/share$/)
   if (userSubMatch) {
     const id = parseInt(userSubMatch[1], 10)
@@ -290,24 +318,52 @@ export async function handleMockRequest(url: string, method: string, data?: any)
     const assignedInbounds = state.inbounds.filter((inb) => userInboundTags.includes(inb.tag))
 
     for (const inb of assignedInbounds) {
-      let subRoutes: any[] = []
-      try {
-        subRoutes = JSON.parse(inb.subRoutesJson || '[]')
-      } catch {}
+      const proto = (inb.protocol || 'vless').toLowerCase()
+      const extHost = inb.externalHost || 'demo.example.com'
+      const port = inb.externalPort || inb.port || 443
 
-      const enabledSubRoutes = subRoutes.filter((sr: any) => sr.enabled && sr.routeId > 0)
-      if (enabledSubRoutes.length > 0) {
-        for (const sr of enabledSubRoutes) {
-          const routeUuid = applyRouteIdToUuid(user?.uuid || 'uuid', sr.routeId)
-          const remark = sr.remark || `${inb.tag}-${sr.routeId}`
+      if (proto === 'vless') {
+        let subRoutes: any[] = []
+        try {
+          subRoutes = JSON.parse(inb.subRoutesJson || '[]')
+        } catch {}
+
+        const enabledSubRoutes = subRoutes.filter((sr: any) => sr.enabled && sr.routeId > 0)
+        if (enabledSubRoutes.length > 0) {
+          for (const sr of enabledSubRoutes) {
+            const routeUuid = applyRouteIdToUuid(user?.uuid || 'uuid', sr.routeId)
+            const remark = sr.remark || `${inb.tag}-${sr.routeId}`
+            links.push(
+              `vless://${routeUuid}@${extHost}:${port}?security=reality&sni=www.titech.ac.jp&fp=chrome&pbk=FMdWD0uS9lrXUAoMmTP5e2LLD-mk8vO8JTZmAE9vdww&sid=0123456789abcdef&type=tcp&flow=${user?.flow || 'xtls-rprx-vision'}#${encodeURIComponent(remark)}`
+            )
+          }
+        } else {
           links.push(
-            `vless://${routeUuid}@demo.example.com:${inb.externalPort || inb.port || 443}?security=reality&sni=www.titech.ac.jp&fp=chrome&pbk=FMdWD0uS9lrXUAoMmTP5e2LLD-mk8vO8JTZmAE9vdww&sid=0123456789abcdef&type=tcp&flow=${user?.flow || 'xtls-rprx-vision'}#${encodeURIComponent(remark)}`
+            `vless://${user?.uuid || 'uuid'}@${extHost}:${port}?security=reality&sni=www.titech.ac.jp&fp=chrome&pbk=FMdWD0uS9lrXUAoMmTP5e2LLD-mk8vO8JTZmAE9vdww&sid=0123456789abcdef&type=tcp&flow=${user?.flow || 'xtls-rprx-vision'}#${encodeURIComponent(inb.tag)}`
           )
         }
-      } else {
+      } else if (proto === 'vmess') {
+        const vmessObj = {
+          v: '2',
+          ps: `${inb.tag} (VMess WS)`,
+          add: extHost,
+          port: port,
+          id: user?.uuid || 'uuid',
+          aid: 0,
+          net: 'ws',
+          type: 'none',
+          host: extHost,
+          path: '/vmess',
+          tls: 'none',
+        }
+        links.push(`vmess://${btoa(unescape(encodeURIComponent(JSON.stringify(vmessObj))))}`)
+      } else if (proto === 'trojan') {
         links.push(
-          `vless://${user?.uuid || 'uuid'}@demo.example.com:${inb.externalPort || inb.port || 443}?security=reality&sni=www.titech.ac.jp&fp=chrome&pbk=FMdWD0uS9lrXUAoMmTP5e2LLD-mk8vO8JTZmAE9vdww&sid=0123456789abcdef&type=tcp&flow=${user?.flow || 'xtls-rprx-vision'}#${encodeURIComponent(inb.tag)}`
+          `trojan://${user?.uuid || 'password'}@${extHost}:${port}?security=reality&sni=gateway.icloud.com&fp=chrome&pbk=FMdWD0uS9lrXUAoMmTP5e2LLD-mk8vO8JTZmAE9vdww&sid=0123456789abcdef&type=tcp#${encodeURIComponent(inb.tag)}`
         )
+      } else if (proto === 'shadowsocks' || proto === 'ss') {
+        const ssAuth = btoa(`2022-blake3-aes-128-gcm:${user?.uuid || 'password'}`)
+        links.push(`ss://${ssAuth}@${extHost}:${port}#${encodeURIComponent(inb.tag)}`)
       }
     }
 
@@ -353,10 +409,12 @@ export async function handleMockRequest(url: string, method: string, data?: any)
   if (cleanUrl.endsWith('/logs') && method === 'GET') {
     const nowStr = new Date().toISOString().replace('T', ' ').substring(0, 19).replace(/-/g, '/')
     const randomLogs = [
+      `${nowStr} [Info] app/proxyman/command: Dynamic gRPC HandlerService AlterInbound: AddUser master@yezineko.top into inbound [vless-reality] success`,
+      `${nowStr} [Info] app/stats/command: StatsService QueryStats pattern "user>>>master@yezineko.top>>>traffic>>>downlink" -> 30000000000 bytes`,
       `${nowStr} 127.0.0.1:4${Math.floor(1000 + Math.random() * 9000)} accepted tcp:www.youtube.com:443 [vless-reality -> direct] email: master@yezineko.top`,
       `${nowStr} 127.0.0.1:4${Math.floor(1000 + Math.random() * 9000)} accepted tcp:api.openai.com:443 [vless-reality -> warp-out] email: master@yezineko.top`,
       `${nowStr} 127.0.0.1:4${Math.floor(1000 + Math.random() * 9000)} accepted tcp:hk-node.example.com:443 [vless-reality -> hk-landing] email: master@yezineko.top`,
-      `${nowStr} [Info] app/proxyman/inbound: inbound connection accepted on port 4434`,
+      `${nowStr} [Info] app/sync: Cold-boot SyncToDiskConfig fallback verified with zero config drift`,
     ]
     return delay({
       lines: [...randomLogs, ...state.logs],

@@ -1,4 +1,4 @@
-// 本地 LocalStorage 演示环境数据持久化引擎 (v2)
+// 本地 LocalStorage 演示环境数据持久化引擎 (v3 - gRPC 运行时架构)
 
 export interface MockState {
   inbounds: any[]
@@ -9,7 +9,7 @@ export interface MockState {
   logs: string[]
 }
 
-const STORAGE_KEY = 'xray_panel_demo_state_v2'
+const STORAGE_KEY = 'xray_panel_demo_state_v3'
 
 const now = Date.now()
 
@@ -67,6 +67,96 @@ const DEFAULT_RAW_STATE: MockState = {
       enabled: true,
       isAlive: true,
       latencyMs: 18,
+    },
+    {
+      id: 2,
+      tag: 'vmess-ws',
+      listen: '0.0.0.0',
+      port: 8080,
+      externalPort: 80,
+      externalHost: 'demo.example.com',
+      routeId: 0,
+      protocol: 'vmess',
+      settingsJson: JSON.stringify({
+        clients: [],
+      }),
+      streamSettings: JSON.stringify({
+        network: 'ws',
+        security: 'none',
+        wsSettings: {
+          path: '/vmess',
+          headers: {
+            Host: 'demo.example.com',
+          },
+        },
+      }),
+      sniffingJson: JSON.stringify({
+        enabled: true,
+        destOverride: ['http', 'tls'],
+        routeOnly: false,
+      }),
+      subRoutesJson: '[]',
+      enabled: true,
+      isAlive: true,
+      latencyMs: 24,
+    },
+    {
+      id: 3,
+      tag: 'trojan-reality',
+      listen: '0.0.0.0',
+      port: 8443,
+      externalPort: 8443,
+      externalHost: 'demo.example.com',
+      routeId: 0,
+      protocol: 'trojan',
+      settingsJson: JSON.stringify({
+        clients: [],
+      }),
+      streamSettings: JSON.stringify({
+        network: 'tcp',
+        security: 'reality',
+        realitySettings: {
+          dest: 'gateway.icloud.com:443',
+          serverNames: ['gateway.icloud.com'],
+          privateKey: 'OCiaG7JluOeRDE9IIuqPleHWArqqmnKJ_rKTxtjo7mc',
+          publicKey: 'FMdWD0uS9lrXUAoMmTP5e2LLD-mk8vO8JTZmAE9vdww',
+          shortIds: ['0123456789abcdef'],
+        },
+      }),
+      sniffingJson: JSON.stringify({
+        enabled: true,
+        destOverride: ['http', 'tls'],
+        routeOnly: false,
+      }),
+      subRoutesJson: '[]',
+      enabled: true,
+      isAlive: true,
+      latencyMs: 21,
+    },
+    {
+      id: 4,
+      tag: 'ss-in',
+      listen: '0.0.0.0',
+      port: 8388,
+      externalPort: 8388,
+      externalHost: 'demo.example.com',
+      routeId: 0,
+      protocol: 'shadowsocks',
+      settingsJson: JSON.stringify({
+        method: '2022-blake3-aes-128-gcm',
+        password: 'xray-panel-demo-password-2026',
+        network: 'tcp,udp',
+      }),
+      streamSettings: '{}',
+      sniffingJson: JSON.stringify({
+        enabled: true,
+        destOverride: ['http', 'tls'],
+        routeOnly: false,
+      }),
+      subRoutesJson: '[]',
+      enabled: true,
+      isAlive: true,
+      latencyMs: 19,
     },
   ],
   outbounds: [
@@ -203,7 +293,7 @@ const DEFAULT_RAW_STATE: MockState = {
       id: 1,
       email: 'master@yezineko.top',
       uuid: '7117295b-4362-4260-a133-b969344dfcd5',
-      inboundTags: 'vless-reality',
+      inboundTags: 'vless-reality,vmess-ws,trojan-reality,ss-in',
       inboundTag: 'vless-reality',
       flow: 'xtls-rprx-vision',
       upBytes: 15200000000,
@@ -221,7 +311,7 @@ const DEFAULT_RAW_STATE: MockState = {
     },
     {
       id: 2,
-      email: 'user_tokyo@demo.local',
+      email: 'alice_vision@demo.local',
       uuid: '90da5e0c-5a0a-4f19-9932-2d492f2096d3',
       inboundTags: 'vless-reality',
       inboundTag: 'vless-reality',
@@ -233,14 +323,74 @@ const DEFAULT_RAW_STATE: MockState = {
       resetDay: 15,
       ipLimit: 0,
       enabled: true,
-      isOnline: false,
-      upSpeed: 0,
-      downSpeed: 0,
+      isOnline: true,
+      upSpeed: 450000,
+      downSpeed: 2100000,
       subToken: '90da5e0c99322d49',
       createdAt: new Date(now - 15 * 86400000).toISOString(),
     },
     {
       id: 3,
+      email: 'bob_vmess@demo.local',
+      uuid: 'a8e14652-325b-4a57-b08e-5b1b4d0811e2',
+      inboundTags: 'vmess-ws',
+      inboundTag: 'vmess-ws',
+      flow: '',
+      upBytes: 4200000000,
+      downBytes: 12800000000,
+      totalBytes: 50 * 1024 * 1024 * 1024, // 50 GB
+      expireTime: now + 90 * 86400000,
+      resetDay: 1,
+      ipLimit: 2,
+      enabled: true,
+      isOnline: false,
+      upSpeed: 0,
+      downSpeed: 0,
+      subToken: 'a8e146525b1b4d08',
+      createdAt: new Date(now - 12 * 86400000).toISOString(),
+    },
+    {
+      id: 4,
+      email: 'carol_trojan@demo.local',
+      uuid: 'e79b2940-d983-4927-9964-b63487f8723c',
+      inboundTags: 'trojan-reality',
+      inboundTag: 'trojan-reality',
+      flow: '',
+      upBytes: 1100000000,
+      downBytes: 3400000000,
+      totalBytes: 50 * 1024 * 1024 * 1024, // 50 GB
+      expireTime: now + 45 * 86400000,
+      resetDay: 5,
+      ipLimit: 2,
+      enabled: true,
+      isOnline: false,
+      upSpeed: 0,
+      downSpeed: 0,
+      subToken: 'e79b2940b63487f8',
+      createdAt: new Date(now - 8 * 86400000).toISOString(),
+    },
+    {
+      id: 5,
+      email: 'dave_shadowsocks@demo.local',
+      uuid: 'c52df85e-e478-43d7-84e1-70bf81d11394',
+      inboundTags: 'ss-in',
+      inboundTag: 'ss-in',
+      flow: '',
+      upBytes: 520000000,
+      downBytes: 1200000000,
+      totalBytes: 30 * 1024 * 1024 * 1024, // 30 GB
+      expireTime: now + 30 * 86400000,
+      resetDay: 1,
+      ipLimit: 1,
+      enabled: true,
+      isOnline: false,
+      upSpeed: 0,
+      downSpeed: 0,
+      subToken: 'c52df85e70bf81d1',
+      createdAt: new Date(now - 5 * 86400000).toISOString(),
+    },
+    {
+      id: 6,
       email: 'expired_guest@demo.local',
       uuid: '1636960f-a826-474f-ae2a-f47a1de4b6b9',
       inboundTags: 'vless-reality',
@@ -260,7 +410,7 @@ const DEFAULT_RAW_STATE: MockState = {
       createdAt: new Date(now - 60 * 86400000).toISOString(),
     },
     {
-      id: 4,
+      id: 7,
       email: 'overquota_tester@demo.local',
       uuid: 'f0f0fd99-f013-479b-9f03-0dd5c13f6de1',
       inboundTags: 'vless-reality',
@@ -281,19 +431,27 @@ const DEFAULT_RAW_STATE: MockState = {
     },
   ],
   logs: [
-    '2026/09/03 07:20:01 127.0.0.1:54321 accepted tcp:www.youtube.com:443 [vless-reality -> direct] email: master@yezineko.top',
-    '2026/09/03 07:20:15 127.0.0.1:54322 accepted tcp:api.openai.com:443 [vless-reality -> warp-out] email: master@yezineko.top',
-    '2026/09/03 07:20:30 127.0.0.1:54323 accepted tcp:hk-node.example.com:443 [vless-reality -> hk-landing] email: master@yezineko.top',
-    '2026/09/03 07:21:05 [Info] infra/conf/serial: Reading config: &{Name:/usr/local/etc/xray/config.json Format:json}',
-    '2026/09/03 07:21:08 [Info] app/proxyman/inbound: Dynamic gRPC AlterInbound: AddUser master@yezineko.top success',
+    '2026/09/07 22:45:01 [Info] app/proxyman/command: Dynamic gRPC HandlerService AlterInbound: AddUser master@yezineko.top (VLESS Vision) into inbound [vless-reality] success',
+    '2026/09/07 22:45:01 [Info] storage/boltdb: ACID transaction committed user master@yezineko.top into bucket "users"',
+    '2026/09/07 22:45:02 [Info] app/proxyman/command: Dynamic gRPC HandlerService AlterInbound: AddUser bob_vmess@demo.local (VMess) into inbound [vmess-ws] success',
+    '2026/09/07 22:45:03 [Info] app/proxyman/command: Dynamic gRPC HandlerService AlterInbound: AddUser carol_trojan@demo.local (Trojan) into inbound [trojan-reality] success',
+    '2026/09/07 22:45:04 [Info] app/proxyman/command: Dynamic gRPC HandlerService AlterInbound: AddUser dave_shadowsocks@demo.local (Shadowsocks) into inbound [ss-in] success',
+    '2026/09/07 22:46:10 [Info] app/stats/command: StatsService QueryStats pattern "user>>>master@yezineko.top>>>traffic>>>downlink" -> 30000000000 bytes',
+    '2026/09/07 22:47:00 [Info] app/sync: Cold-boot SyncToDiskConfig fallback verified with zero config drift',
+    '2026/09/07 22:48:01 127.0.0.1:54321 accepted tcp:www.youtube.com:443 [vless-reality -> direct] email: master@yezineko.top',
+    '2026/09/07 22:48:15 127.0.0.1:54322 accepted tcp:api.openai.com:443 [vless-reality -> warp-out] email: master@yezineko.top',
+    '2026/09/07 22:48:30 127.0.0.1:54323 accepted tcp:hk-node.example.com:443 [vless-reality -> hk-landing] email: master@yezineko.top',
   ],
 }
 
 export function loadMockState(): MockState {
   try {
-    // 检查是否有 v1 旧缓存，若存在则清理并迁移至 v2
+    // 检查是否有 v1/v2 旧缓存，若存在则清理并迁移至 v3
     if (localStorage.getItem('xray_panel_demo_state_v1')) {
       localStorage.removeItem('xray_panel_demo_state_v1')
+    }
+    if (localStorage.getItem('xray_panel_demo_state_v2')) {
+      localStorage.removeItem('xray_panel_demo_state_v2')
     }
 
     const raw = localStorage.getItem(STORAGE_KEY)
@@ -320,3 +478,4 @@ export function resetMockState(): MockState {
   saveMockState(fresh)
   return fresh
 }
+

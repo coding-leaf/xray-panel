@@ -149,4 +149,3 @@ func (s *AlertService) CheckCertificates(ctx context.Context) error {
 	}
 	return nil
 }
-

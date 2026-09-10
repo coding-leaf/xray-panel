@@ -148,10 +148,9 @@ export default {
       }
     }
 
-    if (url.pathname === "/portal" || url.pathname === "/portal/" || url.pathname === "/portal.html") {
+    if (url.pathname === "/portal" || url.pathname === "/portal/" || url.pathname === "/portal.html" || url.pathname === "/portal/index.html") {
       if (env?.ASSETS) {
-        const portalUrl = new URL("/portal.html", request.url);
-        return env.ASSETS.fetch(new Request(portalUrl, request));
+        return env.ASSETS.fetch(request);
       }
     }
 

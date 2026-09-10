@@ -58,6 +58,10 @@ nginx.conf
 deploy.sh
 deploy-*.sh
 deploy_*.sh
+
+# Agent Context & Private Documentation
+AGENTS.md
+AGENT.md
 *.local
 
 # Secrets, SSH Keys & Certificates

@@ -38,7 +38,7 @@ func TestBuildShareLinksForInbound_SubRoutes(t *testing.T) {
 		"network":  "xhttp",
 		"security": "reality",
 		"realitySettings": map[string]interface{}{
-			"serverNames": []string{"www.titech.ac.jp"},
+			"serverNames": []string{"www.example.com"},
 			"publicKey":   "FMdWD0uS9lrXUAoMmTP5e2LLD-mk8vO8JTZmAE9vdww",
 			"shortIds":    []string{"0123456789abcdef"},
 		},

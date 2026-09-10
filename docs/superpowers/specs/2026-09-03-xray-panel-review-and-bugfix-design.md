@@ -11,7 +11,7 @@
 本项目作为单机 Xray 运维解耦面板，核心定位是**高稳定性、低资源占用与零连接中断**。在代码审查与实际运行机制分析中，发现了 6 项关键功能性与架构缺陷：
 
 1. **REALITY 回落目标前端与后端脱节 (Bug)**：
-   前端与 Mock 沙盒使用 `realitySettings.target`，而后端编译器基于 Xray 官方规范使用 `dest`。反序列化后 `r.Dest` 始终为空，导致编译器强制重置为默认值 `www.titech.ac.jp:443`，用户自定义的 SNI/Dest 完全失效。
+   前端与 Mock 沙盒使用 `realitySettings.target`，而后端编译器基于 Xray 官方规范使用 `dest`。反序列化后 `r.Dest` 始终为空，导致编译器强制重置为默认值 `www.example.com:443`，用户自定义的 SNI/Dest 完全失效。
 2. **用户配额与生命周期断环 (Bug)**：
    - `compiler.go` 编译配置时仅检查 `!u.Enabled`，未检查 `IsActive()`，超额与过期用户在配置重编译或面板重启后被重新编入 Xray 放行；
    - 5秒定时任务 `traffic_sync.go` 仅检查了 `IsTrafficExceeded()`，从未剔除到期用户；
@@ -126,7 +126,7 @@ flowchart TD
 
 1. **REALITY dest 规范化**：
    - `web/src/views/InboundsView.vue` 表单提交与回显使用 `dest` 属性（兼容历史 `target` 属性）。
-   - `web/src/mock/storage.ts` 默认数据改为 `dest: 'www.titech.ac.jp:443'`。
+   - `web/src/mock/storage.ts` 默认数据改为 `dest: 'www.example.com:443'`。
    - 后端 `compiler.go` 中若 `r.Dest == ""` 且 `r.Target != ""` 时进行合流归一化，确保用户填写的外部回落目标 100% 真实编译进 `config.json`。
 
 2. **动态 API Inbound 端口**：

@@ -365,7 +365,7 @@
                 <input
                   v-model="form.realityTarget"
                   type="text"
-                  placeholder="www.titech.ac.jp:443"
+                  placeholder="www.example.com:443"
                   class="w-full bg-gray-900 border border-gray-700 rounded-xl px-3 py-2 text-white font-mono focus:outline-none focus:border-brand-500"
                 />
               </div>
@@ -374,7 +374,7 @@
                 <input
                   v-model="form.realityServerNames"
                   type="text"
-                  placeholder="www.titech.ac.jp"
+                  placeholder="www.example.com"
                   class="w-full bg-gray-900 border border-gray-700 rounded-xl px-3 py-2 text-white font-mono focus:outline-none focus:border-brand-500"
                 />
               </div>
@@ -696,8 +696,8 @@ const form = ref<any>({
   grpcService: 'xray-grpc',
 
   // Reality
-  realityTarget: 'www.titech.ac.jp:443',
-  realityServerNames: 'www.titech.ac.jp',
+  realityTarget: 'www.example.com:443',
+  realityServerNames: 'www.example.com',
   realityPrivateKey: 'OCiaG7JluOeRDE9IIuqPleHWArqqmnKJ_rKTxtjo7mc',
   realityPublicKey: '',
   realityShortIds: '0123456789abcdef',
@@ -819,8 +819,8 @@ const openCreateModal = () => {
     xhttpMode: 'auto',
     wsPath: '/ws',
     grpcService: 'xray-grpc',
-    realityTarget: 'www.titech.ac.jp:443',
-    realityServerNames: 'www.titech.ac.jp',
+    realityTarget: 'www.example.com:443',
+    realityServerNames: 'www.example.com',
     realityPrivateKey: '',
     realityPublicKey: '',
     realityShortIds: '0123456789abcdef',
@@ -1022,8 +1022,8 @@ const buildStreamSettingsJSON = () => {
       .map((s: string) => s.trim())
 
     stream.realitySettings = {
-      dest: form.value.realityTarget || 'www.titech.ac.jp:443',
-      serverNames: sNames.length > 0 ? sNames : ['www.titech.ac.jp'],
+      dest: form.value.realityTarget || 'www.example.com:443',
+      serverNames: sNames.length > 0 ? sNames : ['www.example.com'],
       privateKey: form.value.realityPrivateKey,
       shortIds: sIds,
     }

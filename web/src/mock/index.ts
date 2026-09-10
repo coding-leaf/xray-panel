@@ -358,12 +358,12 @@ export async function handleMockRequest(url: string, method: string, data?: any)
             const routeUuid = applyRouteIdToUuid(user?.uuid || 'uuid', sr.routeId)
             const remark = sr.name || sr.remark || `${inb.tag}-${sr.routeId}`
             links.push(
-              `vless://${routeUuid}@${extHost}:${port}?security=reality&sni=www.titech.ac.jp&fp=chrome&pbk=FMdWD0uS9lrXUAoMmTP5e2LLD-mk8vO8JTZmAE9vdww&sid=0123456789abcdef&type=${network}${flowParam}#${encodeURIComponent(remark)}`
+              `vless://${routeUuid}@${extHost}:${port}?security=reality&sni=www.example.com&fp=chrome&pbk=FMdWD0uS9lrXUAoMmTP5e2LLD-mk8vO8JTZmAE9vdww&sid=0123456789abcdef&type=${network}${flowParam}#${encodeURIComponent(remark)}`
             )
           }
         } else {
           links.push(
-            `vless://${user?.uuid || 'uuid'}@${extHost}:${port}?security=reality&sni=www.titech.ac.jp&fp=chrome&pbk=FMdWD0uS9lrXUAoMmTP5e2LLD-mk8vO8JTZmAE9vdww&sid=0123456789abcdef&type=${network}${flowParam}#${encodeURIComponent(inb.tag)}`
+            `vless://${user?.uuid || 'uuid'}@${extHost}:${port}?security=reality&sni=www.example.com&fp=chrome&pbk=FMdWD0uS9lrXUAoMmTP5e2LLD-mk8vO8JTZmAE9vdww&sid=0123456789abcdef&type=${network}${flowParam}#${encodeURIComponent(inb.tag)}`
           )
         }
       } else if (proto === 'vmess') {
@@ -393,7 +393,7 @@ export async function handleMockRequest(url: string, method: string, data?: any)
 
     if (!links.length) {
       links.push(
-        `vless://${user?.uuid || 'uuid'}@demo.example.com:443?security=reality&sni=www.titech.ac.jp&fp=chrome&pbk=FMdWD0uS9lrXUAoMmTP5e2LLD-mk8vO8JTZmAE9vdww&sid=0123456789abcdef&type=tcp&flow=xtls-rprx-vision#🇯🇵+日本东京原生+(直连出口)`
+        `vless://${user?.uuid || 'uuid'}@demo.example.com:443?security=reality&sni=www.example.com&fp=chrome&pbk=FMdWD0uS9lrXUAoMmTP5e2LLD-mk8vO8JTZmAE9vdww&sid=0123456789abcdef&type=tcp&flow=xtls-rprx-vision#🇯🇵+日本东京原生+(直连出口)`
       )
     }
 
@@ -462,8 +462,8 @@ export async function handleMockRequest(url: string, method: string, data?: any)
     return delay({
       user_email: demoUser.email,
       emergency_nodes: [
-        `vless://11111111-2222-3333-4444-555555555555@${host.split(':')[0]}:443?encryption=none&security=reality&sni=www.titech.ac.jp&fp=chrome&pbk=1111111111111111111111111111111111111111111&sid=12345678&type=tcp#%E6%80%A5%E6%95%91%E8%8A%82%E7%82%B9-01`,
-        `vless://11111111-2222-3333-4444-555555555555@${host.split(':')[0]}:443?encryption=none&security=reality&sni=www.titech.ac.jp&fp=chrome&pbk=1111111111111111111111111111111111111111111&sid=12345678&type=tcp#%E6%80%A5%E6%95%91%E8%8A%82%E7%82%B9-02`,
+        `vless://11111111-2222-3333-4444-555555555555@${host.split(':')[0]}:443?encryption=none&security=reality&sni=www.example.com&fp=chrome&pbk=1111111111111111111111111111111111111111111&sid=12345678&type=tcp#%E6%80%A5%E6%95%91%E8%8A%82%E7%82%B9-01`,
+        `vless://11111111-2222-3333-4444-555555555555@${host.split(':')[0]}:443?encryption=none&security=reality&sni=www.example.com&fp=chrome&pbk=1111111111111111111111111111111111111111111&sid=12345678&type=tcp#%E6%80%A5%E6%95%91%E8%8A%82%E7%82%B9-02`,
       ],
       subscription_url: `${protocol}//${host}/sub/${demoUser.subToken}`,
       remaining_uses: 1,

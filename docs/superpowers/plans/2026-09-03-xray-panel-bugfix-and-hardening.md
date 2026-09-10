@@ -106,7 +106,7 @@ In `internal/adapter/xray/compiler.go`:
 Add `grpcPort int` field to `XrayCompiler`. In `NewXrayCompiler(grpcPort ...int)`, default to 8080 if not provided or 0.
 In `compileInbound`:
 If `r.Dest == ""` && `r.Target != ""`, set `r.Dest = r.Target`.
-If `r.Dest == ""`, set `r.Dest = "www.titech.ac.jp:443"`.
+If `r.Dest == ""`, set `r.Dest = "www.example.com:443"`.
 Clear `r.Target = ""`.
 Use `c.grpcPort` for the `api` Inbound.
 
@@ -406,7 +406,7 @@ git commit -m "feat(service): decouple user config writes from service restart a
 
 Verify how `realitySettings.target` is read and saved in `InboundsView.vue`:
 Lines 920: `form.value.realityTarget = stream.realitySettings.dest || stream.realitySettings.target || ''`
-Lines 1018: save as `dest: form.value.realityTarget || 'www.titech.ac.jp:443'`
+Lines 1018: save as `dest: form.value.realityTarget || 'www.example.com:443'`
 
 In `web/src/mock/storage.ts`:
 Change `target` to `dest`.

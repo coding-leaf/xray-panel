@@ -284,9 +284,9 @@
   修改 `deploy/nginx-sample.conf` 中 Stream 模块的 `default` 兜底指向 `xray_reality_node`：
   ```nginx
   map $ssl_preread_server_name $backend_upstream {
-      www.titech.ac.jp       xray_reality_node;
+      reality.example.com    xray_reality_node;
       panel.yourdomain.com   nginx_web_tls;
-      default                xray_reality_node; # 任何未匹配的 SNI 或直接探测 IP，全部伪装转给东京工业大学
+      default                xray_reality_node; # 任何未匹配的 SNI 或直接探测 IP，全部透传给 REALITY 入站
   }
   ```
   在 HTTP 反代块中严格覆盖客户端 IP 头：

@@ -25,7 +25,7 @@ func createSampleNodes() []*protocol.NodeConfig {
 				"type":     "tcp",
 				"security": "reality",
 				"pbk":      "FMdWD0uS9lrXUAoMmTP5e2LLD-mk8vO8JTZmAE9vdww",
-				"sni":      "www.titech.ac.jp",
+				"sni":      "www.example.com",
 				"sid":      "0123456789abcdef",
 				"spx":      "/spider",
 				"fp":       "chrome",

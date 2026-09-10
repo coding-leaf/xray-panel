@@ -3,6 +3,7 @@ package xray
 import (
 	"encoding/json"
 	"fmt"
+	"net"
 	"strings"
 
 	"panel/internal/domain"
@@ -301,12 +302,26 @@ func (c *XrayCompiler) compileInbound(inb *domain.Inbound, users []domain.User) 
 		if r.Dest == "" && r.Target != "" {
 			r.Dest = r.Target
 		}
-		if r.Dest == "" {
-			r.Dest = "www.titech.ac.jp:443"
-		}
 		r.Target = "" // 服务端严禁包含 target 兼容字段
+
+		// 智能互推：优先从已有字段推导，避免硬编码偏好域名
+		if r.Dest != "" && len(r.ServerNames) == 0 {
+			host, _, err := net.SplitHostPort(r.Dest)
+			if err == nil && host != "" {
+				r.ServerNames = []string{host}
+			} else {
+				r.ServerNames = []string{r.Dest}
+			}
+		} else if r.Dest == "" && len(r.ServerNames) > 0 && r.ServerNames[0] != "" {
+			r.Dest = net.JoinHostPort(r.ServerNames[0], "443")
+		}
+
+		// 极端兜底：仅在 Dest 与 ServerNames 均未填写时提供 RFC 标准示例占位符
+		if r.Dest == "" {
+			r.Dest = "www.example.com:443"
+		}
 		if len(r.ServerNames) == 0 {
-			r.ServerNames = []string{"www.titech.ac.jp"}
+			r.ServerNames = []string{"www.example.com"}
 		}
 	}
 

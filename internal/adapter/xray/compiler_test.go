@@ -195,7 +195,7 @@ func TestXrayRealityValidation(t *testing.T) {
 			Tag:            "vless-reality",
 			Port:           443,
 			Protocol:       "vless",
-			StreamSettings: `{"network":"tcp","security":"reality","realitySettings":{"dest":"www.titech.ac.jp:443","serverName":"www.titech.ac.jp","publicKey":"some_pbk","privateKey":"OCiaG7JluOeRDE9IIuqPleHWArqqmnKJ_rKTxtjo7mc","shortIds":["0123456789abcdef"]}}`,
+			StreamSettings: `{"network":"tcp","security":"reality","realitySettings":{"dest":"www.example.com:443","serverName":"www.example.com","publicKey":"some_pbk","privateKey":"OCiaG7JluOeRDE9IIuqPleHWArqqmnKJ_rKTxtjo7mc","shortIds":["0123456789abcdef"]}}`,
 			Enabled:        true,
 		},
 	}

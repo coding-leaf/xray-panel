@@ -385,7 +385,7 @@
                   <input
                     v-model="form.realityServerName"
                     type="text"
-                    placeholder="www.titech.ac.jp"
+                    placeholder="www.example.com"
                     class="w-full bg-gray-900 border border-gray-700 rounded-xl px-3 py-2 text-white font-mono focus:outline-none focus:border-brand-500"
                   />
                 </div>
@@ -498,7 +498,7 @@ const form = ref<any>({
   wsPath: '/ws',
   wsHost: '',
   grpcServiceName: 'xray-grpc',
-  realityServerName: 'www.titech.ac.jp',
+  realityServerName: 'www.example.com',
   realityFingerprint: 'chrome',
   realityPublicKey: '',
   realityShortId: '0123456789abcdef',
@@ -542,7 +542,7 @@ const openCreateModal = () => {
     wsPath: '/ws',
     wsHost: '',
     grpcServiceName: 'xray-grpc',
-    realityServerName: 'www.titech.ac.jp',
+    realityServerName: 'www.example.com',
     realityFingerprint: 'chrome',
     realityPublicKey: '',
     realityShortId: '0123456789abcdef',
@@ -585,7 +585,7 @@ const editOutbound = (ob: any) => {
     form.value.grpcServiceName = str.grpcSettings.serviceName || 'xray-grpc'
   }
   if (str.realitySettings) {
-    form.value.realityServerName = str.realitySettings.serverName || 'www.titech.ac.jp'
+    form.value.realityServerName = str.realitySettings.serverName || 'www.example.com'
     form.value.realityPublicKey = str.realitySettings.publicKey || ''
     form.value.realityShortId = str.realitySettings.shortId || ''
     form.value.realityFingerprint = str.realitySettings.fingerprint || 'chrome'
@@ -755,7 +755,7 @@ const buildStreamSettingsJSON = () => {
 
   if (form.value.streamSecurity === 'reality') {
     stream.realitySettings = {
-      serverName: form.value.realityServerName || 'www.titech.ac.jp',
+      serverName: form.value.realityServerName || 'www.example.com',
       publicKey: form.value.realityPublicKey || '',
       shortId: form.value.realityShortId || '',
       fingerprint: form.value.realityFingerprint || 'chrome',

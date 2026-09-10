@@ -24,16 +24,24 @@ echo -e "${BLUE}======================================================${PLAIN}"
 # 1. 检查并创建工作目录
 mkdir -p "${INSTALL_DIR}"
 mkdir -p "${DATA_DIR}"
+chmod 700 "${DATA_DIR}"
 
-# 2. 复制二进制执行程序
-if [[ -f "./panel" ]]; then
-    if [[ "$(readlink -f ./panel)" != "$(readlink -f ${INSTALL_DIR}/panel 2>/dev/null)" ]]; then
-        echo -e "${GREEN}[1/4] 复制 panel 执行程序到 ${INSTALL_DIR}/panel ...${PLAIN}"
-        cp -f ./panel "${INSTALL_DIR}/panel"
+# 2. 寻找并复制二进制执行程序
+PANEL_SRC=""
+for p in "./panel" "./bin/panel" "../panel" "../bin/panel" "/tmp/panel"; do
+    if [[ -f "$p" ]]; then
+        PANEL_SRC="$p"
+        break
     fi
-    chmod +x "${INSTALL_DIR}/panel"
+done
+
+if [[ -n "${PANEL_SRC}" ]]; then
+    echo -e "${GREEN}[1/4] 发现并安装执行程序 (${PANEL_SRC}) 到 ${INSTALL_DIR}/panel ...${PLAIN}"
+    # 停止旧进程，并使用 install 命令进行原子替换，天然免疫 Linux 'Text file busy' 报错
+    systemctl stop panel.service 2>/dev/null || true
+    install -m 755 "${PANEL_SRC}" "${INSTALL_DIR}/panel"
 else
-    echo -e "${RED}错误：当前目录下未找到 panel 二进制文件，请先执行编译！${PLAIN}"
+    echo -e "${RED}错误：未找到 panel 二进制文件！请确认已执行过编译，或将 panel 放置在当前目录 / /tmp/ 下。${PLAIN}"
     exit 1
 fi
 
@@ -44,6 +52,7 @@ if [[ ! -f "${SERVICE_FILE}" ]]; then
     cat << EOF > "${SERVICE_FILE}"
 [Unit]
 Description=Xray Decoupled Panel Daemon
+Documentation=https://github.com/coding-leaf/xray-panel
 After=network.target xray.service
 Wants=xray.service
 

@@ -23,11 +23,13 @@ type Handlers struct {
 	Log       *LogHandler
 	DNS       *DNSHandler
 	GeoData   *GeoDataHandler
+	Ticket    *TicketHandler
 }
 
 func SetupRouter(handlers *Handlers, jwtSecret string, staticFS fs.FS) *gin.Engine {
 	gin.SetMode(gin.ReleaseMode)
 	r := gin.New()
+	_ = r.SetTrustedProxies([]string{"127.0.0.1", "::1"})
 
 	// 全局日志与 Recovery 中间件
 	r.Use(middleware.SlogLogger())
@@ -69,6 +71,13 @@ func SetupRouter(handlers *Handlers, jwtSecret string, staticFS fs.FS) *gin.Engi
 		api.GET("/sub/:token", subLimiter, handlers.Sub.GetSubscription)
 		api.GET("/sub", subLimiter, handlers.Sub.GetSubscription)
 
+		// 凭据安全兑换公开接口 (单 IP 5 次/分钟, 全局总额 60 次/分钟)
+		if handlers.Ticket != nil {
+			portalIPLimiter := middleware.NewRateLimiter("5-M")
+			portalGlobalLimiter := middleware.NewGlobalRateLimiter("60-M", "global_portal_claim")
+			api.POST("/portal/claim", portalGlobalLimiter, portalIPLimiter, handlers.Ticket.ClaimTicket)
+		}
+
 		// 管理受保护接口 (JWT 鉴权)
 		authGroup := api.Group("")
 		authGroup.Use(middleware.JWTAuth(jwtSecret))
@@ -97,6 +106,9 @@ func SetupRouter(handlers *Handlers, jwtSecret string, staticFS fs.FS) *gin.Engi
 			authGroup.POST("/users/batch-status", handlers.User.BatchStatus)
 			authGroup.GET("/users/:id/share", handlers.User.GetShareLink)
 			authGroup.GET("/users/:id/traffic-history", handlers.User.GetTrafficHistory)
+			if handlers.Ticket != nil {
+				authGroup.POST("/users/:id/tickets", handlers.Ticket.CreateTicket)
+			}
 
 			// 节点入站管理
 			authGroup.GET("/inbounds", handlers.Inbound.List)
@@ -170,7 +182,7 @@ func SetupRouter(handlers *Handlers, jwtSecret string, staticFS fs.FS) *gin.Engi
 				return
 			}
 
-			c.String(http.StatusOK, "Xray Decoupled Panel API is running. Frontend assets not found.")
+			c.String(http.StatusOK, "System API is running. Assets not found.")
 		})
 	}
 

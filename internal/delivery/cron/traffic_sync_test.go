@@ -69,7 +69,7 @@ func (r *mockUserRepo) GetByEmail(ctx context.Context, email string) (*domain.Us
 func TestTrafficSyncJob_Lifecycle(t *testing.T) {
 	mockXray := &mockXrayManager{}
 	mockUser := &mockUserRepo{}
-	job := deliveryCron.NewTrafficSyncJob(mockXray, mockUser, nil, nil, nil, nil, 3*time.Second)
+	job := deliveryCron.NewTrafficSyncJob(mockXray, mockUser, nil, nil, nil, nil, nil, 3*time.Second)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	errCh := make(chan error, 1)

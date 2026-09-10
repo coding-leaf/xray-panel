@@ -552,7 +552,16 @@
             :class="activeShareTab === 'qrcode' ? 'bg-indigo-600 text-white shadow-sm' : 'text-gray-400 hover:text-gray-200'"
           >
             <QrCode class="w-3.5 h-3.5" />
-            <span>手机扫码导入 (QR Code)</span>
+            <span>手机扫码 (QR)</span>
+          </button>
+          <button
+            type="button"
+            @click="activeShareTab = 'ticket'"
+            class="flex-1 py-1.5 rounded-lg text-xs font-semibold transition-all flex items-center justify-center gap-1.5"
+            :class="activeShareTab === 'ticket' ? 'bg-indigo-600 text-white shadow-sm' : 'text-gray-400 hover:text-gray-200'"
+          >
+            <ShieldCheck class="w-3.5 h-3.5" />
+            <span>安全提取码 (Ticket)</span>
           </button>
         </div>
 
@@ -568,6 +577,99 @@
               />
             </div>
             <p class="text-[11px] text-gray-400">使用 Shadowrocket / Clash / V2Ray / Sing-box 相机直接扫码添加</p>
+          </div>
+
+          <!-- 安全提取码模式 -->
+          <div v-else-if="activeShareTab === 'ticket'" class="space-y-4">
+            <div class="p-3.5 bg-indigo-950/40 rounded-2xl border border-indigo-500/30 space-y-3">
+              <div class="flex items-center justify-between">
+                <span class="font-bold text-white flex items-center gap-1.5">
+                  <span class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+                  <span>带外安全分发 (阅后即焚凭证)</span>
+                </span>
+                <span class="text-[10px] text-indigo-300 font-mono">抗微信/QQ审查</span>
+              </div>
+              <p class="text-[11px] text-gray-400 leading-relaxed">
+                生成 6 位高熵中立提取码，支持境内即时通讯安全发送。接收方在分布式网管接入点输入即可获取节点。
+              </p>
+
+              <!-- Param selectors: TTL and Max Uses -->
+              <div class="grid grid-cols-2 gap-3 pt-1">
+                <div>
+                  <label class="block text-[11px] text-gray-400 mb-1">有效时长</label>
+                  <select
+                    v-model="ticketTTL"
+                    class="w-full bg-gray-900 border border-gray-700 rounded-xl px-2.5 py-1.5 text-xs text-white focus:outline-none focus:border-indigo-500"
+                  >
+                    <option :value="15">15 分钟 (推荐)</option>
+                    <option :value="30">30 分钟</option>
+                    <option :value="60">1 小时</option>
+                  </select>
+                </div>
+                <div>
+                  <label class="block text-[11px] text-gray-400 mb-1">允许兑换次数</label>
+                  <select
+                    v-model="ticketMaxUses"
+                    class="w-full bg-gray-900 border border-gray-700 rounded-xl px-2.5 py-1.5 text-xs text-white focus:outline-none focus:border-indigo-500"
+                  >
+                    <option :value="1">1 次 (严格即焚)</option>
+                    <option :value="2">2 次 (防误触推荐)</option>
+                    <option :value="5">5 次</option>
+                  </select>
+                </div>
+              </div>
+
+              <button
+                @click="generateUserTicket(currentShareData.user?.id)"
+                :disabled="generatingTicket"
+                class="w-full py-2 bg-gradient-to-r from-indigo-600 to-cyan-600 hover:from-indigo-500 hover:to-cyan-500 text-white rounded-xl font-semibold transition-all flex items-center justify-center gap-1.5 shadow-md disabled:opacity-50"
+              >
+                <Loader2 v-if="generatingTicket" class="w-3.5 h-3.5 animate-spin" />
+                <Sparkles v-else class="w-3.5 h-3.5" />
+                <span>{{ generatingTicket ? '正在生成...' : '生成安全提取码' }}</span>
+              </button>
+            </div>
+
+            <!-- Display generated ticket -->
+            <div v-if="generatedTicket" class="p-3.5 bg-gray-900/90 rounded-2xl border border-indigo-500/40 space-y-3">
+              <div class="text-center py-2">
+                <div class="text-[11px] text-gray-400 mb-1">6 位提取码 (不区分大小写)</div>
+                <div class="text-2xl font-mono font-bold tracking-[0.3em] text-indigo-300">
+                  {{ generatedTicket.code }}
+                </div>
+                <div class="text-[10px] text-gray-500 mt-1">
+                  剩余可用 {{ generatedTicket.remaining_uses }} 次 · {{ formatTicketExpires(generatedTicket.expires_at) }}
+                </div>
+              </div>
+
+              <div>
+                <label class="block text-[11px] text-gray-400 mb-1">可直接复制发给用户的分享文案：</label>
+                <textarea
+                  readonly
+                  rows="3"
+                  :value="generatedTicket.share_text"
+                  @click="selectTarget"
+                  class="w-full bg-black/50 border border-gray-800 rounded-xl p-2.5 text-[11px] font-mono text-gray-300 focus:outline-none select-all"
+                ></textarea>
+              </div>
+
+              <!-- 本地环回地址提醒 -->
+              <div v-if="generatedTicket.share_text?.includes('127.0.0.1') || generatedTicket.share_text?.includes('localhost')" class="p-2.5 bg-amber-500/10 border border-amber-500/30 rounded-xl text-[11px] text-amber-300 flex items-start gap-2">
+                <AlertCircle class="w-4 h-4 mt-0.5 shrink-0 text-amber-400" />
+                <div>
+                  <span class="font-semibold">提示：当前入口为本地 127.0.0.1 地址</span>
+                  <p class="text-amber-300/80 text-[10px] mt-0.5">外部用户无法直接访问本地环回地址。建议前往【系统设置】配置「中立提取门户 URL」（推荐填写 Cloudflare Worker 代理网址以防封锁）或配置「面板公网访问 URL」。</p>
+                </div>
+              </div>
+
+              <button
+                @click="copyText(generatedTicket.share_text)"
+                class="w-full py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl font-semibold transition-colors flex items-center justify-center gap-1.5 shadow-sm text-xs"
+              >
+                <Copy class="w-3.5 h-3.5" />
+                <span>一键复制微信/QQ中立分享文案</span>
+              </button>
+            </div>
           </div>
 
           <!-- 链接模式 -->
@@ -798,6 +900,10 @@ import {
   Zap,
   CalendarPlus,
   QrCode,
+  ShieldCheck,
+  Sparkles,
+  Loader2,
+  AlertCircle,
 } from 'lucide-vue-next'
 import QrcodeVue from 'qrcode.vue'
 import { toast } from '../utils/toast'
@@ -812,7 +918,12 @@ const showShareModal = ref(false)
 const showHistoryModal = ref(false)
 const isEditing = ref(false)
 const saving = ref(false)
-const activeShareTab = ref<'link' | 'qrcode'>('link')
+const activeShareTab = ref<'link' | 'qrcode' | 'ticket'>('link')
+
+const ticketTTL = ref(15)
+const ticketMaxUses = ref(2)
+const generatingTicket = ref(false)
+const generatedTicket = ref<any>(null)
 
 const currentShareData = ref<any>(null)
 const currentHistoryUser = ref<any>(null)
@@ -1128,10 +1239,40 @@ const openShareModal = async (user: any) => {
       ...res,
       user,
     }
+    generatedTicket.value = null
+    activeShareTab.value = 'link'
     showShareModal.value = true
   } catch (err: any) {
     toast.error('获取订阅链接失败: ' + err)
   }
+}
+
+const generateUserTicket = async (userId: number) => {
+  if (!userId) return
+  generatingTicket.value = true
+  try {
+    const res: any = await api.post(`/users/${userId}/tickets`, {
+      ttl_minutes: ticketTTL.value,
+      max_uses: ticketMaxUses.value,
+    })
+    generatedTicket.value = res
+    toast.success('安全提取码生成成功！')
+  } catch (err: any) {
+    toast.error('生成提取码失败: ' + (err.message || err))
+  } finally {
+    generatingTicket.value = false
+  }
+}
+
+const formatTicketExpires = (timestamp: number) => {
+  if (!timestamp) return ''
+  const d = new Date(timestamp * 1000)
+  return `${d.getHours().toString().padStart(2, '0')}:${d.getMinutes().toString().padStart(2, '0')} 前有效`
+}
+
+const selectTarget = (e: MouseEvent) => {
+  const target = e.target as HTMLInputElement | HTMLTextAreaElement | null
+  target?.select()
 }
 
 // 流量历史统计分析 (Traffic History Analysis)

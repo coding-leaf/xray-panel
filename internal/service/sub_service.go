@@ -198,14 +198,43 @@ func (s *SubService) GetUserShareInfo(ctx context.Context, userID uint, baseURL 
 		if !in.Enabled || !user.HasInbound(in.Tag) {
 			continue
 		}
-		link := xray.BuildShareLink(&in, user, hostDomain, defaultPort)
-		resp.Nodes = append(resp.Nodes, domain.NodeShareInfo{
-			Tag:       in.Tag,
-			Protocol:  in.Protocol,
-			Remark:    in.Remark,
-			ShareLink: link,
-			SingleSub: fmt.Sprintf("%s/sub/%s?tag=%s", baseURL, user.SubToken, in.Tag),
-		})
+		subRoutes := in.GetSubRoutes()
+		if len(subRoutes) == 0 {
+			link := xray.BuildShareLink(&in, user, hostDomain, defaultPort)
+			remark := in.Remark
+			if remark == "" {
+				remark = in.Tag
+			}
+			resp.Nodes = append(resp.Nodes, domain.NodeShareInfo{
+				Tag:       in.Tag,
+				Protocol:  in.Protocol,
+				Remark:    remark,
+				ShareLink: link,
+				SingleSub: fmt.Sprintf("%s/sub/%s?tag=%s", baseURL, user.SubToken, in.Tag),
+			})
+			continue
+		}
+
+		for _, sr := range subRoutes {
+			if !sr.Enabled {
+				continue
+			}
+			tempIn := in
+			if sr.Name != "" {
+				tempIn.Remark = sr.Name
+			} else if tempIn.Remark == "" {
+				tempIn.Remark = fmt.Sprintf("%s - 线路 #%d", in.Tag, sr.RouteID)
+			}
+			tempIn.RouteID = sr.RouteID
+			link := xray.BuildShareLink(&tempIn, user, hostDomain, defaultPort)
+			resp.Nodes = append(resp.Nodes, domain.NodeShareInfo{
+				Tag:       in.Tag,
+				Protocol:  in.Protocol,
+				Remark:    tempIn.Remark,
+				ShareLink: link,
+				SingleSub: fmt.Sprintf("%s/sub/%s?tag=%s", baseURL, user.SubToken, in.Tag),
+			})
+		}
 	}
 
 	return resp, nil

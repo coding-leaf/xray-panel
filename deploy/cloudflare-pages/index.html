@@ -1,0 +1,187 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Pelican Velo Club - 鹈鹕自行车俱乐部</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+      background: linear-gradient(135deg, #0ea5e9 0%, #38bdf8 50%, #e0f2fe 100%);
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      color: #0f172a;
+      padding: 24px;
+    }
+    .card {
+      background: rgba(255, 255, 255, 0.94);
+      backdrop-filter: blur(12px);
+      border-radius: 28px;
+      padding: 36px 32px;
+      max-width: 480px;
+      width: 100%;
+      text-align: center;
+      box-shadow: 0 20px 40px -15px rgba(14, 165, 233, 0.35), 0 0 0 1px rgba(255, 255, 255, 0.8);
+    }
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      background: #ecfdf5;
+      color: #059669;
+      font-size: 13px;
+      font-weight: 700;
+      padding: 6px 14px;
+      border-radius: 9999px;
+      margin-bottom: 20px;
+      border: 1px solid #a7f3d0;
+    }
+    .pulse-dot {
+      width: 8px;
+      height: 8px;
+      background: #10b981;
+      border-radius: 50%;
+      box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.7);
+      animation: pulse 2s infinite;
+    }
+    @keyframes pulse {
+      0% { box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.7); }
+      70% { box-shadow: 0 0 0 8px rgba(16, 185, 129, 0); }
+      100% { box-shadow: 0 0 0 0 rgba(16, 185, 129, 0); }
+    }
+    h1 {
+      font-size: 24px;
+      font-weight: 800;
+      color: #0f172a;
+      margin-bottom: 8px;
+      letter-spacing: -0.02em;
+    }
+    .subtitle {
+      font-size: 14px;
+      color: #64748b;
+      margin-bottom: 24px;
+      line-height: 1.5;
+    }
+    .pelican-wrapper {
+      position: relative;
+      margin: 10px 0 20px 0;
+      animation: bounce 2s ease-in-out infinite;
+    }
+    @keyframes bounce {
+      0%, 100% { transform: translateY(0); }
+      50% { transform: translateY(-8px); }
+    }
+    .quote {
+      background: #f8fafc;
+      border-left: 4px solid #0ea5e9;
+      padding: 12px 16px;
+      border-radius: 0 12px 12px 0;
+      font-size: 13px;
+      font-style: italic;
+      color: #475569;
+      text-align: left;
+      margin-top: 18px;
+    }
+    .footer {
+      margin-top: 24px;
+      font-size: 11px;
+      color: #94a3b8;
+    }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <div class="badge">
+      <div class="pulse-dot"></div>
+      <span>PELICAN VELO CLUB · 快乐骑行中</span>
+    </div>
+
+    <h1>鹈鹕骑行俱乐部</h1>
+    <p class="subtitle">“风在耳边吹，鱼在嘴里含，脚蹬不停转，人生不摆烂！”</p>
+
+    <div class="pelican-wrapper">
+      <svg width="280" height="200" viewBox="0 0 280 200" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <!-- 跑道路面 -->
+        <path d="M10 185H270" stroke="#cbd5e1" stroke-width="4" stroke-linecap="round" stroke-dasharray="12 8"/>
+        
+        <!-- 自行车后轮 -->
+        <circle cx="70" cy="150" r="32" stroke="#0f172a" stroke-width="4" fill="none"/>
+        <circle cx="70" cy="150" r="4" fill="#0ea5e9"/>
+        <line x1="70" y1="118" x2="70" y2="182" stroke="#94a3b8" stroke-width="1.5"/>
+        <line x1="38" y1="150" x2="102" y2="150" stroke="#94a3b8" stroke-width="1.5"/>
+        <line x1="47" y1="127" x2="93" y2="173" stroke="#94a3b8" stroke-width="1.5"/>
+        <line x1="47" y1="173" x2="93" y2="127" stroke="#94a3b8" stroke-width="1.5"/>
+
+        <!-- 自行车前轮 -->
+        <circle cx="205" cy="150" r="32" stroke="#0f172a" stroke-width="4" fill="none"/>
+        <circle cx="205" cy="150" r="4" fill="#0ea5e9"/>
+        <line x1="205" y1="118" x2="205" y2="182" stroke="#94a3b8" stroke-width="1.5"/>
+        <line x1="173" y1="150" x2="237" y2="150" stroke="#94a3b8" stroke-width="1.5"/>
+        <line x1="182" y1="127" x2="228" y2="173" stroke="#94a3b8" stroke-width="1.5"/>
+        <line x1="182" y1="173" x2="228" y2="127" stroke="#94a3b8" stroke-width="1.5"/>
+
+        <!-- 自行车车架 (青蓝色炫酷公路车) -->
+        <path d="M70 150L125 150L175 105L120 105L70 150Z" stroke="#0284c7" stroke-width="5" stroke-linejoin="round"/>
+        <line x1="125" y1="150" x2="116" y2="92" stroke="#0284c7" stroke-width="5" stroke-linecap="round"/>
+        <line x1="205" y1="150" x2="175" y2="85" stroke="#0284c7" stroke-width="5" stroke-linecap="round"/>
+
+        <!-- 车座 -->
+        <path d="M100 90H130C132 90 134 92 133 94L130 98H104L100 90Z" fill="#0f172a"/>
+
+        <!-- 车把手 -->
+        <path d="M175 85L178 75H190C193 75 195 78 193 81L188 88" stroke="#0f172a" stroke-width="4" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+
+        <!-- 牙盘与脚踏 -->
+        <circle cx="125" cy="150" r="9" fill="#0f172a"/>
+        <line x1="125" y1="150" x2="135" y2="164" stroke="#64748b" stroke-width="3" stroke-linecap="round"/>
+        <rect x="131" y="163" width="9" height="4" rx="2" fill="#0f172a"/>
+
+        <!-- 鹈鹕身体 (圆润呆萌白鸟) -->
+        <ellipse cx="126" cy="74" rx="28" ry="24" fill="#f8fafc" stroke="#334155" stroke-width="3"/>
+        <!-- 翅膀 -->
+        <path d="M110 70C118 78 135 78 140 70C135 88 115 86 110 70Z" fill="#e2e8f0" stroke="#334155" stroke-width="2"/>
+
+        <!-- 鹈鹕尾巴 -->
+        <path d="M96 74L86 68L88 78Z" fill="#e2e8f0" stroke="#334155" stroke-width="2"/>
+
+        <!-- 鹈鹕腿与蹼 -->
+        <line x1="124" y1="96" x2="135" y2="162" stroke="#f97316" stroke-width="4" stroke-linecap="round"/>
+        <polygon points="132,162 142,162 138,166" fill="#f97316"/>
+
+        <!-- 鹈鹕脖子与头 -->
+        <path d="M142 66C148 56 154 44 158 35" stroke="#f8fafc" stroke-width="14" stroke-linecap="round"/>
+        <circle cx="160" cy="34" r="14" fill="#f8fafc" stroke="#334155" stroke-width="3"/>
+
+        <!-- 眼睛 (戴着炫酷骑行风镜) -->
+        <rect x="156" y="27" width="16" height="10" rx="5" fill="#0284c7" stroke="#0f172a" stroke-width="2"/>
+        <line x1="150" y1="32" x2="157" y2="32" stroke="#0f172a" stroke-width="2"/>
+
+        <!-- 鹈鹕安全头盔 -->
+        <path d="M148 30C148 18 168 16 174 26L148 30Z" fill="#e11d48" stroke="#0f172a" stroke-width="2"/>
+
+        <!-- 招牌大嘴 (大喉囊) -->
+        <path d="M168 34C188 34 212 36 220 38C218 52 195 62 170 50L168 34Z" fill="#fbbf24" stroke="#d97706" stroke-width="3"/>
+        <line x1="168" y1="38" x2="218" y2="38" stroke="#b45309" stroke-width="2"/>
+
+        <!-- 嘴里含着的小鱼尾巴 (灵动彩蛋) -->
+        <path d="M216 38L228 32V44L216 38Z" fill="#38bdf8" stroke="#0284c7" stroke-width="1.5"/>
+
+        <!-- 鹈鹕翅膀扶车把 -->
+        <path d="M136 68C152 70 170 76 186 78" stroke="#334155" stroke-width="4" stroke-linecap="round"/>
+      </svg>
+    </div>
+
+    <div class="quote">
+      “今天的巡航时速 28km/h，沿途风景很好，鱼也很肥美。”
+    </div>
+
+    <div class="footer">
+      © 2026 Pelican Velo Club · All Gears Running Smoothly
+    </div>
+  </div>
+</body>
+</html>

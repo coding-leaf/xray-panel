@@ -20,6 +20,7 @@ type TrafficSyncJob struct {
 	trafficLogRepo domain.TrafficLogRepository
 	alertSvc       *service.AlertService
 	userSvc        *service.UserService
+	ticketRepo     domain.TicketRepository
 	interval       time.Duration
 }
 
@@ -30,6 +31,7 @@ func NewTrafficSyncJob(
 	trafficLogRepo domain.TrafficLogRepository,
 	alertSvc *service.AlertService,
 	userSvc *service.UserService,
+	ticketRepo domain.TicketRepository,
 	interval time.Duration,
 ) *TrafficSyncJob {
 	if interval < 3*time.Second {
@@ -42,6 +44,7 @@ func NewTrafficSyncJob(
 		trafficLogRepo: trafficLogRepo,
 		alertSvc:       alertSvc,
 		userSvc:        userSvc,
+		ticketRepo:     ticketRepo,
 		interval:       interval,
 	}
 }
@@ -51,6 +54,7 @@ func (j *TrafficSyncJob) Start(ctx context.Context) error {
 	defer ticker.Stop()
 
 	alertTicker := time.NewTicker(5 * time.Minute)
+	ticketCleanTicker := time.NewTicker(1 * time.Minute)
 
 	slog.Info("Traffic sync job started", slog.Duration("interval", j.interval))
 
@@ -61,10 +65,15 @@ func (j *TrafficSyncJob) Start(ctx context.Context) error {
 	go func() {
 		defer wg.Done()
 		defer alertTicker.Stop()
+		defer ticketCleanTicker.Stop()
 		for {
 			select {
 			case <-ctx.Done():
 				return
+			case <-ticketCleanTicker.C:
+				if j.ticketRepo != nil {
+					_ = j.ticketRepo.CleanExpired(ctx)
+				}
 			case <-alertTicker.C:
 				if j.alertSvc != nil {
 					_ = j.alertSvc.CheckTrafficQuotas(ctx)

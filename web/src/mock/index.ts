@@ -430,6 +430,47 @@ export async function handleMockRequest(url: string, method: string, data?: any)
     return delay({ success: true })
   }
 
+  // 生成带外提取码 (Ticket)
+  const userTicketMatch = cleanUrl.match(/\/users\/(\d+)\/tickets$/)
+  if (userTicketMatch && method === 'POST') {
+    const id = parseInt(userTicketMatch[1], 10)
+    const ttl = data?.ttl_minutes || 15
+    const maxUses = data?.max_uses || 2
+    const code = '7K9X2P'
+    const expiresAt = Math.floor(Date.now() / 1000) + ttl * 60
+    const host = window.location.host
+    const portalUrl = `${window.location.protocol}//${host}/portal`
+    const shareText = `【安全数据交换】\n提取码：${code}\n门户：${portalUrl}\n有效时间：${ttl}分钟（限${maxUses}次提取）`
+    return delay({
+      code,
+      user_id: id,
+      remaining_uses: maxUses,
+      expires_at: expiresAt,
+      share_text: shareText,
+    })
+  }
+
+  // 提取带外安全凭据 (Claim Ticket)
+  if (cleanUrl.endsWith('/portal/claim') && method === 'POST') {
+    const code = (data?.code || '').toUpperCase().trim()
+    if (!code) {
+      throw new Error('提取码不能为空')
+    }
+    const host = window.location.host
+    const protocol = window.location.protocol
+    const demoUser = state.users[0] || { email: 'demo@example.com', subToken: 'demo-sub-token' }
+    return delay({
+      user_email: demoUser.email,
+      emergency_nodes: [
+        `vless://11111111-2222-3333-4444-555555555555@${host.split(':')[0]}:443?encryption=none&security=reality&sni=www.titech.ac.jp&fp=chrome&pbk=1111111111111111111111111111111111111111111&sid=12345678&type=tcp#%E6%80%A5%E6%95%91%E8%8A%82%E7%82%B9-01`,
+        `vless://11111111-2222-3333-4444-555555555555@${host.split(':')[0]}:443?encryption=none&security=reality&sni=www.titech.ac.jp&fp=chrome&pbk=1111111111111111111111111111111111111111111&sid=12345678&type=tcp#%E6%80%A5%E6%95%91%E8%8A%82%E7%82%B9-02`,
+      ],
+      subscription_url: `${protocol}//${host}/sub/${demoUser.subToken}`,
+      remaining_uses: 1,
+      expires_at: Math.floor(Date.now() / 1000) + 900,
+    })
+  }
+
   // 7. DNS
   if (cleanUrl.endsWith('/dns') && method === 'GET') {
     return delay(state.dns)
@@ -444,11 +485,11 @@ export async function handleMockRequest(url: string, method: string, data?: any)
   if (cleanUrl.endsWith('/logs') && method === 'GET') {
     const nowStr = new Date().toISOString().replace('T', ' ').substring(0, 19).replace(/-/g, '/')
     const randomLogs = [
-      `${nowStr} [Info] app/proxyman/command: Dynamic gRPC HandlerService AlterInbound: AddUser master@yezineko.top into inbound [vless-reality] success`,
-      `${nowStr} [Info] app/stats/command: StatsService QueryStats pattern "user>>>master@yezineko.top>>>traffic>>>downlink" -> 30000000000 bytes`,
-      `${nowStr} 127.0.0.1:4${Math.floor(1000 + Math.random() * 9000)} accepted tcp:www.youtube.com:443 [vless-reality -> direct] email: master@yezineko.top`,
-      `${nowStr} 127.0.0.1:4${Math.floor(1000 + Math.random() * 9000)} accepted tcp:api.openai.com:443 [vless-reality -> warp-out] email: master@yezineko.top`,
-      `${nowStr} 127.0.0.1:4${Math.floor(1000 + Math.random() * 9000)} accepted tcp:hk-node.example.com:443 [vless-reality -> hk-landing] email: master@yezineko.top`,
+      `${nowStr} [Info] app/proxyman/command: Dynamic gRPC HandlerService AlterInbound: AddUser master@example.com into inbound [vless-reality] success`,
+      `${nowStr} [Info] app/stats/command: StatsService QueryStats pattern "user>>>master@example.com>>>traffic>>>downlink" -> 30000000000 bytes`,
+      `${nowStr} 127.0.0.1:4${Math.floor(1000 + Math.random() * 9000)} accepted tcp:www.youtube.com:443 [vless-reality -> direct] email: master@example.com`,
+      `${nowStr} 127.0.0.1:4${Math.floor(1000 + Math.random() * 9000)} accepted tcp:api.openai.com:443 [vless-reality -> warp-out] email: master@example.com`,
+      `${nowStr} 127.0.0.1:4${Math.floor(1000 + Math.random() * 9000)} accepted tcp:hk-node.example.com:443 [vless-reality -> hk-landing] email: master@example.com`,
       `${nowStr} [Info] app/sync: Cold-boot SyncToDiskConfig fallback verified with zero config drift`,
     ]
     return delay({

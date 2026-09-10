@@ -1,0 +1,780 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>分布式网管接入点</title>
+  <style>
+    :root {
+      --bg-color: #07090e;
+      --card-bg: rgba(12, 16, 27, 0.95);
+      --border-color: rgba(255, 255, 255, 0.08);
+      --primary: #6366f1;
+      --primary-hover: #4f46e5;
+      --primary-glow: rgba(99, 102, 241, 0.25);
+      --accent: #06b6d4;
+      --text-main: #f8fafc;
+      --text-muted: #94a3b8;
+      --text-dark: #64748b;
+      --danger: #f43f5e;
+      --danger-bg: rgba(244, 63, 94, 0.1);
+      --success: #10b981;
+      --success-bg: rgba(16, 185, 129, 0.1);
+      --warning: #f59e0b;
+      --warning-bg: rgba(245, 158, 11, 0.1);
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      background-color: var(--bg-color);
+      color: var(--text-main);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+      position: relative;
+      overflow-x: hidden;
+    }
+
+    /* 背景炫彩光晕 */
+    .glow-top {
+      position: absolute;
+      top: -120px;
+      left: 50%;
+      transform: translateX(-50%);
+      width: 550px;
+      height: 350px;
+      background: radial-gradient(circle, rgba(99, 102, 241, 0.15) 0%, rgba(6, 182, 212, 0.08) 50%, transparent 80%);
+      border-radius: 50%;
+      filter: blur(80px);
+      pointer-events: none;
+    }
+
+    .glow-bottom {
+      position: absolute;
+      bottom: -100px;
+      right: -50px;
+      width: 380px;
+      height: 380px;
+      background: radial-gradient(circle, rgba(168, 85, 247, 0.12) 0%, transparent 70%);
+      border-radius: 50%;
+      filter: blur(90px);
+      pointer-events: none;
+    }
+
+    /* 容器卡片 */
+    .container {
+      width: 100%;
+      max-width: 540px;
+      position: relative;
+      z-index: 10;
+      margin: auto;
+    }
+
+    .status-badge {
+      display: flex;
+      justify-content: center;
+      margin-bottom: 20px;
+    }
+
+    .badge-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 6px 14px;
+      border-radius: 9999px;
+      background: rgba(99, 102, 241, 0.1);
+      border: 1px solid rgba(99, 102, 241, 0.25);
+      color: #a5b4fc;
+      font-size: 12px;
+      font-weight: 500;
+      letter-spacing: 0.02em;
+    }
+
+    .card {
+      background: var(--card-bg);
+      backdrop-filter: blur(20px);
+      border: 1px solid var(--border-color);
+      border-radius: 24px;
+      padding: 32px 28px;
+      box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.85);
+      position: relative;
+    }
+
+    .card::before {
+      content: "";
+      position: absolute;
+      top: 0;
+      left: 50%;
+      transform: translateX(-50%);
+      width: 180px;
+      height: 2px;
+      background: linear-gradient(90deg, transparent, var(--primary), transparent);
+    }
+
+    .header {
+      text-align: center;
+      margin-bottom: 28px;
+    }
+
+    .logo-icon {
+      width: 52px;
+      height: 52px;
+      margin: 0 auto 14px;
+      border-radius: 16px;
+      background: linear-gradient(135deg, #6366f1, #06b6d4);
+      padding: 1px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      box-shadow: 0 8px 20px -4px var(--primary-glow);
+    }
+
+    .logo-inner {
+      width: 100%;
+      height: 100%;
+      background: #0b0f19;
+      border-radius: 15px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .header h1 {
+      font-size: 22px;
+      font-weight: 700;
+      color: #fff;
+      letter-spacing: -0.01em;
+    }
+
+    .header p {
+      font-size: 12px;
+      color: var(--text-dark);
+      font-family: monospace;
+      margin-top: 6px;
+    }
+
+    /* 表单组件 */
+    .form-group {
+      margin-bottom: 20px;
+    }
+
+    .form-label {
+      display: block;
+      text-align: center;
+      font-size: 12px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: var(--text-muted);
+      margin-bottom: 12px;
+    }
+
+    .input-wrapper {
+      max-width: 320px;
+      margin: 0 auto;
+    }
+
+    .code-input {
+      width: 100%;
+      background: rgba(17, 22, 36, 0.9);
+      border: 1px solid rgba(255, 255, 255, 0.15);
+      border-radius: 14px;
+      padding: 14px 16px;
+      font-family: monospace;
+      font-size: 26px;
+      font-weight: 800;
+      letter-spacing: 0.35em;
+      text-align: center;
+      color: #a5b4fc;
+      text-transform: uppercase;
+      outline: none;
+      transition: all 0.2s ease;
+    }
+
+    .code-input:focus {
+      border-color: var(--primary);
+      box-shadow: 0 0 0 3px var(--primary-glow);
+    }
+
+    .input-hint {
+      text-align: center;
+      font-size: 11px;
+      color: var(--text-dark);
+      margin-top: 8px;
+    }
+
+    .btn-submit {
+      width: 100%;
+      padding: 13px;
+      border-radius: 14px;
+      border: none;
+      background: linear-gradient(135deg, var(--primary), var(--accent));
+      color: white;
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      box-shadow: 0 10px 25px -5px var(--primary-glow);
+      transition: all 0.2s ease;
+    }
+
+    .btn-submit:hover:not(:disabled) {
+      opacity: 0.95;
+      transform: translateY(-1px);
+    }
+
+    .btn-submit:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+
+    .error-banner {
+      background: var(--danger-bg);
+      border: 1px solid rgba(244, 63, 94, 0.25);
+      color: #fda4af;
+      padding: 12px 14px;
+      border-radius: 12px;
+      font-size: 12px;
+      margin-bottom: 16px;
+      display: none;
+      align-items: center;
+      gap: 8px;
+    }
+
+    /* 兑换成果轨道卡片 */
+    .countdown-bar {
+      background: var(--warning-bg);
+      border: 1px solid rgba(245, 158, 11, 0.25);
+      color: #fcd34d;
+      padding: 10px 14px;
+      border-radius: 12px;
+      font-size: 12px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 18px;
+    }
+
+    .countdown-timer {
+      font-family: monospace;
+      font-weight: 700;
+    }
+
+    .track-section {
+      background: rgba(17, 22, 36, 0.7);
+      border: 1px solid var(--border-color);
+      border-radius: 16px;
+      padding: 16px;
+      margin-bottom: 16px;
+    }
+
+    .track-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 8px;
+    }
+
+    .track-title {
+      font-size: 13px;
+      font-weight: 700;
+      color: #fff;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .track-dot {
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+    }
+
+    .dot-green { background: var(--success); }
+    .dot-blue { background: var(--accent); }
+
+    .track-tag {
+      font-size: 10px;
+      font-family: monospace;
+      padding: 2px 8px;
+      border-radius: 6px;
+      background: rgba(255, 255, 255, 0.05);
+      color: var(--text-muted);
+    }
+
+    .track-desc {
+      font-size: 11px;
+      color: var(--text-dark);
+      line-height: 1.5;
+      margin-bottom: 12px;
+    }
+
+    .btn-action {
+      width: 100%;
+      padding: 10px 14px;
+      border-radius: 10px;
+      border: none;
+      background: var(--primary);
+      color: white;
+      font-size: 12px;
+      font-weight: 600;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      transition: all 0.2s ease;
+    }
+
+    .btn-action:hover {
+      background: var(--primary-hover);
+    }
+
+    .fallback-box {
+      margin-top: 10px;
+    }
+
+    .fallback-label {
+      font-size: 10px;
+      color: var(--text-dark);
+      margin-bottom: 4px;
+    }
+
+    .fallback-textarea {
+      width: 100%;
+      background: rgba(0, 0, 0, 0.4);
+      border: 1px solid var(--border-color);
+      border-radius: 8px;
+      padding: 8px;
+      font-family: monospace;
+      font-size: 10px;
+      color: var(--text-muted);
+      outline: none;
+      resize: vertical;
+    }
+
+    .sub-input-group {
+      display: flex;
+      gap: 8px;
+    }
+
+    .sub-input {
+      flex: 1;
+      background: rgba(0, 0, 0, 0.4);
+      border: 1px solid var(--border-color);
+      border-radius: 10px;
+      padding: 8px 12px;
+      font-family: monospace;
+      font-size: 11px;
+      color: var(--text-muted);
+      outline: none;
+    }
+
+    .btn-copy-sub {
+      padding: 8px 14px;
+      border-radius: 10px;
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      background: rgba(255, 255, 255, 0.06);
+      color: #fff;
+      font-size: 11px;
+      font-weight: 600;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      transition: all 0.2s ease;
+    }
+
+    .btn-copy-sub:hover {
+      background: rgba(255, 255, 255, 0.12);
+    }
+
+    .btn-burn {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      background: none;
+      border: none;
+      color: var(--text-dark);
+      font-size: 11px;
+      cursor: pointer;
+      margin-top: 10px;
+      transition: color 0.2s;
+    }
+
+    .btn-burn:hover {
+      color: var(--danger);
+    }
+
+    .footer {
+      text-align: center;
+      margin-top: 24px;
+      font-size: 11px;
+      color: var(--text-dark);
+      line-height: 1.6;
+    }
+
+    .footer p.ver {
+      font-size: 10px;
+      font-family: monospace;
+      color: #475569;
+      margin-top: 4px;
+    }
+
+    /* 简单的旋转动画 */
+    .spin {
+      animation: spin 1s linear infinite;
+    }
+
+    @keyframes spin {
+      100% { transform: rotate(360deg); }
+    }
+  </style>
+</head>
+<body>
+  <!-- 背景氛围光 -->
+  <div class="glow-top"></div>
+  <div class="glow-bottom"></div>
+
+  <div class="container">
+    <!-- 顶部中立标签 -->
+    <div class="status-badge">
+      <div class="badge-pill">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+        <span>分布式网管接入点 · 节点运维受保护</span>
+      </div>
+    </div>
+
+    <div class="card">
+      <!-- 头部 -->
+      <div class="header">
+        <div class="logo-icon">
+          <div class="logo-inner">
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#6366f1" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m21 2-2 2m-1.5 1.5L10 13m-2-2-4 4a2 2 0 1 0 2.83 2.83l4-4m1.17-5.17L19 4m0 0 2 2"/></svg>
+          </div>
+        </div>
+        <h1>分布式网管接入点</h1>
+        <p>Distributed Network Operations Point</p>
+      </div>
+
+      <!-- 错误提示框 -->
+      <div id="errorBanner" class="error-banner">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+        <span id="errorMsgText">凭据无效或已失效</span>
+      </div>
+
+      <!-- 阶段 1：凭据输入表单 -->
+      <div id="formSection">
+        <div class="form-group">
+          <label class="form-label" for="ticketCodeInput">请输入 6 位提取凭据 (一次性安全码)</label>
+          <div class="input-wrapper">
+            <input
+              type="text"
+              id="ticketCodeInput"
+              class="code-input"
+              maxlength="8"
+              placeholder="如: 7K9X2P"
+              autocomplete="off"
+              autofocus
+            />
+          </div>
+          <p class="input-hint">不区分大小写，自动忽略混淆字符与分隔符</p>
+        </div>
+
+        <button id="submitBtn" class="btn-submit">
+          <span id="btnText">立即提取配置</span>
+        </button>
+      </div>
+
+      <!-- 阶段 2：双轨结果展示 -->
+      <div id="resultSection" style="display: none;">
+        <!-- 内存自毁倒计时 -->
+        <div class="countdown-bar">
+          <div style="display: flex; align-items: center; gap: 6px;">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M8.5 14.5A2.5 2.5 0 0 0 11 12c0-1.38-.5-2-1-3-1.072-2.143-.224-4.054 2-6 .5 2.5 2 4.9 4 6.5 2 1.6 3 3.5 3 5.5a7 7 0 1 1-14 0c0-1.153.433-2.294 1-3a2.5 2.5 0 0 0 2.5 2.5z"/></svg>
+            <span>内存安全自毁倒计时</span>
+          </div>
+          <span id="countdownLabel" class="countdown-timer">120 秒后清除</span>
+        </div>
+
+        <!-- 轨道 1：急救连接节点 -->
+        <div class="track-section">
+          <div class="track-header">
+            <div class="track-title">
+              <span class="track-dot dot-green"></span>
+              <span>轨道 1：急救连接节点</span>
+            </div>
+            <span id="nodeCountBadge" class="track-tag">0 个节点</span>
+          </div>
+          <p class="track-desc">用于首次配网或建立高可用专属加密通道。</p>
+          <button id="copyNodesBtn" class="btn-action">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+            <span id="copyNodesBtnText">一键复制全部急救节点</span>
+          </button>
+          <div class="fallback-box">
+            <div class="fallback-label">长按下方区域手动全选复制（手机端兜底）：</div>
+            <textarea id="nodesTextarea" class="fallback-textarea" rows="3" readonly></textarea>
+          </div>
+        </div>
+
+        <!-- 轨道 2：长效自动更新订阅 -->
+        <div class="track-section">
+          <div class="track-header">
+            <div class="track-title">
+              <span class="track-dot dot-blue"></span>
+              <span>轨道 2：长效自动更新订阅</span>
+            </div>
+            <span class="track-tag">长效保障</span>
+          </div>
+          <p class="track-desc">连接急救节点成功后，将订阅链接填入客户端以实现持续同步。</p>
+          <div class="sub-input-group">
+            <input type="text" id="subUrlInput" class="sub-input" readonly />
+            <button id="copySubBtn" class="btn-copy-sub">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+              <span id="copySubBtnText">复制</span>
+            </button>
+          </div>
+        </div>
+
+        <!-- 手动立即销毁 -->
+        <div style="text-align: center;">
+          <button id="burnBtn" class="btn-burn">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+            <span>立即销毁当前数据并返回</span>
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 页脚版权与伪装标识 -->
+    <div class="footer">
+      <p>端到端加密与访问控制已启用 · 阅后即焚保护机制</p>
+      <p class="ver">NetOps Version 1.3 · Distributed Network Operations Hub</p>
+    </div>
+  </div>
+
+  <script>
+    /**
+     * =========================================================================
+     * 自定义独立 HTML 前端配置 (Headless Configuration)
+     * =========================================================================
+     * 
+     * 1. 若此 HTML 与面板或反代部署在同一个域名/路径下，请保持留空 ""；
+     * 2. 若此 HTML 部署在独立的托管平台（如 Cloudflare Pages、GitHub Pages），
+     *    请填入真实的后端面板地址，如："https://panel.yourdomain.com"。
+     */
+    const BACKEND_API_BASE = "";
+
+    // DOM 元素引用
+    const codeInput = document.getElementById("ticketCodeInput");
+    const submitBtn = document.getElementById("submitBtn");
+    const btnText = document.getElementById("btnText");
+    const errorBanner = document.getElementById("errorBanner");
+    const errorMsgText = document.getElementById("errorMsgText");
+
+    const formSection = document.getElementById("formSection");
+    const resultSection = document.getElementById("resultSection");
+    const countdownLabel = document.getElementById("countdownLabel");
+
+    const nodeCountBadge = document.getElementById("nodeCountBadge");
+    const copyNodesBtn = document.getElementById("copyNodesBtn");
+    const copyNodesBtnText = document.getElementById("copyNodesBtnText");
+    const nodesTextarea = document.getElementById("nodesTextarea");
+
+    const subUrlInput = document.getElementById("subUrlInput");
+    const copySubBtn = document.getElementById("copySubBtn");
+    const copySubBtnText = document.getElementById("copySubBtnText");
+    const burnBtn = document.getElementById("burnBtn");
+
+    // 状态管理
+    let currentPayload = null;
+    let countdownInterval = null;
+    let expireAtTimestamp = 0;
+
+    // 输入格式化 (Crockford 规范化：全角转半角、去空白、转大写)
+    codeInput.addEventListener("input", () => {
+      let val = codeInput.value;
+      val = val.replace(/[\uFF01-\uFF5E]/g, (ch) => String.fromCharCode(ch.charCodeAt(0) - 0xFEE0));
+      val = val.replace(/\u3000/g, " ");
+      val = val.replace(/\s+/g, "").toUpperCase();
+      codeInput.value = val;
+      hideError();
+    });
+
+    codeInput.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") {
+        handleClaim();
+      }
+    });
+
+    submitBtn.addEventListener("click", handleClaim);
+
+    function showError(msg) {
+      errorMsgText.textContent = msg;
+      errorBanner.style.display = "flex";
+    }
+
+    function hideError() {
+      errorBanner.style.display = "none";
+    }
+
+    async function handleClaim() {
+      const code = codeInput.value.trim();
+      if (!code) {
+        showError("请输入提取凭据码");
+        codeInput.focus();
+        return;
+      }
+
+      hideError();
+      submitBtn.disabled = true;
+      btnText.textContent = "正在安全校验凭据...";
+
+      const targetEndpoint = `${BACKEND_API_BASE.replace(/\/+$/, "")}/api/portal/claim`;
+
+      try {
+        const response = await fetch(targetEndpoint, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ code }),
+        });
+
+        const data = await response.json();
+
+        if (!response.ok) {
+          throw new Error(data.error || "凭据无效、已过期或已被销毁");
+        }
+
+        renderPayload(data);
+      } catch (err) {
+        showError(err.message || "请求服务器失败，请检查网络");
+      } finally {
+        submitBtn.disabled = false;
+        btnText.textContent = "立即提取配置";
+      }
+    }
+
+    function renderPayload(payload) {
+      currentPayload = payload;
+      formSection.style.display = "none";
+      resultSection.style.display = "block";
+
+      const nodes = payload.emergency_nodes || [];
+      nodeCountBadge.textContent = `${nodes.length} 个节点`;
+      nodesTextarea.value = nodes.join("\n");
+      subUrlInput.value = payload.subscription_url || "";
+
+      startCountdown(120);
+    }
+
+    function startCountdown(seconds) {
+      expireAtTimestamp = Date.now() + seconds * 1000;
+      updateTimerUI();
+
+      if (countdownInterval) clearInterval(countdownInterval);
+      countdownInterval = setInterval(() => {
+        const remaining = Math.ceil((expireAtTimestamp - Date.now()) / 1000);
+        if (remaining <= 0) {
+          resetPortal();
+        } else {
+          countdownLabel.textContent = `${remaining} 秒后清除`;
+        }
+      }, 1000);
+    }
+
+    function updateTimerUI() {
+      const remaining = Math.max(0, Math.ceil((expireAtTimestamp - Date.now()) / 1000));
+      countdownLabel.textContent = `${remaining} 秒后清除`;
+    }
+
+    // 手机切后台或锁屏休眠唤醒事件监听 (防止 timer 挂起)
+    document.addEventListener("visibilitychange", () => {
+      if (currentPayload && expireAtTimestamp > 0) {
+        if (Date.now() >= expireAtTimestamp) {
+          resetPortal();
+        } else {
+          updateTimerUI();
+        }
+      }
+    });
+
+    function resetPortal() {
+      if (countdownInterval) clearInterval(countdownInterval);
+      currentPayload = null;
+      expireAtTimestamp = 0;
+      nodesTextarea.value = "";
+      subUrlInput.value = "";
+      codeInput.value = "";
+
+      resultSection.style.display = "none";
+      formSection.style.display = "block";
+      hideError();
+      codeInput.focus();
+    }
+
+    burnBtn.addEventListener("click", resetPortal);
+
+    // 复制工具函数
+    async function copyToClipboard(text) {
+      try {
+        if (navigator.clipboard && window.isSecureContext) {
+          await navigator.clipboard.writeText(text);
+          return true;
+        }
+      } catch (_) {}
+
+      try {
+        const ta = document.createElement("textarea");
+        ta.value = text;
+        ta.style.position = "fixed";
+        ta.style.left = "-9999px";
+        document.body.appendChild(ta);
+        ta.focus();
+        ta.select();
+        const ok = document.execCommand("copy");
+        document.body.removeChild(ta);
+        if (ok) return true;
+      } catch (_) {}
+      return false;
+    }
+
+    copyNodesBtn.addEventListener("click", async () => {
+      if (!nodesTextarea.value) return;
+      const ok = await copyToClipboard(nodesTextarea.value);
+      if (ok) {
+        copyNodesBtnText.textContent = "已成功复制全部急救节点！";
+        setTimeout(() => {
+          copyNodesBtnText.textContent = "一键复制全部急救节点";
+        }, 2500);
+      }
+    });
+
+    copySubBtn.addEventListener("click", async () => {
+      if (!subUrlInput.value) return;
+      const ok = await copyToClipboard(subUrlInput.value);
+      if (ok) {
+        copySubBtnText.textContent = "已复制";
+        setTimeout(() => {
+          copySubBtnText.textContent = "复制";
+        }, 2500);
+      }
+    });
+
+    nodesTextarea.addEventListener("click", () => nodesTextarea.select());
+    subUrlInput.addEventListener("click", () => subUrlInput.select());
+  </script>
+</body>
+</html>

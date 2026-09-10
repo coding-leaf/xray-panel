@@ -1,7 +1,7 @@
 # 🚀 Xray Decoupled Panel (解耦运维监控与分流管理面板)
 
 <p align="center">
-  <img src="https://img.shields.io/badge/Version-v1.6.0-indigo?style=flat-square" alt="Version">
+  <img src="https://img.shields.io/badge/Version-v2.0.0-indigo?style=flat-square" alt="Version">
   <img src="https://img.shields.io/badge/Go-1.22+-00ADD8?style=flat-square&logo=go" alt="Go Version">
   <img src="https://img.shields.io/badge/Vue-3.4+-4FC08D?style=flat-square&logo=vue.js" alt="Vue Version">
   <img src="https://img.shields.io/badge/Architecture-Clean%20Architecture-blue?style=flat-square" alt="Clean Architecture">
@@ -51,8 +51,21 @@
   - 支持系统退出信号拦截、优雅关机（HTTP 活跃 Keep-Alive 连接排空）与有序资源释放（先关 gRPC 连接，再释放数据库文件锁）。
 - 🛡️ **并发流量统计防冲正**：
   - 采用字段隔离更新与重置时间窗口过滤，避免并发写入或旧周期增量冲正刚归零的流量。
+- 🛡️ **带外高熵安全分发系统 (Out-of-Band Ticket Distribution & 阅后即焚)**：
+  - 采用 6 位 Crockford Base32 编码（10.7 亿高熵空间），生成中立提件码，支持在微信、QQ 等境内即时通讯安全发送；
+  - 客户端在专属【分布式网管接入点】输入提件码即可一键获取急救节点与长效订阅，完全脱敏、阻断爬虫主动探测；
+  - **四维自毁保障**：秒级逻辑失效（CAS 原子校验）、磁盘物理抹除（次数耗尽即刻 DELETE + 60秒定时垃圾回收）、客户端绝对时钟自毁（防切后台休眠）、传输层 `Cache-Control: no-store` 强制防缓存。
+- 🌐 **前后端彻底解耦 Headless API 与独立轻量单文件门户**：
+  - 标准化 `POST /api/portal/claim` 接口并全局放行 CORS 跨域；
+  - 提供开箱即用、零构建依赖的轻量单文件 HTML 模板（`deploy/standalone-portal.html`，~15KB 原生 Vanilla JS/CSS），支持直接部署于 Cloudflare Pages、GitHub Pages 或轻量虚拟主机中独立托管，源站 VPS 零暴露。
+- ☁️ **Cloudflare 边缘中立门户网关与反探测代理**：
+  - 提供工业级加固版 Cloudflare Worker / Pages 脚本（`deploy/cloudflare-worker-sub-proxy.js` 与 `deploy/cloudflare-pages/`）；
+  - 根路径伪装为中立健康站点，Fixed-point 多重解码彻底杜绝路径穿越；智能识别腾讯、微信及自动化扫描爬虫并返回 200 OK 伪装页，保护域名免遭拦截报红。
+- 🚀 **生产级平滑安装与热升级守护 ([deploy/install.sh](file:///home/yezisama/workspace/WorkSpace/xray-panel/deploy/install.sh))**：
+  - 升级为 Linux `install -m 755` 原子覆盖写入，彻底消除生产环境二进制热更新时的 `Text file busy` (ETXTBSY) 错误；
+  - 具备智能多路径自动寻径，并对敏感存储目录自动设置 `chmod 700` 权限安全收敛。
 - 🌐 **单入站多通道分流 (VLESS Route)**：
-  - 支持基于 VLESS UUID 映射的多出口分流机制，单个入站端口可按用户线路映射到不同落地出站，生成独立订阅节点。
+  - 支持基于 VLESS UUID 映射的多出口分流机制，单个入站端口可按用户线路映射到不同落地出站，自动展开多通道独立订阅节点。
 - 🎭 **纯前端 Mock 演示沙盒 (GitHub Pages)**：
   - 内置升级版 LocalStorage v3 数据仿真引擎，无需后端服务器即可完整体验多协议节点增删、通道编排与扫码订阅。
 - 🧩 **单二进制交付**：
@@ -71,7 +84,35 @@
 
 ---
 
-## 📝 最近更新日志 (v1.6.0)
+## 📝 最近更新日志 (v2.0.0 重大里程碑)
+
+- **🎉 带外高熵安全凭据分发与阅后即焚系统 (Ticket Distribution System)**：
+  - 新增 `internal/domain/ticket.go`、`internal/service/ticket_service.go` 与 `internal/delivery/http/handler_ticket.go`；
+  - 生成 6 位 Crockford Base32 提取凭据（10.7 亿高熵组合），支持在微信/QQ等境内即时通讯安全发送；
+  - 客户端在纯中立的【分布式网管接入点】输入提件码即可获取双轨配置（轨道 1：急救直连节点，轨道 2：长效自动更新订阅）；
+  - **闭环四维阅后即焚**：
+    1. **逻辑时效**：CAS 条件原子更新 `remaining_uses > 0 AND expires_at > now`，到期即拒；
+    2. **物理磁盘抹除**：兑换次数归零后立即从 SQLite 物理删除（`DELETE`），后台守护协程每 60 秒定期彻底清空过期记录；
+    3. **客户端内存自毁**：前端采用绝对时间戳与 `visibilitychange` 事件监听，手机锁屏休眠唤醒超时立即清空内存 `payload` 并卸载 DOM；
+    4. **传输层 Zero-Store**：接口响应显式注入 `Cache-Control: no-store`，杜绝任何中间代理和浏览器磁盘缓存。
+- **🌐 架构彻底解耦：Headless API 与零依赖独立单文件门户**：
+  - 核心分发接口 `POST /api/portal/claim` 规范为标准 JSON API，全局启用 CORS 跨域支持；
+  - 新增单文件纯 HTML 静态模板 `deploy/standalone-portal.html`（原生 Vanilla JS + 纯 CSS，单文件仅 ~15KB），支持独立部署于 Cloudflare Pages、GitHub Pages 或轻量虚拟主机中独立托管，源站 VPS 零暴露。
+- **☁️ Cloudflare 边缘中立门户网关与反探测代理**：
+  - 提供生产加固版 Cloudflare Worker（`deploy/cloudflare-worker-sub-proxy.js`）与 Cloudflare Pages（`deploy/cloudflare-pages/`）代理脚本；
+  - 根路径伪装为中立静态页面，实现 Fixed-point 收敛多重 URL 解码防御路径穿越；
+  - 精准识别腾讯、微信官方扫描爬虫与网络探测器并返回 200 OK 伪装页，保护分发域名免遭拦截报红。
+- **🚀 生产环境平滑升级与安装脚本加固 (`deploy/install.sh`)**：
+  - 升级为 Linux `install -m 755` 原子覆盖覆写机制，彻底解决 Linux 内核对运行中进程报错 `Text file busy` (ETXTBSY) 导致安装中断的顽疾；
+  - 脚本支持智能多路径自动寻径（无论在根目录、deploy 子目录或 /tmp/ 下执行均可自动定位二进制）；
+  - 敏感数据目录 `data/` 自动应用 `chmod 700` 权限安全收敛。
+- **⚡ 单入站多通道分流线路展开优化 (SubRoutes Fan-out)**：
+  - 修复并优化了多出口分流的订阅分发，支持在获取单节点或提取码时将入站绑定的所有可用多通道线路全量展开。
+- **🧹 全工作区敏感信息脱敏审查与构建优化**：
+  - 公开未鉴权页面全面移除所有代理协议敏感关键字，统一中立化伪装为“分布式网管接入点”；
+  - 代码库所有示例与单元测试 100% 剥离个人真实 IP 与域名，彻底杜绝隐私泄露风险。
+
+### 历史版本 (v1.6.0)
 
 - **Xray-core 原生 gRPC 运行时热重载架构落地**：
   - 新增 `internal/xray` 高性能运行时协调器，全面接入官方 `proxyman/command.HandlerServiceClient`，实现用户增删（AddUser / RemoveUser）毫秒级动态下发；

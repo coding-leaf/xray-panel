@@ -97,10 +97,21 @@
           <input
             v-model="settings.public_url"
             type="text"
-            placeholder="https://panel.yourdomain.com"
+            placeholder="http://IP:9000 或 https://panel.yourdomain.com"
             class="w-full bg-gray-900 border border-gray-700 rounded-xl px-3 py-2 text-white font-mono focus:outline-none focus:border-brand-500"
           />
-          <p class="text-[10px] text-gray-500 mt-1">用于生成聚合订阅 URL 前缀</p>
+          <p class="text-[10px] text-gray-500 mt-1">用于管理面板外网访问及默认聚合订阅 URL 前缀</p>
+        </div>
+
+        <div>
+          <label class="block text-gray-300 font-semibold mb-1">中立提取门户 URL (Portal URL / Worker 代理)</label>
+          <input
+            v-model="settings.portal_url"
+            type="text"
+            placeholder="https://sub.yourworker.workers.dev"
+            class="w-full bg-gray-900 border border-gray-700 rounded-xl px-3 py-2 text-white font-mono focus:outline-none focus:border-brand-500"
+          />
+          <p class="text-[10px] text-gray-500 mt-1">安全提取码专属分发入口（推荐填写 Cloudflare Worker 地址以防封锁；留空自动跟随公网地址）</p>
         </div>
 
         <div>
@@ -114,7 +125,7 @@
           <p class="text-[10px] text-gray-500 mt-1">若节点监听 0.0.0.0 时以此地址作为分享地址</p>
         </div>
 
-        <div class="sm:col-span-2">
+        <div>
           <label class="block text-gray-300 font-semibold mb-1">全局默认外部公网连接端口 (Public Port)</label>
           <input
             v-model.number="settings.public_port"
@@ -376,7 +387,8 @@ const settings = ref<any>({
   xray_config_path: '/usr/local/etc/xray/config.json',
   xray_bin_path: '/usr/local/bin/xray',
   xray_geodata_dir: '/usr/local/share/xray',
-  public_url: 'http://127.0.0.1:9000',
+  public_url: '',
+  portal_url: '',
   sub_domain: '',
   public_port: 443,
   tg_bot_token: '',
@@ -420,6 +432,10 @@ const fetchSettings = async () => {
         ...settings.value,
         ...res,
       }
+    }
+    // 若未配置 public_url 或仍为默认 127.0.0.1，自动根据当前浏览器地址推荐
+    if (!settings.value.public_url || settings.value.public_url.includes('127.0.0.1')) {
+      settings.value.public_url = `${window.location.protocol}//${window.location.host}`
     }
   } catch (err) {
     console.error(err)

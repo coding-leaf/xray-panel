@@ -2,7 +2,7 @@
   <!-- Global Toast Notification Container -->
   <ToastContainer />
 
-  <div v-if="isLoginPage" class="min-h-screen bg-[#07090E]">
+  <div v-if="isBlankLayout" class="min-h-screen bg-[#07090E]">
     <router-view />
   </div>
 
@@ -22,7 +22,7 @@
             </div>
             <p class="text-[11px] text-gray-400 font-medium flex items-center gap-1.5">
               <span>Control Plane</span>
-              <span class="text-[9px] text-indigo-300 font-mono bg-indigo-500/20 px-1 py-0.5 rounded border border-indigo-500/30">v1.3.0</span>
+              <span class="text-[9px] text-indigo-300 font-mono bg-indigo-500/20 px-1 py-0.5 rounded border border-indigo-500/30">v2.0.0</span>
             </p>
           </div>
         </div>
@@ -335,7 +335,7 @@ const handleResetDemo = () => {
   }
 }
 
-const isLoginPage = computed(() => route.path === '/login')
+const isBlankLayout = computed(() => ['/login', '/portal'].includes(route.path) || route.meta?.layout === 'blank')
 const username = computed(() => localStorage.getItem('username') || 'admin')
 
 const isMobileDrawerOpen = ref(false)
@@ -375,7 +375,7 @@ const coreStatus = ref<{ active: boolean; version?: string }>({
 let statusTimer: any = null
 
 const fetchCoreStatus = async () => {
-  if (isLoginPage.value) return
+  if (isBlankLayout.value) return
   try {
     const res: any = await api.get('/dashboard')
     if (res?.service) {

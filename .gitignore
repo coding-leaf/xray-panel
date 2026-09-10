@@ -4,7 +4,6 @@
 panel
 panel.exe
 panel.exe~
-deploy.sh
 /dist/
 bin/
 
@@ -14,14 +13,22 @@ data/
 *.db-journal
 *.db-wal
 *.db-shm
+*.sqlite
+*.sqlite3
 
 # Log Files
 *.log
 access.log
 error.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+.pnpm-debug.log*
 
 # Web & Node Dependencies
 web/node_modules/
+node_modules/
 web/.eslintcache
 web/dist/stats.html
 
@@ -34,18 +41,47 @@ Thumbs.db
 *~
 .superpowers/
 
-# Test Artifacts
+# Test Artifacts & Temporary Files
 *.out
 coverage.html
-config.json
 temp/
-nginx.conf
+tmp/
+*.tmp
+*.bak
 
-# Secrets & Environments
+# Real Server Configs & Private Scripts
+config.json
+*config*.json
+!web/tsconfig*.json
+nginx.conf
+*.conf
+deploy.sh
+deploy-*.sh
+deploy_*.sh
+*.local
+
+# Secrets, SSH Keys & Certificates
 .env
 .env.*
+*.env
 !.env.demo
 *.secret
+*.token
 *.key
 *.pem
+*.crt
+*.cer
+*.p12
+*.pfx
+id_rsa*
+id_ed25519*
 
+# Cloudflare & Serverless
+.wrangler/
+
+# Archives
+*.zip
+*.tar.gz
+*.tgz
+*.rar
+*.7z

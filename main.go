@@ -28,7 +28,7 @@ import (
 )
 
 var (
-	Version   = "v1.6.0"
+	Version   = "v2.0.0"
 	Commit    = "dev"
 	BuildTime = "unknown"
 )
@@ -65,6 +65,7 @@ func main() {
 	snapshotRepo := repository.NewGormConfigSnapshotRepository(db)
 	settingRepo := repository.NewSettingRepository(db)
 	adminRepo := repository.NewAdminRepository(db)
+	ticketRepo := repository.NewTicketRepository(db)
 
 	// 3. 初始化适配器 Adapters
 	grpcClient := xray.NewGRPCClient(cfg.XrayGRPCAddr)
@@ -130,6 +131,7 @@ func main() {
 	alertSvc := service.NewAlertService(botAdapter, userRepo, hostMonitor, configMgr)
 	logSvc := service.NewLogService(configMgr)
 	geoSvc := service.NewGeoDataService(cfg.XrayBinPath, xrayManager)
+	ticketSvc := service.NewTicketService(ticketRepo, userRepo, subSvc, settingRepo)
 
 	// 5. 初始化 HTTP API 处理器
 	handlers := &deliveryHTTP.Handlers{
@@ -145,6 +147,7 @@ func main() {
 		Log:       deliveryHTTP.NewLogHandler(logSvc),
 		DNS:       deliveryHTTP.NewDNSHandler(configSvc),
 		GeoData:   deliveryHTTP.NewGeoDataHandler(geoSvc),
+		Ticket:    deliveryHTTP.NewTicketHandler(ticketSvc),
 	}
 
 	staticFS := getStaticFS()
@@ -155,7 +158,7 @@ func main() {
 	defer stopSignals()
 
 	httpSvc := deliveryHTTP.NewServer(cfg.ListenPort, router, deliveryHTTP.WithShutdownTimeout(5*time.Second))
-	syncJob := deliveryCron.NewTrafficSyncJob(xrayManager, userRepo, inboundRepo, trafficLogRepo, alertSvc, userSvc, 5*time.Second)
+	syncJob := deliveryCron.NewTrafficSyncJob(xrayManager, userRepo, inboundRepo, trafficLogRepo, alertSvc, userSvc, ticketRepo, 5*time.Second)
 
 	services := []struct {
 		name    string

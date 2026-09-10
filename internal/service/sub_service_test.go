@@ -142,3 +142,46 @@ func TestSubService_ExportUserSubscription_Formats(t *testing.T) {
 		}
 	}
 }
+
+func TestSubService_GetUserShareInfo_SubRoutes(t *testing.T) {
+	user := &domain.User{
+		ID:          1,
+		Email:       "test@example.com",
+		UUID:        "7117295b-4362-4260-a133-b969344dfcd5",
+		SubToken:    "token123",
+		InboundTags: "vless-in",
+		Enabled:     true,
+	}
+	inboundRepo := &mockSubInboundRepo{
+		inbounds: []domain.Inbound{
+			{
+				Tag:            "vless-in",
+				Protocol:       "vless",
+				Port:           443,
+				Listen:         "0.0.0.0",
+				ExternalHost:   "198.51.100.1",
+				Enabled:        true,
+				StreamSettings: `{"network":"tcp","security":"none"}`,
+				SubRoutesJson:  `[{"id":"1","name":"日本落地","routeId":1,"outboundTag":"direct","enabled":true},{"id":"2","name":"新美国中转","routeId":3,"outboundTag":"out-us","enabled":true}]`,
+			},
+		},
+	}
+	userRepo := &mockSubUserRepo{user: user}
+	svc := NewSubService(userRepo, inboundRepo, nil)
+
+	resp, err := svc.GetUserShareInfo(context.Background(), 1, "https://panel.example.com")
+	if err != nil {
+		t.Fatalf("GetUserShareInfo failed: %v", err)
+	}
+
+	if len(resp.Nodes) != 2 {
+		t.Fatalf("expected 2 nodes for expanded subroutes, got %d", len(resp.Nodes))
+	}
+
+	if resp.Nodes[0].Remark != "日本落地" {
+		t.Errorf("expected node 1 remark to be '日本落地', got '%s'", resp.Nodes[0].Remark)
+	}
+	if resp.Nodes[1].Remark != "新美国中转" {
+		t.Errorf("expected node 2 remark to be '新美国中转', got '%s'", resp.Nodes[1].Remark)
+	}
+}

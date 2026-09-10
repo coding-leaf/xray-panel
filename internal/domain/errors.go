@@ -12,5 +12,7 @@ var (
 	ErrInvalidConfig     = errors.New("invalid xray configuration")
 	ErrQuotaExceeded     = errors.New("user traffic quota exceeded")
 	ErrUserDisabled      = errors.New("user is disabled")
-	ErrSubscriptionToken = errors.New("invalid or expired subscription token")
+	ErrSubscriptionToken      = errors.New("invalid or expired subscription token")
+	ErrTicketInvalidOrExpired = errors.New("invalid, expired or consumed ticket")
+	ErrIPRateLimited          = errors.New("ip temporarily banned due to excessive failed attempts")
 )

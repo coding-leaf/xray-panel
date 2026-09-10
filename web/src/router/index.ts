@@ -15,6 +15,7 @@ import { isMockMode } from '../mock'
 
 const routes: RouteRecordRaw[] = [
   { path: '/login', component: LoginView },
+  { path: '/portal', component: () => import('../views/PortalClaimView.vue') },
   { path: '/', component: DashboardView, meta: { requiresAuth: true } },
   { path: '/topology', component: TopologyView, meta: { requiresAuth: true } },
   { path: '/inbounds', component: InboundsView, meta: { requiresAuth: true } },
@@ -44,6 +45,16 @@ router.beforeEach((to, from, next) => {
     next('/')
   } else {
     next()
+  }
+})
+
+router.afterEach((to) => {
+  if (to.path === '/portal') {
+    document.title = '分布式网管接入点'
+  } else if (to.path === '/login') {
+    document.title = '系统登录 - System Management Console'
+  } else {
+    document.title = 'System Management Console'
   }
 })
 

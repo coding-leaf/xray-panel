@@ -139,10 +139,19 @@ export default {
       return makeInnocentBotResponse();
     }
 
-    // 2. 根路径保护：访问 / 或 /index.html 直接展示静态资源（鹈鹕骑行俱乐部）
+    // 2. 静态页面直通：
+    // - 根路径 (/) -> 鹈鹕骑行俱乐部伪装页
+    // - 提取门户 (/portal) -> 独立纯净提取单页 (Cloudflare Edge 极速直达，零后台代码、零闪烁)
     if (url.pathname === "/" || url.pathname === "" || url.pathname === "/index.html") {
       if (env?.ASSETS) {
         return env.ASSETS.fetch(request);
+      }
+    }
+
+    if (url.pathname === "/portal" || url.pathname === "/portal/" || url.pathname === "/portal.html") {
+      if (env?.ASSETS) {
+        const portalUrl = new URL("/portal.html", request.url);
+        return env.ASSETS.fetch(new Request(portalUrl, request));
       }
     }
 

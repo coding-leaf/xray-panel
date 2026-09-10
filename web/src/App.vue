@@ -335,7 +335,10 @@ const handleResetDemo = () => {
   }
 }
 
-const isBlankLayout = computed(() => ['/login', '/portal'].includes(route.path) || route.meta?.layout === 'blank')
+const isBlankLayout = computed(() => {
+  const p = route.path || (typeof window !== 'undefined' ? window.location.pathname : '')
+  return ['/login', '/portal'].includes(p) || p.startsWith('/portal') || p.startsWith('/login') || route.meta?.layout === 'blank'
+})
 const username = computed(() => localStorage.getItem('username') || 'admin')
 
 const isMobileDrawerOpen = ref(false)

@@ -10,12 +10,13 @@ import ConfigView from '../views/ConfigView.vue'
 import LogsView from '../views/LogsView.vue'
 import SettingsView from '../views/SettingsView.vue'
 import LoginView from '../views/LoginView.vue'
+import PortalClaimView from '../views/PortalClaimView.vue'
 
 import { isMockMode } from '../mock'
 
 const routes: RouteRecordRaw[] = [
-  { path: '/login', component: LoginView },
-  { path: '/portal', component: () => import('../views/PortalClaimView.vue') },
+  { path: '/login', component: LoginView, meta: { layout: 'blank' } },
+  { path: '/portal', component: PortalClaimView, meta: { layout: 'blank' } },
   { path: '/', component: DashboardView, meta: { requiresAuth: true } },
   { path: '/topology', component: TopologyView, meta: { requiresAuth: true } },
   { path: '/inbounds', component: InboundsView, meta: { requiresAuth: true } },

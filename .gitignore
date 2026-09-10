@@ -41,3 +41,11 @@ config.json
 temp/
 nginx.conf
 
+# Secrets & Environments
+.env
+.env.*
+!.env.demo
+*.secret
+*.key
+*.pem
+

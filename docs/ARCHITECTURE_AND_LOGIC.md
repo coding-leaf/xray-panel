@@ -106,8 +106,8 @@ v2.0.0 实现了控制面、数据面、持久化与边缘分发的全链路闭�
 flowchart TD
     subgraph 边缘网关与反爬面 [1. Cloudflare Pages 边缘网关 (防探测 & 屏蔽扫描)]
         CF_Worker["_worker.js 边缘分流调度"]
-        CF_Camo["/ 根路径: 纯良自行车俱乐部主页 (200 OK)"]
-        CF_Bot["智能爬虫识别 (微信/扫描爬虫返回 200 OK 伪装页)"]
+        CF_Camo["/ 根路径: 中立公开站点首页 (200 OK)"]
+        CF_Bot["智能爬虫识别 (微信/扫描爬虫返回 200 OK 静态页)"]
         CF_Portal["/portal: 15KB 原生单文件提取门户 (边缘 10ms 直达)"]
     end
 

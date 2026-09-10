@@ -676,4 +676,56 @@ func TestUserService_ZeroDowntimeAndAutoRestore(t *testing.T) {
 			t.Fatalf("expected monthly reset user to be added to xray, got calls: %+v", calls)
 		}
 	})
+
+	t.Run("ResetSubToken rotates UUID and SubToken, kicks old user from Xray and injects new", func(t *testing.T) {
+		repo := &mockUserRepo{
+			users: []domain.User{
+				{
+					ID:          5,
+					Email:       "reset_secret@test.com",
+					UUID:        "old-uuid-1111",
+					SubToken:    "old-token-2222",
+					Enabled:     true,
+					InboundTag:  "vless-in",
+					InboundTags: "vless-in",
+				},
+			},
+		}
+		mockXray := &mockXrayManager{}
+		tmpDir := t.TempDir()
+		cfgPath := filepath.Join(tmpDir, "config.json")
+		_ = os.WriteFile(cfgPath, []byte("{}"), 0644)
+		configMgr := xray.NewConfigManager(cfgPath, "")
+		mockSup := &mockSupervisor{}
+		configSvc := NewConfigService(configMgr, mockSup, nil, repo, nil)
+
+		svc := NewUserService(repo, nil, nil, mockXray, configSvc)
+
+		user, err := svc.ResetSubToken(context.Background(), 5)
+		if err != nil {
+			t.Fatalf("ResetSubToken failed: %v", err)
+		}
+
+		if user.UUID == "old-uuid-1111" || user.UUID == "" {
+			t.Fatalf("expected new UUID, got: %s", user.UUID)
+		}
+		if user.SubToken == "old-token-2222" || user.SubToken == "" {
+			t.Fatalf("expected new SubToken, got: %s", user.SubToken)
+		}
+
+		calls := mockXray.GetCalls()
+		foundRemove := false
+		foundAdd := false
+		for _, c := range calls {
+			if c.op == "remove" && c.email == "reset_secret@test.com" && c.tag == "vless-in" {
+				foundRemove = true
+			}
+			if c.op == "add" && c.email == "reset_secret@test.com" && c.tag == "vless-in" {
+				foundAdd = true
+			}
+		}
+		if !foundRemove || !foundAdd {
+			t.Fatalf("expected remove followed by add on xray manager, got calls: %+v", calls)
+		}
+	})
 }

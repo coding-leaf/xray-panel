@@ -176,3 +176,32 @@ func TestTicketRepo_CleanExpired(t *testing.T) {
 		t.Fatalf("used ticket should be cleaned")
 	}
 }
+
+func TestTicketRepo_DeleteByUserID(t *testing.T) {
+	db := setupTestTicketDB(t)
+	repo := NewTicketRepository(db)
+	ctx := context.Background()
+
+	now := time.Now().Unix()
+	t1 := &domain.Ticket{Code: "CODE1", UserID: 10, RemainingUses: 2, ExpiresAt: now + 600}
+	t2 := &domain.Ticket{Code: "CODE2", UserID: 10, RemainingUses: 2, ExpiresAt: now + 600}
+	t3 := &domain.Ticket{Code: "OTHER", UserID: 20, RemainingUses: 2, ExpiresAt: now + 600}
+
+	_ = repo.Create(ctx, t1)
+	_ = repo.Create(ctx, t2)
+	_ = repo.Create(ctx, t3)
+
+	if err := repo.DeleteByUserID(ctx, 10); err != nil {
+		t.Fatalf("DeleteByUserID failed: %v", err)
+	}
+
+	if _, err := repo.GetByCode(ctx, "CODE1"); !errors.Is(err, domain.ErrNotFound) {
+		t.Fatalf("expected CODE1 to be deleted")
+	}
+	if _, err := repo.GetByCode(ctx, "CODE2"); !errors.Is(err, domain.ErrNotFound) {
+		t.Fatalf("expected CODE2 to be deleted")
+	}
+	if _, err := repo.GetByCode(ctx, "OTHER"); err != nil {
+		t.Fatalf("expected OTHER for user 20 to remain: %v", err)
+	}
+}

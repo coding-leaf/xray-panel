@@ -55,6 +55,10 @@ func (r *GORMTicketRepository) Delete(ctx context.Context, id uint) error {
 	return r.db.WithContext(ctx).Delete(&domain.Ticket{}, id).Error
 }
 
+func (r *GORMTicketRepository) DeleteByUserID(ctx context.Context, userID uint) error {
+	return r.db.WithContext(ctx).Where("user_id = ?", userID).Delete(&domain.Ticket{}).Error
+}
+
 func (r *GORMTicketRepository) CleanExpired(ctx context.Context) error {
 	now := time.Now().Unix()
 	return r.db.WithContext(ctx).Where("expires_at <= ? OR remaining_uses <= 0", now).Delete(&domain.Ticket{}).Error

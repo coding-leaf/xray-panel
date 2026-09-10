@@ -686,7 +686,7 @@
                   class="text-[10px] text-rose-400 hover:text-rose-300 font-mono transition-colors flex items-center gap-1"
                 >
                   <RotateCcw class="w-3 h-3" />
-                  <span>重置订阅 Token</span>
+                  <span>重置订阅</span>
                 </button>
               </div>
 
@@ -1056,12 +1056,15 @@ const copyDirectSubLink = (user: any) => {
 }
 
 const resetUserSubToken = async (userId: number) => {
-  if (!confirm('确定重新生成该用户的安全订阅 Token 吗？旧的订阅链接将立即失效！')) return
+  if (!confirm('确定重置该用户的订阅与连接密钥吗？所有旧设备将立即断开连接，旧订阅链接也将失效！')) return
   try {
     const res: any = await api.post(`/users/${userId}/reset-token`)
-    toast.success('订阅 Token 重置成功，旧链接已失效！')
+    toast.success('订阅与密钥重置成功，旧设备已断开！')
     if (currentShareData.value && currentShareData.value.user) {
       currentShareData.value.user.subToken = res.subToken
+      if (res.uuid) {
+        currentShareData.value.user.uuid = res.uuid
+      }
     }
     await fetchAll()
   } catch (err: any) {

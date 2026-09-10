@@ -178,7 +178,7 @@ func (h *UserHandler) ResetToken(c *gin.Context) {
 		return
 	}
 
-	newToken, err := h.userSvc.ResetSubToken(c.Request.Context(), uint(id))
+	user, err := h.userSvc.ResetSubToken(c.Request.Context(), uint(id))
 	if err != nil {
 		if errors.Is(err, domain.ErrNotFound) {
 			c.JSON(http.StatusNotFound, gin.H{"error": "user not found"})
@@ -188,7 +188,11 @@ func (h *UserHandler) ResetToken(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"subToken": newToken, "message": "订阅 Token 重置成功"})
+	c.JSON(http.StatusOK, gin.H{
+		"subToken": user.SubToken,
+		"uuid":     user.UUID,
+		"message":  "订阅重置成功，旧连接已断开",
+	})
 }
 
 type BatchRenewRequest struct {

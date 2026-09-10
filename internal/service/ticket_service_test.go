@@ -395,4 +395,47 @@ func TestTicketService_Claim_BurnAfterReading(t *testing.T) {
 	}
 }
 
+func TestTicketService_GenerateTicket_OverwriteOldTickets(t *testing.T) {
+	db := setupTestTicketServiceDB(t)
+	userRepo := repository.NewUserRepository(db)
+	ticketRepo := repository.NewTicketRepository(db)
+	inboundRepo := repository.NewInboundRepository(db)
+	settingRepo := repository.NewSettingRepository(db)
+	subSvc := NewSubService(userRepo, inboundRepo, settingRepo)
+	ticketSvc := NewTicketService(ticketRepo, userRepo, subSvc, settingRepo)
+	ctx := context.Background()
+
+	user := &domain.User{Email: "user1@test.com", UUID: "uuid-1", SubToken: "tok-1", Enabled: true}
+	_ = userRepo.Create(ctx, user)
+
+	// 第 1 次生成提件码
+	ticket1, _, err := ticketSvc.GenerateTicket(ctx, user.ID, 15, 2)
+	if err != nil {
+		t.Fatalf("generate 1 failed: %v", err)
+	}
+
+	// 确认 ticket1 存在
+	if _, err := ticketRepo.GetByCode(ctx, ticket1.Code); err != nil {
+		t.Fatalf("ticket1 should exist: %v", err)
+	}
+
+	// 第 2 次为同一用户生成提件码 (应该自动废除 ticket1)
+	ticket2, _, err := ticketSvc.GenerateTicket(ctx, user.ID, 15, 2)
+	if err != nil {
+		t.Fatalf("generate 2 failed: %v", err)
+	}
+
+	// 验证 ticket1 已被物理删除失效
+	_, err = ticketRepo.GetByCode(ctx, ticket1.Code)
+	if !errors.Is(err, domain.ErrNotFound) {
+		t.Fatalf("expected ticket1 to be deleted upon generating ticket2, got err: %v", err)
+	}
+
+	// 验证 ticket2 存在且可以兑换
+	_, err = ticketRepo.GetByCode(ctx, ticket2.Code)
+	if err != nil {
+		t.Fatalf("ticket2 should be valid and active: %v", err)
+	}
+}
+
 

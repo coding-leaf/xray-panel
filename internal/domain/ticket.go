@@ -28,5 +28,6 @@ type TicketRepository interface {
 	GetByCode(ctx context.Context, code string) (*Ticket, error)
 	ConsumeAtomic(ctx context.Context, code string) (*Ticket, error) // CAS 条件原子扣减并返回票据
 	Delete(ctx context.Context, id uint) error
+	DeleteByUserID(ctx context.Context, userID uint) error
 	CleanExpired(ctx context.Context) error
 }

@@ -260,19 +260,49 @@ func (s *UserService) ResetTraffic(ctx context.Context, id uint) error {
 	return nil
 }
 
-func (s *UserService) ResetSubToken(ctx context.Context, id uint) (string, error) {
+func (s *UserService) ResetSubToken(ctx context.Context, id uint) (*domain.User, error) {
 	user, err := s.userRepo.GetByID(ctx, id)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
+	if user == nil {
+		return nil, domain.ErrNotFound
+	}
+
+	inboundTags := user.GetInboundTagList()
+
+	// 1. gRPC 热移除旧 UUID：如果用户处于激活状态，先从所有挂载入站中剔除
+	if s.xrayManager != nil && user.IsActive() {
+		for _, t := range inboundTags {
+			_ = s.xrayManager.RemoveUser(ctx, t, user.Email)
+		}
+	}
+
+	// 2. 联动重置：生成全新 SubToken 与全新高熵 UUID (彻底切断旧设备与旧订阅)
 	tokenBytes := make([]byte, 16)
 	_, _ = rand.Read(tokenBytes)
 	newToken := hex.EncodeToString(tokenBytes)
 	user.SubToken = newToken
+	user.UUID = uuid.New().String()
+	user.UpdatedAt = time.Now()
+
 	if err := s.userRepo.Update(ctx, user); err != nil {
-		return "", err
+		return nil, err
 	}
-	return newToken, nil
+
+	// 3. gRPC 热注册新 UUID：以全新凭证重新挂载，旧客户端发包立即握手失败断网
+	if s.xrayManager != nil && user.IsActive() {
+		for _, t := range inboundTags {
+			_ = s.xrayManager.AddUser(ctx, t, user)
+		}
+	}
+
+	// 4. 静默持久化回写 config.json 物理文件
+	if s.configSvc != nil {
+		_ = s.configSvc.SyncUserToFile(ctx, inboundTags, user, false)
+	}
+
+	return user, nil
 }
 
 func (s *UserService) BatchRenew(ctx context.Context, ids []uint, addDays int) error {

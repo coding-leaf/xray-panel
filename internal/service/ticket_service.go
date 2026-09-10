@@ -186,6 +186,11 @@ func (s *TicketService) GenerateTicket(ctx context.Context, userID uint, ttlMinu
 		CreatedAt:     now,
 	}
 
+	// 单用户单活动码策略：为该用户生成新提件码前，自动废弃并物理清理该用户之前所有未用完的旧安全码 (覆写策略)
+	if s.ticketRepo != nil {
+		_ = s.ticketRepo.DeleteByUserID(ctx, userID)
+	}
+
 	if err := s.ticketRepo.Create(ctx, ticket); err != nil {
 		return nil, "", err
 	}

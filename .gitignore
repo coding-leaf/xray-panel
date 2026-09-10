@@ -63,6 +63,9 @@ deploy_*.sh
 AGENTS.md
 AGENT.md
 *.local
+docs/REALITY_DOMAIN_GUIDE.md
+docs/*_GUIDE.md
+
 
 # Secrets, SSH Keys & Certificates
 .env

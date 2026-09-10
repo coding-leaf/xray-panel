@@ -38,11 +38,12 @@
   - 深度接入 Xray 官方 gRPC API（`HandlerService` 与 `StatsService`），用户增删与状态变更通过 gRPC 协议毫秒级下发至运行中内核；
   - 运行中长连接（WebSocket、gRPC、VLESS REALITY）零中断、不掉线，彻底告别传统面板修改 `config.json` 并强制重启 Xray 进程引发的连接中断问题；
   - 仅在入站、出站、全局路由分流规则或 DNS 发生结构性变更时才执行平滑内核重载。
-- 💾 **嵌入式 BoltDB ACID 事务持久化与自动补偿**：
-  - 引入轻量级嵌入式 ACID 键值存储（bbolt），实现本地用户与凭据强一致持久化；
-  - 配备分布式协调与逆向补偿机制：gRPC 下发失败绝不提交 DB 事务，DB 持久化异常自动触发 gRPC 逆向补偿回滚，杜绝内存与磁盘间的脏状态与幽灵用户。
-- ❄️ **冷启动双轨落盘容灾 (`SyncToDiskConfig`)**：
-  - 系统关机、守护退出或手动触发时，自动将 BoltDB 动态用户集合安全合并落盘至 `config.json`，确保断电或冷启动时 Xray 核心能够零延迟恢复全量用户。
+- 💾 **纯 Go SQLite ACID 事务持久化与 WAL 并发排队**：
+  - 采用纯 Go 嵌入式存储引擎（`glebarez/sqlite`），彻底告别 CGO 跨平台编译依赖与环境地狱；
+  - 启用 WAL（Write-Ahead Logging）模式与并发排队，确保高频流量采集写入与复杂业务查询互不阻塞，根治数据库死锁；
+  - 具备状态协调与逆向补偿机制：gRPC 下发与本地事务强一致绑定，杜绝脏状态与幽灵用户。
+- ❄️ **冷启动双轨落盘容灾与自动配置编译**：
+  - 系统关机、守护退出或配置变更时，自动将 SQLite 动态用户集合与路由拓扑安全编译合并落盘至 `config.json`，确保宿主机断电或冷启动时 Xray 核心能够零延迟恢复全量用户独立运行。
 - 🎯 **多协议多态账户适配与废弃字段彻底淘汰**：
   - 统一支持 VLESS (Vision/Reality)、VMess、Trojan、Shadowsocks (2022/AEAD) 等主流协议多态 Account 结构与订阅分享转换；
   - 彻底淘汰并移除 VMess 协议已废弃且存在安全隐患的 `alterId`，严格遵循现代 Xray 官方规范（强制 `alterId=0` / AEAD 加密）。

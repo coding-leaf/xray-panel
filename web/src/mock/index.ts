@@ -356,7 +356,7 @@ export async function handleMockRequest(url: string, method: string, data?: any)
         if (enabledSubRoutes.length > 0) {
           for (const sr of enabledSubRoutes) {
             const routeUuid = applyRouteIdToUuid(user?.uuid || 'uuid', sr.routeId)
-            const remark = sr.remark || `${inb.tag}-${sr.routeId}`
+            const remark = sr.name || sr.remark || `${inb.tag}-${sr.routeId}`
             links.push(
               `vless://${routeUuid}@${extHost}:${port}?security=reality&sni=www.titech.ac.jp&fp=chrome&pbk=FMdWD0uS9lrXUAoMmTP5e2LLD-mk8vO8JTZmAE9vdww&sid=0123456789abcdef&type=${network}${flowParam}#${encodeURIComponent(remark)}`
             )

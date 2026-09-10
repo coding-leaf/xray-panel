@@ -438,6 +438,7 @@
                 v-model.number="form.totalGB"
                 type="number"
                 min="0"
+                step="0.01"
                 class="w-full bg-gray-900 border border-gray-700 rounded-xl px-3 py-2 text-white font-mono focus:outline-none focus:border-brand-500"
               />
             </div>
@@ -695,7 +696,7 @@
             </div>
           </div>
 
-          <div v-if="sortedHistoryLogs.length" class="relative bg-gray-900/60 rounded-2xl border border-gray-800 p-3.5 pt-8 overflow-visible">
+          <div v-if="sortedHistoryLogs.length" class="relative bg-gray-900/60 rounded-2xl border border-gray-800 p-3.5 pt-8 overflow-x-auto pb-2">
             <!-- 顶部动态悬停数据栏（永不遮挡、清晰展示） -->
             <div class="absolute top-2.5 left-3.5 right-3.5 flex items-center justify-between text-[11px] font-mono border-b border-white/[0.06] pb-1.5 pointer-events-none">
               <div v-if="hoveredLog" class="flex items-center gap-2.5 text-white">
@@ -1030,7 +1031,7 @@ const openEditModal = (user: any) => {
     email: user.email,
     selectedTags: getNodeTags(user),
     flow: user.flow || '',
-    totalGB: user.totalBytes > 0 ? Math.round(user.totalBytes / 1073741824) : 0,
+    totalGB: user.totalBytes > 0 ? Math.max(0.01, parseFloat((user.totalBytes / 1073741824).toFixed(2))) : 0,
     expireDays: 0,
     extendDays: 0,
     resetDay: user.resetDay || 0,
@@ -1053,7 +1054,7 @@ const saveUser = async () => {
       inboundTags: form.value.selectedTags,
       inboundTag: form.value.selectedTags[0],
       flow: form.value.flow,
-      totalBytes: form.value.totalGB > 0 ? form.value.totalGB * 1073741824 : 0,
+      totalBytes: form.value.totalGB > 0 ? Math.round(form.value.totalGB * 1073741824) : 0,
       expireDays: form.value.expireDays,
       resetDay: form.value.resetDay,
       ipLimit: form.value.ipLimit,
@@ -1206,7 +1207,7 @@ const historySummary = computed(() => {
 const copyText = (text: string) => {
   if (!text) return
   navigator.clipboard.writeText(text)
-  alert('已成功复制到剪贴板！')
+  toast.success('已成功复制到剪贴板！')
 }
 
 const getTrafficPercent = (user: any) => {

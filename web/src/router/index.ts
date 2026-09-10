@@ -1,4 +1,4 @@
-import { createRouter, createWebHistory } from 'vue-router'
+import { createRouter, createWebHistory, type RouteRecordRaw } from 'vue-router'
 import DashboardView from '../views/DashboardView.vue'
 import TopologyView from '../views/TopologyView.vue'
 import InboundsView from '../views/InboundsView.vue'
@@ -13,7 +13,7 @@ import LoginView from '../views/LoginView.vue'
 
 import { isMockMode } from '../mock'
 
-const routes = [
+const routes: RouteRecordRaw[] = [
   { path: '/login', component: LoginView },
   { path: '/', component: DashboardView, meta: { requiresAuth: true } },
   { path: '/topology', component: TopologyView, meta: { requiresAuth: true } },
@@ -25,6 +25,7 @@ const routes = [
   { path: '/config', component: ConfigView, meta: { requiresAuth: true } },
   { path: '/logs', component: LogsView, meta: { requiresAuth: true } },
   { path: '/settings', component: SettingsView, meta: { requiresAuth: true } },
+  { path: '/:pathMatch(.*)*', redirect: '/' },
 ]
 
 const router = createRouter({

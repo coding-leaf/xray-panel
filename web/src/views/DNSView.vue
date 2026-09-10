@@ -254,10 +254,37 @@ const saveDNS = async () => {
       for (const line of lines) {
         const trimmed = line.trim()
         if (!trimmed || trimmed.startsWith('#')) continue
-        const parts = trimmed.split(':')
-        if (parts.length >= 2) {
-          const k = parts[0].trim()
-          const v = parts.slice(1).join(':').trim()
+        // 优先使用冒号后接空格分割，兼容多冒号规则键（如 geosite:xxx 或 domain:xxx）与 IPv6 值（如 ::1）
+        const colonSpaceIdx = trimmed.search(/:\s+/)
+        if (colonSpaceIdx > 0) {
+          const k = trimmed.slice(0, colonSpaceIdx).trim()
+          const v = trimmed.slice(colonSpaceIdx + 1).trim()
+          if (k && v) hostsMap[k] = v
+          continue
+        }
+        // 若无空格，检查是否以已知 Xray 规则前缀开头
+        const prefixMatch = trimmed.match(/^(?:geosite|domain|full|keyword|regexp):[^:]+:/i)
+        if (prefixMatch) {
+          const splitIdx = prefixMatch[0].length - 1
+          const k = trimmed.slice(0, splitIdx).trim()
+          const v = trimmed.slice(splitIdx + 1).trim()
+          if (k && v) hostsMap[k] = v
+          continue
+        }
+        // 兜底：若包含 IPv4 目标，按最后冒号分割；否则按首个冒号分割
+        const firstColon = trimmed.indexOf(':')
+        const lastColon = trimmed.lastIndexOf(':')
+        if (lastColon > 0) {
+          const valCandidate = trimmed.slice(lastColon + 1).trim()
+          if (/^\d{1,3}(\.\d{1,3}){3}$/.test(valCandidate)) {
+            const k = trimmed.slice(0, lastColon).trim()
+            if (k && valCandidate) hostsMap[k] = valCandidate
+            continue
+          }
+        }
+        if (firstColon > 0) {
+          const k = trimmed.slice(0, firstColon).trim()
+          const v = trimmed.slice(firstColon + 1).trim()
           if (k && v) hostsMap[k] = v
         }
       }

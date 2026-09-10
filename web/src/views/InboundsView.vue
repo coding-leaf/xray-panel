@@ -94,7 +94,7 @@
                   :class="sr.enabled ? 'bg-indigo-500/15 text-indigo-300 border-indigo-500/30 font-medium' : 'bg-gray-900 text-gray-500 border-gray-800 line-through'"
                 >
                   <span class="font-bold text-cyan-400">#{{ sr.routeId }}</span>
-                  <span class="text-white">{{ sr.name }}</span>
+                  <span class="text-white">{{ sr.name || sr.remark || ('线路 #' + sr.routeId) }}</span>
                   <span class="text-gray-400">➔ {{ sr.outboundTag || 'direct' }}</span>
                 </span>
               </div>
@@ -656,7 +656,8 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, watch } from 'vue'
+import { useRoute } from 'vue-router'
 import { Plus, Radio, Key, AlertTriangle, Trash2 } from 'lucide-vue-next'
 import { toast } from '../utils/toast'
 import api from '../api'
@@ -667,6 +668,7 @@ const availableOutbounds = ref<string[]>(['direct', 'block'])
 const showModal = ref(false)
 const isEditing = ref(false)
 const saving = ref(false)
+const route = useRoute()
 
 const form = ref<any>({
   id: 0,
@@ -863,9 +865,7 @@ const editInbound = (inb: any) => {
   try {
     srs = JSON.parse(inb.subRoutesJson || '[]')
   } catch (e) {}
-  form.value.subRoutes = srs.length > 0 ? srs.map((r: any) => ({ ...r })) : [
-    { id: '1', name: inb.remark || inb.tag, routeId: inb.routeId || 1, outboundTag: 'direct', enabled: true },
-  ]
+  form.value.subRoutes = srs.length > 0 ? srs.map((r: any) => ({ ...r, name: r.name || r.remark || '' })) : []
 
   let settings: any = {}
   try {
@@ -927,7 +927,14 @@ const editInbound = (inb: any) => {
     if (stream.tlsSettings.certificates?.length > 0) {
       form.value.tlsCertFile = stream.tlsSettings.certificates[0].certificateFile || ''
       form.value.tlsKeyFile = stream.tlsSettings.certificates[0].keyFile || ''
+    } else {
+      form.value.tlsCertFile = ''
+      form.value.tlsKeyFile = ''
     }
+  } else {
+    form.value.tlsServerName = ''
+    form.value.tlsCertFile = ''
+    form.value.tlsKeyFile = ''
   }
 
   let sniff: any = {}
@@ -1021,14 +1028,16 @@ const buildStreamSettingsJSON = () => {
       shortIds: sIds,
     }
   } else if (form.value.security === 'tls') {
+    const certs: any[] = []
+    if (form.value.tlsCertFile?.trim() || form.value.tlsKeyFile?.trim()) {
+      certs.push({
+        certificateFile: form.value.tlsCertFile?.trim() || '',
+        keyFile: form.value.tlsKeyFile?.trim() || '',
+      })
+    }
     stream.tlsSettings = {
-      serverName: form.value.tlsServerName,
-      certificates: [
-        {
-          certificateFile: form.value.tlsCertFile,
-          keyFile: form.value.tlsKeyFile,
-        },
-      ],
+      serverName: form.value.tlsServerName || '',
+      ...(certs.length > 0 ? { certificates: certs } : {}),
     }
   }
 
@@ -1167,7 +1176,31 @@ const protocolBadgeColor = (proto: string) => {
   }
 }
 
-onMounted(() => {
-  fetchAll()
+const checkRouteQuery = () => {
+  const editQuery = route.query.edit as string
+  if (editQuery && inbounds.value.length > 0) {
+    const target = inbounds.value.find(
+      (ib) => ib.tag === editQuery || String(ib.id) === String(editQuery)
+    )
+    if (target) {
+      editInbound(target)
+    } else {
+      toast.warning('未找到指定的入站节点: ' + editQuery)
+    }
+  } else if (route.query.action === 'create' || route.query.create) {
+    openCreateModal()
+  }
+}
+
+onMounted(async () => {
+  await fetchAll()
+  checkRouteQuery()
 })
+
+watch(
+  () => [route.query.edit, route.query.action, route.query.create],
+  () => {
+    checkRouteQuery()
+  }
+)
 </script>

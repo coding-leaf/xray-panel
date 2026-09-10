@@ -37,3 +37,7 @@ Thumbs.db
 # Test Artifacts
 *.out
 coverage.html
+config.json
+temp/
+nginx.conf
+

@@ -467,7 +467,8 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, watch } from 'vue'
+import { useRoute } from 'vue-router'
 import { Plus } from 'lucide-vue-next'
 import { toast } from '../utils/toast'
 import api from '../api'
@@ -476,6 +477,7 @@ const outbounds = ref<any[]>([])
 const showModal = ref(false)
 const isEditing = ref(false)
 const saving = ref(false)
+const route = useRoute()
 
 const form = ref<any>({
   tag: '',
@@ -841,7 +843,29 @@ const formatSettingsSummary = (ob: any) => {
   }
 }
 
-onMounted(() => {
-  fetchOutbounds()
+const checkRouteQuery = () => {
+  const editQuery = route.query.edit as string
+  if (editQuery && outbounds.value.length > 0) {
+    const target = outbounds.value.find((ob) => ob.tag === editQuery)
+    if (target) {
+      editOutbound(target)
+    } else {
+      toast.warning('未找到指定的出站节点: ' + editQuery)
+    }
+  } else if (route.query.action === 'create' || route.query.create) {
+    openCreateModal()
+  }
+}
+
+onMounted(async () => {
+  await fetchOutbounds()
+  checkRouteQuery()
 })
+
+watch(
+  () => [route.query.edit, route.query.action, route.query.create],
+  () => {
+    checkRouteQuery()
+  }
+)
 </script>

@@ -42,10 +42,10 @@
     </div>
 
     <!-- Navigation Tabs -->
-    <div class="flex items-center gap-2 border-b border-gray-800/80 pb-3">
+    <div class="flex items-center gap-2 border-b border-gray-800/80 pb-3 flex-nowrap overflow-x-auto">
       <button
         @click="activeTab = 'channels'"
-        class="px-4 py-2 rounded-xl text-xs font-semibold transition-all flex items-center gap-2"
+        class="px-4 py-2 rounded-xl text-xs font-semibold transition-all flex items-center gap-2 shrink-0"
         :class="activeTab === 'channels' ? 'bg-brand-600/20 text-brand-300 border border-brand-500/30' : 'text-gray-400 hover:text-gray-200 hover:bg-gray-900/50'"
       >
         <Network class="w-4 h-4" />
@@ -54,7 +54,7 @@
 
       <button
         @click="activeTab = 'gateways'"
-        class="px-4 py-2 rounded-xl text-xs font-semibold transition-all flex items-center gap-2"
+        class="px-4 py-2 rounded-xl text-xs font-semibold transition-all flex items-center gap-2 shrink-0"
         :class="activeTab === 'gateways' ? 'bg-brand-600/20 text-brand-300 border border-brand-500/30' : 'text-gray-400 hover:text-gray-200 hover:bg-gray-900/50'"
       >
         <Radio class="w-4 h-4" />
@@ -63,7 +63,7 @@
 
       <button
         @click="activeTab = 'exits'"
-        class="px-4 py-2 rounded-xl text-xs font-semibold transition-all flex items-center gap-2"
+        class="px-4 py-2 rounded-xl text-xs font-semibold transition-all flex items-center gap-2 shrink-0"
         :class="activeTab === 'exits' ? 'bg-brand-600/20 text-brand-300 border border-brand-500/30' : 'text-gray-400 hover:text-gray-200 hover:bg-gray-900/50'"
       >
         <Send class="w-4 h-4" />
@@ -156,6 +156,16 @@
 
     <!-- TAB 2: 接入网关池 (Gateways / Inbounds) -->
     <div v-if="activeTab === 'gateways'" class="space-y-4">
+      <div class="flex items-center justify-between">
+        <span class="text-xs text-gray-400">已部署的入站接入网关节点（共 {{ inbounds.length }} 个）</span>
+        <button
+          @click="openCreateGatewayModal"
+          class="px-3.5 py-1.5 bg-gradient-to-r from-brand-600 to-indigo-600 hover:from-brand-500 hover:to-indigo-500 text-white text-xs font-semibold rounded-xl transition-all shadow-md shadow-brand-500/20 flex items-center gap-1.5"
+        >
+          <Plus class="w-3.5 h-3.5" />
+          <span>新建接入网关</span>
+        </button>
+      </div>
       <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
         <div
           v-for="inb in inbounds"
@@ -212,6 +222,16 @@
 
     <!-- TAB 3: 落地出口池 (Exit Nodes / Outbounds) -->
     <div v-if="activeTab === 'exits'" class="space-y-4">
+      <div class="flex items-center justify-between">
+        <span class="text-xs text-gray-400">已配置的落地出口节点（共 {{ outbounds.length }} 个）</span>
+        <button
+          @click="openCreateExitModal"
+          class="px-3.5 py-1.5 bg-gradient-to-r from-brand-600 to-indigo-600 hover:from-brand-500 hover:to-indigo-500 text-white text-xs font-semibold rounded-xl transition-all shadow-md shadow-brand-500/20 flex items-center gap-1.5"
+        >
+          <Plus class="w-3.5 h-3.5" />
+          <span>新建落地出口</span>
+        </button>
+      </div>
       <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
         <div
           v-for="ob in outbounds"
@@ -384,6 +404,7 @@
 
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
+import { useRouter } from 'vue-router'
 import {
   Plus,
   Zap,
@@ -395,6 +416,7 @@ import {
 import api from '../api'
 import { toast } from '../utils/toast'
 
+const router = useRouter()
 const activeTab = ref<'channels' | 'gateways' | 'exits'>('channels')
 
 const inbounds = ref<any[]>([])
@@ -410,7 +432,7 @@ const allChannels = computed(() => {
       for (const sr of srs) {
         list.push({
           id: `${inb.tag}_${sr.routeId}`,
-          name: sr.name || `线路 #${sr.routeId}`,
+          name: sr.name || sr.remark || `线路 #${sr.routeId}`,
           gatewayTag: inb.tag,
           gatewayPort: inb.port,
           externalPort: inb.externalPort,
@@ -802,17 +824,15 @@ const formatSettingsSummary = (ob: any) => {
 }
 
 const openCreateGatewayModal = () => {
-  toast.info('请进入网关池标签页进行深度参数配置')
-  activeTab.value = 'gateways'
+  router.push({ path: '/inbounds', query: { action: 'create' } })
 }
 
 const openCreateExitModal = () => {
-  toast.info('请进入出口池标签页进行出站参数配置')
-  activeTab.value = 'exits'
+  router.push({ path: '/outbounds', query: { action: 'create' } })
 }
 
 const editGateway = (inb: any) => {
-  window.location.href = `/inbounds?edit=${inb.id}`
+  router.push({ path: '/inbounds', query: { edit: inb.tag || inb.id } })
 }
 
 const deleteGateway = async (id: number) => {
@@ -827,7 +847,7 @@ const deleteGateway = async (id: number) => {
 }
 
 const editOutbound = (ob: any) => {
-  window.location.href = `/outbounds?edit=${ob.tag}`
+  router.push({ path: '/outbounds', query: { edit: ob.tag } })
 }
 
 const deleteOutbound = async (tag: string) => {

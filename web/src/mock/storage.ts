@@ -50,19 +50,19 @@ const DEFAULT_RAW_STATE: MockState = {
       subRoutesJson: JSON.stringify([
         {
           routeId: 1,
-          remark: '🇯🇵 日本东京原生 (直连出口)',
+          name: '🇯🇵 日本东京原生 (直连出口)',
           outboundTag: 'direct',
           enabled: true,
         },
         {
           routeId: 2,
-          remark: '🇭🇰 香港低延迟 (落地节点)',
+          name: '🇭🇰 香港低延迟 (落地节点)',
           outboundTag: 'hk-landing',
           enabled: true,
         },
         {
           routeId: 3,
-          remark: '🇺🇸 美国西海岸 (WARP 解锁)',
+          name: '🇺🇸 美国西海岸 (WARP 解锁)',
           outboundTag: 'warp-out',
           enabled: true,
         },

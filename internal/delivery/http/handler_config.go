@@ -5,6 +5,7 @@ import (
 	"io"
 	"net/http"
 
+	"panel/internal/domain"
 	"panel/internal/service"
 
 	"github.com/gin-gonic/gin"
@@ -12,10 +13,15 @@ import (
 
 type ConfigHandler struct {
 	configSvc *service.ConfigService
+	auditSvc  *service.AuditLogService
 }
 
-func NewConfigHandler(configSvc *service.ConfigService) *ConfigHandler {
-	return &ConfigHandler{configSvc: configSvc}
+func NewConfigHandler(configSvc *service.ConfigService, auditSvc ...*service.AuditLogService) *ConfigHandler {
+	h := &ConfigHandler{configSvc: configSvc}
+	if len(auditSvc) > 0 {
+		h.auditSvc = auditSvc[0]
+	}
+	return h
 }
 
 func (h *ConfigHandler) GetRaw(c *gin.Context) {
@@ -54,6 +60,8 @@ func (h *ConfigHandler) SaveAndApply(c *gin.Context) {
 		return
 	}
 
+	h.auditSvc.RecordFromGin(c, domain.ActionConfigApply, "config.json", "在线保存并重新应用 Xray 核心配置", "SUCCESS")
+
 	c.JSON(http.StatusOK, gin.H{"message": "configuration saved and xray reloaded successfully"})
 }
 
@@ -62,6 +70,9 @@ func (h *ConfigHandler) RestartService(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
+
+	h.auditSvc.RecordFromGin(c, domain.ActionCoreRestart, "xray", "平滑重启 Xray 核心进程", "SUCCESS")
+
 	c.JSON(http.StatusOK, gin.H{"message": "Xray 核心已成功全量重启"})
 }
 
@@ -86,5 +97,8 @@ func (h *ConfigHandler) RollbackSnapshot(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
+
+	h.auditSvc.RecordFromGin(c, domain.ActionConfigRollback, idStr, fmt.Sprintf("回滚配置快照 ID: %d", id), "SUCCESS")
+
 	c.JSON(http.StatusOK, gin.H{"message": "配置已成功回滚至历史快照并重新应用"})
 }

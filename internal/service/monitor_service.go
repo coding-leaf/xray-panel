@@ -71,3 +71,9 @@ func (s *MonitorService) GetDashboardData(ctx context.Context) (*DashboardData, 
 		TotalDown:   totalDown,
 	}, nil
 }
+
+func (s *MonitorService) GetServiceStatus(ctx context.Context) (domain.ServiceStatus, string, error) {
+	serviceStatus, err := s.xrayManager.GetServiceStatus(ctx)
+	xrayVer, _ := s.xrayManager.GetVersion(ctx)
+	return serviceStatus, xrayVer, err
+}

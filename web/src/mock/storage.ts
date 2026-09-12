@@ -7,6 +7,7 @@ export interface MockState {
   dns: any
   users: any[]
   logs: string[]
+  auditLogs?: any[]
   settings?: any
   snapshots?: any[]
   geodata?: any
@@ -487,6 +488,38 @@ const DEFAULT_RAW_STATE: MockState = {
     geositeSize: 23518400,
     targetDirectory: '/usr/local/share/xray',
   },
+  auditLogs: [
+    {
+      id: 1,
+      createdAt: new Date(now - 7200000).toISOString(),
+      operator: 'admin',
+      clientIp: '127.0.0.1',
+      action: 'AUTH_LOGIN',
+      target: 'admin',
+      details: '管理员成功登录控制台',
+      status: 'SUCCESS',
+    },
+    {
+      id: 2,
+      createdAt: new Date(now - 3600000).toISOString(),
+      operator: 'admin',
+      clientIp: '127.0.0.1',
+      action: 'INBOUND_UPDATE',
+      target: 'vless-reality',
+      details: '更新入站节点配置: 端口 4434',
+      status: 'SUCCESS',
+    },
+    {
+      id: 3,
+      createdAt: new Date(now - 1800000).toISOString(),
+      operator: 'admin',
+      clientIp: '127.0.0.1',
+      action: 'CONFIG_RELOAD',
+      target: 'xray-core',
+      details: '触发 Xray 配置热重载',
+      status: 'SUCCESS',
+    },
+  ],
 }
 
 export function loadMockState(): MockState {
@@ -508,6 +541,7 @@ export function loadMockState(): MockState {
         settings: { ...DEFAULT_RAW_STATE.settings, ...(parsed.settings || {}) },
         geodata: { ...DEFAULT_RAW_STATE.geodata, ...(parsed.geodata || {}) },
         snapshots: parsed.snapshots && parsed.snapshots.length ? parsed.snapshots : DEFAULT_RAW_STATE.snapshots,
+        auditLogs: parsed.auditLogs && parsed.auditLogs.length ? parsed.auditLogs : DEFAULT_RAW_STATE.auditLogs,
       }
     }
   } catch (e) {

@@ -380,11 +380,11 @@ let statusTimer: any = null
 const fetchCoreStatus = async () => {
   if (isBlankLayout.value) return
   try {
-    const res: any = await api.get('/dashboard')
-    if (res?.service) {
+    const res: any = await api.get('/service/status')
+    if (res) {
       coreStatus.value = {
-        active: !!res.service.active,
-        version: res.metrics?.xrayVersion || '',
+        active: !!res.active,
+        version: res.version || '',
       }
     }
   } catch (e) {
@@ -414,13 +414,29 @@ const restartCore = async () => {
   }
 }
 
+const handleVisibilityChange = () => {
+  if (document.hidden) {
+    if (statusTimer) {
+      clearInterval(statusTimer)
+      statusTimer = null
+    }
+  } else {
+    fetchCoreStatus()
+    if (!statusTimer) {
+      statusTimer = setInterval(fetchCoreStatus, 6000)
+    }
+  }
+}
+
 onMounted(() => {
   fetchCoreStatus()
   statusTimer = setInterval(fetchCoreStatus, 6000)
+  document.addEventListener('visibilitychange', handleVisibilityChange)
 })
 
 onUnmounted(() => {
   if (statusTimer) clearInterval(statusTimer)
+  document.removeEventListener('visibilitychange', handleVisibilityChange)
 })
 
 const logout = () => {

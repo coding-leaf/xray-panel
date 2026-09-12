@@ -14,14 +14,16 @@ var (
 )
 
 type AccessLogEntry struct {
-	Time     string `json:"time"`
-	FromIP   string `json:"from_ip"`
-	Protocol string `json:"protocol"`
-	Target   string `json:"target"`
-	Route    string `json:"route"`
-	Email    string `json:"email"`
-	Action   string `json:"action"`
-	Raw      string `json:"raw"`
+	Time        string `json:"time"`
+	FromIP      string `json:"from_ip"`
+	Protocol    string `json:"protocol"`
+	Target      string `json:"target"`
+	Route       string `json:"route"`
+	InboundTag  string `json:"inbound_tag"`
+	OutboundTag string `json:"outbound_tag"`
+	Email       string `json:"email"`
+	Action      string `json:"action"`
+	Raw         string `json:"raw"`
 }
 
 type ErrorLogEntry struct {
@@ -33,8 +35,18 @@ type ErrorLogEntry struct {
 	Raw      string `json:"raw"`
 }
 
-// ReadLastLines 从文件末尾反向高效分块读取（64KB Chunk Buffer，百兆大文件毫秒级返回）
+type LogFilter struct {
+	InboundTag string
+	Keyword    string
+}
+
+// ReadLastLines 从文件末尾反向读取
 func ReadLastLines(filePath string, maxLines int) ([]string, error) {
+	return ReadLastLinesFiltered(filePath, maxLines, LogFilter{})
+}
+
+// ReadLastLinesFiltered 从文件末尾反向高效分块读取（64KB Chunk Buffer，带 10MB/30,000 行安全预算与免正则匹配）
+func ReadLastLinesFiltered(filePath string, maxLines int, filter LogFilter) ([]string, error) {
 	if filePath == "" {
 		return []string{}, nil
 	}
@@ -60,17 +72,25 @@ func ReadLastLines(filePath string, maxLines int) ([]string, error) {
 		return []string{}, nil
 	}
 
+	const maxScanBytes = int64(10 * 1024 * 1024) // 最大逆向扫描 10MB
+	const maxScanLines = 30000                   // 最大逆向扫描 30,000 行
+
 	var lines []string
 	bufSize := int64(64 * 1024)
 	offset := fileSize
 	remainder := ""
+	scannedLines := 0
+	scannedBytes := int64(0)
 
-	for offset > 0 && len(lines) < maxLines+1 {
+	lowerKw := strings.ToLower(filter.Keyword)
+
+	for offset > 0 && len(lines) < maxLines && scannedLines < maxScanLines && scannedBytes < maxScanBytes {
 		readSize := bufSize
 		if offset < readSize {
 			readSize = offset
 		}
 		offset -= readSize
+		scannedBytes += readSize
 		buf := make([]byte, readSize)
 		_, err := file.ReadAt(buf, offset)
 		if err != nil && err != io.EOF {
@@ -81,17 +101,54 @@ func ReadLastLines(filePath string, maxLines int) ([]string, error) {
 		parts := strings.Split(chunk, "\n")
 		remainder = parts[0]
 		for i := len(parts) - 1; i >= 1; i-- {
+			scannedLines++
+			if scannedLines > maxScanLines {
+				break
+			}
 			line := strings.TrimRight(parts[i], "\r\n")
-			if line != "" {
-				lines = append(lines, line)
+			if line == "" {
+				continue
+			}
+
+			// 免正则纯子串精准快速比对：匹配 [tag -> 或 [tag]
+			if filter.InboundTag != "" {
+				inb := filter.InboundTag
+				if !strings.Contains(line, "["+inb+" ->") && !strings.Contains(line, "["+inb+"]") {
+					continue
+				}
+			}
+
+			if lowerKw != "" {
+				if !strings.Contains(strings.ToLower(line), lowerKw) {
+					continue
+				}
+			}
+
+			lines = append(lines, line)
+			if len(lines) >= maxLines {
+				break
 			}
 		}
 	}
 
-	if remainder != "" && len(lines) < maxLines {
+	if remainder != "" && len(lines) < maxLines && scannedLines < maxScanLines && scannedBytes < maxScanBytes {
 		trimmed := strings.TrimRight(remainder, "\r\n")
 		if trimmed != "" {
-			lines = append(lines, trimmed)
+			match := true
+			if filter.InboundTag != "" {
+				inb := filter.InboundTag
+				if !strings.Contains(trimmed, "["+inb+" ->") && !strings.Contains(trimmed, "["+inb+"]") {
+					match = false
+				}
+			}
+			if match && lowerKw != "" {
+				if !strings.Contains(strings.ToLower(trimmed), lowerKw) {
+					match = false
+				}
+			}
+			if match {
+				lines = append(lines, trimmed)
+			}
 		}
 	}
 
@@ -136,15 +193,26 @@ func ParseAccessLogLine(line string) *AccessLogEntry {
 			email = m[5]
 		}
 
+		route := m[4]
+		inboundTag := route
+		outboundTag := ""
+		if strings.Contains(route, "->") {
+			parts := strings.SplitN(route, "->", 2)
+			inboundTag = strings.TrimSpace(parts[0])
+			outboundTag = strings.TrimSpace(parts[1])
+		}
+
 		return &AccessLogEntry{
-			Time:     m[1],
-			FromIP:   m[2],
-			Protocol: proto,
-			Target:   targetHost,
-			Route:    m[4],
-			Email:    email,
-			Action:   action,
-			Raw:      trimmed,
+			Time:        m[1],
+			FromIP:      m[2],
+			Protocol:    proto,
+			Target:      targetHost,
+			Route:       route,
+			InboundTag:  inboundTag,
+			OutboundTag: outboundTag,
+			Email:       email,
+			Action:      action,
+			Raw:         trimmed,
 		}
 	}
 

@@ -13,15 +13,20 @@ import (
 )
 
 type UserHandler struct {
-	userSvc *service.UserService
-	subSvc  *service.SubService
+	userSvc  *service.UserService
+	subSvc   *service.SubService
+	auditSvc *service.AuditLogService
 }
 
-func NewUserHandler(userSvc *service.UserService, subSvc *service.SubService) *UserHandler {
-	return &UserHandler{
+func NewUserHandler(userSvc *service.UserService, subSvc *service.SubService, auditSvc ...*service.AuditLogService) *UserHandler {
+	h := &UserHandler{
 		userSvc: userSvc,
 		subSvc:  subSvc,
 	}
+	if len(auditSvc) > 0 {
+		h.auditSvc = auditSvc[0]
+	}
+	return h
 }
 
 func (h *UserHandler) List(c *gin.Context) {
@@ -45,6 +50,8 @@ func (h *UserHandler) Create(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
+
+	h.auditSvc.RecordFromGin(c, domain.ActionUserCreate, user.Email, fmt.Sprintf("创建用户: %s (UUID: %s)", user.Email, user.UUID), "SUCCESS")
 
 	c.JSON(http.StatusCreated, user)
 }
@@ -73,6 +80,8 @@ func (h *UserHandler) Update(c *gin.Context) {
 		return
 	}
 
+	h.auditSvc.RecordFromGin(c, domain.ActionUserUpdate, user.Email, fmt.Sprintf("更新用户 ID %d: %s", user.ID, user.Email), "SUCCESS")
+
 	c.JSON(http.StatusOK, user)
 }
 
@@ -93,6 +102,8 @@ func (h *UserHandler) Delete(c *gin.Context) {
 		return
 	}
 
+	h.auditSvc.RecordFromGin(c, domain.ActionUserDelete, idStr, fmt.Sprintf("删除用户 ID: %d", id), "SUCCESS")
+
 	c.JSON(http.StatusOK, gin.H{"message": "user deleted"})
 }
 
@@ -112,6 +123,8 @@ func (h *UserHandler) ResetTraffic(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
+
+	h.auditSvc.RecordFromGin(c, domain.ActionUserResetTraffic, idStr, fmt.Sprintf("重置用户 ID %d 的流量", id), "SUCCESS")
 
 	c.JSON(http.StatusOK, gin.H{"message": "traffic reset successfully"})
 }
@@ -188,6 +201,8 @@ func (h *UserHandler) ResetToken(c *gin.Context) {
 		return
 	}
 
+	h.auditSvc.RecordFromGin(c, domain.ActionUserResetToken, user.Email, fmt.Sprintf("重置用户 %s 的订阅 Token", user.Email), "SUCCESS")
+
 	c.JSON(http.StatusOK, gin.H{
 		"subToken": user.SubToken,
 		"uuid":     user.UUID,
@@ -212,6 +227,8 @@ func (h *UserHandler) BatchRenew(c *gin.Context) {
 		return
 	}
 
+	h.auditSvc.RecordFromGin(c, domain.ActionUserBatchRenew, fmt.Sprintf("%d 位用户", len(req.IDs)), fmt.Sprintf("成功为 %d 位用户延期 %d 天", len(req.IDs), req.Days), "SUCCESS")
+
 	c.JSON(http.StatusOK, gin.H{"message": fmt.Sprintf("成功为 %d 位用户延期 %d 天", len(req.IDs), req.Days)})
 }
 
@@ -230,6 +247,8 @@ func (h *UserHandler) BatchResetTraffic(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
+
+	h.auditSvc.RecordFromGin(c, domain.ActionUserResetTraffic, fmt.Sprintf("%d 位用户", len(req.IDs)), fmt.Sprintf("成功批量重置 %d 位用户的已用流量", len(req.IDs)), "SUCCESS")
 
 	c.JSON(http.StatusOK, gin.H{"message": fmt.Sprintf("成功重置 %d 位用户的已用流量", len(req.IDs))})
 }
@@ -255,6 +274,9 @@ func (h *UserHandler) BatchStatus(c *gin.Context) {
 	if !req.Enabled {
 		action = "禁用"
 	}
+
+	h.auditSvc.RecordFromGin(c, domain.ActionUserBatchStatus, fmt.Sprintf("%d 位用户", len(req.IDs)), fmt.Sprintf("成功批量%s %d 位用户", action, len(req.IDs)), "SUCCESS")
+
 	c.JSON(http.StatusOK, gin.H{"message": fmt.Sprintf("成功%s %d 位用户", action, len(req.IDs))})
 }
 

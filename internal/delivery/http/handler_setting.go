@@ -7,6 +7,7 @@ import (
 	"panel/internal/adapter/telegram"
 	"panel/internal/adapter/xray"
 	"panel/internal/domain"
+	"panel/internal/service"
 
 	"github.com/gin-gonic/gin"
 )
@@ -16,6 +17,7 @@ type SettingHandler struct {
 	botAdapter  *telegram.BotAdapter
 	configMgr   *xray.ConfigManager
 	supervisor  *xray.SystemdSupervisor
+	auditSvc    *service.AuditLogService
 }
 
 func NewSettingHandler(
@@ -23,13 +25,18 @@ func NewSettingHandler(
 	botAdapter *telegram.BotAdapter,
 	configMgr *xray.ConfigManager,
 	supervisor *xray.SystemdSupervisor,
+	auditSvc ...*service.AuditLogService,
 ) *SettingHandler {
-	return &SettingHandler{
+	h := &SettingHandler{
 		settingRepo: settingRepo,
 		botAdapter:  botAdapter,
 		configMgr:   configMgr,
 		supervisor:  supervisor,
 	}
+	if len(auditSvc) > 0 {
+		h.auditSvc = auditSvc[0]
+	}
+	return h
 }
 
 func (h *SettingHandler) GetSettings(c *gin.Context) {
@@ -94,6 +101,8 @@ func (h *SettingHandler) SaveSettings(c *gin.Context) {
 		}
 		_ = h.botAdapter.UpdateConfig(tgToken, chatID)
 	}
+
+	h.auditSvc.RecordFromGin(c, domain.ActionSettingUpdate, "settings", "更新系统全局配置", "SUCCESS")
 
 	c.JSON(http.StatusOK, gin.H{"message": "settings updated successfully"})
 }

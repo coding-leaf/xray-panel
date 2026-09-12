@@ -24,6 +24,7 @@ type Handlers struct {
 	DNS       *DNSHandler
 	GeoData   *GeoDataHandler
 	Ticket    *TicketHandler
+	AuditLog  *AuditLogHandler
 }
 
 func SetupRouter(handlers *Handlers, jwtSecret string, staticFS fs.FS) *gin.Engine {
@@ -89,8 +90,9 @@ func SetupRouter(handlers *Handlers, jwtSecret string, staticFS fs.FS) *gin.Engi
 			authGroup.POST("/auth/2fa/enable", handlers.Auth.Enable2FA)
 			authGroup.POST("/auth/2fa/disable", handlers.Auth.Disable2FA)
 
-			// 仪表盘
+			// 仪表盘与服务状态
 			authGroup.GET("/dashboard", handlers.Dashboard.GetDashboard)
+			authGroup.GET("/service/status", handlers.Dashboard.GetServiceStatus)
 
 			// 用户管理
 			authGroup.GET("/users", handlers.User.List)
@@ -143,8 +145,15 @@ func SetupRouter(handlers *Handlers, jwtSecret string, staticFS fs.FS) *gin.Engi
 			authGroup.GET("/geodata/progress", handlers.GeoData.GetProgress)
 			authGroup.POST("/geodata/update", handlers.GeoData.UpdateGeoData)
 
-			// 运行日志查看
+			// 运行日志查看与清空
 			authGroup.GET("/logs", handlers.Log.GetLogs)
+			authGroup.POST("/logs/clear", handlers.Log.ClearLogs)
+
+			// 操作审查日志
+			if handlers.AuditLog != nil {
+				authGroup.GET("/audit-logs", handlers.AuditLog.GetAuditLogs)
+				authGroup.DELETE("/audit-logs", handlers.AuditLog.ClearAuditLogs)
+			}
 
 			// 系统服务控制
 			authGroup.POST("/service/restart", handlers.Config.RestartService)

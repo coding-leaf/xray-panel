@@ -15,7 +15,10 @@ import (
 )
 
 type GopsutilMonitor struct {
-	mu           sync.Mutex
+	metricsMu     sync.RWMutex
+	cachedMetrics domain.SystemMetrics
+
+	netMu        sync.Mutex
 	lastNetCheck time.Time
 	lastSent     uint64
 	lastRecv     uint64
@@ -27,18 +30,38 @@ func NewGopsutilMonitor() *GopsutilMonitor {
 	m := &GopsutilMonitor{
 		lastNetCheck: time.Now(),
 	}
-	// 预先取一次 baseline
+	// 预先取一次网卡 baseline
 	if ioCounters, err := net.IOCounters(false); err == nil && len(ioCounters) > 0 {
 		m.lastSent = ioCounters[0].BytesSent
 		m.lastRecv = ioCounters[0].BytesRecv
 	}
+
+	// 立即抓取一次初始基准快照，确保首次读取绝无 nil 或空值
+	m.sampleMetrics(context.Background())
+
 	return m
 }
 
-func (m *GopsutilMonitor) GetSystemMetrics(ctx context.Context) (*domain.SystemMetrics, error) {
-	metrics := &domain.SystemMetrics{}
+// Start 实现 app.Service 接口，由 main.go errgroup 统一编排调度。
+// 定频 2s Ticker 驱动采集，微秒级读取 /proc/stat 获得真正 2 秒移动物理均值，无需 sleep。
+func (m *GopsutilMonitor) Start(ctx context.Context) error {
+	ticker := time.NewTicker(2 * time.Second)
+	defer ticker.Stop()
 
-	// 1. CPU
+	for {
+		select {
+		case <-ctx.Done():
+			return nil
+		case <-ticker.C:
+			m.sampleMetrics(ctx)
+		}
+	}
+}
+
+func (m *GopsutilMonitor) sampleMetrics(ctx context.Context) {
+	metrics := domain.SystemMetrics{}
+
+	// 1. CPU: 2s 定频触发下，cpu.Percent(0) 精确计算过去 2 秒完整时间片均值，调用耗时 < 0.05ms
 	cpuPercents, err := cpu.PercentWithContext(ctx, 0, false)
 	if err == nil && len(cpuPercents) > 0 {
 		metrics.CPUUsagePercent = cpuPercents[0]
@@ -56,7 +79,7 @@ func (m *GopsutilMonitor) GetSystemMetrics(ctx context.Context) (*domain.SystemM
 		metrics.DiskTotalBytes = d.Total
 		metrics.DiskUsedBytes = d.Used
 		metrics.DiskUsagePct = d.UsedPercent
-	} else if d, err := disk.UsageWithContext(ctx, "C:"); err == nil { // Windows fallback
+	} else if d, err := disk.UsageWithContext(ctx, "C:"); err == nil {
 		metrics.DiskTotalBytes = d.Total
 		metrics.DiskUsedBytes = d.Used
 		metrics.DiskUsagePct = d.UsedPercent
@@ -77,12 +100,24 @@ func (m *GopsutilMonitor) GetSystemMetrics(ctx context.Context) (*domain.SystemM
 		metrics.NetTotalRecv = ioCounters[0].BytesRecv
 	}
 
-	return metrics, nil
+	// 原子存入读写锁缓存
+	m.metricsMu.Lock()
+	m.cachedMetrics = metrics
+	m.metricsMu.Unlock()
+}
+
+// GetSystemMetrics 纯内存只读返回缓存快照，耗时 0ms，彻底消除并发请求自激与 Telegram 误告警
+func (m *GopsutilMonitor) GetSystemMetrics(ctx context.Context) (*domain.SystemMetrics, error) {
+	m.metricsMu.RLock()
+	defer m.metricsMu.RUnlock()
+
+	cp := m.cachedMetrics
+	return &cp, nil
 }
 
 func (m *GopsutilMonitor) GetNetworkSpeed(ctx context.Context) (uint64, uint64, error) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
+	m.netMu.Lock()
+	defer m.netMu.Unlock()
 
 	now := time.Now()
 	elapsed := now.Sub(m.lastNetCheck).Seconds()

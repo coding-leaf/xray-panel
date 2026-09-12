@@ -1,7 +1,7 @@
 # 🚀 Xray Decoupled Panel (解耦运维监控与分流管理面板)
 
 <p align="center">
-  <img src="https://img.shields.io/badge/Version-v2.0.0-indigo?style=flat-square" alt="Version">
+  <img src="https://img.shields.io/badge/Version-v2.1.0-indigo?style=flat-square" alt="Version">
   <img src="https://img.shields.io/badge/Go-1.22+-00ADD8?style=flat-square&logo=go" alt="Go Version">
   <img src="https://img.shields.io/badge/Vue-3.4+-4FC08D?style=flat-square&logo=vue.js" alt="Vue Version">
   <img src="https://img.shields.io/badge/Architecture-Clean%20Architecture-blue?style=flat-square" alt="Clean Architecture">
@@ -85,7 +85,27 @@
 
 ---
 
-## 📝 最近更新日志 (v2.0.0 重大里程碑)
+## 📝 最近更新日志
+
+### 🚀 v2.1.0 (2026-09) - 核心监控平滑治理、管理审查审计系统与入站日志流向分类
+- **⚡ CPU 瞬态虚高与微秒级微分放大根因治理**：
+  - 将 `GopsutilMonitor` 重构为 `app.Service` 标准后台生命周期托管，采用 2 秒固定间隔滑动采样；
+  - 前端与定时探活查询时持读锁 0ms 内存直读，彻底消除微秒级微分放大与页面加载瞬时 100% 毛刺；
+  - `SystemdSupervisor` 增加 `xray version` 常驻缓存与 `systemctl is-active` 3 秒节流缓存，消除高并发刷新时 Fork 操作系统子进程的系统抖动；
+  - 解耦出高频轻量探活端点 `/service/status`，`App.vue`、`DashboardView.vue`、`LogsView.vue` 全面引入 `visibilitychange` 标签页休眠感知，切出后台时彻底停止轮询，大幅降低客户端与服务端无意义开销。
+- **📋 生产级管理员操作审计日志子系统 (Audit Logs)**：
+  - 新增 `domain.AuditLog` 领域模型与 19 项标准操作类型，GORM 自动迁移 `audit_logs` 表；
+  - `GormAuditLogRepository` 实现轻量原子滚动清理（保留最新 3,000 条），严格遵循单连接 SQLite 事务写入规范；
+  - 8 大 Handler 采用向前兼容的可变参数注入，保留 100% 既有单测兼容；
+  - 前端日志页面新增【操作审计 (Audit)】专属标签页，支持动作类型多色徽章、条件筛选、分页与载荷详情弹窗。
+- **🔍 Xray 访问日志入站分类与 64KB 定块分流解析**：
+  - 实现 64KB Chunk Buffer 逆向流式扫描，设置 10MB/30,000 行扫描安全预算与关键词/入站 Tag 免正则预筛；
+  - 将 `[inboundTag -> outboundTag]` 路由流向拆解，前端采用青色入站徽标与专属出站徽标直观分离展示；
+  - Access 模式工具栏支持按入站节点下拉筛选，并支持点击表格入站徽章联动过滤。
+- **🛡️ 上下文感知日志与审计一键清空**：
+  - 顶部集成上下文感知的日志/审计清空功能，带二次确认弹窗防误触，清空动作本身即时记入审计记录。
+
+### 📦 v2.0.0 (重大里程碑)
 
 - **🎉 带外高熵安全凭据分发与阅后即焚系统 (Ticket Distribution System)**：
   - 新增 `internal/domain/ticket.go`、`internal/service/ticket_service.go` 与 `internal/delivery/http/handler_ticket.go`；

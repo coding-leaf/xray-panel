@@ -110,6 +110,19 @@ export async function handleMockRequest(url: string, method: string, data?: any)
     })
   }
 
+  // 2.1 Service 核心状态与控制
+  if (cleanUrl.endsWith('/service/status') && method === 'GET') {
+    return delay({
+      active: true,
+      subState: 'running',
+      version: 'Xray 26.3.27 (gRPC Runtime) Linux/amd64',
+    })
+  }
+
+  if (cleanUrl.endsWith('/service/restart') && method === 'POST') {
+    return delay({ success: true, message: 'Core restarted' })
+  }
+
   // 3. Inbounds 入站网关
   if (cleanUrl.endsWith('/inbounds') && method === 'GET') {
     return delay(state.inbounds)
@@ -481,20 +494,188 @@ export async function handleMockRequest(url: string, method: string, data?: any)
     return delay({ success: true })
   }
 
-  // 8. Logs
-  if (cleanUrl.endsWith('/logs') && method === 'GET') {
-    const nowStr = new Date().toISOString().replace('T', ' ').substring(0, 19).replace(/-/g, '/')
-    const randomLogs = [
-      `${nowStr} [Info] app/proxyman/command: Dynamic gRPC HandlerService AlterInbound: AddUser master@example.com into inbound [vless-reality] success`,
-      `${nowStr} [Info] app/stats/command: StatsService QueryStats pattern "user>>>master@example.com>>>traffic>>>downlink" -> 30000000000 bytes`,
-      `${nowStr} 127.0.0.1:4${Math.floor(1000 + Math.random() * 9000)} accepted tcp:www.youtube.com:443 [vless-reality -> direct] email: master@example.com`,
-      `${nowStr} 127.0.0.1:4${Math.floor(1000 + Math.random() * 9000)} accepted tcp:api.openai.com:443 [vless-reality -> warp-out] email: master@example.com`,
-      `${nowStr} 127.0.0.1:4${Math.floor(1000 + Math.random() * 9000)} accepted tcp:hk-node.example.com:443 [vless-reality -> hk-landing] email: master@example.com`,
-      `${nowStr} [Info] app/sync: Cold-boot SyncToDiskConfig fallback verified with zero config drift`,
-    ]
-    return delay({
-      lines: [...randomLogs, ...state.logs],
+  // 8. Logs & Audit
+  if (cleanUrl.endsWith('/logs/clear') && method === 'POST') {
+    state.logs = []
+    if (!state.auditLogs) state.auditLogs = []
+    const logType = url.includes('type=error') ? 'error' : 'access'
+    state.auditLogs.unshift({
+      id: Date.now(),
+      createdAt: new Date().toISOString(),
+      operator: 'admin',
+      clientIp: '127.0.0.1',
+      action: 'LOG_CLEAR',
+      target: logType,
+      details: '清空日志文件: ' + logType,
+      status: 'SUCCESS',
     })
+    saveMockState(state)
+    return delay({ success: true })
+  }
+
+  if (cleanUrl.endsWith('/logs') && method === 'GET') {
+    const urlObj = new URL(url, 'http://localhost')
+    const logType = urlObj.searchParams.get('type') || 'access'
+    const inbound = urlObj.searchParams.get('inbound') || ''
+    const keyword = (urlObj.searchParams.get('keyword') || '').toLowerCase()
+    const nowStr = new Date().toISOString().replace('T', ' ').substring(0, 19).replace(/-/g, '/')
+
+    let access = [
+      {
+        time: nowStr,
+        from_ip: '192.168.1.100:54321',
+        protocol: 'tcp',
+        target: 'www.google.com:443',
+        route: 'vless-reality -> direct',
+        inbound_tag: 'vless-reality',
+        outbound_tag: 'direct',
+        email: 'master@example.com',
+        action: 'accepted',
+        raw: `${nowStr} 192.168.1.100:54321 accepted tcp:www.google.com:443 [vless-reality -> direct] email: master@example.com`,
+      },
+      {
+        time: nowStr,
+        from_ip: '192.168.1.101:54322',
+        protocol: 'tcp',
+        target: 'api.openai.com:443',
+        route: 'vless-reality -> warp-out',
+        inbound_tag: 'vless-reality',
+        outbound_tag: 'warp-out',
+        email: 'master@example.com',
+        action: 'accepted',
+        raw: `${nowStr} 192.168.1.101:54322 accepted tcp:api.openai.com:443 [vless-reality -> warp-out] email: master@example.com`,
+      },
+      {
+        time: nowStr,
+        from_ip: '192.168.1.102:54323',
+        protocol: 'tcp',
+        target: 'speedtest.net:443',
+        route: 'vmess-ws -> direct',
+        inbound_tag: 'vmess-ws',
+        outbound_tag: 'direct',
+        email: 'test@example.com',
+        action: 'accepted',
+        raw: `${nowStr} 192.168.1.102:54323 accepted tcp:speedtest.net:443 [vmess-ws -> direct] email: test@example.com`,
+      },
+      {
+        time: nowStr,
+        from_ip: '192.168.1.103:54324',
+        protocol: 'tcp',
+        target: 'hk-node.example.com:443',
+        route: 'vless-reality -> hk-landing',
+        inbound_tag: 'vless-reality',
+        outbound_tag: 'hk-landing',
+        email: 'master@example.com',
+        action: 'accepted',
+        raw: `${nowStr} 192.168.1.103:54324 accepted tcp:hk-node.example.com:443 [vless-reality -> hk-landing] email: master@example.com`,
+      },
+    ]
+
+    if (inbound) {
+      access = access.filter((a) => a.inbound_tag === inbound)
+    }
+    if (keyword) {
+      access = access.filter(
+        (a) =>
+          a.target.toLowerCase().includes(keyword) ||
+          a.from_ip.includes(keyword) ||
+          a.email.toLowerCase().includes(keyword) ||
+          a.route.toLowerCase().includes(keyword)
+      )
+    }
+
+    let errors = [
+      {
+        time: nowStr,
+        level: 'WARN',
+        module: 'proxy/vless',
+        message: 'client flow is empty',
+        smartTip: '客户端未配置 Vision 流控，或当前入站协议不为 TCP',
+        raw: `${nowStr} [Warning] proxy/vless: client flow is empty`,
+      },
+      {
+        time: nowStr,
+        level: 'INFO',
+        module: 'app/dispatcher',
+        message: 'default route matched',
+        smartTip: '',
+        raw: `${nowStr} [Info] app/dispatcher: default route matched`,
+      },
+      {
+        time: nowStr,
+        level: 'ERROR',
+        module: 'app/dns',
+        message: 'dns-query failed: context canceled',
+        smartTip: 'DoH 远端解析握手超时，建议优先使用 8.8.8.8 UDP DNS',
+        raw: `${nowStr} [Error] app/dns: dns-query failed: context canceled`,
+      },
+    ]
+
+    if (keyword) {
+      errors = errors.filter(
+        (e) =>
+          e.message.toLowerCase().includes(keyword) ||
+          e.module.toLowerCase().includes(keyword) ||
+          (e.smartTip && e.smartTip.toLowerCase().includes(keyword))
+      )
+    }
+
+    const lines = logType === 'access' ? access.map((a) => a.raw) : errors.map((e) => e.raw)
+
+    return delay({
+      access,
+      errors,
+      lines: [...lines, ...state.logs],
+    })
+  }
+
+  // 8.1 Audit Logs
+  if (cleanUrl.endsWith('/audit-logs') && method === 'GET') {
+    const urlObj = new URL(url, 'http://localhost')
+    const page = parseInt(urlObj.searchParams.get('page') || '1', 10)
+    const pageSize = parseInt(urlObj.searchParams.get('pageSize') || '50', 10)
+    const action = urlObj.searchParams.get('action') || ''
+    const operator = urlObj.searchParams.get('operator') || ''
+    const keyword = (urlObj.searchParams.get('keyword') || '').toLowerCase()
+
+    let list = (state.auditLogs || []).slice()
+    if (action) {
+      list = list.filter((i: any) => i.action === action)
+    }
+    if (operator) {
+      list = list.filter((i: any) => i.operator === operator)
+    }
+    if (keyword) {
+      list = list.filter(
+        (i: any) =>
+          (i.action && i.action.toLowerCase().includes(keyword)) ||
+          (i.operator && i.operator.toLowerCase().includes(keyword)) ||
+          (i.target && i.target.toLowerCase().includes(keyword)) ||
+          (i.details && i.details.toLowerCase().includes(keyword))
+      )
+    }
+
+    const total = list.length
+    const start = (page - 1) * pageSize
+    const items = list.slice(start, start + pageSize)
+    return delay({ items, total, page, pageSize })
+  }
+
+  if (cleanUrl.endsWith('/audit-logs') && method === 'DELETE') {
+    state.auditLogs = [
+      {
+        id: Date.now(),
+        createdAt: new Date().toISOString(),
+        operator: 'admin',
+        clientIp: '127.0.0.1',
+        action: 'AUDIT_CLEAR',
+        target: 'all',
+        details: '管理员清空历史操作审查日志',
+        status: 'SUCCESS',
+      },
+    ]
+    saveMockState(state)
+    return delay({ success: true })
   }
 
   // 9. Config JSON 与快照

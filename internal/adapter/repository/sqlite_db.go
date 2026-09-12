@@ -47,6 +47,7 @@ func InitSQLite(dbPath string) (*gorm.DB, error) {
 		&domain.Setting{},
 		&domain.AdminUser{},
 		&domain.Ticket{},
+		&domain.AuditLog{},
 	)
 	if err != nil {
 		return nil, fmt.Errorf("db automigrate failed: %w", err)

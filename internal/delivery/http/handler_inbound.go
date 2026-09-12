@@ -1,6 +1,7 @@
 package http
 
 import (
+	"fmt"
 	"net/http"
 	"strconv"
 
@@ -13,10 +14,15 @@ import (
 
 type InboundHandler struct {
 	configSvc *service.ConfigService
+	auditSvc  *service.AuditLogService
 }
 
-func NewInboundHandler(configSvc *service.ConfigService) *InboundHandler {
-	return &InboundHandler{configSvc: configSvc}
+func NewInboundHandler(configSvc *service.ConfigService, auditSvc ...*service.AuditLogService) *InboundHandler {
+	h := &InboundHandler{configSvc: configSvc}
+	if len(auditSvc) > 0 {
+		h.auditSvc = auditSvc[0]
+	}
+	return h
 }
 
 func (h *InboundHandler) List(c *gin.Context) {
@@ -39,6 +45,8 @@ func (h *InboundHandler) Create(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
+
+	h.auditSvc.RecordFromGin(c, domain.ActionInboundCreate, in.Tag, fmt.Sprintf("创建入站节点: %s (端口: %d, 协议: %s)", in.Tag, in.Port, in.Protocol), "SUCCESS")
 
 	c.JSON(http.StatusCreated, in)
 }
@@ -67,6 +75,8 @@ func (h *InboundHandler) Update(c *gin.Context) {
 		return
 	}
 
+	h.auditSvc.RecordFromGin(c, domain.ActionInboundUpdate, in.Tag, fmt.Sprintf("更新入站节点: %s (端口: %d, 协议: %s)", in.Tag, in.Port, in.Protocol), "SUCCESS")
+
 	c.JSON(http.StatusOK, in)
 }
 
@@ -82,6 +92,8 @@ func (h *InboundHandler) Delete(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
+
+	h.auditSvc.RecordFromGin(c, domain.ActionInboundDelete, idStr, fmt.Sprintf("删除入站节点 ID: %d", id), "SUCCESS")
 
 	c.JSON(http.StatusOK, gin.H{"message": "inbound deleted"})
 }

@@ -76,3 +76,11 @@ type Notifier interface {
 	SendCertAlert(ctx context.Context, alert CertAlert) error
 	SendMessage(ctx context.Context, text string) error
 }
+
+// AuditLogRepository 操作审查日志仓储契约
+type AuditLogRepository interface {
+	Create(ctx context.Context, log *AuditLog) error
+	List(ctx context.Context, offset, limit int, action, operator, keyword string) ([]AuditLog, int64, error)
+	Prune(ctx context.Context, maxKeep int) error
+	Clear(ctx context.Context) error
+}

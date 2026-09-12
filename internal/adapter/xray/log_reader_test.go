@@ -68,4 +68,25 @@ func TestReadLastLines(t *testing.T) {
 	if err == nil {
 		t.Errorf("expected error for non-existent file, got nil")
 	}
+
+	// 5. 测试过滤读取与标签提取
+	mixedFile := filepath.Join(tmpDir, "mixed.log")
+	fMixed, _ := os.Create(mixedFile)
+	fMixed.WriteString("2026/09/12 10:00:01 127.0.0.1:1000 accepted tcp:example.com:443 [vless-in -> direct] email: alice@test.com\n")
+	fMixed.WriteString("2026/09/12 10:00:02 127.0.0.1:1001 accepted tcp:google.com:443 [vmess-in -> warp-out] email: bob@test.com\n")
+	fMixed.WriteString("2026/09/12 10:00:03 127.0.0.1:1002 accepted tcp:youtube.com:443 [vless-in -> direct] email: carol@test.com\n")
+	fMixed.Close()
+
+	filtered, err := ReadLastLinesFiltered(mixedFile, 10, LogFilter{InboundTag: "vless-in"})
+	if err != nil {
+		t.Fatalf("ReadLastLinesFiltered failed: %v", err)
+	}
+	if len(filtered) != 2 {
+		t.Fatalf("expected 2 filtered lines, got %d", len(filtered))
+	}
+
+	entry := ParseAccessLogLine(filtered[0])
+	if entry == nil || entry.InboundTag != "vless-in" || entry.OutboundTag != "direct" {
+		t.Fatalf("unexpected parsed entry: %+v", entry)
+	}
 }

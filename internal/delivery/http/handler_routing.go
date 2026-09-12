@@ -11,10 +11,15 @@ import (
 
 type RoutingHandler struct {
 	configSvc *service.ConfigService
+	auditSvc  *service.AuditLogService
 }
 
-func NewRoutingHandler(configSvc *service.ConfigService) *RoutingHandler {
-	return &RoutingHandler{configSvc: configSvc}
+func NewRoutingHandler(configSvc *service.ConfigService, auditSvc ...*service.AuditLogService) *RoutingHandler {
+	h := &RoutingHandler{configSvc: configSvc}
+	if len(auditSvc) > 0 {
+		h.auditSvc = auditSvc[0]
+	}
+	return h
 }
 
 func (h *RoutingHandler) Get(c *gin.Context) {
@@ -37,5 +42,8 @@ func (h *RoutingHandler) Save(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
+
+	h.auditSvc.RecordFromGin(c, domain.ActionRoutingSave, "routing", "保存分流路由规则", "SUCCESS")
+
 	c.JSON(http.StatusOK, cfg)
 }

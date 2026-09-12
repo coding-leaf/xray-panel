@@ -28,7 +28,7 @@ import (
 )
 
 var (
-	Version   = "v2.0.0"
+	Version   = "v2.1.0"
 	Commit    = "dev"
 	BuildTime = "unknown"
 )
@@ -66,6 +66,7 @@ func main() {
 	settingRepo := repository.NewSettingRepository(db)
 	adminRepo := repository.NewAdminRepository(db)
 	ticketRepo := repository.NewTicketRepository(db)
+	auditLogRepo := repository.NewGormAuditLogRepository(db)
 
 	// 3. 初始化适配器 Adapters
 	grpcClient := xray.NewGRPCClient(cfg.XrayGRPCAddr)
@@ -132,22 +133,24 @@ func main() {
 	logSvc := service.NewLogService(configMgr)
 	geoSvc := service.NewGeoDataService(cfg.XrayBinPath, xrayManager)
 	ticketSvc := service.NewTicketService(ticketRepo, userRepo, subSvc, settingRepo)
+	auditLogSvc := service.NewAuditLogService(auditLogRepo)
 
 	// 5. 初始化 HTTP API 处理器
 	handlers := &deliveryHTTP.Handlers{
-		Auth:      deliveryHTTP.NewAuthHandler(adminRepo, cfg.JWTSecret),
+		Auth:      deliveryHTTP.NewAuthHandler(adminRepo, cfg.JWTSecret, auditLogSvc),
 		Dashboard: deliveryHTTP.NewDashboardHandler(monitorSvc),
-		User:      deliveryHTTP.NewUserHandler(userSvc, subSvc),
-		Inbound:   deliveryHTTP.NewInboundHandler(configSvc),
-		Outbound:  deliveryHTTP.NewOutboundHandler(configSvc),
-		Routing:   deliveryHTTP.NewRoutingHandler(configSvc),
-		Config:    deliveryHTTP.NewConfigHandler(configSvc),
+		User:      deliveryHTTP.NewUserHandler(userSvc, subSvc, auditLogSvc),
+		Inbound:   deliveryHTTP.NewInboundHandler(configSvc, auditLogSvc),
+		Outbound:  deliveryHTTP.NewOutboundHandler(configSvc, auditLogSvc),
+		Routing:   deliveryHTTP.NewRoutingHandler(configSvc, auditLogSvc),
+		Config:    deliveryHTTP.NewConfigHandler(configSvc, auditLogSvc),
 		Sub:       deliveryHTTP.NewSubHandler(subSvc),
-		Setting:   deliveryHTTP.NewSettingHandler(settingRepo, botAdapter, configMgr, supervisor),
-		Log:       deliveryHTTP.NewLogHandler(logSvc),
+		Setting:   deliveryHTTP.NewSettingHandler(settingRepo, botAdapter, configMgr, supervisor, auditLogSvc),
+		Log:       deliveryHTTP.NewLogHandler(logSvc, auditLogSvc),
 		DNS:       deliveryHTTP.NewDNSHandler(configSvc),
 		GeoData:   deliveryHTTP.NewGeoDataHandler(geoSvc),
 		Ticket:    deliveryHTTP.NewTicketHandler(ticketSvc),
+		AuditLog:  deliveryHTTP.NewAuditLogHandler(auditLogSvc),
 	}
 
 	staticFS := getStaticFS()
@@ -164,6 +167,7 @@ func main() {
 		name    string
 		service app.Service
 	}{
+		{name: "Host Monitor", service: hostMonitor},
 		{name: "HTTP Server", service: httpSvc},
 		{name: "Traffic Sync Job", service: syncJob},
 		{name: "Telegram Bot", service: botHandler},

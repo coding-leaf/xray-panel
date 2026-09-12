@@ -24,3 +24,12 @@ func (h *DashboardHandler) GetDashboard(c *gin.Context) {
 	}
 	c.JSON(http.StatusOK, data)
 }
+
+func (h *DashboardHandler) GetServiceStatus(c *gin.Context) {
+	status, ver, _ := h.monitorSvc.GetServiceStatus(c.Request.Context())
+	c.JSON(http.StatusOK, gin.H{
+		"active":   status.Active,
+		"subState": status.SubState,
+		"version":  ver,
+	})
+}

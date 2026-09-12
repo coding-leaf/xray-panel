@@ -295,12 +295,28 @@ const formatUptime = (seconds: number) => {
   return `${hours}小时 ${mins}分`
 }
 
+const handleVisibilityChange = () => {
+  if (document.hidden) {
+    if (timer) {
+      clearInterval(timer)
+      timer = null
+    }
+  } else {
+    fetchData()
+    if (!timer) {
+      timer = setInterval(fetchData, 4000)
+    }
+  }
+}
+
 onMounted(() => {
   fetchData()
   timer = setInterval(fetchData, 4000)
+  document.addEventListener('visibilitychange', handleVisibilityChange)
 })
 
 onUnmounted(() => {
   if (timer) clearInterval(timer)
+  document.removeEventListener('visibilitychange', handleVisibilityChange)
 })
 </script>

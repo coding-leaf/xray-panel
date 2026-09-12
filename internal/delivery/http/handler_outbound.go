@@ -11,10 +11,15 @@ import (
 
 type OutboundHandler struct {
 	configSvc *service.ConfigService
+	auditSvc  *service.AuditLogService
 }
 
-func NewOutboundHandler(configSvc *service.ConfigService) *OutboundHandler {
-	return &OutboundHandler{configSvc: configSvc}
+func NewOutboundHandler(configSvc *service.ConfigService, auditSvc ...*service.AuditLogService) *OutboundHandler {
+	h := &OutboundHandler{configSvc: configSvc}
+	if len(auditSvc) > 0 {
+		h.auditSvc = auditSvc[0]
+	}
+	return h
 }
 
 func (h *OutboundHandler) List(c *gin.Context) {
@@ -41,6 +46,9 @@ func (h *OutboundHandler) Save(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
+
+	h.auditSvc.RecordFromGin(c, domain.ActionOutboundSave, ob.Tag, "保存出站规则: "+ob.Tag, "SUCCESS")
+
 	c.JSON(http.StatusOK, ob)
 }
 
@@ -55,5 +63,8 @@ func (h *OutboundHandler) Delete(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
+
+	h.auditSvc.RecordFromGin(c, domain.ActionOutboundSave, tag, "删除出站规则: "+tag, "SUCCESS")
+
 	c.JSON(http.StatusOK, gin.H{"message": "outbound deleted"})
 }

@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"fmt"
+	"os"
 
 	"panel/internal/adapter/xray"
 )
@@ -23,7 +24,7 @@ type LogResponse struct {
 	Errors   []xray.ErrorLogEntry  `json:"errors,omitempty"`
 }
 
-func (s *LogService) GetRecentLogs(ctx context.Context, logType string, maxLines int) (*LogResponse, error) {
+func (s *LogService) GetRecentLogs(ctx context.Context, logType string, maxLines int, filters ...xray.LogFilter) (*LogResponse, error) {
 	accessPath, errorPath := s.configMgr.GetLogPaths()
 
 	var targetPath string
@@ -42,7 +43,12 @@ func (s *LogService) GetRecentLogs(ctx context.Context, logType string, maxLines
 		}, nil
 	}
 
-	lines, err := xray.ReadLastLines(targetPath, maxLines)
+	filter := xray.LogFilter{}
+	if len(filters) > 0 {
+		filter = filters[0]
+	}
+
+	lines, err := xray.ReadLastLinesFiltered(targetPath, maxLines, filter)
 	if err != nil {
 		return &LogResponse{
 			Type:     logType,
@@ -76,4 +82,26 @@ func (s *LogService) GetRecentLogs(ctx context.Context, logType string, maxLines
 	}
 
 	return resp, nil
+}
+
+// ClearLogs 安全截断日志文件（大小置为 0）
+func (s *LogService) ClearLogs(ctx context.Context, logType string) error {
+	accessPath, errorPath := s.configMgr.GetLogPaths()
+
+	var targetPath string
+	if logType == "error" {
+		targetPath = errorPath
+	} else {
+		targetPath = accessPath
+	}
+
+	if targetPath == "" {
+		return fmt.Errorf("当前未配置 %s 日志路径", logType)
+	}
+
+	if err := os.Truncate(targetPath, 0); err != nil {
+		return fmt.Errorf("清空日志文件失败: %w", err)
+	}
+
+	return nil
 }

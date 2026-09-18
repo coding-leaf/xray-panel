@@ -16,22 +16,28 @@ type DashboardData struct {
 	TotalDown   int64                 `json:"totalDown"`
 }
 
+// XrayStatusProvider 定义监控服务所需的最小 Xray 状态查询接口 (遵循 ISP 接口隔离原则)
+type XrayStatusProvider interface {
+	GetServiceStatus(ctx context.Context) (domain.ServiceStatus, error)
+	GetVersion(ctx context.Context) (string, error)
+}
+
 type MonitorService struct {
 	monitor     domain.HostMonitor
-	xrayManager domain.XrayManager
+	xrayStatus  XrayStatusProvider
 	userRepo    domain.UserRepository
 	inboundRepo domain.InboundRepository
 }
 
 func NewMonitorService(
 	monitor domain.HostMonitor,
-	xrayManager domain.XrayManager,
+	xrayStatus XrayStatusProvider,
 	userRepo domain.UserRepository,
 	inboundRepo domain.InboundRepository,
 ) *MonitorService {
 	return &MonitorService{
 		monitor:     monitor,
-		xrayManager: xrayManager,
+		xrayStatus:  xrayStatus,
 		userRepo:    userRepo,
 		inboundRepo: inboundRepo,
 	}
@@ -43,8 +49,8 @@ func (s *MonitorService) GetDashboardData(ctx context.Context) (*DashboardData, 
 		metrics = &domain.SystemMetrics{}
 	}
 
-	serviceStatus, _ := s.xrayManager.GetServiceStatus(ctx)
-	xrayVer, _ := s.xrayManager.GetVersion(ctx)
+	serviceStatus, _ := s.xrayStatus.GetServiceStatus(ctx)
+	xrayVer, _ := s.xrayStatus.GetVersion(ctx)
 	metrics.XrayRunning = serviceStatus.Active
 	metrics.XrayVersion = xrayVer
 
@@ -73,7 +79,7 @@ func (s *MonitorService) GetDashboardData(ctx context.Context) (*DashboardData, 
 }
 
 func (s *MonitorService) GetServiceStatus(ctx context.Context) (domain.ServiceStatus, string, error) {
-	serviceStatus, err := s.xrayManager.GetServiceStatus(ctx)
-	xrayVer, _ := s.xrayManager.GetVersion(ctx)
+	serviceStatus, err := s.xrayStatus.GetServiceStatus(ctx)
+	xrayVer, _ := s.xrayStatus.GetVersion(ctx)
 	return serviceStatus, xrayVer, err
 }

@@ -13,8 +13,14 @@ import (
 
 var _ app.Service = (*TrafficSyncJob)(nil)
 
+// XrayTrafficManager 定义定时任务所需的最小 Xray 交互接口 (遵循 ISP 接口隔离原则)
+type XrayTrafficManager interface {
+	QueryTrafficStats(ctx context.Context, reset bool) ([]domain.TrafficStat, error)
+	RemoveUser(ctx context.Context, inboundTag string, email string) error
+}
+
 type TrafficSyncJob struct {
-	xrayManager    domain.XrayManager
+	xrayManager    XrayTrafficManager
 	userRepo       domain.UserRepository
 	inboundRepo    domain.InboundRepository
 	trafficLogRepo domain.TrafficLogRepository
@@ -25,7 +31,7 @@ type TrafficSyncJob struct {
 }
 
 func NewTrafficSyncJob(
-	xrayManager domain.XrayManager,
+	xrayManager XrayTrafficManager,
 	userRepo domain.UserRepository,
 	inboundRepo domain.InboundRepository,
 	trafficLogRepo domain.TrafficLogRepository,

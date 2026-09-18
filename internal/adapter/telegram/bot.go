@@ -16,12 +16,19 @@ import (
 
 var _ app.Service = (*BotHandler)(nil)
 
+// XrayServiceController 定义 Telegram Bot 所需的最小服务控制契约 (遵循 ISP 接口隔离原则)
+type XrayServiceController interface {
+	GetServiceStatus(ctx context.Context) (domain.ServiceStatus, error)
+	GetVersion(ctx context.Context) (string, error)
+	RestartService(ctx context.Context) error
+}
+
 type BotHandler struct {
 	adapter     *BotAdapter
 	userRepo    domain.UserRepository
 	inboundRepo domain.InboundRepository
 	monitor     domain.HostMonitor
-	xrayManager domain.XrayManager
+	xrayManager XrayServiceController
 	publicURL   string
 }
 
@@ -30,7 +37,7 @@ func NewBotHandler(
 	userRepo domain.UserRepository,
 	inboundRepo domain.InboundRepository,
 	monitor domain.HostMonitor,
-	xrayManager domain.XrayManager,
+	xrayManager XrayServiceController,
 	publicURL string,
 ) *BotHandler {
 	return &BotHandler{

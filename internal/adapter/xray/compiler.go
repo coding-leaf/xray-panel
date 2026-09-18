@@ -235,7 +235,23 @@ func (c *XrayCompiler) compileInbound(inb *domain.Inbound, users []domain.User) 
 		net := streamSettings.Network
 		sec := streamSettings.Security
 		if (net == "" || net == "tcp") && (sec == "reality" || sec == "tls") {
-			inboundFlow = "xtls-rprx-vision"
+			// 优先读取 settingsJson 中的显式 flow 配置，允许用户显式关闭或自定义
+			customFlow := ""
+			if inb.SettingsJSON != "" {
+				var sm map[string]interface{}
+				if err := json.Unmarshal([]byte(inb.SettingsJSON), &sm); err == nil {
+					if f, ok := sm["flow"].(string); ok {
+						customFlow = strings.TrimSpace(f)
+					}
+				}
+			}
+			if customFlow == "none" {
+				inboundFlow = ""
+			} else if customFlow != "" {
+				inboundFlow = customFlow
+			} else {
+				inboundFlow = "xtls-rprx-vision"
+			}
 		}
 	}
 
@@ -252,37 +268,40 @@ func (c *XrayCompiler) compileInbound(inb *domain.Inbound, users []domain.User) 
 		}
 	}
 
-	// 收集并投影授权到该 Inbound 的用户 Clients
+	// 收集并投影授权到该 Inbound 的用户 Clients (仅针对需要 clients 认证的代理协议)
+	isClientProto := protocolLower == "vless" || protocolLower == "vmess" || protocolLower == "trojan" || protocolLower == "shadowsocks"
 	var clients []XrayClient
-	for _, u := range users {
-		if !u.IsActive() {
-			continue
-		}
-		if !u.HasInbound(inb.Tag) {
-			continue
-		}
+	if isClientProto {
+		for _, u := range users {
+			if !u.IsActive() {
+				continue
+			}
+			if !u.HasInbound(inb.Tag) {
+				continue
+			}
 
-		client := XrayClient{
-			Email: u.Email,
-			Level: 0,
-		}
+			client := XrayClient{
+				Email: u.Email,
+				Level: 0,
+			}
 
-		switch protocolLower {
-		case "vless":
-			client.ID = u.UUID
-			client.Flow = inboundFlow
-		case "vmess":
-			client.ID = u.UUID
-		case "trojan":
-			client.Password = u.UUID
-		case "shadowsocks":
-			client.Password = u.UUID
-			client.Method = ssMethod
-		default:
-			client.ID = u.UUID
-		}
+			switch protocolLower {
+			case "vless":
+				client.ID = u.UUID
+				client.Flow = inboundFlow
+			case "vmess":
+				client.ID = u.UUID
+			case "trojan":
+				client.Password = u.UUID
+			case "shadowsocks":
+				client.Password = u.UUID
+				client.Method = ssMethod
+			default:
+				client.ID = u.UUID
+			}
 
-		clients = append(clients, client)
+			clients = append(clients, client)
+		}
 	}
 
 	// 服务端 Inbound REALITY 字段规范化清洗 (杜绝 Xray 内核 non-empty serverName 报错)
@@ -334,27 +353,37 @@ func (c *XrayCompiler) compileInbound(inb *domain.Inbound, users []domain.User) 
 		settingsMap = make(map[string]interface{})
 	}
 
-	// 若当前用户库中暂未关联到此 Inbound，优先回退提取 settingsJson 中原有 clients，若仍为空则注入合规占位客户端
-	if len(clients) == 0 {
-		if rawClients, ok := settingsMap["clients"].([]interface{}); ok && len(rawClients) > 0 {
-			// 保留原本存在于 settingsJson 的 clients
+	// 若为客户端代理协议 (vless, vmess, trojan, shadowsocks)，组装 clients
+	if isClientProto {
+		if len(clients) == 0 {
+			if rawClients, ok := settingsMap["clients"].([]interface{}); ok && len(rawClients) > 0 {
+				// 保留原本存在于 settingsJson 的 clients
+			} else {
+				placeholderID := "00000000-0000-0000-0000-000000000001"
+				placeholderClient := XrayClient{
+					ID:       placeholderID,
+					Password: placeholderID,
+					Email:    "default@panel.local",
+					Flow:     inboundFlow,
+					Level:    0,
+				}
+				if protocolLower == "shadowsocks" {
+					placeholderClient.Method = ssMethod
+				}
+				clients = append(clients, placeholderClient)
+				settingsMap["clients"] = clients
+			}
 		} else {
-			placeholderID := "00000000-0000-0000-0000-000000000001"
-			placeholderClient := XrayClient{
-				ID:       placeholderID,
-				Password: placeholderID,
-				Email:    "default@panel.local",
-				Flow:     inboundFlow,
-				Level:    0,
-			}
-			if protocolLower == "shadowsocks" {
-				placeholderClient.Method = ssMethod
-			}
-			clients = append(clients, placeholderClient)
 			settingsMap["clients"] = clients
 		}
-	} else {
-		settingsMap["clients"] = clients
+	} else if protocolLower == "socks" {
+		// socks 协议特殊默认值：支持 udp
+		if _, ok := settingsMap["udp"]; !ok {
+			settingsMap["udp"] = true
+		}
+		if _, ok := settingsMap["auth"]; !ok {
+			settingsMap["auth"] = "noauth"
+		}
 	}
 
 	if protocolLower == "vless" && settingsMap["decryption"] == nil {

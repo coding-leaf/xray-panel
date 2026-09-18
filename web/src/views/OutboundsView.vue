@@ -330,6 +330,26 @@
               </div>
             </div>
 
+            <!-- VLESS 出站流控选项 (XTLS Vision) -->
+            <div v-if="form.protocol === 'vless'" class="pt-2 border-t border-gray-800">
+              <div class="flex items-center justify-between mb-1">
+                <label class="text-gray-300 font-medium">流控策略 (Flow / XTLS Vision)</label>
+                <span class="text-[11px] text-brand-400 font-mono">XTLS / REALITY 极速流控</span>
+              </div>
+              <select
+                v-model="form.vlessFlow"
+                :disabled="form.streamNetwork !== 'tcp' || !['reality', 'tls'].includes(form.streamSecurity)"
+                class="w-full bg-gray-900 border border-gray-700 rounded-xl px-3 py-2 text-white focus:outline-none focus:border-brand-500 disabled:opacity-40 font-mono"
+              >
+                <option value="xtls-rprx-vision">xtls-rprx-vision (XTLS Vision 极速流控 - 推荐)</option>
+                <option value="xtls-rprx-vision-udp443">xtls-rprx-vision-udp443</option>
+                <option value="">none (无流控 - 适用于 XHTTP / gRPC / WS 等)</option>
+              </select>
+              <p v-if="form.streamNetwork !== 'tcp' || !['reality', 'tls'].includes(form.streamSecurity)" class="text-[11px] text-gray-500 mt-1">
+                * Vision 流控仅适用于 TCP + TLS / REALITY 架构。
+              </p>
+            </div>
+
             <!-- XHTTP 专用参数 -->
             <div v-if="form.streamNetwork === 'xhttp'" class="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2 border-t border-gray-800/60">
               <div>
@@ -491,6 +511,7 @@ const form = ref<any>({
   proxyHost: '',
   proxyPort: 443,
   proxyPassword: '',
+  vlessFlow: 'xtls-rprx-vision',
   streamNetwork: 'xhttp',
   streamSecurity: 'reality',
   xhttpPath: '/mbqyfa4grswh5ntz',
@@ -535,6 +556,7 @@ const openCreateModal = () => {
     proxyHost: '',
     proxyPort: 443,
     proxyPassword: '',
+    vlessFlow: 'xtls-rprx-vision',
     streamNetwork: 'xhttp',
     streamSecurity: 'reality',
     xhttpPath: '/mbqyfa4grswh5ntz',
@@ -603,28 +625,38 @@ const editOutbound = (ob: any) => {
       form.value.wgEndpoint = s.peers[0].endpoint || ''
       form.value.wgPeerPublicKey = s.peers[0].publicKey || ''
     }
-  } else if (['vless', 'vmess', 'trojan'].includes(ob.protocol)) {
+  } else if (['vless', 'vmess'].includes(ob.protocol)) {
     if (s.vnext?.length > 0) {
       form.value.proxyHost = s.vnext[0].address || ''
       form.value.proxyPort = s.vnext[0].port || 443
       if (s.vnext[0].users?.length > 0) {
-        form.value.proxyPassword = s.vnext[0].users[0].id || s.vnext[0].users[0].password || ''
-      }
-    } else if (form.value.protocol === 'shadowsocks') {
-      if (s.servers?.length > 0) {
-        form.value.proxyHost = s.servers[0].address || ''
-        form.value.proxyPort = s.servers[0].port || 443
-        form.value.proxyPassword = s.servers[0].password || ''
-        form.value.ssMethod = s.servers[0].method || '2022-blake3-aes-128-gcm'
-      }
-    } else if (['socks', 'http'].includes(ob.protocol)) {
-      if (s.servers?.length > 0) {
-        form.value.proxyHost = s.servers[0].address || ''
-        form.value.proxyPort = s.servers[0].port || 1080
-        if (s.servers[0].users?.length > 0) {
-          form.value.proxyUsername = s.servers[0].users[0].user || ''
-          form.value.proxyPassword = s.servers[0].users[0].pass || ''
+        const u = s.vnext[0].users[0]
+        form.value.proxyPassword = u.id || u.password || ''
+        if (ob.protocol === 'vless') {
+          form.value.vlessFlow = u.flow !== undefined ? u.flow : 'xtls-rprx-vision'
         }
+      }
+    }
+  } else if (ob.protocol === 'trojan') {
+    if (s.servers?.length > 0) {
+      form.value.proxyHost = s.servers[0].address || ''
+      form.value.proxyPort = s.servers[0].port || 443
+      form.value.proxyPassword = s.servers[0].password || ''
+    }
+  } else if (ob.protocol === 'shadowsocks') {
+    if (s.servers?.length > 0) {
+      form.value.proxyHost = s.servers[0].address || ''
+      form.value.proxyPort = s.servers[0].port || 443
+      form.value.proxyPassword = s.servers[0].password || ''
+      form.value.ssMethod = s.servers[0].method || '2022-blake3-aes-128-gcm'
+    }
+  } else if (['socks', 'http'].includes(ob.protocol)) {
+    if (s.servers?.length > 0) {
+      form.value.proxyHost = s.servers[0].address || ''
+      form.value.proxyPort = s.servers[0].port || 1080
+      if (s.servers[0].users?.length > 0) {
+        form.value.proxyUsername = s.servers[0].users[0].user || ''
+        form.value.proxyPassword = s.servers[0].users[0].pass || ''
       }
     }
   }
@@ -657,17 +689,21 @@ const buildSettingsJSON = () => {
       ],
     })
   } else if (form.value.protocol === 'vless') {
+    const isTcp = form.value.streamNetwork === 'tcp'
+    const isTlsOrReality = ['reality', 'tls'].includes(form.value.streamSecurity)
+    const userObj: any = {
+      id: form.value.proxyPassword,
+      encryption: 'none',
+    }
+    if (isTcp && isTlsOrReality && form.value.vlessFlow) {
+      userObj.flow = form.value.vlessFlow
+    }
     return JSON.stringify({
       vnext: [
         {
           address: form.value.proxyHost,
           port: form.value.proxyPort,
-          users: [
-            {
-              id: form.value.proxyPassword,
-              encryption: 'none',
-            },
-          ],
+          users: [userObj],
         },
       ],
     })

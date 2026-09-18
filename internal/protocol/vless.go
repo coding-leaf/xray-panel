@@ -79,10 +79,7 @@ func (f *VlessFormatter) FormatLink(node *NodeConfig) (string, error) {
 	// XTLS Vision 严格仅限 TCP + (REALITY 或 TLS) 传输层，其余协议（如 xhttp、ws、grpc）严禁携带 flow
 	if (network == "tcp" || network == "") && (security == "reality" || security == "tls") {
 		flow := node.GetParam("flow")
-		if flow == "" {
-			flow = "xtls-rprx-vision"
-		}
-		if flow != "none" {
+		if flow != "none" && flow != "" {
 			v.Set("flow", flow)
 		}
 	}
@@ -201,8 +198,6 @@ func (f *VlessFormatter) ToClash(node *NodeConfig) (map[string]interface{}, erro
 	if (network == "tcp" || network == "") && isTLS {
 		if flow := node.GetParam("flow"); flow != "" && flow != "none" {
 			proxy["flow"] = flow
-		} else {
-			proxy["flow"] = "xtls-rprx-vision"
 		}
 	}
 	if fp := node.GetParam("fp"); fp != "" {
@@ -257,8 +252,6 @@ func (f *VlessFormatter) ToSingBox(node *NodeConfig) (map[string]interface{}, er
 	if (network == "tcp" || network == "") && isTLS {
 		if flow := node.GetParam("flow"); flow != "" && flow != "none" {
 			outbound["flow"] = flow
-		} else {
-			outbound["flow"] = "xtls-rprx-vision"
 		}
 	}
 

@@ -259,7 +259,22 @@ func BuildAccountMessage(inbound *domain.Inbound, u *domain.User) (*serial.Typed
 		net, _ := streamMap["network"].(string)
 		sec, _ := streamMap["security"].(string)
 		if (net == "" || net == "tcp") && (sec == "reality" || sec == "tls") {
-			flow = "xtls-rprx-vision"
+			customFlow := ""
+			if inbound.SettingsJSON != "" {
+				var sm map[string]interface{}
+				if err := json.Unmarshal([]byte(inbound.SettingsJSON), &sm); err == nil {
+					if f, ok := sm["flow"].(string); ok {
+						customFlow = strings.TrimSpace(f)
+					}
+				}
+			}
+			if customFlow == "none" {
+				flow = ""
+			} else if customFlow != "" {
+				flow = customFlow
+			} else {
+				flow = "xtls-rprx-vision"
+			}
 		}
 
 		return serial.ToTypedMessage(&vless.Account{

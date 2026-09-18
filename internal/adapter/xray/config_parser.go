@@ -390,11 +390,11 @@ func InboundToNodeConfig(inbound *domain.Inbound, user *domain.User, hostDomain 
 	// 提取 SettingsJSON (flow / method)
 	var settingsMap map[string]interface{}
 	_ = json.Unmarshal([]byte(inbound.SettingsJSON), &settingsMap)
-	if f, ok := settingsMap["flow"].(string); ok && f != "" {
+	if f, ok := settingsMap["flow"].(string); ok {
 		node.SetParam("flow", f)
 	} else if clients, ok := settingsMap["clients"].([]interface{}); ok && len(clients) > 0 {
 		if cMap, ok := clients[0].(map[string]interface{}); ok {
-			if f, ok := cMap["flow"].(string); ok && f != "" {
+			if f, ok := cMap["flow"].(string); ok {
 				node.SetParam("flow", f)
 			}
 		}
@@ -417,6 +417,20 @@ func InboundToNodeConfig(inbound *domain.Inbound, user *domain.User, hostDomain 
 
 	if method, ok := settingsMap["method"].(string); ok && method != "" {
 		node.SetParam("method", method)
+	}
+
+	// 提取 Socks / HTTP 认证信息
+	if strings.ToLower(node.Protocol) == "socks" || strings.ToLower(node.Protocol) == "http" {
+		if accounts, ok := settingsMap["accounts"].([]interface{}); ok && len(accounts) > 0 {
+			if acc, ok := accounts[0].(map[string]interface{}); ok {
+				if u, ok := acc["user"].(string); ok && u != "" {
+					node.SetParam("user", u)
+				}
+				if p, ok := acc["pass"].(string); ok && p != "" {
+					node.SetParam("pass", p)
+				}
+			}
+		}
 	}
 
 	return node

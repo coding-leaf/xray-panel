@@ -1,7 +1,7 @@
 # 🚀 Xray Decoupled Panel (解耦运维监控与分流管理面板)
 
 <p align="center">
-  <img src="https://img.shields.io/badge/Version-v2.1.0-indigo?style=flat-square" alt="Version">
+  <img src="https://img.shields.io/badge/Version-v2.2.0-indigo?style=flat-square" alt="Version">
   <img src="https://img.shields.io/badge/Go-1.22+-00ADD8?style=flat-square&logo=go" alt="Go Version">
   <img src="https://img.shields.io/badge/Vue-3.4+-4FC08D?style=flat-square&logo=vue.js" alt="Vue Version">
   <img src="https://img.shields.io/badge/Architecture-Clean%20Architecture-blue?style=flat-square" alt="Clean Architecture">
@@ -86,6 +86,12 @@
 ---
 
 ## 📝 最近更新日志
+
+### 🚀 v2.2.0 (2026-09)
+- **入站协议扩展**：入站支持选择 Socks5 (`socks`)、HTTP 代理及任意门 (`dokodemo-door`)，并支持 Socks 导出为链接、Clash 与 Sing-box 订阅；
+- **流控绑定修复**：修复 VLESS TCP TLS/Reality 入站强制绑定 Vision 的问题，支持选择并保存无流控 (`none`)；
+- **出站配置修复**：修复出站节点编辑时参数被清空丢失的问题；VLESS 出站支持配置 Vision 流控 (`xtls-rprx-vision`)；
+- **前端适配**：根据入站协议自动隐藏无关设置项，卡片按协议展示对应运行信息。
 
 ### 🚀 v2.1.0 (2026-09) - 核心监控平滑治理、管理审查审计系统与入站日志流向分类
 - **⚡ CPU 瞬态虚高与微秒级微分放大根因治理**：

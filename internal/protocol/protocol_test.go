@@ -160,6 +160,7 @@ func TestVlessFormatter_FullCombinations(t *testing.T) {
 		Params: map[string]string{
 			"type":     "tcp",
 			"security": "reality",
+			"flow":     "xtls-rprx-vision",
 			"pbk":      "FMdWD0uS9lrXUAoMmTP5e2LLD-mk8vO8JTZmAE9vdww",
 			"sni":      "www.apple.com",
 			"sid":      "0123456789abcdef",

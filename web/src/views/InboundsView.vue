@@ -57,17 +57,25 @@
                 <span v-if="(inb.externalPort || inb.port) !== 443 && isReality(inb)" class="text-amber-400 font-semibold text-[10px]" title="非443端口Reality存在阻断风险">⚠️ 非443</span>
               </div>
             </div>
-            <div class="flex justify-between py-1 border-b border-gray-800/60">
+            <div v-if="!['socks', 'http', 'dokodemo-door'].includes(inb.protocol)" class="flex justify-between py-1 border-b border-gray-800/60">
               <span>节点流控 (Flow)</span>
               <span class="text-cyan-300 font-mono font-semibold">{{ getNodeFlow(inb) }}</span>
             </div>
-            <div class="flex justify-between py-1 border-b border-gray-800/60">
+            <div v-if="!['socks', 'http', 'dokodemo-door'].includes(inb.protocol)" class="flex justify-between py-1 border-b border-gray-800/60">
               <span>安全协议</span>
               <span class="text-gray-200 font-mono font-semibold uppercase">{{ getSecurityType(inb) }}</span>
             </div>
-            <div class="flex justify-between py-1 border-b border-gray-800/60">
+            <div v-if="!['socks', 'http', 'dokodemo-door'].includes(inb.protocol)" class="flex justify-between py-1 border-b border-gray-800/60">
               <span>已授权用户数</span>
               <span class="text-brand-300 font-mono font-bold">{{ getClientCount(inb) }} 人</span>
+            </div>
+            <div v-if="inb.protocol === 'socks'" class="flex justify-between py-1 border-b border-gray-800/60">
+              <span>Socks 认证模式</span>
+              <span class="text-emerald-300 font-mono font-semibold">{{ getSocksAuth(inb) }}</span>
+            </div>
+            <div v-if="inb.protocol === 'dokodemo-door'" class="flex justify-between py-1 border-b border-gray-800/60">
+              <span>转发目标</span>
+              <span class="text-rose-300 font-mono font-semibold">{{ getDokodemoTarget(inb) }}</span>
             </div>
             <div class="flex justify-between py-1">
               <span>端口连通性 (TCP Ping)</span>
@@ -237,6 +245,9 @@
                   <option value="vmess">VMess</option>
                   <option value="trojan">Trojan</option>
                   <option value="shadowsocks">Shadowsocks</option>
+                  <option value="socks">Socks (Socks5 / Socks4)</option>
+                  <option value="http">HTTP 代理入站</option>
+                  <option value="dokodemo-door">dokodemo-door (任意门转发)</option>
                 </select>
               </div>
 
@@ -270,7 +281,7 @@
             </div>
 
             <!-- 不兼容 Reality 自动限制提示 -->
-            <div v-if="!isRealitySupported" class="p-2 rounded-xl bg-blue-500/10 border border-blue-500/20 text-blue-300 text-[11px]">
+            <div v-if="!['socks', 'http', 'dokodemo-door'].includes(form.protocol) && !isRealitySupported" class="p-2 rounded-xl bg-blue-500/10 border border-blue-500/20 text-blue-300 text-[11px]">
               ℹ️ 官方规范说明：当前传输协议 (<code>{{ form.network }}</code>) 不支持 REALITY，安全协议仅支持 TLS 或 None。
             </div>
 
@@ -341,10 +352,111 @@
                 class="w-full bg-gray-900 border border-gray-700 rounded-xl px-3 py-2 text-white font-mono focus:outline-none focus:border-brand-500"
               />
             </div>
+
+            <!-- Socks 专属配置项 -->
+            <div v-if="form.protocol === 'socks'" class="pt-2 border-t border-gray-800 space-y-3">
+              <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label class="block text-gray-400 mb-1">认证模式 (Auth)</label>
+                  <select
+                    v-model="form.socksAuth"
+                    class="w-full bg-gray-900 border border-gray-700 rounded-xl px-3 py-2 text-white focus:outline-none focus:border-brand-500 font-mono"
+                  >
+                    <option value="noauth">noauth (无需认证)</option>
+                    <option value="password">password (用户名密码认证)</option>
+                  </select>
+                </div>
+                <div class="flex items-center pt-6">
+                  <label class="flex items-center gap-2 text-xs text-gray-300 cursor-pointer">
+                    <input v-model="form.socksUdp" type="checkbox" class="w-4 h-4 rounded text-brand-500 bg-gray-900 border-gray-700 focus:ring-0" />
+                    <span>启用 UDP 转发支持 (udp: true)</span>
+                  </label>
+                </div>
+              </div>
+              <div v-if="form.socksAuth === 'password'" class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label class="block text-gray-400 mb-1">用户名 (Username)</label>
+                  <input
+                    v-model="form.socksUsername"
+                    type="text"
+                    placeholder="如: admin"
+                    class="w-full bg-gray-900 border border-gray-700 rounded-xl px-3 py-2 text-white font-mono focus:outline-none focus:border-brand-500"
+                  />
+                </div>
+                <div>
+                  <label class="block text-gray-400 mb-1">密码 (Password)</label>
+                  <input
+                    v-model="form.socksPassword"
+                    type="text"
+                    placeholder="如: secret"
+                    class="w-full bg-gray-900 border border-gray-700 rounded-xl px-3 py-2 text-white font-mono focus:outline-none focus:border-brand-500"
+                  />
+                </div>
+              </div>
+            </div>
+
+            <!-- HTTP 代理入站专属配置项 -->
+            <div v-if="form.protocol === 'http'" class="pt-2 border-t border-gray-800 space-y-3">
+              <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label class="block text-gray-400 mb-1">用户名 (选填)</label>
+                  <input
+                    v-model="form.httpUsername"
+                    type="text"
+                    placeholder="留空无需认证"
+                    class="w-full bg-gray-900 border border-gray-700 rounded-xl px-3 py-2 text-white font-mono focus:outline-none focus:border-brand-500"
+                  />
+                </div>
+                <div>
+                  <label class="block text-gray-400 mb-1">密码 (选填)</label>
+                  <input
+                    v-model="form.httpPassword"
+                    type="text"
+                    placeholder="留空无需认证"
+                    class="w-full bg-gray-900 border border-gray-700 rounded-xl px-3 py-2 text-white font-mono focus:outline-none focus:border-brand-500"
+                  />
+                </div>
+              </div>
+            </div>
+
+            <!-- dokodemo-door 任意门专属配置项 -->
+            <div v-if="form.protocol === 'dokodemo-door'" class="pt-2 border-t border-gray-800 space-y-3">
+              <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                <div>
+                  <label class="block text-gray-400 mb-1">目标转发地址 (Address)</label>
+                  <input
+                    v-model="form.dokoAddress"
+                    type="text"
+                    placeholder="1.1.1.1 或 127.0.0.1"
+                    class="w-full bg-gray-900 border border-gray-700 rounded-xl px-3 py-2 text-white font-mono focus:outline-none focus:border-brand-500"
+                  />
+                </div>
+                <div>
+                  <label class="block text-gray-400 mb-1">目标转发端口 (Port)</label>
+                  <input
+                    v-model.number="form.dokoPort"
+                    type="number"
+                    placeholder="53"
+                    class="w-full bg-gray-900 border border-gray-700 rounded-xl px-3 py-2 text-white font-mono focus:outline-none focus:border-brand-500"
+                  />
+                </div>
+                <div>
+                  <label class="block text-gray-400 mb-1">转发网络类型 (Network)</label>
+                  <select
+                    v-model="form.dokoNetwork"
+                    class="w-full bg-gray-900 border border-gray-700 rounded-xl px-3 py-2 text-white focus:outline-none focus:border-brand-500 font-mono"
+                  >
+                    <option value="tcp,udp">TCP + UDP</option>
+                    <option value="tcp">仅 TCP</option>
+                    <option value="udp">仅 UDP</option>
+                  </select>
+                </div>
+              </div>
+            </div>
           </div>
 
-          <!-- 3. 安全协议专属设置 (Reality / TLS) -->
-          <div v-if="form.security === 'reality'" class="space-y-3 bg-gray-900/50 p-4 rounded-2xl border border-gray-800/80">
+          <!-- 3. 安全协议专属设置 (Reality / TLS) (仅限支持 TLS 的协议) -->
+          <div v-if="!['socks', 'http', 'dokodemo-door'].includes(form.protocol) && form.security === 'reality'" class="space-y-3 bg-gray-900/50 p-4 rounded-2xl border border-gray-800/80">
             <div class="flex items-center justify-between">
               <h3 class="font-bold text-cyan-400 uppercase tracking-wider text-[11px] flex items-center gap-1.5">
                 <span>③ REALITY 伪装与安全设置</span>
@@ -406,7 +518,7 @@
             </div>
           </div>
 
-          <div v-else-if="form.security === 'tls'" class="space-y-3 bg-gray-900/50 p-4 rounded-2xl border border-gray-800/80">
+          <div v-else-if="!['socks', 'http', 'dokodemo-door'].includes(form.protocol) && form.security === 'tls'" class="space-y-3 bg-gray-900/50 p-4 rounded-2xl border border-gray-800/80">
             <h3 class="font-bold text-purple-400 uppercase tracking-wider text-[11px]">
               ③ TLS 证书配置
             </h3>
@@ -443,8 +555,8 @@
             </div>
           </div>
 
-          <!-- 4. 回落分流设置 (Fallbacks) -->
-          <div class="space-y-3 bg-gray-900/50 p-4 rounded-2xl border border-gray-800/80">
+          <!-- 4. 回落分流设置 (Fallbacks) (仅针对客户端代理协议) -->
+          <div v-if="!['socks', 'http', 'dokodemo-door'].includes(form.protocol)" class="space-y-3 bg-gray-900/50 p-4 rounded-2xl border border-gray-800/80">
             <div class="flex items-center justify-between">
               <div>
                 <h3 class="font-bold text-gray-200 text-xs">④ 网站回落伪装 (Fallbacks 分流)</h3>
@@ -592,8 +704,8 @@
             </div>
           </div>
 
-          <!-- 6. 关联授权用户 (双向批量用户绑定) -->
-          <div class="space-y-3 bg-gray-900/50 p-4 rounded-2xl border border-gray-800/80">
+          <!-- 6. 关联授权用户 (双向批量用户绑定，仅针对支持按用户鉴权的代理协议) -->
+          <div v-if="['vless', 'vmess', 'trojan', 'shadowsocks'].includes(form.protocol)" class="space-y-3 bg-gray-900/50 p-4 rounded-2xl border border-gray-800/80">
             <div class="flex items-center justify-between">
               <div>
                 <h3 class="font-bold text-gray-200 text-xs">⑥ 关联授权用户 (双向用户绑定)</h3>
@@ -711,6 +823,21 @@ const form = ref<any>({
   fallbacksEnabled: false,
   fallbackDest: '80',
   fallbackXver: 0,
+
+  // Socks
+  socksAuth: 'noauth',
+  socksUdp: true,
+  socksUsername: '',
+  socksPassword: '',
+
+  // HTTP Inbound
+  httpUsername: '',
+  httpPassword: '',
+
+  // dokodemo-door
+  dokoAddress: '127.0.0.1',
+  dokoPort: 53,
+  dokoNetwork: 'tcp,udp',
 
   // Sniffing
   sniffingEnabled: true,
@@ -830,6 +957,15 @@ const openCreateModal = () => {
     fallbacksEnabled: false,
     fallbackDest: '80',
     fallbackXver: 0,
+    socksAuth: 'noauth',
+    socksUdp: true,
+    socksUsername: '',
+    socksPassword: '',
+    httpUsername: '',
+    httpPassword: '',
+    dokoAddress: '127.0.0.1',
+    dokoPort: 53,
+    dokoNetwork: 'tcp,udp',
     sniffingEnabled: true,
     sniffingRouteOnly: true,
   }
@@ -878,7 +1014,7 @@ const editInbound = (inb: any) => {
   } catch (e) {}
 
   const isTcp = (stream.network || inb.network || 'tcp') === 'tcp'
-  form.value.vlessFlow = isTcp ? (settings.flow || (inb.protocol === 'vless' ? 'xtls-rprx-vision' : '')) : ''
+  form.value.vlessFlow = isTcp ? (settings.flow !== undefined ? settings.flow : (inb.protocol === 'vless' ? 'xtls-rprx-vision' : '')) : ''
 
   // 提取已绑定此节点的用户
   const assignedEmails: string[] = []
@@ -902,6 +1038,31 @@ const editInbound = (inb: any) => {
   } else {
     form.value.fallbacksEnabled = false
   }
+
+  // Socks
+  form.value.socksAuth = settings.auth || 'noauth'
+  form.value.socksUdp = settings.udp !== false
+  if (settings.accounts?.length > 0) {
+    form.value.socksUsername = settings.accounts[0].user || ''
+    form.value.socksPassword = settings.accounts[0].pass || ''
+  } else {
+    form.value.socksUsername = ''
+    form.value.socksPassword = ''
+  }
+
+  // HTTP Inbound
+  if (settings.accounts?.length > 0) {
+    form.value.httpUsername = settings.accounts[0].user || ''
+    form.value.httpPassword = settings.accounts[0].pass || ''
+  } else {
+    form.value.httpUsername = ''
+    form.value.httpPassword = ''
+  }
+
+  // dokodemo-door
+  form.value.dokoAddress = settings.address || '127.0.0.1'
+  form.value.dokoPort = settings.port || 53
+  form.value.dokoNetwork = settings.network || 'tcp,udp'
 
   // stream settings
   form.value.network = stream.network || inb.network || 'tcp'
@@ -950,10 +1111,43 @@ const editInbound = (inb: any) => {
 const buildSettingsJSON = () => {
   const settings: any = {}
 
-  // 节点流控策略：仅在 TCP + (Reality / TLS) 下才允许使用 xtls-rprx-vision，XHTTP / WS / gRPC 下必须为空
+  if (form.value.protocol === 'socks') {
+    settings.auth = form.value.socksAuth || 'noauth'
+    settings.udp = form.value.socksUdp !== false
+    if (form.value.socksAuth === 'password' && (form.value.socksUsername || form.value.socksPassword)) {
+      settings.accounts = [
+        {
+          user: form.value.socksUsername || '',
+          pass: form.value.socksPassword || '',
+        },
+      ]
+    }
+    return JSON.stringify(settings, null, 2)
+  }
+
+  if (form.value.protocol === 'http') {
+    if (form.value.httpUsername || form.value.httpPassword) {
+      settings.accounts = [
+        {
+          user: form.value.httpUsername || '',
+          pass: form.value.httpPassword || '',
+        },
+      ]
+    }
+    return JSON.stringify(settings, null, 2)
+  }
+
+  if (form.value.protocol === 'dokodemo-door') {
+    settings.address = form.value.dokoAddress || '127.0.0.1'
+    settings.port = form.value.dokoPort || 53
+    settings.network = form.value.dokoNetwork || 'tcp,udp'
+    return JSON.stringify(settings, null, 2)
+  }
+
+  // 节点流控策略：仅在 TCP + (Reality / TLS) 下才允许使用 flow，XHTTP / WS / gRPC 下必须为空
   const isTcp = form.value.network === 'tcp'
   const isTlsOrReality = form.value.security === 'reality' || form.value.security === 'tls'
-  const flowVal = (isTcp && isTlsOrReality) ? (form.value.vlessFlow || 'xtls-rprx-vision') : ''
+  const flowVal = (isTcp && isTlsOrReality) ? (form.value.vlessFlow || '') : ''
   settings.flow = flowVal
   if (form.value.protocol === 'vless') {
     settings.decryption = 'none'
@@ -1081,17 +1275,19 @@ const saveInbound = async () => {
       await api.post('/inbounds', payload)
     }
 
-    // 同步更新用户的 InboundTags 关系
-    for (const u of usersList.value) {
-      const currentTags = (u.inboundTags || u.inboundTag || '').split(',').map((s: string) => s.trim()).filter((s: string) => s)
-      const shouldHave = form.value.selectedUserEmails.includes(u.email)
-      const has = currentTags.includes(form.value.tag)
-      if (shouldHave && !has) {
-        currentTags.push(form.value.tag)
-        await api.put(`/users/${u.id}`, { ...u, inboundTags: currentTags.join(','), inboundTag: currentTags[0] })
-      } else if (!shouldHave && has) {
-        const nextTags = currentTags.filter((t: string) => t !== form.value.tag)
-        await api.put(`/users/${u.id}`, { ...u, inboundTags: nextTags.join(','), inboundTag: nextTags[0] || '' })
+    // 同步更新用户的 InboundTags 关系 (仅针对客户端代理协议)
+    if (['vless', 'vmess', 'trojan', 'shadowsocks'].includes(form.value.protocol)) {
+      for (const u of usersList.value) {
+        const currentTags = (u.inboundTags || u.inboundTag || '').split(',').map((s: string) => s.trim()).filter((s: string) => s)
+        const shouldHave = form.value.selectedUserEmails.includes(u.email)
+        const has = currentTags.includes(form.value.tag)
+        if (shouldHave && !has) {
+          currentTags.push(form.value.tag)
+          await api.put(`/users/${u.id}`, { ...u, inboundTags: currentTags.join(','), inboundTag: currentTags[0] })
+        } else if (!shouldHave && has) {
+          const nextTags = currentTags.filter((t: string) => t !== form.value.tag)
+          await api.put(`/users/${u.id}`, { ...u, inboundTags: nextTags.join(','), inboundTag: nextTags[0] || '' })
+        }
       }
     }
 
@@ -1119,16 +1315,30 @@ const deleteInbound = async (id: number) => {
 const getNodeFlow = (inb: any) => {
   try {
     const s = JSON.parse(inb.settingsJson || '{}')
-    if (s.flow) return s.flow
-    if (inb.protocol === 'vless') {
-      const str = JSON.parse(inb.streamSettings || '{}')
-      if (str.network === 'tcp' && (str.security === 'reality' || str.security === 'tls')) {
-        return 'xtls-rprx-vision'
-      }
-    }
+    if (s.flow !== undefined) return s.flow || 'none'
     return 'none'
   } catch (e) {
     return 'none'
+  }
+}
+
+const getDokodemoTarget = (inb: any) => {
+  try {
+    const s = JSON.parse(inb.settingsJson || '{}')
+    return `${s.address || '127.0.0.1'}:${s.port || 53}`
+  } catch (e) {
+    return '127.0.0.1:53'
+  }
+}
+
+const getSocksAuth = (inb: any) => {
+  try {
+    const s = JSON.parse(inb.settingsJson || '{}')
+    const auth = s.auth || 'noauth'
+    const udp = s.udp !== false ? ' + UDP' : ''
+    return `${auth}${udp}`
+  } catch (e) {
+    return 'noauth'
   }
 }
 
@@ -1171,8 +1381,16 @@ const protocolBadgeColor = (proto: string) => {
       return 'bg-purple-500/15 text-purple-300 border border-purple-500/20'
     case 'trojan':
       return 'bg-cyan-500/15 text-cyan-300 border border-cyan-500/20'
+    case 'shadowsocks':
+      return 'bg-amber-500/15 text-amber-300 border border-amber-500/20'
+    case 'socks':
+      return 'bg-emerald-500/15 text-emerald-300 border border-emerald-500/20'
+    case 'http':
+      return 'bg-blue-500/15 text-blue-300 border border-blue-500/20'
+    case 'dokodemo-door':
+      return 'bg-rose-500/15 text-rose-300 border border-rose-500/20'
     default:
-      return 'bg-gray-700 text-gray-300'
+      return 'bg-gray-700 text-gray-300 border border-gray-600'
   }
 }
 

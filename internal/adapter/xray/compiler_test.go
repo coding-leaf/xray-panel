@@ -530,4 +530,67 @@ func TestCompiler_ShadowsocksMethodBuild(t *testing.T) {
 			t.Fatalf("coreConfig.Build() failed for Shadowsocks placeholder: %v", err)
 		}
 	})
+
+	t.Run("VLESS TCP Reality allows flow none without forcing vision", func(t *testing.T) {
+		inbounds := []domain.Inbound{
+			{
+				Tag:            "vless-no-flow",
+				Listen:         "0.0.0.0",
+				Port:           4435,
+				Protocol:       "vless",
+				SettingsJSON:   `{"flow":"none"}`,
+				StreamSettings: `{"network":"tcp","security":"reality","realitySettings":{"dest":"www.example.com:443","serverNames":["www.example.com"],"privateKey":"OCiaG7JluOeRDE9IIuqPleHWArqqmnKJ_rKTxtjo7mc","shortIds":["0123456789abcdef"]}}`,
+				Enabled:        true,
+			},
+		}
+		users := []domain.User{
+			{
+				Email:       "noflow@test.com",
+				UUID:        "12345678-1234-1234-1234-123456789012",
+				InboundTags: "vless-no-flow",
+				Enabled:     true,
+			},
+		}
+		outbounds := []domain.Outbound{{Tag: "direct", Protocol: "freedom"}}
+
+		cfg, err := c.Compile(inbounds, outbounds, nil, nil, users)
+		if err != nil {
+			t.Fatalf("Compile failed: %v", err)
+		}
+		var sm map[string]interface{}
+		_ = json.Unmarshal(cfg.Inbounds[0].Settings, &sm)
+		clients := sm["clients"].([]interface{})
+		c0 := clients[0].(map[string]interface{})
+		if c0["flow"] != nil && c0["flow"] != "" {
+			t.Errorf("expected empty flow when flow is set to none, got %v", c0["flow"])
+		}
+	})
+
+	t.Run("Socks inbound compiles and does not inject clients placeholder", func(t *testing.T) {
+		inbounds := []domain.Inbound{
+			{
+				Tag:          "socks-in",
+				Listen:       "127.0.0.1",
+				Port:         10808,
+				Protocol:     "socks",
+				SettingsJSON: `{"auth":"noauth","udp":true}`,
+				Enabled:      true,
+			},
+		}
+		outbounds := []domain.Outbound{{Tag: "direct", Protocol: "freedom"}}
+
+		jsonBytes, err := c.CompileToJSON(inbounds, outbounds, nil, nil, nil)
+		if err != nil {
+			t.Fatalf("CompileToJSON failed: %v", err)
+		}
+
+		coreConfig, err := serial.DecodeJSONConfig(bytes.NewReader(jsonBytes))
+		if err != nil {
+			t.Fatalf("DecodeJSONConfig failed: %v", err)
+		}
+		_, err = coreConfig.Build()
+		if err != nil {
+			t.Fatalf("coreConfig.Build() failed for Socks inbound: %v", err)
+		}
+	})
 }

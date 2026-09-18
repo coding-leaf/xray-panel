@@ -46,6 +46,7 @@ func (m *mockXrayManager) GetVersion(ctx context.Context) (string, error) {
 
 type mockUserRepo struct {
 	domain.UserRepository
+	addTrafficCalls   int
 	addedTrafficEmail string
 	addedUp           int64
 	addedDown         int64
@@ -53,6 +54,7 @@ type mockUserRepo struct {
 }
 
 func (r *mockUserRepo) AddTraffic(ctx context.Context, email string, upBytes, downBytes int64) error {
+	r.addTrafficCalls++
 	r.addedTrafficEmail = email
 	r.addedUp = upBytes
 	r.addedDown = downBytes
@@ -117,5 +119,45 @@ func TestTrafficSyncJob_Lifecycle(t *testing.T) {
 	// Crucial: verify that the write context was protected from parent cancellation
 	if mockUser.ctxHadError {
 		t.Errorf("expected write context to be protected from parent context cancellation, but ctx.Err() was set!")
+	}
+}
+
+func TestTrafficSyncJob_Aggregation(t *testing.T) {
+	mockXray := &mockXrayManager{
+		statsToReturn: []domain.TrafficStat{
+			{
+				Tag:      "alice@example.com",
+				Value:    1024,
+				IsUplink: true,
+				Type:     domain.TrafficStatTypeUser,
+			},
+			{
+				Tag:      "alice@example.com",
+				Value:    2048,
+				IsUplink: false,
+				Type:     domain.TrafficStatTypeUser,
+			},
+		},
+	}
+	mockUser := &mockUserRepo{}
+	job := deliveryCron.NewTrafficSyncJob(mockXray, mockUser, nil, nil, nil, nil, nil, 3*time.Second)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel() // cancel immediately so Start performs only final flush
+
+	err := job.Start(ctx)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Verify that 2 stats (up + down) for the same user resulted in exactly 1 AddTraffic call
+	if mockUser.addTrafficCalls != 1 {
+		t.Errorf("expected exactly 1 AddTraffic call due to aggregation, got %d", mockUser.addTrafficCalls)
+	}
+	if mockUser.addedTrafficEmail != "alice@example.com" {
+		t.Errorf("expected email alice@example.com, got %s", mockUser.addedTrafficEmail)
+	}
+	if mockUser.addedUp != 1024 || mockUser.addedDown != 2048 {
+		t.Errorf("expected up=1024 down=2048, got up=%d down=%d", mockUser.addedUp, mockUser.addedDown)
 	}
 }

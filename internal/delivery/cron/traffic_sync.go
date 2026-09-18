@@ -131,16 +131,16 @@ func (j *TrafficSyncJob) syncOnce(ctx context.Context) {
 	writeCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
 	defer cancel()
 
+	type trafficDelta struct {
+		up   int64
+		down int64
+	}
+	userDeltas := make(map[string]*trafficDelta)
+	inboundDeltas := make(map[string]*trafficDelta)
+
 	for _, s := range stats {
 		if s.Value <= 0 {
 			continue
-		}
-
-		var up, down int64
-		if s.IsUplink {
-			up = s.Value
-		} else {
-			down = s.Value
 		}
 
 		if s.Type == domain.TrafficStatTypeUser {
@@ -149,36 +149,63 @@ func (j *TrafficSyncJob) syncOnce(ctx context.Context) {
 				continue
 			}
 
-			if j.userRepo != nil {
-				_ = j.userRepo.AddTraffic(writeCtx, s.Tag, up, down)
+			d, ok := userDeltas[s.Tag]
+			if !ok {
+				d = &trafficDelta{}
+				userDeltas[s.Tag] = d
 			}
-			if up > 0 {
-				userDeltaUp[s.Tag] += up
+			if s.IsUplink {
+				d.up += s.Value
+				userDeltaUp[s.Tag] += s.Value
+			} else {
+				d.down += s.Value
+				userDeltaDown[s.Tag] += s.Value
 			}
-			if down > 0 {
-				userDeltaDown[s.Tag] += down
+		} else if s.Type == domain.TrafficStatTypeInbound {
+			d, ok := inboundDeltas[s.Tag]
+			if !ok {
+				d = &trafficDelta{}
+				inboundDeltas[s.Tag] = d
 			}
+			if s.IsUplink {
+				d.up += s.Value
+			} else {
+				d.down += s.Value
+			}
+		}
+	}
 
-			// 异步/同步写入每日历史记录
-			if j.userRepo != nil {
-				user, err := j.userRepo.GetByEmail(writeCtx, s.Tag)
-				if err == nil && user != nil {
-					if j.trafficLogRepo != nil {
-						_ = j.trafficLogRepo.RecordTraffic(writeCtx, user.ID, s.Tag, up, down, today)
-					}
+	// 1. 统一持久化用户流量增量与历史日志（合并同一用户的上下行，每个用户每轮仅触发 1 次 DB 写入）
+	for email, d := range userDeltas {
+		if d.up <= 0 && d.down <= 0 {
+			continue
+		}
 
-					// 检查用户是否处于非活跃状态（禁用、过期或超额），非活跃则立即从 Xray 所有节点剔除
-					if !user.IsActive() {
-						for _, t := range user.GetInboundTagList() {
-							_ = j.xrayManager.RemoveUser(writeCtx, t, user.Email)
-						}
+		if j.userRepo != nil {
+			_ = j.userRepo.AddTraffic(writeCtx, email, d.up, d.down)
+			user, err := j.userRepo.GetByEmail(writeCtx, email)
+			if err == nil && user != nil {
+				if j.trafficLogRepo != nil {
+					_ = j.trafficLogRepo.RecordTraffic(writeCtx, user.ID, email, d.up, d.down, today)
+				}
+
+				// 检查用户是否处于非活跃状态（禁用、过期或超额），非活跃则立即从 Xray 所有节点剔除
+				if !user.IsActive() {
+					for _, t := range user.GetInboundTagList() {
+						_ = j.xrayManager.RemoveUser(writeCtx, t, user.Email)
 					}
 				}
 			}
-		} else if s.Type == domain.TrafficStatTypeInbound {
-			if j.inboundRepo != nil {
-				_ = j.inboundRepo.AddTraffic(writeCtx, s.Tag, up, down)
-			}
+		}
+	}
+
+	// 2. 统一持久化入站流量增量
+	for tag, d := range inboundDeltas {
+		if d.up <= 0 && d.down <= 0 {
+			continue
+		}
+		if j.inboundRepo != nil {
+			_ = j.inboundRepo.AddTraffic(writeCtx, tag, d.up, d.down)
 		}
 	}
 

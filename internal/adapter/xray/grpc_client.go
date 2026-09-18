@@ -8,16 +8,9 @@ import (
 	"sync"
 	"time"
 
+	"panel/internal/adapter/xray/proto"
 	"panel/internal/domain"
 
-	proxymanCommand "github.com/xtls/xray-core/app/proxyman/command"
-	statsCommand "github.com/xtls/xray-core/app/stats/command"
-	"github.com/xtls/xray-core/common/protocol"
-	"github.com/xtls/xray-core/common/serial"
-	"github.com/xtls/xray-core/proxy/shadowsocks"
-	"github.com/xtls/xray-core/proxy/trojan"
-	"github.com/xtls/xray-core/proxy/vless"
-	"github.com/xtls/xray-core/proxy/vmess"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 )
@@ -26,8 +19,8 @@ type GRPCClient struct {
 	addr       string
 	mu         sync.RWMutex
 	conn       *grpc.ClientConn
-	handlerCli proxymanCommand.HandlerServiceClient
-	statsCli   statsCommand.StatsServiceClient
+	handlerCli proto.HandlerServiceClient
+	statsCli   proto.StatsServiceClient
 }
 
 func NewGRPCClient(addr string) *GRPCClient {
@@ -68,8 +61,8 @@ func (c *GRPCClient) getConn(ctx context.Context) (*grpc.ClientConn, error) {
 	}
 
 	c.conn = conn
-	c.handlerCli = proxymanCommand.NewHandlerServiceClient(conn)
-	c.statsCli = statsCommand.NewStatsServiceClient(conn)
+	c.handlerCli = proto.NewHandlerServiceClient(conn)
+	c.statsCli = proto.NewStatsServiceClient(conn)
 	return c.conn, nil
 }
 
@@ -98,17 +91,22 @@ func (c *GRPCClient) AddUser(ctx context.Context, inbound *domain.Inbound, user 
 		return err
 	}
 
-	protoUser := &protocol.User{
+	protoUser := &proto.User{
 		Level:   0,
 		Email:   user.Email,
 		Account: accountMsg,
 	}
 
-	req := &proxymanCommand.AlterInboundRequest{
-		Tag: inbound.Tag,
-		Operation: serial.ToTypedMessage(&proxymanCommand.AddUserOperation{
-			User: protoUser,
-		}),
+	opMsg, err := proto.ToTypedMessage(&proto.AddUserOperation{
+		User: protoUser,
+	})
+	if err != nil {
+		return err
+	}
+
+	req := &proto.AlterInboundRequest{
+		Tag:       inbound.Tag,
+		Operation: opMsg,
 	}
 
 	_, err = c.handlerCli.AlterInbound(ctx, req)
@@ -125,11 +123,16 @@ func (c *GRPCClient) RemoveUser(ctx context.Context, inboundTag string, email st
 		return err
 	}
 
-	req := &proxymanCommand.AlterInboundRequest{
-		Tag: inboundTag,
-		Operation: serial.ToTypedMessage(&proxymanCommand.RemoveUserOperation{
-			Email: email,
-		}),
+	opMsg, err := proto.ToTypedMessage(&proto.RemoveUserOperation{
+		Email: email,
+	})
+	if err != nil {
+		return err
+	}
+
+	req := &proto.AlterInboundRequest{
+		Tag:       inboundTag,
+		Operation: opMsg,
 	}
 
 	_, err = c.handlerCli.AlterInbound(ctx, req)
@@ -146,7 +149,7 @@ func (c *GRPCClient) QueryTrafficStats(ctx context.Context, reset bool) ([]domai
 		return nil, err
 	}
 
-	req := &statsCommand.QueryStatsRequest{
+	req := &proto.QueryStatsRequest{
 		Reset_: reset,
 	}
 
@@ -195,11 +198,11 @@ func (c *GRPCClient) QueryTrafficStats(ctx context.Context, reset bool) ([]domai
 	return results, nil
 }
 
-func buildAccountMessage(inbound *domain.Inbound, u *domain.User) (*serial.TypedMessage, error) {
+func buildAccountMessage(inbound *domain.Inbound, u *domain.User) (*proto.TypedMessage, error) {
 	return BuildAccountMessage(inbound, u)
 }
 
-func BuildAccountMessage(inbound *domain.Inbound, u *domain.User) (*serial.TypedMessage, error) {
+func BuildAccountMessage(inbound *domain.Inbound, u *domain.User) (*proto.TypedMessage, error) {
 	protocolName := inbound.Protocol
 	switch strings.ToLower(protocolName) {
 	case "vless":
@@ -227,23 +230,23 @@ func BuildAccountMessage(inbound *domain.Inbound, u *domain.User) (*serial.Typed
 			}
 		}
 
-		return serial.ToTypedMessage(&vless.Account{
+		return proto.ToTypedMessage(&proto.VLESSAccount{
 			Id:   u.UUID,
 			Flow: flow,
-		}), nil
+		})
 	case "vmess":
-		return serial.ToTypedMessage(&vmess.Account{
+		return proto.ToTypedMessage(&proto.VMessAccount{
 			Id: u.UUID,
-			SecuritySettings: &protocol.SecurityConfig{
-				Type: protocol.SecurityType_AUTO,
+			SecuritySettings: &proto.SecurityConfig{
+				Type: proto.SecurityType_AUTO,
 			},
-		}), nil
+		})
 	case "trojan":
-		return serial.ToTypedMessage(&trojan.Account{
+		return proto.ToTypedMessage(&proto.TrojanAccount{
 			Password: u.UUID,
-		}), nil
+		})
 	case "shadowsocks":
-		cipherType := shadowsocks.CipherType_AES_128_GCM
+		cipherType := proto.CipherType_AES_128_GCM
 		if inbound.SettingsJSON != "" {
 			var settings map[string]interface{}
 			if err := json.Unmarshal([]byte(inbound.SettingsJSON), &settings); err == nil {
@@ -255,24 +258,24 @@ func BuildAccountMessage(inbound *domain.Inbound, u *domain.User) (*serial.Typed
 				}
 				switch strings.ToLower(strings.TrimSpace(method)) {
 				case "aes-256-gcm":
-					cipherType = shadowsocks.CipherType_AES_256_GCM
+					cipherType = proto.CipherType_AES_256_GCM
 				case "chacha20-poly1305", "chacha20-ietf-poly1305":
-					cipherType = shadowsocks.CipherType_CHACHA20_POLY1305
+					cipherType = proto.CipherType_CHACHA20_POLY1305
 				case "xchacha20-poly1305", "xchacha20-ietf-poly1305":
-					cipherType = shadowsocks.CipherType_XCHACHA20_POLY1305
+					cipherType = proto.CipherType_XCHACHA20_POLY1305
 				case "none":
-					cipherType = shadowsocks.CipherType_NONE
+					cipherType = proto.CipherType_NONE
 				case "aes-128-gcm":
-					cipherType = shadowsocks.CipherType_AES_128_GCM
+					cipherType = proto.CipherType_AES_128_GCM
 				default:
-					cipherType = shadowsocks.CipherType_AES_128_GCM
+					cipherType = proto.CipherType_AES_128_GCM
 				}
 			}
 		}
-		return serial.ToTypedMessage(&shadowsocks.Account{
+		return proto.ToTypedMessage(&proto.ShadowsocksAccount{
 			Password:   u.UUID,
 			CipherType: cipherType,
-		}), nil
+		})
 	default:
 		return nil, fmt.Errorf("%w: unsupported protocol %s", domain.ErrInvalidInput, protocolName)
 	}

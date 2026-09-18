@@ -181,37 +181,79 @@ func (j *TrafficSyncJob) syncOnce(ctx context.Context) {
 		}
 	}
 
-	// 1. 统一持久化用户流量增量与历史日志（合并同一用户的上下行，每个用户每轮仅触发 1 次 DB 写入）
-	for email, d := range userDeltas {
-		if d.up <= 0 && d.down <= 0 {
-			continue
+	// 1. 持久化流量增量：优先使用单一原子事务批量落盘，消除多句独立写入的 fsync 延迟与锁竞争
+	batchRepo, hasBatch := j.userRepo.(domain.TrafficBatchRepository)
+	if hasBatch {
+		uDeltas := make([]domain.UserTrafficDelta, 0, len(userDeltas))
+		for email, d := range userDeltas {
+			if d.up > 0 || d.down > 0 {
+				uDeltas = append(uDeltas, domain.UserTrafficDelta{
+					Email: email,
+					Up:    d.up,
+					Down:  d.down,
+				})
+			}
 		}
 
-		if j.userRepo != nil {
-			_ = j.userRepo.AddTraffic(writeCtx, email, d.up, d.down)
-			user, err := j.userRepo.GetByEmail(writeCtx, email)
-			if err == nil && user != nil {
-				if j.trafficLogRepo != nil {
-					_ = j.trafficLogRepo.RecordTraffic(writeCtx, user.ID, email, d.up, d.down, today)
-				}
+		inDeltas := make([]domain.InboundTrafficDelta, 0, len(inboundDeltas))
+		for tag, d := range inboundDeltas {
+			if d.up > 0 || d.down > 0 {
+				inDeltas = append(inDeltas, domain.InboundTrafficDelta{
+					Tag:  tag,
+					Up:   d.up,
+					Down: d.down,
+				})
+			}
+		}
 
+		if len(uDeltas) > 0 || len(inDeltas) > 0 {
+			updatedUsers, err := batchRepo.BatchSyncTraffic(writeCtx, uDeltas, inDeltas, today)
+			if err != nil {
+				slog.Error("Failed to batch sync traffic in single transaction", slog.String("error", err.Error()))
+			} else {
 				// 检查用户是否处于非活跃状态（禁用、过期或超额），非活跃则立即从 Xray 所有节点剔除
-				if !user.IsActive() {
-					for _, t := range user.GetInboundTagList() {
-						_ = j.xrayManager.RemoveUser(writeCtx, t, user.Email)
+				for _, user := range updatedUsers {
+					if !user.IsActive() {
+						for _, t := range user.GetInboundTagList() {
+							_ = j.xrayManager.RemoveUser(writeCtx, t, user.Email)
+						}
 					}
 				}
 			}
 		}
-	}
+	} else {
+		// 回退兼容：逐条单句更新 (保证 mock 仓储测试与非批量实现的兼容)
+		for email, d := range userDeltas {
+			if d.up <= 0 && d.down <= 0 {
+				continue
+			}
 
-	// 2. 统一持久化入站流量增量
-	for tag, d := range inboundDeltas {
-		if d.up <= 0 && d.down <= 0 {
-			continue
+			if j.userRepo != nil {
+				_ = j.userRepo.AddTraffic(writeCtx, email, d.up, d.down)
+				user, err := j.userRepo.GetByEmail(writeCtx, email)
+				if err == nil && user != nil {
+					if j.trafficLogRepo != nil {
+						_ = j.trafficLogRepo.RecordTraffic(writeCtx, user.ID, email, d.up, d.down, today)
+					}
+
+					// 检查用户是否处于非活跃状态（禁用、过期或超额），非活跃则立即从 Xray 所有节点剔除
+					if !user.IsActive() {
+						for _, t := range user.GetInboundTagList() {
+							_ = j.xrayManager.RemoveUser(writeCtx, t, user.Email)
+						}
+					}
+				}
+			}
 		}
-		if j.inboundRepo != nil {
-			_ = j.inboundRepo.AddTraffic(writeCtx, tag, d.up, d.down)
+
+		// 统一持久化入站流量增量
+		for tag, d := range inboundDeltas {
+			if d.up <= 0 && d.down <= 0 {
+				continue
+			}
+			if j.inboundRepo != nil {
+				_ = j.inboundRepo.AddTraffic(writeCtx, tag, d.up, d.down)
+			}
 		}
 	}
 

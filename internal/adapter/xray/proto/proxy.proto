@@ -1,0 +1,38 @@
+syntax = "proto3";
+
+package xray.panel.proxy;
+option go_package = "panel/internal/adapter/xray/proto;proto";
+
+import "protocol.proto";
+
+message VLESSAccount {
+  string id = 1;
+  string flow = 2;
+  string encryption = 3;
+}
+
+message VMessAccount {
+  string id = 1;
+  uint32 alter_id = 2;
+  xray.panel.protocol.SecurityConfig security_settings = 3;
+  string tests_enabled = 4;
+}
+
+message TrojanAccount {
+  string password = 1;
+}
+
+enum CipherType {
+  UNKNOWN = 0;
+  AES_128_GCM = 5;
+  AES_256_GCM = 6;
+  CHACHA20_POLY1305 = 7;
+  XCHACHA20_POLY1305 = 8;
+  NONE = 9;
+}
+
+message ShadowsocksAccount {
+  string password = 1;
+  CipherType cipher_type = 2;
+  bool iv_check = 3;
+}

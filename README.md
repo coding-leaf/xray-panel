@@ -1,7 +1,7 @@
 # 🚀 Xray Decoupled Panel (解耦运维监控与分流管理面板)
 
 <p align="center">
-  <img src="https://img.shields.io/badge/Version-v2.2.0-indigo?style=flat-square" alt="Version">
+  <img src="https://img.shields.io/badge/Version-v2.3.0-indigo?style=flat-square" alt="Version">
   <img src="https://img.shields.io/badge/Go-1.22+-00ADD8?style=flat-square&logo=go" alt="Go Version">
   <img src="https://img.shields.io/badge/Vue-3.4+-4FC08D?style=flat-square&logo=vue.js" alt="Vue Version">
   <img src="https://img.shields.io/badge/Architecture-Clean%20Architecture-blue?style=flat-square" alt="Clean Architecture">
@@ -34,13 +34,14 @@
 
 ## ⚡ 核心功能与特性 (Features)
 
-- 🚀 **Xray 原生 gRPC 运行时热重载与状态解耦**：
-  - 深度接入 Xray 官方 gRPC API（`HandlerService` 与 `StatsService`），用户增删与状态变更通过 gRPC 协议毫秒级下发至运行中内核；
+- 🚀 **Xray 原生 gRPC 纯契约解耦与状态热重载**：
+  - 自研轻量级 Protobuf/gRPC 协议契约（`HandlerService` 与 `StatsService`），彻底剥离 `xray-core` 运行时巨石及 400+ 级联依赖，依赖树精简 75%；
+  - 深度接入 Xray 官方 gRPC API，用户增删与状态变更通过 gRPC 协议毫秒级下发至运行中内核；
   - 运行中长连接（WebSocket、gRPC、VLESS REALITY）零中断、不掉线，彻底告别传统面板修改 `config.json` 并强制重启 Xray 进程引发的连接中断问题；
   - 仅在入站、出站、全局路由分流规则或 DNS 发生结构性变更时才执行平滑内核重载。
-- 💾 **纯 Go SQLite ACID 事务持久化与 WAL 并发排队**：
+- 💾 **纯 Go SQLite ACID 事务持久化与批量单事务落盘**：
   - 采用纯 Go 嵌入式存储引擎（`glebarez/sqlite`），彻底告别 CGO 跨平台编译依赖与环境地狱；
-  - 启用 WAL（Write-Ahead Logging）模式与并发排队，确保高频流量采集写入与复杂业务查询互不阻塞，根治数据库死锁；
+  - 启用 WAL（Write-Ahead Logging）模式并优化 `synchronous=NORMAL`，单轮流量采集聚合为单原子事务落盘，消灭写放大与磁盘锁等待；
   - 具备状态协调与逆向补偿机制：gRPC 下发与本地事务强一致绑定，杜绝脏状态与幽灵用户。
 - ❄️ **冷启动双轨落盘容灾与自动配置编译**：
   - 系统关机、守护退出或配置变更时，自动将 SQLite 动态用户集合与路由拓扑安全编译合并落盘至 `config.json`，确保宿主机断电或冷启动时 Xray 核心能够零延迟恢复全量用户独立运行。
@@ -86,6 +87,20 @@
 ---
 
 ## 📝 最近更新日志
+
+### 🚀 v2.3.0 (2026-09) - 纯契约协议解耦、核心依赖精简与 SQLite 存储性能飞跃
+- **⚡ Xray gRPC 纯契约化解耦**：
+  - 自研轻量级 Protobuf/gRPC 协议契约包（`internal/adapter/xray/proto`），100% 字节级兼容 Xray 原生 Wire 格式；
+  - 彻底拔除 `xray-core` 运行时及其捆绑的 400+ 级联依赖（包括 gVisor 网络内核、WireGuard、uTLS 等），依赖树削减 75%，大幅收敛攻击面与二进制体积；
+- **🛡️ 核心组件去冗余与现代化**：
+  - 纯 Go 标准库实现 RFC 6238 TOTP 认证器，拔除第三方库与冗余图片生成依赖；
+  - 纯 Go 泛型并发安全 TTL 缓存（`internal/pkg/cache`），零反射开销替代旧版缓存；
+  - 升级 `yaml.v3` 并收敛限流器为 Go 官方 `golang.org/x/time/rate` 令牌桶算法；
+- **💾 SQLite 存储性能与批量事务落盘**：
+  - 连接配置启用 `synchronous=NORMAL`，消除单连接 WAL 模式下每次提交的高延迟强制落盘；
+  - 流量同步支持单事务批量落盘（`BatchSyncTraffic`），将单轮周期的 $3N$ 次单句数据库操作收敛为单一原子事务，彻底根治磁盘写放大与 SQLite 锁竞争；
+- **🧩 KISS 规范架构治理**：
+  - 清除 `internal/sub/exporter.go` 中空转的类型别名与代理函数，外部统一面向原生领域模型。
 
 ### 🚀 v2.2.0 (2026-09)
 - **入站协议扩展**：入站支持选择 Socks5 (`socks`)、HTTP 代理及任意门 (`dokodemo-door`)，并支持 Socks 导出为链接、Clash 与 Sing-box 订阅；

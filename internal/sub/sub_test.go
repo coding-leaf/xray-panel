@@ -10,7 +10,7 @@ import (
 	"panel/internal/protocol"
 	"panel/internal/sub"
 
-	"gopkg.in/yaml.v2"
+	"gopkg.in/yaml.v3"
 )
 
 func createSampleNodes() []*protocol.NodeConfig {
@@ -152,11 +152,11 @@ func TestExportSubscription_Clash(t *testing.T) {
 	}
 
 	// 验证第一个节点（VLESS Reality）的 Clash 结构
-	node0 := proxiesRaw[0].(map[interface{}]interface{})
+	node0 := proxiesRaw[0].(map[string]interface{})
 	if node0["type"] != "vless" || node0["server"] != "198.51.100.1" || node0["port"] != 443 {
 		t.Errorf("unexpected node0 config: %+v", node0)
 	}
-	realityOpts, ok := node0["reality-opts"].(map[interface{}]interface{})
+	realityOpts, ok := node0["reality-opts"].(map[string]interface{})
 	if !ok || realityOpts["public-key"] != "FMdWD0uS9lrXUAoMmTP5e2LLD-mk8vO8JTZmAE9vdww" {
 		t.Errorf("unexpected reality-opts: %+v", realityOpts)
 	}

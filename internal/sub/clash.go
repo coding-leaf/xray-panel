@@ -5,7 +5,7 @@ import (
 
 	"panel/internal/protocol"
 
-	"gopkg.in/yaml.v2"
+	"gopkg.in/yaml.v3"
 )
 
 // ClashConfig Clash / Mihomo 标准配置结构

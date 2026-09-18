@@ -1,0 +1,26 @@
+syntax = "proto3";
+
+package xray.panel.proxyman;
+option go_package = "panel/internal/adapter/xray/proto;proto";
+
+import "serial.proto";
+import "protocol.proto";
+
+message AddUserOperation {
+  xray.panel.protocol.User user = 1;
+}
+
+message RemoveUserOperation {
+  string email = 1;
+}
+
+message AlterInboundRequest {
+  string tag = 1;
+  xray.panel.serial.TypedMessage operation = 2;
+}
+
+message AlterInboundResponse {}
+
+service HandlerService {
+  rpc AlterInbound(AlterInboundRequest) returns (AlterInboundResponse);
+}

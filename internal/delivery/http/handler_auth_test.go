@@ -12,7 +12,7 @@ import (
 	"panel/internal/domain"
 
 	"github.com/gin-gonic/gin"
-	"github.com/pquerna/otp/totp"
+	"panel/internal/pkg/totp"
 	"golang.org/x/crypto/bcrypt"
 )
 

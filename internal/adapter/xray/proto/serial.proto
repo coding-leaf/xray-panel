@@ -1,0 +1,9 @@
+syntax = "proto3";
+
+package xray.panel.serial;
+option go_package = "panel/internal/adapter/xray/proto;proto";
+
+message TypedMessage {
+  string type = 1;
+  bytes value = 2;
+}

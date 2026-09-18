@@ -12,12 +12,14 @@ import (
 type mockXrayManager struct {
 	queryCount    int
 	statsToReturn []domain.TrafficStat
+	removedCalls  []struct{ Tag, Email string }
 }
 
 func (m *mockXrayManager) AddUser(ctx context.Context, inboundTag string, user *domain.User) error {
 	return nil
 }
 func (m *mockXrayManager) RemoveUser(ctx context.Context, inboundTag string, email string) error {
+	m.removedCalls = append(m.removedCalls, struct{ Tag, Email string }{Tag: inboundTag, Email: email})
 	return nil
 }
 func (m *mockXrayManager) QueryTrafficStats(ctx context.Context, reset bool) ([]domain.TrafficStat, error) {
@@ -159,5 +161,107 @@ func TestTrafficSyncJob_Aggregation(t *testing.T) {
 	}
 	if mockUser.addedUp != 1024 || mockUser.addedDown != 2048 {
 		t.Errorf("expected up=1024 down=2048, got up=%d down=%d", mockUser.addedUp, mockUser.addedDown)
+	}
+}
+
+type mockBatchUserRepo struct {
+	domain.UserRepository
+	batchCalls     int
+	lastUserDeltas []domain.UserTrafficDelta
+	lastInDeltas   []domain.InboundTrafficDelta
+	usersToReturn  []domain.User
+	ctxHadError    bool
+}
+
+func (m *mockBatchUserRepo) BatchSyncTraffic(ctx context.Context, userDeltas []domain.UserTrafficDelta, inboundDeltas []domain.InboundTrafficDelta, date string) ([]domain.User, error) {
+	m.batchCalls++
+	m.lastUserDeltas = userDeltas
+	m.lastInDeltas = inboundDeltas
+	if ctx.Err() != nil {
+		m.ctxHadError = true
+	}
+	return m.usersToReturn, nil
+}
+
+func TestTrafficSyncJob_BatchSync(t *testing.T) {
+	mockXray := &mockXrayManager{
+		statsToReturn: []domain.TrafficStat{
+			{
+				Tag:      "user1@example.com",
+				Value:    1000,
+				IsUplink: true,
+				Type:     domain.TrafficStatTypeUser,
+			},
+			{
+				Tag:      "user1@example.com",
+				Value:    2000,
+				IsUplink: false,
+				Type:     domain.TrafficStatTypeUser,
+			},
+			{
+				Tag:      "user2@example.com",
+				Value:    3000,
+				IsUplink: true,
+				Type:     domain.TrafficStatTypeUser,
+			},
+			{
+				Tag:      "inbound-tag-1",
+				Value:    5000,
+				IsUplink: true,
+				Type:     domain.TrafficStatTypeInbound,
+			},
+		},
+	}
+
+	inactiveUser := domain.User{
+		Email:       "user2@example.com",
+		Enabled:     false,
+		InboundTags: "tag-a,tag-b",
+	}
+
+	mockBatchRepo := &mockBatchUserRepo{
+		usersToReturn: []domain.User{
+			{Email: "user1@example.com", Enabled: true},
+			inactiveUser,
+		},
+	}
+
+	job := deliveryCron.NewTrafficSyncJob(mockXray, mockBatchRepo, nil, nil, nil, nil, nil, 3*time.Second)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel() // trigger immediate final flush
+
+	err := job.Start(ctx)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if mockBatchRepo.batchCalls != 1 {
+		t.Fatalf("expected 1 BatchSyncTraffic call, got %d", mockBatchRepo.batchCalls)
+	}
+	if mockBatchRepo.ctxHadError {
+		t.Errorf("writeCtx should not have error despite parent context cancellation")
+	}
+
+	// Verify aggregated deltas
+	if len(mockBatchRepo.lastUserDeltas) != 2 {
+		t.Fatalf("expected 2 user deltas, got %d", len(mockBatchRepo.lastUserDeltas))
+	}
+	if len(mockBatchRepo.lastInDeltas) != 1 {
+		t.Fatalf("expected 1 inbound delta, got %d", len(mockBatchRepo.lastInDeltas))
+	}
+
+	// Check inactive user was removed from all inbound tags
+	if len(mockXray.removedCalls) != 2 {
+		t.Fatalf("expected 2 RemoveUser calls for inactive user, got %d", len(mockXray.removedCalls))
+	}
+	expectedTags := map[string]bool{"tag-a": true, "tag-b": true}
+	for _, call := range mockXray.removedCalls {
+		if call.Email != "user2@example.com" {
+			t.Errorf("expected removed email user2@example.com, got %s", call.Email)
+		}
+		if !expectedTags[call.Tag] {
+			t.Errorf("unexpected removed tag %s", call.Tag)
+		}
 	}
 }

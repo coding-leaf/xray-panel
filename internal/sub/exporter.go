@@ -9,21 +9,6 @@ import (
 	"panel/internal/protocol"
 )
 
-// 类型别名与常用函数透出，保证调用方友好
-type NodeConfig = protocol.NodeConfig
-type SubFormatter = protocol.SubFormatter
-type ClashConverter = protocol.ClashConverter
-type SingBoxConverter = protocol.SingBoxConverter
-
-var (
-	Register        = protocol.Register
-	Get             = protocol.Get
-	FormatLink      = protocol.FormatLink
-	ToClash         = protocol.ToClash
-	ToSingBox       = protocol.ToSingBox
-	DefaultRegistry = protocol.DefaultRegistry
-)
-
 // 订阅导出格式常量
 const (
 	FormatBase64  = "base64"

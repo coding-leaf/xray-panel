@@ -10,8 +10,7 @@ import (
 	"unicode"
 
 	"panel/internal/domain"
-
-	"github.com/patrickmn/go-cache"
+	"panel/internal/pkg/cache"
 )
 
 const crockfordCharset = "0123456789ABCDEFGHJKMNPQRSTVWXYZ" // len = 32
@@ -28,7 +27,7 @@ type TicketService struct {
 	userRepo      domain.UserRepository
 	subSvc        *SubService
 	settingRepo   domain.SettingRepository
-	failedIPCache *cache.Cache
+	failedIPCache *cache.Cache[ipFailureRecord]
 	ipMutex       sync.Mutex
 }
 
@@ -43,7 +42,7 @@ func NewTicketService(
 		userRepo:      userRepo,
 		subSvc:        subSvc,
 		settingRepo:   settingRepo,
-		failedIPCache: cache.New(1*time.Hour, 10*time.Minute),
+		failedIPCache: cache.New[ipFailureRecord](1*time.Hour, 10*time.Minute),
 	}
 }
 
@@ -103,11 +102,10 @@ func (s *TicketService) checkIPStatus(clientIP string) error {
 	defer s.ipMutex.Unlock()
 
 	now := time.Now()
-	val, found := s.failedIPCache.Get(clientIP)
+	rec, found := s.failedIPCache.Get(clientIP)
 	if !found {
 		return nil
 	}
-	rec := val.(ipFailureRecord)
 	if now.Before(rec.BannedUntil) {
 		return domain.ErrIPRateLimited
 	}
@@ -122,15 +120,13 @@ func (s *TicketService) recordIPFailure(clientIP string) {
 	defer s.ipMutex.Unlock()
 
 	now := time.Now()
-	val, found := s.failedIPCache.Get(clientIP)
-	var rec ipFailureRecord
+	rec, found := s.failedIPCache.Get(clientIP)
 	if !found {
 		rec = ipFailureRecord{
 			FailCount:   1,
 			WindowStart: now,
 		}
 	} else {
-		rec = val.(ipFailureRecord)
 		if now.Sub(rec.WindowStart) > 10*time.Minute {
 			rec.FailCount = 1
 			rec.WindowStart = now

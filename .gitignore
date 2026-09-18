@@ -48,6 +48,10 @@ temp/
 tmp/
 *.tmp
 *.bak
+.pytest_cache/
+__pycache__/
+*.pyc
+*.pyo
 
 # Real Server Configs & Private Scripts
 config.json
@@ -59,9 +63,18 @@ deploy.sh
 deploy-*.sh
 deploy_*.sh
 
-# Agent Context & Private Documentation
+# Agent Context & Private Documentation / AI-Native SDLC Scaffolding (Local Experiment)
 AGENTS.md
 AGENT.md
+.agents/
+.serena/
+tooling/
+opencode.json
+opencode.jsonc
+.opencode/
+docs/ACTIVE_TASKS.md
+docs/process/
+docs/sdlc/
 *.local
 docs/REALITY_DOMAIN_GUIDE.md
 docs/*_GUIDE.md

@@ -36,6 +36,25 @@ type TrafficLogRepository interface {
 	GetHistoryByEmail(ctx context.Context, email string, days int) ([]TrafficLog, error)
 }
 
+// UserTrafficDelta 表示单次统计周期的用户流量增量
+type UserTrafficDelta struct {
+	Email string
+	Up    int64
+	Down  int64
+}
+
+// InboundTrafficDelta 表示单次统计周期的入站流量增量
+type InboundTrafficDelta struct {
+	Tag  string
+	Up   int64
+	Down int64
+}
+
+// TrafficBatchRepository 定义跨实体批量原子同步流量的仓储接口 (单事务批量落盘优化)
+type TrafficBatchRepository interface {
+	BatchSyncTraffic(ctx context.Context, userDeltas []UserTrafficDelta, inboundDeltas []InboundTrafficDelta, date string) ([]User, error)
+}
+
 // SettingRepository 定义系统设置仓储接口
 type SettingRepository interface {
 	Get(ctx context.Context, key string) (string, error)

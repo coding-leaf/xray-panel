@@ -20,8 +20,8 @@ func setupTestDB(t *testing.T) *gorm.DB {
 	if err != nil {
 		t.Fatalf("failed to open sqlite test db: %v", err)
 	}
-	if err := db.AutoMigrate(&domain.User{}); err != nil {
-		t.Fatalf("failed to auto-migrate User table: %v", err)
+	if err := db.AutoMigrate(&domain.User{}, &domain.Inbound{}, &domain.TrafficLog{}); err != nil {
+		t.Fatalf("failed to auto-migrate tables: %v", err)
 	}
 	return db
 }
@@ -167,6 +167,84 @@ func TestUserRepo_Update_OmitsTrafficCounters(t *testing.T) {
 	// Traffic in DB should be 150, 250, NOT overwritten by loaded's 100, 200!
 	if fresh.UpBytes != 150 || fresh.DownBytes != 250 {
 		t.Errorf("traffic was overwritten by Update! UpBytes=%d (want 150), DownBytes=%d (want 250)", fresh.UpBytes, fresh.DownBytes)
+	}
+}
+
+func TestUserRepo_BatchSyncTraffic(t *testing.T) {
+	db := setupTestDB(t)
+	repo := NewUserRepository(db)
+	ctx := context.Background()
+
+	u1 := &domain.User{Email: "batch1@test.com", UUID: "u-batch-1", SubToken: "t-1", UpBytes: 10, DownBytes: 20}
+	u2 := &domain.User{Email: "batch2@test.com", UUID: "u-batch-2", SubToken: "t-2", UpBytes: 30, DownBytes: 40}
+	if err := repo.Create(ctx, u1); err != nil {
+		t.Fatalf("failed to create u1: %v", err)
+	}
+	if err := repo.Create(ctx, u2); err != nil {
+		t.Fatalf("failed to create u2: %v", err)
+	}
+
+	inbound := &domain.Inbound{Tag: "vless-in", UpBytes: 100, DownBytes: 200}
+	if err := db.Create(inbound).Error; err != nil {
+		t.Fatalf("failed to create inbound: %v", err)
+	}
+
+	// 第 1 轮批量累加
+	userDeltas1 := []domain.UserTrafficDelta{
+		{Email: "batch1@test.com", Up: 100, Down: 200},
+		{Email: "batch2@test.com", Up: 300, Down: 400},
+	}
+	inDeltas1 := []domain.InboundTrafficDelta{
+		{Tag: "vless-in", Up: 400, Down: 600},
+	}
+
+	updated, err := repo.BatchSyncTraffic(ctx, userDeltas1, inDeltas1, "2026-09-18")
+	if err != nil {
+		t.Fatalf("BatchSyncTraffic round 1 failed: %v", err)
+	}
+	if len(updated) != 2 {
+		t.Fatalf("expected 2 updated users, got %d", len(updated))
+	}
+
+	// 验证用户在 DB 中的最新值 (10+100=110, 20+200=220)
+	freshU1, err := repo.GetByEmail(ctx, "batch1@test.com")
+	if err != nil || freshU1.UpBytes != 110 || freshU1.DownBytes != 220 {
+		t.Fatalf("unexpected u1 traffic: %+v, err: %v", freshU1, err)
+	}
+
+	// 验证 Inbound 在 DB 中的最新值 (100+400=500, 200+600=800)
+	var freshInbound domain.Inbound
+	if err := db.Where("tag = ?", "vless-in").First(&freshInbound).Error; err != nil || freshInbound.UpBytes != 500 || freshInbound.DownBytes != 800 {
+		t.Fatalf("unexpected inbound traffic: %+v, err: %v", freshInbound, err)
+	}
+
+	// 验证 TrafficLog 记录
+	var log1 domain.TrafficLog
+	if err := db.Where("user_email = ? AND date = ?", "batch1@test.com", "2026-09-18").First(&log1).Error; err != nil {
+		t.Fatalf("failed to query traffic log for u1: %v", err)
+	}
+	if log1.UpBytes != 100 || log1.DownBytes != 200 {
+		t.Fatalf("unexpected log1 traffic: up=%d down=%d", log1.UpBytes, log1.DownBytes)
+	}
+
+	// 第 2 轮批量累加 (同一天累加，测试 TrafficLog upsert)
+	userDeltas2 := []domain.UserTrafficDelta{
+		{Email: "batch1@test.com", Up: 50, Down: 50},
+	}
+	inDeltas2 := []domain.InboundTrafficDelta{
+		{Tag: "vless-in", Up: 50, Down: 50},
+	}
+	_, err = repo.BatchSyncTraffic(ctx, userDeltas2, inDeltas2, "2026-09-18")
+	if err != nil {
+		t.Fatalf("BatchSyncTraffic round 2 failed: %v", err)
+	}
+
+	var log1Round2 domain.TrafficLog
+	if err := db.Where("user_email = ? AND date = ?", "batch1@test.com", "2026-09-18").First(&log1Round2).Error; err != nil {
+		t.Fatalf("failed to query traffic log round 2: %v", err)
+	}
+	if log1Round2.UpBytes != 150 || log1Round2.DownBytes != 250 {
+		t.Fatalf("expected log1 traffic to accumulate to 150/250, got %d/%d", log1Round2.UpBytes, log1Round2.DownBytes)
 	}
 }
 

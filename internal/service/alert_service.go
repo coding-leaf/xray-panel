@@ -8,9 +8,8 @@ import (
 
 	"panel/internal/adapter/xray"
 	"panel/internal/domain"
+	"panel/internal/pkg/cache"
 	"panel/internal/pkg/logger"
-
-	gocache "github.com/patrickmn/go-cache"
 )
 
 type AlertService struct {
@@ -18,7 +17,7 @@ type AlertService struct {
 	userRepo  domain.UserRepository
 	monitor   domain.HostMonitor
 	configMgr *xray.ConfigManager
-	cache     *gocache.Cache
+	cache     *cache.Cache[bool]
 }
 
 func NewAlertService(notifier domain.Notifier, userRepo domain.UserRepository, monitor domain.HostMonitor, configMgr *xray.ConfigManager) *AlertService {
@@ -27,7 +26,7 @@ func NewAlertService(notifier domain.Notifier, userRepo domain.UserRepository, m
 		userRepo:  userRepo,
 		monitor:   monitor,
 		configMgr: configMgr,
-		cache:     gocache.New(24*time.Hour, 1*time.Hour),
+		cache:     cache.New[bool](24*time.Hour, 1*time.Hour),
 	}
 }
 

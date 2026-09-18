@@ -13,9 +13,10 @@ require (
 	github.com/shirou/gopsutil/v3 v3.24.5
 	github.com/ulule/limiter/v3 v3.11.2
 	github.com/xtls/xray-core v1.260327.0
-	go.etcd.io/bbolt v1.5.0
 	golang.org/x/crypto v0.55.0
+	golang.org/x/sync v0.22.0
 	google.golang.org/grpc v1.83.2
+	gopkg.in/yaml.v2 v2.4.0
 	gorm.io/gorm v1.31.2
 )
 
@@ -79,7 +80,6 @@ require (
 	golang.org/x/exp v0.0.0-20240506185415-9bf2ced13842 // indirect
 	golang.org/x/mod v0.38.0 // indirect
 	golang.org/x/net v0.58.0 // indirect
-	golang.org/x/sync v0.22.0 // indirect
 	golang.org/x/sys v0.47.0 // indirect
 	golang.org/x/text v0.41.0 // indirect
 	golang.org/x/time v0.12.0 // indirect
@@ -88,7 +88,6 @@ require (
 	golang.zx2c4.com/wireguard v0.0.0-20250521234502-f333402bd9cb // indirect
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20260526163538-3dc84a4a5aaa // indirect
 	google.golang.org/protobuf v1.36.12 // indirect
-	gopkg.in/yaml.v2 v2.4.0 // indirect
 	gvisor.dev/gvisor v0.0.0-20260122175437-89a5d21be8f0 // indirect
 	lukechampine.com/blake3 v1.4.1 // indirect
 	modernc.org/libc v1.22.5 // indirect

@@ -191,11 +191,9 @@ internal/
 ├── domain/            # 业务领域实体与接口契约 (Inbound, Outbound, User, Route)
 ├── protocol/          # 多协议多态格式化与订阅生成 (VLESS, VMess, Trojan, Shadowsocks)
 ├── service/           # 核心用例与编译管道 (ConfigService, UserService, AlertService, SubService)
-├── storage/           # 嵌入式 ACID 键值存储 (bbolt 持久化与编解码器)
 ├── sub/               # 聚合订阅导出器 (Base64, Clash/Mihomo, Sing-box)
-├── xray/              # Xray 原生 gRPC Client、运行时协调器与冷启动落盘引擎
 ├── adapter/           # 外部系统适配实现
-│   ├── xray/          # 强类型 Compiler、Config Parser 与 Supervisor
+│   ├── xray/          # 强类型 Compiler、Config Parser、gRPC Client 与 Supervisor
 │   ├── repository/    # SQLite & GORM 仓储实现（WAL 模式加固）
 │   ├── telegram/      # Telegram Bot 适配器与告警通知
 │   └── monitor/       # gopsutil 硬件性能指标采集

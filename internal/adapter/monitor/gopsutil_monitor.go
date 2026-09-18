@@ -2,6 +2,7 @@ package monitor
 
 import (
 	"context"
+	"strings"
 	"sync"
 	"time"
 
@@ -30,10 +31,9 @@ func NewGopsutilMonitor() *GopsutilMonitor {
 	m := &GopsutilMonitor{
 		lastNetCheck: time.Now(),
 	}
-	// 预先取一次网卡 baseline
-	if ioCounters, err := net.IOCounters(false); err == nil && len(ioCounters) > 0 {
-		m.lastSent = ioCounters[0].BytesSent
-		m.lastRecv = ioCounters[0].BytesRecv
+	// 预先取一次网卡 baseline (过滤回环与虚拟网卡)
+	if ioCounters, err := net.IOCounters(true); err == nil && len(ioCounters) > 0 {
+		m.lastSent, m.lastRecv = filterAndSumIOCounters(ioCounters)
 	}
 
 	// 立即抓取一次初始基准快照，确保首次读取绝无 nil 或空值
@@ -95,10 +95,10 @@ func (m *GopsutilMonitor) sampleMetrics(ctx context.Context) {
 	metrics.NetUpSpeedBps = upSpeed
 	metrics.NetDownSpeedBps = downSpeed
 
-	if ioCounters, err := net.IOCountersWithContext(ctx, false); err == nil && len(ioCounters) > 0 {
-		metrics.NetTotalSent = ioCounters[0].BytesSent
-		metrics.NetTotalRecv = ioCounters[0].BytesRecv
-	}
+	m.netMu.Lock()
+	metrics.NetTotalSent = m.lastSent
+	metrics.NetTotalRecv = m.lastRecv
+	m.netMu.Unlock()
 
 	// 原子存入读写锁缓存
 	m.metricsMu.Lock()
@@ -125,13 +125,12 @@ func (m *GopsutilMonitor) GetNetworkSpeed(ctx context.Context) (uint64, uint64, 
 		return m.upSpeed, m.downSpeed, nil
 	}
 
-	ioCounters, err := net.IOCountersWithContext(ctx, false)
+	ioCounters, err := net.IOCountersWithContext(ctx, true)
 	if err != nil || len(ioCounters) == 0 {
 		return m.upSpeed, m.downSpeed, err
 	}
 
-	currSent := ioCounters[0].BytesSent
-	currRecv := ioCounters[0].BytesRecv
+	currSent, currRecv := filterAndSumIOCounters(ioCounters)
 
 	if m.lastSent > 0 && currSent >= m.lastSent {
 		m.upSpeed = uint64(float64(currSent-m.lastSent) / elapsed)
@@ -145,4 +144,59 @@ func (m *GopsutilMonitor) GetNetworkSpeed(ctx context.Context) (uint64, uint64, 
 	m.lastNetCheck = now
 
 	return m.upSpeed, m.downSpeed, nil
+}
+
+// isIgnoredInterface 过滤回环网卡与虚拟/容器网卡
+func isIgnoredInterface(name string) bool {
+	clean := strings.ToLower(strings.TrimSpace(name))
+	if clean == "" {
+		return true
+	}
+	if clean == "lo" || clean == "lo0" || strings.HasPrefix(clean, "loopback") {
+		return true
+	}
+	// 以 lo 开头后接数字的网卡名 (如 lo1, lo2)
+	if strings.HasPrefix(clean, "lo") {
+		rest := clean[2:]
+		if len(rest) > 0 {
+			allDigits := true
+			for _, r := range rest {
+				if r < '0' || r > '9' {
+					allDigits = false
+					break
+				}
+			}
+			if allDigits {
+				return true
+			}
+		}
+	}
+	// 虚拟/容器网卡前缀过滤
+	ignoredPrefixes := []string{
+		"docker",
+		"veth",
+		"br-",
+		"cni",
+		"flannel",
+		"virbr",
+	}
+	for _, prefix := range ignoredPrefixes {
+		if strings.HasPrefix(clean, prefix) {
+			return true
+		}
+	}
+	return false
+}
+
+// filterAndSumIOCounters 对非忽略网卡求和 BytesSent 与 BytesRecv
+func filterAndSumIOCounters(counters []net.IOCountersStat) (uint64, uint64) {
+	var totalSent, totalRecv uint64
+	for _, c := range counters {
+		if isIgnoredInterface(c.Name) {
+			continue
+		}
+		totalSent += c.BytesSent
+		totalRecv += c.BytesRecv
+	}
+	return totalSent, totalRecv
 }

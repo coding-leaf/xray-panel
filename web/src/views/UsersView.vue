@@ -192,14 +192,7 @@
               </td>
 
               <td class="py-3.5 px-4 text-right space-x-1.5">
-                <!-- 快捷复制一键全节点订阅链接 -->
-                <button
-                  @click="copyDirectSubLink(user)"
-                  class="p-1 rounded-lg bg-gray-800 hover:bg-brand-600/20 text-brand-300 transition-colors"
-                  title="一键复制专属聚合订阅链接"
-                >
-                  <Zap class="w-3.5 h-3.5 text-amber-400" />
-                </button>
+
 
                 <!-- 流量历史趋势按钮 -->
                 <button
@@ -736,9 +729,10 @@
     </div>
 
     <!-- Traffic History Modal -->
-    <div v-if="showHistoryModal" class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/75 backdrop-blur-sm">
-      <div class="glass-panel w-full max-w-2xl p-6 sm:p-7 rounded-3xl border border-gray-800 shadow-2xl space-y-5">
-        <div class="flex items-center justify-between pb-2 border-b border-gray-800">
+    <div v-if="showHistoryModal" class="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/75 backdrop-blur-sm">
+      <div class="glass-panel w-full max-w-2xl max-h-[90vh] flex flex-col p-4 sm:p-6 rounded-3xl border border-gray-800 shadow-2xl overflow-hidden">
+        <!-- 头部 (固定不随内容滚动) -->
+        <div class="flex items-center justify-between pb-3 border-b border-gray-800 shrink-0">
           <div>
             <h2 class="text-base font-bold text-white flex items-center gap-2">
               <BarChart2 class="w-4 h-4 text-cyan-400" />
@@ -746,140 +740,147 @@
             </h2>
             <p class="text-xs text-gray-400 mt-0.5">每日聚合流量归档与可视化统计</p>
           </div>
-          <button @click="showHistoryModal = false" class="text-gray-400 hover:text-white text-lg">✕</button>
+          <button @click="showHistoryModal = false" class="text-gray-400 hover:text-white text-lg p-1 rounded-lg hover:bg-gray-800 transition-colors">✕</button>
         </div>
 
-        <!-- Time Range Selector & Metrics -->
-        <div class="flex items-center justify-between gap-2 text-xs">
-          <div class="flex items-center gap-1 bg-gray-900 p-1 rounded-xl border border-gray-800">
-            <button
-              v-for="d in [7, 14, 30]"
-              :key="d"
-              @click="setHistoryDays(d)"
-              class="px-3 py-1 rounded-lg font-medium transition-colors"
-              :class="historyDays === d ? 'bg-brand-600 text-white font-semibold' : 'text-gray-400 hover:text-white'"
-            >
-              近 {{ d }} 天
-            </button>
-          </div>
+        <!-- 滚动内容区 -->
+        <div class="space-y-4 overflow-y-auto py-3 pr-1 -mr-1">
+          <!-- Time Range Selector & Metrics -->
+          <div class="flex flex-wrap items-center justify-between gap-2 text-xs">
+            <div class="flex items-center gap-1 bg-gray-900 p-1 rounded-xl border border-gray-800">
+              <button
+                v-for="d in [7, 14, 30]"
+                :key="d"
+                @click="setHistoryDays(d)"
+                class="px-2.5 sm:px-3 py-1 rounded-lg font-medium transition-colors text-xs"
+                :class="historyDays === d ? 'bg-brand-600 text-white font-semibold' : 'text-gray-400 hover:text-white'"
+              >
+                近 {{ d }} 天
+              </button>
+            </div>
 
-          <div class="text-[11px] font-mono text-gray-400">
-            区间总流量: <span class="text-brand-300 font-bold">{{ formatBytes(historySummary.totalAll) }}</span>
-          </div>
-        </div>
-
-        <!-- Metric Badges -->
-        <div class="grid grid-cols-2 sm:grid-cols-4 gap-2.5 text-xs">
-          <div class="p-3 bg-gray-900/80 rounded-2xl border border-gray-800 space-y-0.5">
-            <span class="text-[10px] text-gray-400">总上行流量</span>
-            <div class="text-sm font-bold font-mono text-emerald-400">{{ formatBytes(historySummary.totalUp) }}</div>
-          </div>
-          <div class="p-3 bg-gray-900/80 rounded-2xl border border-gray-800 space-y-0.5">
-            <span class="text-[10px] text-gray-400">总下行流量</span>
-            <div class="text-sm font-bold font-mono text-cyan-400">{{ formatBytes(historySummary.totalDown) }}</div>
-          </div>
-          <div class="p-3 bg-gray-900/80 rounded-2xl border border-gray-800 space-y-0.5">
-            <span class="text-[10px] text-gray-400">单日最高</span>
-            <div class="text-sm font-bold font-mono text-amber-400">{{ formatBytes(maxDayBytes) }}</div>
-          </div>
-          <div class="p-3 bg-gray-900/80 rounded-2xl border border-gray-800 space-y-0.5">
-            <span class="text-[10px] text-gray-400">日均消耗</span>
-            <div class="text-sm font-bold font-mono text-indigo-300">{{ formatBytes(historySummary.avgDay) }}</div>
-          </div>
-        </div>
-
-        <!-- Bar Chart Visualizer -->
-        <div class="space-y-2">
-          <div class="flex items-center justify-between text-[11px] text-gray-400">
-            <span>每日用量柱状走势图</span>
-            <div class="flex items-center gap-3">
-              <span class="flex items-center gap-1"><span class="w-2 h-2 rounded bg-emerald-500"></span> 上行</span>
-              <span class="flex items-center gap-1"><span class="w-2 h-2 rounded bg-cyan-500"></span> 下行</span>
+            <div class="text-[11px] font-mono text-gray-400">
+              区间总流量: <span class="text-brand-300 font-bold">{{ formatBytes(historySummary.totalAll) }}</span>
             </div>
           </div>
 
-          <div v-if="sortedHistoryLogs.length" class="relative bg-gray-900/60 rounded-2xl border border-gray-800 p-3.5 pt-8 overflow-x-auto pb-2">
-            <!-- 顶部动态悬停数据栏（永不遮挡、清晰展示） -->
-            <div class="absolute top-2.5 left-3.5 right-3.5 flex items-center justify-between text-[11px] font-mono border-b border-white/[0.06] pb-1.5 pointer-events-none">
-              <div v-if="hoveredLog" class="flex items-center gap-2.5 text-white">
-                <span class="font-bold text-indigo-400">📅 {{ hoveredLog.date }}</span>
-                <span class="text-emerald-400">↑ {{ formatBytes(hoveredLog.upBytes) }}</span>
-                <span class="text-cyan-400">↓ {{ formatBytes(hoveredLog.downBytes) }}</span>
-                <span class="text-gray-300 font-bold">总计: {{ formatBytes(hoveredLog.upBytes + hoveredLog.downBytes) }}</span>
+          <!-- Metric Badges -->
+          <div class="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
+            <div class="p-2.5 sm:p-3 bg-gray-900/80 rounded-2xl border border-gray-800 space-y-0.5">
+              <span class="text-[10px] text-gray-400">总上行流量</span>
+              <div class="text-xs sm:text-sm font-bold font-mono text-emerald-400 truncate">{{ formatBytes(historySummary.totalUp) }}</div>
+            </div>
+            <div class="p-2.5 sm:p-3 bg-gray-900/80 rounded-2xl border border-gray-800 space-y-0.5">
+              <span class="text-[10px] text-gray-400">总下行流量</span>
+              <div class="text-xs sm:text-sm font-bold font-mono text-cyan-400 truncate">{{ formatBytes(historySummary.totalDown) }}</div>
+            </div>
+            <div class="p-2.5 sm:p-3 bg-gray-900/80 rounded-2xl border border-gray-800 space-y-0.5">
+              <span class="text-[10px] text-gray-400">单日最高</span>
+              <div class="text-xs sm:text-sm font-bold font-mono text-amber-400 truncate">{{ formatBytes(maxDayBytes) }}</div>
+            </div>
+            <div class="p-2.5 sm:p-3 bg-gray-900/80 rounded-2xl border border-gray-800 space-y-0.5">
+              <span class="text-[10px] text-gray-400">日均消耗</span>
+              <div class="text-xs sm:text-sm font-bold font-mono text-indigo-300 truncate">{{ formatBytes(historySummary.avgDay) }}</div>
+            </div>
+          </div>
+
+          <!-- Bar Chart Visualizer -->
+          <div class="space-y-2">
+            <div class="flex flex-wrap items-center justify-between gap-2 text-[11px] text-gray-400">
+              <span class="font-medium text-gray-300">每日用量柱状走势图</span>
+              <div class="flex items-center gap-3">
+                <span class="flex items-center gap-1.5"><span class="w-2 h-2 rounded-full bg-emerald-500"></span> 上行</span>
+                <span class="flex items-center gap-1.5"><span class="w-2 h-2 rounded-full bg-cyan-500"></span> 下行</span>
               </div>
-              <div v-else class="text-gray-500 text-[10px]">
-                💡 鼠标悬停柱子可查看单日详细上下行
+            </div>
+
+            <!-- 独立单日详情提示栏 (解耦避免与走势图柱体产生重叠贴图) -->
+            <div class="min-h-[38px] px-3.5 py-2 bg-gray-900/90 rounded-xl border border-gray-800/90 flex flex-wrap items-center justify-between gap-2 text-xs font-mono transition-all">
+              <div v-if="activeLog" class="flex flex-wrap items-center gap-x-3 gap-y-1 text-white">
+                <span class="font-bold text-indigo-400">📅 {{ activeLog.date }}</span>
+                <span class="text-emerald-400">↑ {{ formatBytes(activeLog.upBytes) }}</span>
+                <span class="text-cyan-400">↓ {{ formatBytes(activeLog.downBytes) }}</span>
+                <span class="text-brand-300 font-bold">总计: {{ formatBytes(activeLog.upBytes + activeLog.downBytes) }}</span>
+              </div>
+              <div v-else class="text-gray-500 text-[11px] flex items-center gap-1">
+                <span>💡 点击或悬停下方柱子查看单日明细</span>
               </div>
             </div>
 
             <!-- 柱状图绘制区 -->
-            <div class="h-36 flex items-end gap-2 pt-2">
-              <div
-                v-for="log in sortedHistoryLogs"
-                :key="log.date"
-                @mouseenter="hoveredLog = log"
-                @mouseleave="hoveredLog = null"
-                class="flex-1 min-w-[28px] max-w-[48px] flex flex-col items-center gap-1.5 group relative h-full justify-end cursor-pointer"
-              >
-                <!-- 柱子有效高度绘制区 (留出顶部余量) -->
-                <div class="w-full flex-1 flex flex-col justify-end items-center relative">
-                  <div
-                    class="w-full max-w-[22px] rounded-t-md overflow-hidden flex flex-col justify-end bg-gray-800/40 transition-all duration-300 group-hover:ring-2 group-hover:ring-indigo-500/80 group-hover:scale-105"
-                    :style="{ height: `${getTotalBarHeight(log)}%` }"
-                  >
-                    <!-- 下行 (Cyan) -->
-                    <div
-                      class="w-full bg-cyan-500 hover:bg-cyan-400 transition-all"
-                      :style="{ height: `${getSegmentPercent(log.downBytes, log)}%` }"
-                    ></div>
-                    <!-- 上行 (Emerald) -->
-                    <div
-                      class="w-full bg-emerald-500 hover:bg-emerald-400 transition-all border-t border-gray-900/30"
-                      :style="{ height: `${getSegmentPercent(log.upBytes, log)}%` }"
-                    ></div>
-                  </div>
-                </div>
-
-                <!-- 底部日期标签 -->
-                <span
-                  class="text-[10px] font-mono transition-colors truncate w-full text-center shrink-0"
-                  :class="hoveredLog?.date === log.date ? 'text-indigo-400 font-bold' : 'text-gray-400 group-hover:text-white'"
+            <div v-if="sortedHistoryLogs.length" class="bg-gray-900/60 rounded-2xl border border-gray-800 p-3.5 overflow-x-auto pb-2">
+              <div class="h-36 flex items-end gap-2 pt-2 min-w-full w-max">
+                <div
+                  v-for="log in sortedHistoryLogs"
+                  :key="log.date"
+                  @mouseenter="hoveredLog = log"
+                  @mouseleave="hoveredLog = null"
+                  @click="toggleSelectLog(log)"
+                  class="flex-1 min-w-[32px] max-w-[48px] flex flex-col items-center gap-1.5 group relative h-full justify-end cursor-pointer select-none"
                 >
-                  {{ log.date.substring(5) }}
-                </span>
+                  <!-- 柱子有效高度绘制区 (留出顶部余量) -->
+                  <div class="w-full flex-1 flex flex-col justify-end items-center relative">
+                    <div
+                      class="w-full max-w-[22px] rounded-t-md overflow-hidden flex flex-col justify-end bg-gray-800/40 transition-all duration-200"
+                      :class="{ 'ring-2 ring-indigo-400 shadow-lg shadow-indigo-500/40 scale-105': activeLog?.date === log.date }"
+                      :style="{ height: `${getTotalBarHeight(log)}%` }"
+                    >
+                      <!-- 上行 (Emerald) - 位于上方 -->
+                      <div
+                        v-if="log.upBytes > 0"
+                        class="w-full bg-emerald-500 hover:bg-emerald-400 transition-all"
+                        :style="{ height: `${getSegmentPercent(log.upBytes, log)}%` }"
+                      ></div>
+                      <!-- 下行 (Cyan) - 位于下方 -->
+                      <div
+                        v-if="log.downBytes > 0"
+                        class="w-full bg-cyan-500 hover:bg-cyan-400 transition-all"
+                        :style="{ height: `${getSegmentPercent(log.downBytes, log)}%` }"
+                      ></div>
+                    </div>
+                  </div>
+
+                  <!-- 底部日期标签 -->
+                  <span
+                    class="text-[10px] font-mono transition-colors truncate w-full text-center shrink-0"
+                    :class="activeLog?.date === log.date ? 'text-indigo-400 font-bold' : 'text-gray-400 group-hover:text-white'"
+                  >
+                    {{ log.date.substring(5) }}
+                  </span>
+                </div>
               </div>
+            </div>
+
+            <div v-else class="text-center py-10 text-xs text-gray-500">
+              暂无历史流量记录
             </div>
           </div>
 
-          <div v-else class="text-center py-10 text-xs text-gray-500">
-            暂无历史流量记录
-          </div>
-        </div>
-
-        <!-- History Records Table -->
-        <div class="space-y-2 text-xs">
-          <div class="max-h-40 overflow-y-auto rounded-2xl border border-gray-800 bg-gray-900/50">
-            <table class="w-full text-left">
-              <thead>
-                <tr class="border-b border-gray-800 bg-gray-900/80 text-gray-400 font-semibold text-[11px]">
-                  <th class="py-2 px-3">日期</th>
-                  <th class="py-2 px-3">上行 (Up)</th>
-                  <th class="py-2 px-3">下行 (Down)</th>
-                  <th class="py-2 px-3">单日总计</th>
-                </tr>
-              </thead>
-              <tbody class="divide-y divide-gray-800/40 font-mono text-[11px]">
-                <tr v-for="log in historyLogs" :key="log.id" class="hover:bg-white/[0.02]">
-                  <td class="py-2 px-3 text-white font-medium">{{ log.date }}</td>
-                  <td class="py-2 px-3 text-emerald-400">{{ formatBytes(log.upBytes) }}</td>
-                  <td class="py-2 px-3 text-cyan-400">{{ formatBytes(log.downBytes) }}</td>
-                  <td class="py-2 px-3 text-brand-300 font-bold">{{ formatBytes(log.upBytes + log.downBytes) }}</td>
-                </tr>
-                <tr v-if="!historyLogs.length">
-                  <td colspan="4" class="text-center py-3 text-gray-500">暂无记录</td>
-                </tr>
-              </tbody>
-            </table>
+          <!-- History Records Table -->
+          <div class="space-y-2 text-xs">
+            <div class="max-h-48 overflow-y-auto rounded-2xl border border-gray-800 bg-gray-900/50">
+              <table class="w-full text-left">
+                <thead>
+                  <tr class="border-b border-gray-800 bg-gray-900/80 text-gray-400 font-semibold text-[11px] sticky top-0 backdrop-blur-sm">
+                    <th class="py-2 px-3">日期</th>
+                    <th class="py-2 px-3">上行 (Up)</th>
+                    <th class="py-2 px-3">下行 (Down)</th>
+                    <th class="py-2 px-3">单日总计</th>
+                  </tr>
+                </thead>
+                <tbody class="divide-y divide-gray-800/40 font-mono text-[11px]">
+                  <tr v-for="log in historyLogs" :key="log.id" class="hover:bg-white/[0.02]">
+                    <td class="py-2 px-3 text-white font-medium">{{ log.date }}</td>
+                    <td class="py-2 px-3 text-emerald-400">{{ formatBytes(log.upBytes) }}</td>
+                    <td class="py-2 px-3 text-cyan-400">{{ formatBytes(log.downBytes) }}</td>
+                    <td class="py-2 px-3 text-brand-300 font-bold">{{ formatBytes(log.upBytes + log.downBytes) }}</td>
+                  </tr>
+                  <tr v-if="!historyLogs.length">
+                    <td colspan="4" class="text-center py-3 text-gray-500">暂无记录</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
           </div>
         </div>
       </div>
@@ -1046,14 +1047,7 @@ const getDirectTokenSubUrl = (user: any): string => {
   return `${window.location.origin}/sub/${user.subToken}`
 }
 
-const copyDirectSubLink = (user: any) => {
-  const url = getDirectTokenSubUrl(user)
-  if (!url) {
-    toast.error('该用户暂未生成专属订阅 Token')
-    return
-  }
-  copyText(url)
-}
+
 
 const resetUserSubToken = async (userId: number) => {
   if (!confirm('确定重置该用户的订阅与连接密钥吗？所有旧设备将立即断开连接，旧订阅链接也将失效！')) return
@@ -1280,9 +1274,21 @@ const selectTarget = (e: MouseEvent) => {
 
 // 流量历史统计分析 (Traffic History Analysis)
 const hoveredLog = ref<any>(null)
+const selectedLog = ref<any>(null)
+const activeLog = computed(() => hoveredLog.value || selectedLog.value)
+
+const toggleSelectLog = (log: any) => {
+  if (selectedLog.value?.date === log.date) {
+    selectedLog.value = null
+  } else {
+    selectedLog.value = log
+  }
+}
+
 const openHistoryModal = async (user: any) => {
   currentHistoryUser.value = user
   hoveredLog.value = null
+  selectedLog.value = null
   historyDays.value = 14
   showHistoryModal.value = true
   await fetchUserHistory(user.id, 14)
@@ -1290,6 +1296,8 @@ const openHistoryModal = async (user: any) => {
 
 const setHistoryDays = async (days: number) => {
   historyDays.value = days
+  hoveredLog.value = null
+  selectedLog.value = null
   if (currentHistoryUser.value) {
     await fetchUserHistory(currentHistoryUser.value.id, days)
   }

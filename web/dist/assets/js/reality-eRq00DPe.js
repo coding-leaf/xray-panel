@@ -1,1 +1,0 @@
-import{a}from"./index-CbW-yp4H.js";const s=async()=>{const t=await a.get("/inbounds/reality-status");return t&&t.data&&typeof t.data=="object"&&t.data.totalChecked!==void 0?t.data:t},o=async()=>{const t=await a.post("/inbounds/reality-status/check");return t&&t.data&&typeof t.data=="object"&&t.data.totalChecked!==void 0?t.data:t};export{o as c,s as g};

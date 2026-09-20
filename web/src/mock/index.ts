@@ -443,8 +443,14 @@ export async function handleMockRequest(url: string, method: string, data?: any)
           subRoutes = JSON.parse(inb.subRoutesJson || '[]')
         } catch {}
 
-        const enabledSubRoutes = subRoutes.filter((sr: any) => sr.enabled && sr.routeId > 0)
-        if (enabledSubRoutes.length > 0) {
+        if (subRoutes.length > 0) {
+          const enabledSubRoutes = subRoutes.filter((sr: any) => {
+            if (!sr.enabled || !(sr.routeId > 0)) return false
+            if (sr.allowedUsers && Array.isArray(sr.allowedUsers) && sr.allowedUsers.length > 0) {
+              return user?.email ? sr.allowedUsers.includes(user.email) : false
+            }
+            return true
+          })
           for (const sr of enabledSubRoutes) {
             const routeUuid = applyRouteIdToUuid(user?.uuid || 'uuid', sr.routeId)
             const remark = sr.name || sr.remark || `${inb.tag}-${sr.routeId}`

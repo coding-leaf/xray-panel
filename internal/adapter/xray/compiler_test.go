@@ -588,3 +588,83 @@ func TestCompiler_ShadowsocksMethodBuild(t *testing.T) {
 		}
 	})
 }
+
+func TestCompiler_SubRoute_UserIsolation(t *testing.T) {
+	compiler := xray.NewXrayCompiler()
+
+	inbounds := []domain.Inbound{
+		{
+			ID:       1,
+			Tag:      "vless-in",
+			Port:     443,
+			Protocol: "vless",
+			SubRoutesJson: `[
+				{"id":"sr-vip","name":"VIP 线路","routeId":10,"outboundTag":"vip-out","enabled":true,"allowedUsers":["vip@example.com","admin@example.com"]},
+				{"id":"sr-public","name":"公开线路","routeId":20,"outboundTag":"public-out","enabled":true}
+			]`,
+			Enabled: true,
+		},
+	}
+
+	outbounds := []domain.Outbound{
+		{Tag: "vip-out", Protocol: "freedom"},
+		{Tag: "public-out", Protocol: "freedom"},
+	}
+
+	cfg, err := compiler.Compile(inbounds, outbounds, nil, nil, nil)
+	if err != nil {
+		t.Fatalf("Compile failed: %v", err)
+	}
+
+	var vipRule, publicRule *xray.XrayRoutingRule
+	for i := range cfg.Routing.Rules {
+		r := &cfg.Routing.Rules[i]
+		if r.VlessRoute == "10" {
+			vipRule = r
+		} else if r.VlessRoute == "20" {
+			publicRule = r
+		}
+	}
+
+	if vipRule == nil {
+		t.Fatal("expected rule for routeId 10 not found")
+	}
+	if publicRule == nil {
+		t.Fatal("expected rule for routeId 20 not found")
+	}
+
+	if len(vipRule.User) != 2 || vipRule.User[0] != "vip@example.com" || vipRule.User[1] != "admin@example.com" {
+		t.Errorf("vipRule.User expected [vip@example.com admin@example.com], got %v", vipRule.User)
+	}
+
+	if len(publicRule.User) != 0 {
+		t.Errorf("publicRule.User expected empty/nil, got %v", publicRule.User)
+	}
+
+	jsonBytes, err := compiler.CompileToJSON(inbounds, outbounds, nil, nil, nil)
+	if err != nil {
+		t.Fatalf("CompileToJSON failed: %v", err)
+	}
+	var raw struct {
+		Routing struct {
+			Rules []map[string]interface{} `json:"rules"`
+		} `json:"routing"`
+	}
+	if err := json.Unmarshal(jsonBytes, &raw); err != nil {
+		t.Fatalf("Unmarshal compiled json failed: %v", err)
+	}
+	for _, r := range raw.Routing.Rules {
+		if r["vlessRoute"] == "10" {
+			users, ok := r["user"].([]interface{})
+			if !ok || len(users) != 2 {
+				t.Errorf("expected user array in json for route 10, got %v", r["user"])
+			}
+		}
+		if r["vlessRoute"] == "20" {
+			if _, exists := r["user"]; exists {
+				t.Errorf("expected no user field in json for route 20, got %v", r["user"])
+			}
+		}
+	}
+}
+

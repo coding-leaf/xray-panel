@@ -1,7 +1,7 @@
 # Xray Decoupled Panel (解耦运维监控与分流管理面板)
 
 <p align="center">
-  <img src="https://img.shields.io/badge/Version-v2.4.1-indigo?style=flat-square" alt="Version">
+  <img src="https://img.shields.io/badge/Version-v2.5.0-indigo?style=flat-square" alt="Version">
   <img src="https://img.shields.io/badge/Go-1.22+-00ADD8?style=flat-square&logo=go" alt="Go Version">
   <img src="https://img.shields.io/badge/Vue-3.4+-4FC08D?style=flat-square&logo=vue.js" alt="Vue Version">
   <img src="https://img.shields.io/badge/Architecture-Clean%20Architecture-blue?style=flat-square" alt="Clean Architecture">
@@ -24,6 +24,10 @@
 
 ## 核心架构与功能特性
 
+- **入站分流线路与细粒度用户权限隔离 (SubRoute User Isolation)**：
+  - 单入站端口多落地分流线路（基于 VLESS 16-bit routeId 单端口多出口机制）；
+  - 支持为每条分流线路指定授权用户白名单，实现订阅展示过滤与 Xray 引擎内核 Layer 3 双重物理强隔离；
+  - 授权用户数与活跃用户状态实时联动响应，管理抽屉提供可视化用户分配器，支持一键全选与全员开放，存量配置无缝平滑兼容。
 - **Xray 原生 gRPC 纯契约解耦与状态热重载**：
   - 基于轻量级 Protobuf/gRPC 契约包与 Xray API 通信，剥离运行时多余依赖；
   - 用户增删与状态变更通过 gRPC 协议毫秒级下发，长连接不中断；
@@ -64,6 +68,20 @@
 ---
 
 ## 更新日志
+
+### v2.5.0 (2026-09) - SubRoute 节点分流线路细粒度用户权限隔离
+- **领域模型与强隔离数据契约**：
+  - `domain.SubRoute` 扩展 `AllowedUsers` 字段，实现纯方法 `CanAccess(email)`，缺省/空数组全员开放无缝向后兼容；
+  - `XrayRoutingRule` 扩展 `User` 属性，编译器在 Layer 3 接入网关规则中精准注入白名单，物理阻断伪造 `routeId` 越权。
+- **展示层双重过滤与授权状态动态联动**：
+  - 订阅生成与节点转换依据用户邮箱严格过滤分流线路，全未命中严格下发 0 个节点；
+  - 入站管理视图重构授权用户统计逻辑，与当前活跃用户集合实时联动响应；
+  - 分流线路管理抽屉支持可视化用户选择、一键全选与全员开放重置。
+
+### v2.4.2 (2026-09) - Telegram Bot 交互体验与运维管控能力增强
+- **运维与管控交互升级**：
+  - 支持 InlineKeyboard 原地无缝刷新、用户启停/重置与快捷开号；
+  - 优化脚手架提示词与缓存前缀配置，提升运维响应速度与操作体验。
 
 ### v2.4.1 (2026-09) - Reality 伪装域名网络合规性巡检与告警体系
 - **Reality 域名多维合规性主动巡检**：

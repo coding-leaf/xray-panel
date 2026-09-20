@@ -184,12 +184,16 @@ func (c *XrayCompiler) Compile(
 		}
 		for _, sr := range inb.GetSubRoutes() {
 			if sr.Enabled && sr.RouteID > 0 && sr.OutboundTag != "" {
-				layeredRules = append(layeredRules, XrayRoutingRule{
+				rule := XrayRoutingRule{
 					Type:        "field",
 					InboundTag:  []string{inb.Tag}, // 严格限定 Inbound 命名空间，防止冲突
 					VlessRoute:  fmt.Sprintf("%d", sr.RouteID),
 					OutboundTag: sr.OutboundTag,
-				})
+				}
+				if len(sr.AllowedUsers) > 0 {
+					rule.User = sr.AllowedUsers
+				}
+				layeredRules = append(layeredRules, rule)
 			}
 		}
 	}

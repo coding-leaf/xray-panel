@@ -158,6 +158,20 @@
                   <span class="font-bold text-cyan-400">#{{ sr.routeId }}</span>
                   <span class="text-white">{{ sr.name || sr.remark || ('线路 #' + sr.routeId) }}</span>
                   <span class="text-gray-400">➔ {{ sr.outboundTag || 'direct' }}</span>
+                  <span
+                    v-if="sr.allowedUsers && sr.allowedUsers.length > 0"
+                    class="ml-1 px-1 py-0.2 rounded text-[9px] bg-amber-500/20 text-amber-300 border border-amber-500/30 font-sans font-normal"
+                    :title="'限定授权用户: ' + sr.allowedUsers.join(', ')"
+                  >
+                    {{ getSubRouteUserCount(sr) }}人
+                  </span>
+                  <span
+                    v-else
+                    class="ml-1 px-1 py-0.2 rounded text-[9px] bg-emerald-500/15 text-emerald-400/90 border border-emerald-500/25 font-sans font-normal"
+                    title="全员开放"
+                  >
+                    全员
+                  </span>
                 </span>
               </div>
             </div>
@@ -689,66 +703,136 @@
             </div>
 
             <!-- 线路列表 -->
-            <div v-if="form.subRoutes?.length" class="space-y-2 pt-1">
+            <div v-if="form.subRoutes?.length" class="space-y-2.5 pt-1">
               <div
                 v-for="(sr, index) in form.subRoutes"
                 :key="sr.id || index"
-                class="flex flex-wrap sm:flex-nowrap items-center gap-2 bg-gray-900/80 p-2.5 rounded-xl border border-gray-800"
+                class="bg-gray-900/80 p-3 rounded-xl border border-gray-800 hover:border-gray-700/80 transition-colors space-y-2.5"
               >
-                <!-- Route ID -->
-                <div class="w-20 shrink-0">
-                  <label class="block text-[10px] text-gray-400 font-mono mb-0.5">Route ID</label>
-                  <input
-                    v-model.number="sr.routeId"
-                    type="number"
-                    min="1"
-                    max="65535"
-                    class="w-full bg-gray-800 border border-gray-700 rounded-lg px-2 py-1 text-white font-mono text-xs focus:outline-none focus:border-indigo-500"
-                  />
-                </div>
-
-                <!-- 线路名称 -->
-                <div class="flex-1 min-w-[140px]">
-                  <label class="block text-[10px] text-gray-400 mb-0.5">订阅节点名称</label>
-                  <input
-                    v-model="sr.name"
-                    type="text"
-                    placeholder="如 🇯🇵 日本原生直连"
-                    class="w-full bg-gray-800 border border-gray-700 rounded-lg px-2.5 py-1 text-white text-xs focus:outline-none focus:border-indigo-500"
-                  />
-                </div>
-
-                <!-- 目标出站 -->
-                <div class="w-36 shrink-0">
-                  <label class="block text-[10px] text-gray-400 mb-0.5">目标出站 (Outbound)</label>
-                  <select
-                    v-model="sr.outboundTag"
-                    class="w-full bg-gray-800 border border-gray-700 rounded-lg px-2 py-1 text-white font-mono text-xs focus:outline-none focus:border-indigo-500"
-                  >
-                    <option v-for="tag in availableOutbounds" :key="tag" :value="tag">
-                      {{ tag }}
-                    </option>
-                  </select>
-                </div>
-
-                <!-- 启用开关 & 删除 -->
-                <div class="flex items-center gap-2 pt-3 shrink-0">
-                  <label class="flex items-center gap-1 cursor-pointer text-gray-300 text-[11px]">
+                <!-- 基础参数行 -->
+                <div class="flex flex-wrap sm:flex-nowrap items-center gap-2">
+                  <!-- Route ID -->
+                  <div class="w-20 shrink-0">
+                    <label class="block text-[10px] text-gray-400 font-mono mb-0.5">Route ID</label>
                     <input
-                      type="checkbox"
-                      v-model="sr.enabled"
-                      class="rounded bg-gray-800 border-gray-700 text-indigo-600 focus:ring-0"
+                      v-model.number="sr.routeId"
+                      type="number"
+                      min="1"
+                      max="65535"
+                      class="w-full bg-gray-800 border border-gray-700 rounded-lg px-2 py-1 text-white font-mono text-xs focus:outline-none focus:border-indigo-500"
                     />
-                    <span>启用</span>
-                  </label>
-                  <button
-                    type="button"
-                    @click="removeSubRoute(Number(index))"
-                    class="p-1 rounded-lg text-rose-400 hover:bg-rose-500/20 transition-colors"
-                    title="删除线路"
-                  >
-                    <Trash2 class="w-3.5 h-3.5" />
-                  </button>
+                  </div>
+
+                  <!-- 线路名称 -->
+                  <div class="flex-1 min-w-[140px]">
+                    <label class="block text-[10px] text-gray-400 mb-0.5">订阅节点名称</label>
+                    <input
+                      v-model="sr.name"
+                      type="text"
+                      placeholder="如 🇯🇵 日本原生直连"
+                      class="w-full bg-gray-800 border border-gray-700 rounded-lg px-2.5 py-1 text-white text-xs focus:outline-none focus:border-indigo-500"
+                    />
+                  </div>
+
+                  <!-- 目标出站 -->
+                  <div class="w-36 shrink-0">
+                    <label class="block text-[10px] text-gray-400 mb-0.5">目标出站 (Outbound)</label>
+                    <select
+                      v-model="sr.outboundTag"
+                      class="w-full bg-gray-800 border border-gray-700 rounded-lg px-2 py-1 text-white font-mono text-xs focus:outline-none focus:border-indigo-500"
+                    >
+                      <option v-for="tag in availableOutbounds" :key="tag" :value="tag">
+                        {{ tag }}
+                      </option>
+                    </select>
+                  </div>
+
+                  <!-- 启用开关 & 删除 -->
+                  <div class="flex items-center gap-2 pt-3 shrink-0">
+                    <label class="flex items-center gap-1 cursor-pointer text-gray-300 text-[11px]">
+                      <input
+                        type="checkbox"
+                        v-model="sr.enabled"
+                        class="rounded bg-gray-800 border-gray-700 text-indigo-600 focus:ring-0"
+                      />
+                      <span>启用</span>
+                    </label>
+                    <button
+                      type="button"
+                      @click="removeSubRoute(Number(index))"
+                      class="p-1 rounded-lg text-rose-400 hover:bg-rose-500/20 transition-colors"
+                      title="删除线路"
+                    >
+                      <Trash2 class="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                </div>
+
+                <!-- 授权用户隔离配置 (Allowed Users) -->
+                <div class="pt-2 border-t border-gray-800/60 space-y-1.5">
+                  <div class="flex items-center justify-between">
+                    <div class="flex items-center gap-1.5 flex-wrap">
+                      <span class="text-[11px] font-medium text-indigo-300 flex items-center gap-1">
+                        <Users class="w-3.5 h-3.5 text-indigo-400" />
+                        <span>授权用户权限:</span>
+                      </span>
+                      <span
+                        v-if="!sr.allowedUsers || sr.allowedUsers.length === 0"
+                        class="text-[10px] px-2 py-0.5 rounded bg-emerald-500/15 text-emerald-300 border border-emerald-500/30"
+                      >
+                        全员开放（不限制具体用户）
+                      </span>
+                      <span
+                        v-else
+                        class="text-[10px] px-2 py-0.5 rounded bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 font-mono"
+                      >
+                        已指定 {{ sr.allowedUsers.length }} 位授权用户
+                      </span>
+                    </div>
+
+                    <div class="flex items-center gap-2 text-[10px]">
+                      <button
+                        v-if="sr.allowedUsers && sr.allowedUsers.length > 0"
+                        type="button"
+                        @click="clearSubRouteUsers(sr)"
+                        class="text-amber-400 hover:text-amber-300 transition-colors"
+                      >
+                        重置为全员开放
+                      </button>
+                      <button
+                        v-if="usersList.length > 0 && (!sr.allowedUsers || sr.allowedUsers.length < usersList.length)"
+                        type="button"
+                        @click="selectAllSubRouteUsers(sr)"
+                        class="text-gray-400 hover:text-gray-200 transition-colors"
+                      >
+                        全选
+                      </button>
+                    </div>
+                  </div>
+
+                  <!-- 用户 Tag 勾选器 / 快速多选 -->
+                  <div v-if="usersList.length" class="flex flex-wrap gap-1.5 max-h-24 overflow-y-auto p-1.5 bg-gray-950/40 rounded-lg border border-gray-800/80">
+                    <button
+                      v-for="u in usersList"
+                      :key="u.email"
+                      type="button"
+                      @click="toggleSubRouteUser(sr, u.email)"
+                      class="px-2 py-0.5 rounded text-[11px] font-mono transition-all border flex items-center gap-1.5"
+                      :class="isSubRouteUserSelected(sr, u.email)
+                        ? 'bg-indigo-600/30 text-indigo-200 border-indigo-500/60 font-semibold shadow-sm'
+                        : 'bg-gray-900/60 text-gray-400 border-gray-800 hover:text-gray-200 hover:border-gray-700'"
+                      :title="isSubRouteUserSelected(sr, u.email) ? '点击取消授权' : '点击授权此用户'"
+                    >
+                      <span
+                        class="w-1.5 h-1.5 rounded-full"
+                        :class="isSubRouteUserSelected(sr, u.email) ? 'bg-indigo-400' : 'bg-gray-600'"
+                      ></span>
+                      <span>{{ u.email }}</span>
+                    </button>
+                  </div>
+                  <div v-else class="text-[10px] text-gray-500 py-0.5">
+                    暂无用户，可在「用户与订阅」模块添加
+                  </div>
                 </div>
               </div>
             </div>
@@ -824,10 +908,19 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, watch } from 'vue'
 import { useRoute } from 'vue-router'
-import { Plus, Radio, Key, AlertTriangle, Trash2, ShieldCheck } from 'lucide-vue-next'
+import { Plus, Radio, Key, AlertTriangle, Trash2, ShieldCheck, Users } from 'lucide-vue-next'
 import { toast } from '../utils/toast'
 import api from '../api'
 import { getRealityStatus, checkRealityStatus, type RealitySummaryStatus, type RealityCheckItem } from '../api/reality'
+
+interface SubRouteItem {
+  id: string
+  name: string
+  routeId: number
+  outboundTag: string
+  enabled: boolean
+  allowedUsers?: string[]
+}
 
 const inbounds = ref<any[]>([])
 const usersList = ref<any[]>([])
@@ -847,7 +940,7 @@ const form = ref<any>({
   externalPort: 443,
   externalHost: '',
   routeId: 0,
-  subRoutes: [] as any[],
+  subRoutes: [] as SubRouteItem[],
   protocol: 'vless',
   vlessFlow: 'xtls-rprx-vision',
   network: 'tcp',
@@ -1044,7 +1137,14 @@ const fetchAll = async () => {
       try {
         srs = JSON.parse(ib.subRoutesJson || '[]')
       } catch (e) {}
-      return { ...ib, subRoutes: srs }
+      return {
+        ...ib,
+        subRoutes: srs.map((r: any) => ({
+          ...r,
+          name: r.name || r.remark || '',
+          allowedUsers: Array.isArray(r.allowedUsers) ? r.allowedUsers : [],
+        })),
+      }
     })
     usersList.value = uRes || []
     if (Array.isArray(obRes) && obRes.length > 0) {
@@ -1059,6 +1159,30 @@ const fetchAll = async () => {
   }
 }
 
+const isSubRouteUserSelected = (sr: any, email: string): boolean => {
+  return Array.isArray(sr.allowedUsers) && sr.allowedUsers.includes(email)
+}
+
+const toggleSubRouteUser = (sr: any, email: string) => {
+  if (!Array.isArray(sr.allowedUsers)) {
+    sr.allowedUsers = []
+  }
+  const idx = sr.allowedUsers.indexOf(email)
+  if (idx > -1) {
+    sr.allowedUsers.splice(idx, 1)
+  } else {
+    sr.allowedUsers.push(email)
+  }
+}
+
+const clearSubRouteUsers = (sr: any) => {
+  sr.allowedUsers = []
+}
+
+const selectAllSubRouteUsers = (sr: any) => {
+  sr.allowedUsers = usersList.value.map((u: any) => u.email)
+}
+
 const addSubRoute = () => {
   if (!form.value.subRoutes) form.value.subRoutes = []
   const currentMax = form.value.subRoutes.reduce((max: number, sr: any) => Math.max(max, sr.routeId || 0), 0)
@@ -1069,6 +1193,7 @@ const addSubRoute = () => {
     routeId: nextId,
     outboundTag: availableOutbounds.value[0] || 'direct',
     enabled: true,
+    allowedUsers: [],
   })
 }
 
@@ -1087,7 +1212,7 @@ const openCreateModal = () => {
     externalHost: '',
     routeId: 0,
     subRoutes: [
-      { id: '1', name: '🇯🇵 日本原生直连', routeId: 1, outboundTag: 'direct', enabled: true },
+      { id: '1', name: '🇯🇵 日本原生直连', routeId: 1, outboundTag: 'direct', enabled: true, allowedUsers: [] },
     ],
     protocol: 'vless',
     vlessFlow: 'xtls-rprx-vision',
@@ -1153,7 +1278,11 @@ const editInbound = (inb: any) => {
   try {
     srs = JSON.parse(inb.subRoutesJson || '[]')
   } catch (e) {}
-  form.value.subRoutes = srs.length > 0 ? srs.map((r: any) => ({ ...r, name: r.name || r.remark || '' })) : []
+  form.value.subRoutes = srs.length > 0 ? srs.map((r: any) => ({
+    ...r,
+    name: r.name || r.remark || '',
+    allowedUsers: Array.isArray(r.allowedUsers) ? r.allowedUsers : [],
+  })) : []
 
   let settings: any = {}
   try {
@@ -1412,7 +1541,16 @@ const saveInbound = async () => {
       externalPort: form.value.externalPort || 0,
       externalHost: form.value.externalHost || '',
       routeId: form.value.routeId || 0,
-      subRoutesJson: JSON.stringify(form.value.subRoutes || []),
+      subRoutesJson: JSON.stringify(
+        (form.value.subRoutes || []).map((sr: any) => ({
+          id: String(sr.id || Math.random().toString(36).substring(2, 9)),
+          name: sr.name || '',
+          routeId: Number(sr.routeId || 0),
+          outboundTag: sr.outboundTag || 'direct',
+          enabled: Boolean(sr.enabled),
+          allowedUsers: Array.isArray(sr.allowedUsers) && sr.allowedUsers.length > 0 ? sr.allowedUsers : undefined,
+        }))
+      ),
       listen: form.value.listen || '0.0.0.0',
       protocol: form.value.protocol,
       settingsJson: buildSettingsJSON(),
@@ -1495,12 +1633,28 @@ const getSocksAuth = (inb: any) => {
 }
 
 const getClientCount = (inb: any) => {
+  if (['socks', 'http', 'dokodemo-door'].includes(inb.protocol)) {
+    return 0
+  }
+  if (Array.isArray(usersList.value) && usersList.value.length > 0) {
+    return usersList.value.filter((u: any) => {
+      const tags = (u.inboundTags || u.inboundTag || '').split(',').map((s: string) => s.trim())
+      return tags.includes(inb.tag)
+    }).length
+  }
   try {
     const s = JSON.parse(inb.settingsJson || '{}')
     return s.clients?.length || 0
   } catch (e) {
     return 0
   }
+}
+
+const getSubRouteUserCount = (sr: any) => {
+  if (!sr.allowedUsers || !Array.isArray(sr.allowedUsers)) return 0
+  if (!usersList.value || usersList.value.length === 0) return sr.allowedUsers.length
+  const validSet = new Set(usersList.value.map((u: any) => u.email))
+  return sr.allowedUsers.filter((e: string) => validSet.has(e)).length
 }
 
 const getStreamNetwork = (inb: any) => {

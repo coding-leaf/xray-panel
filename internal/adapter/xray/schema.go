@@ -157,6 +157,7 @@ type XrayRoutingRule struct {
 	InboundTag  []string `json:"inboundTag,omitempty"`
 	OutboundTag string   `json:"outboundTag"`
 	VlessRoute  string   `json:"vlessRoute,omitempty"` // 16-bit 协议级路由
+	User        []string `json:"user,omitempty"`       // 指定匹配的用户 Email 列表
 	Domain      []string `json:"domain,omitempty"`
 	IP          []string `json:"ip,omitempty"`
 	Port        string   `json:"port,omitempty"`

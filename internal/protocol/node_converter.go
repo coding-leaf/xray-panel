@@ -317,6 +317,9 @@ func InboundsToNodeConfigs(inbounds []domain.Inbound, user *domain.User, hostDom
 			if !sr.Enabled {
 				continue
 			}
+			if user != nil && !sr.CanAccess(user.Email) {
+				continue
+			}
 			tempInbound := in
 			if sr.Name != "" {
 				tempInbound.Remark = sr.Name

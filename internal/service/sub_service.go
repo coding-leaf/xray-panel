@@ -218,6 +218,9 @@ func (s *SubService) GetUserShareInfo(ctx context.Context, userID uint, baseURL 
 			if !sr.Enabled {
 				continue
 			}
+			if !sr.CanAccess(user.Email) {
+				continue
+			}
 			tempIn := in
 			if sr.Name != "" {
 				tempIn.Remark = sr.Name

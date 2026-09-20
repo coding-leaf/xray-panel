@@ -1,8 +1,8 @@
 {
   "$schema": "https://opencode.ai/config.json",
   "tool_output": {
-    "max_lines": 80,
-    "max_bytes": 8192
+    "max_lines": 50,
+    "max_bytes": 4096
   },
   "compaction": {
     "auto": true,
@@ -15,6 +15,12 @@
     ]
   },
   "mcp": {
+    "serena": {
+      "enabled": false
+    },
+    "context7": {
+      "enabled": true
+    },
     "playwright": {
       "type": "local",
       "command": [

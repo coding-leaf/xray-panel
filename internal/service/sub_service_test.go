@@ -185,3 +185,87 @@ func TestSubService_GetUserShareInfo_SubRoutes(t *testing.T) {
 		t.Errorf("expected node 2 remark to be '新美国中转', got '%s'", resp.Nodes[1].Remark)
 	}
 }
+
+func TestSubService_GetUserShareInfo_UserIsolation(t *testing.T) {
+	inbound := domain.Inbound{
+		Tag:            "vless-in",
+		Protocol:       "vless",
+		Port:           443,
+		Listen:         "0.0.0.0",
+		ExternalHost:   "198.51.100.1",
+		Enabled:        true,
+		StreamSettings: `{"network":"tcp","security":"none"}`,
+		SubRoutesJson:  `[{"id":"1","name":"公共线路","routeId":1,"outboundTag":"direct","enabled":true},{"id":"2","name":"VIP专线","routeId":2,"outboundTag":"vip-out","enabled":true,"allowedUsers":["vip@example.com"]}]`,
+	}
+
+	normalUser := &domain.User{
+		ID:          1,
+		Email:       "normal@example.com",
+		UUID:        "11111111-1111-1111-1111-111111111111",
+		SubToken:    "token-normal",
+		InboundTags: "vless-in",
+		Enabled:     true,
+	}
+
+	vipUser := &domain.User{
+		ID:          2,
+		Email:       "vip@example.com",
+		UUID:        "22222222-2222-2222-2222-222222222222",
+		SubToken:    "token-vip",
+		InboundTags: "vless-in",
+		Enabled:     true,
+	}
+
+	inboundRepo := &mockSubInboundRepo{
+		inbounds: []domain.Inbound{inbound},
+	}
+
+	// 1. 普通用户只能获取到 "公共线路"
+	userRepoNormal := &mockSubUserRepo{user: normalUser}
+	svcNormal := NewSubService(userRepoNormal, inboundRepo, nil)
+	respNormal, err := svcNormal.GetUserShareInfo(context.Background(), 1, "https://panel.example.com")
+	if err != nil {
+		t.Fatalf("GetUserShareInfo for normal user failed: %v", err)
+	}
+	if len(respNormal.Nodes) != 1 {
+		t.Fatalf("expected 1 node for normal user, got %d", len(respNormal.Nodes))
+	}
+	if respNormal.Nodes[0].Remark != "公共线路" {
+		t.Errorf("expected remark '公共线路', got '%s'", respNormal.Nodes[0].Remark)
+	}
+
+	// 2. VIP 用户能获取到 2 条线路
+	userRepoVIP := &mockSubUserRepo{user: vipUser}
+	svcVIP := NewSubService(userRepoVIP, inboundRepo, nil)
+	respVIP, err := svcVIP.GetUserShareInfo(context.Background(), 2, "https://panel.example.com")
+	if err != nil {
+		t.Fatalf("GetUserShareInfo for vip user failed: %v", err)
+	}
+	if len(respVIP.Nodes) != 2 {
+		t.Fatalf("expected 2 nodes for vip user, got %d", len(respVIP.Nodes))
+	}
+
+	// 3. 所有线路均无权限时，节点列表为空
+	unauthorizedInbound := domain.Inbound{
+		Tag:            "vless-unauth",
+		Protocol:       "vless",
+		Port:           443,
+		Listen:         "0.0.0.0",
+		ExternalHost:   "198.51.100.1",
+		Enabled:        true,
+		StreamSettings: `{"network":"tcp","security":"none"}`,
+		SubRoutesJson:  `[{"id":"3","name":"仅管理员专线","routeId":3,"outboundTag":"admin-out","enabled":true,"allowedUsers":["admin@example.com"]}]`,
+	}
+	unauthInboundRepo := &mockSubInboundRepo{
+		inbounds: []domain.Inbound{unauthorizedInbound},
+	}
+	normalUser.InboundTags = "vless-unauth"
+	svcUnauth := NewSubService(&mockSubUserRepo{user: normalUser}, unauthInboundRepo, nil)
+	respUnauth, err := svcUnauth.GetUserShareInfo(context.Background(), 1, "https://panel.example.com")
+	if err != nil {
+		t.Fatalf("GetUserShareInfo for unauthorized user failed: %v", err)
+	}
+	if len(respUnauth.Nodes) != 0 {
+		t.Fatalf("expected 0 nodes for unauthorized user, got %d", len(respUnauth.Nodes))
+	}
+}

@@ -200,3 +200,89 @@ func TestBuildShareLink_FullParameterParity(t *testing.T) {
 		}
 	})
 }
+
+func TestInboundsToNodeConfigs_UserIsolation(t *testing.T) {
+	subRoutes := []domain.SubRoute{
+		{
+			ID:           "route-public",
+			Name:         "线路A-全员开放",
+			RouteID:      1,
+			OutboundTag:  "direct",
+			Enabled:      true,
+			AllowedUsers: nil, // 全员开放
+		},
+		{
+			ID:           "route-vip",
+			Name:         "线路B-VIP专享",
+			RouteID:      2,
+			OutboundTag:  "out-vip",
+			Enabled:      true,
+			AllowedUsers: []string{"vip@test.com"},
+		},
+	}
+	subRoutesBytes, _ := json.Marshal(subRoutes)
+
+	inbound := domain.Inbound{
+		Tag:            "vless-mixed",
+		ExternalHost:   "198.51.100.1",
+		Protocol:       "vless",
+		StreamSettings: `{"network":"tcp","security":"none"}`,
+		SubRoutesJson:  string(subRoutesBytes),
+		Enabled:        true,
+	}
+
+	normalUser := &domain.User{
+		Email:       "normal@test.com",
+		UUID:        "11111111-1111-1111-1111-111111111111",
+		InboundTags: "vless-mixed",
+		Enabled:     true,
+	}
+
+	vipUser := &domain.User{
+		Email:       "vip@test.com",
+		UUID:        "22222222-2222-2222-2222-222222222222",
+		InboundTags: "vless-mixed",
+		Enabled:     true,
+	}
+
+	// 1. 普通用户只能看到线路 A
+	nodesNormal := protocol.InboundsToNodeConfigs([]domain.Inbound{inbound}, normalUser, "198.51.100.1", 443, "")
+	if len(nodesNormal) != 1 {
+		t.Fatalf("expected 1 node for normal user, got %d", len(nodesNormal))
+	}
+	if nodesNormal[0].Name != "线路A-全员开放" {
+		t.Errorf("expected node name '线路A-全员开放', got '%s'", nodesNormal[0].Name)
+	}
+
+	// 2. VIP 用户能看到线路 A 与 线路 B
+	nodesVIP := protocol.InboundsToNodeConfigs([]domain.Inbound{inbound}, vipUser, "198.51.100.1", 443, "")
+	if len(nodesVIP) != 2 {
+		t.Fatalf("expected 2 nodes for vip user, got %d", len(nodesVIP))
+	}
+
+	// 3. 所有线路均受限且用户未命中的场景 -> 产出 0 个节点
+	exclusiveRoutes := []domain.SubRoute{
+		{
+			ID:           "route-admin",
+			Name:         "线路-管理专享",
+			RouteID:      3,
+			OutboundTag:  "out-admin",
+			Enabled:      true,
+			AllowedUsers: []string{"admin@test.com"},
+		},
+	}
+	exclusiveBytes, _ := json.Marshal(exclusiveRoutes)
+	exclusiveInbound := domain.Inbound{
+		Tag:            "vless-exclusive",
+		ExternalHost:   "198.51.100.1",
+		Protocol:       "vless",
+		StreamSettings: `{"network":"tcp","security":"none"}`,
+		SubRoutesJson:  string(exclusiveBytes),
+		Enabled:        true,
+	}
+	normalUser.InboundTags = "vless-exclusive"
+	nodesNone := protocol.InboundsToNodeConfigs([]domain.Inbound{exclusiveInbound}, normalUser, "198.51.100.1", 443, "")
+	if len(nodesNone) != 0 {
+		t.Fatalf("expected 0 nodes when all subroutes unauthorized, got %d", len(nodesNone))
+	}
+}

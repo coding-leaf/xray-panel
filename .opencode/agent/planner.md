@@ -1,8 +1,6 @@
 ---
 description: 深度分析任务、7维风险扫描并生成契约与实施计划（只读探索，支持起草工件）
 mode: subagent
-permission:
-  bash: deny
 ---
 
 # Subagent Role: Planner & Research (规划与探索专有职责)

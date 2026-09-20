@@ -32,11 +32,25 @@ type Inbound struct {
 
 // SubRoute 定义入站下的分流订阅线路
 type SubRoute struct {
-	ID          string `json:"id"`          // 唯一标识 (如 nanoid 或 uuid)
-	Name        string `json:"name"`        // 线路名称 (如 "🇯🇵 日本原生直连", "🇺🇸 美国中转落地")
-	RouteID     uint16 `json:"routeId"`     // 16 位路由编号 (1 ~ 65535, 0 为默认直出)
-	OutboundTag string `json:"outboundTag"` // 目标出站标签 (如 "direct", "us-test", "warp-out")
-	Enabled     bool   `json:"enabled"`     // 是否启用
+	ID           string   `json:"id"`                     // 唯一标识 (如 nanoid 或 uuid)
+	Name         string   `json:"name"`                   // 线路名称 (如 "🇯🇵 日本原生直连", "🇺🇸 美国中转落地")
+	RouteID      uint16   `json:"routeId"`                // 16 位路由编号 (1 ~ 65535, 0 为默认直出)
+	OutboundTag  string   `json:"outboundTag"`            // 目标出站标签 (如 "direct", "us-test", "warp-out")
+	Enabled      bool     `json:"enabled"`                // 是否启用
+	AllowedUsers []string `json:"allowedUsers,omitempty"` // 允许访问的用户 Email 列表（为空表示全员开放）
+}
+
+// CanAccess 校验指定用户是否有权访问此分流线路
+func (sr SubRoute) CanAccess(email string) bool {
+	if len(sr.AllowedUsers) == 0 {
+		return true
+	}
+	for _, u := range sr.AllowedUsers {
+		if u == email {
+			return true
+		}
+	}
+	return false
 }
 
 // GetSubRoutes 获取反序列化后的分流线路列表

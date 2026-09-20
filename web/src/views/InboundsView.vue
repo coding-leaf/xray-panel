@@ -11,13 +11,23 @@
         </div>
         <p class="text-xs text-gray-400 mt-0.5">全可视化分层配置 Xray 入站代理节点，节点级专属 Flow 继承与双向批量用户关联</p>
       </div>
-      <button
-        @click="openCreateModal"
-        class="px-4 py-2 bg-gradient-to-r from-brand-600 to-indigo-600 hover:from-brand-500 hover:to-indigo-500 text-white text-xs font-semibold rounded-xl transition-all shadow-lg shadow-brand-500/25 flex items-center gap-1.5"
-      >
-        <Plus class="w-4 h-4" />
-        <span>添加新节点</span>
-      </button>
+      <div class="flex items-center gap-2.5">
+        <button
+          @click="triggerRealityCheck"
+          :disabled="checkingReality"
+          class="px-3.5 py-2 rounded-xl text-xs bg-gray-800/80 hover:bg-gray-700/80 text-gray-200 border border-gray-700/60 transition-colors flex items-center gap-1.5 disabled:opacity-50"
+        >
+          <ShieldCheck class="w-4 h-4 text-emerald-400" :class="{ 'animate-spin': checkingReality }" />
+          <span>{{ checkingReality ? '检测中...' : '检测 Reality 状态' }}</span>
+        </button>
+        <button
+          @click="openCreateModal"
+          class="px-4 py-2 bg-gradient-to-r from-brand-600 to-indigo-600 hover:from-brand-500 hover:to-indigo-500 text-white text-xs font-semibold rounded-xl transition-all shadow-lg shadow-brand-500/25 flex items-center gap-1.5"
+        >
+          <Plus class="w-4 h-4" />
+          <span>添加新节点</span>
+        </button>
+      </div>
     </div>
 
     <!-- Inbounds List Grid -->
@@ -86,6 +96,50 @@
                 <span class="w-1.5 h-1.5 rounded-full" :class="inb.isAlive ? 'bg-emerald-400' : 'bg-rose-400'"></span>
                 <span>{{ inb.isAlive ? `正常连通 (${inb.latencyMs || 1}ms)` : '端口未响应' }}</span>
               </span>
+            </div>
+
+            <!-- Reality 伪装域名合规巡检 -->
+            <div v-if="isReality(inb)" class="flex items-center justify-between py-1 border-t border-gray-800/60">
+              <span>Reality 域名合规</span>
+              <div v-if="getInboundRealityOverallStatus(inb.tag)" class="relative group">
+                <span
+                  class="px-2 py-0.5 rounded text-[11px] font-medium flex items-center gap-1 cursor-pointer transition-colors"
+                  :class="getRealityBadgeClass(getInboundRealityOverallStatus(inb.tag)!.status)"
+                >
+                  <span class="w-1.5 h-1.5 rounded-full" :class="getRealityDotClass(getInboundRealityOverallStatus(inb.tag)!.status)"></span>
+                  <span class="max-w-[140px] sm:max-w-[170px] truncate">{{ getInboundRealityOverallStatus(inb.tag)!.badgeText }}</span>
+                </span>
+
+                <!-- Hover Tooltip 弹出卡片 -->
+                <div class="absolute right-0 bottom-full mb-1.5 hidden group-hover:block z-30 w-72 p-3 bg-gray-950/95 backdrop-blur-md border border-gray-700/80 rounded-xl shadow-2xl text-[11px] text-gray-200 pointer-events-none">
+                  <div class="font-bold text-xs pb-1.5 mb-1.5 border-b border-gray-800 flex items-center justify-between">
+                    <span>Reality 域名合规明细</span>
+                    <span class="font-mono text-[10px] text-gray-400">{{ getInboundRealityOverallStatus(inb.tag)!.items.length }} 个目标</span>
+                  </div>
+                  <div class="space-y-2 max-h-48 overflow-y-auto">
+                    <div v-for="(item, idx) in getInboundRealityOverallStatus(inb.tag)!.items" :key="idx" class="space-y-1">
+                      <div class="flex items-center justify-between font-mono">
+                        <span class="text-white font-semibold truncate max-w-[150px]">{{ item.serverName }}</span>
+                        <span :class="item.status === 'ok' ? 'text-emerald-400' : item.status === 'warning' ? 'text-amber-400' : 'text-rose-400'">
+                          {{ item.status.toUpperCase() }}
+                        </span>
+                      </div>
+                      <div class="text-[10px] text-gray-400 flex justify-between">
+                        <span>目标: <span class="text-gray-300 font-mono">{{ item.dest }}</span></span>
+                        <span v-if="item.daysLeft >= 0">证书剩 {{ item.daysLeft }} 天</span>
+                      </div>
+                      <div v-if="item.tlsVersion || item.alpn" class="text-[10px] text-gray-400 flex justify-between">
+                        <span>握手: {{ item.tlsVersion || 'TLS' }} / {{ item.alpn || 'none' }}</span>
+                        <span>{{ item.latencyMs }}ms</span>
+                      </div>
+                      <div class="text-[10px] leading-tight" :class="item.status === 'ok' ? 'text-gray-400' : item.status === 'warning' ? 'text-amber-300' : 'text-rose-300'">
+                        {{ item.details }}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+              <span v-else class="text-gray-500 text-[11px] font-mono">待检测</span>
             </div>
 
             <!-- 分流订阅线路 (Sub-Routes) -->
@@ -770,9 +824,10 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, watch } from 'vue'
 import { useRoute } from 'vue-router'
-import { Plus, Radio, Key, AlertTriangle, Trash2 } from 'lucide-vue-next'
+import { Plus, Radio, Key, AlertTriangle, Trash2, ShieldCheck } from 'lucide-vue-next'
 import { toast } from '../utils/toast'
 import api from '../api'
+import { getRealityStatus, checkRealityStatus, type RealitySummaryStatus, type RealityCheckItem } from '../api/reality'
 
 const inbounds = ref<any[]>([])
 const usersList = ref<any[]>([])
@@ -780,6 +835,8 @@ const availableOutbounds = ref<string[]>(['direct', 'block'])
 const showModal = ref(false)
 const isEditing = ref(false)
 const saving = ref(false)
+const checkingReality = ref(false)
+const realitySummary = ref<RealitySummaryStatus | null>(null)
 const route = useRoute()
 
 const form = ref<any>({
@@ -881,6 +938,100 @@ const onProtocolChange = () => {
   }
 }
 
+const fetchRealityStatus = async () => {
+  try {
+    const rawRes: any = await getRealityStatus()
+    realitySummary.value = (rawRes?.data && typeof rawRes.data === 'object' && rawRes.data.totalChecked !== undefined)
+      ? rawRes.data
+      : rawRes
+  } catch (err) {
+    console.error('Failed to fetch reality status:', err)
+  }
+}
+
+const triggerRealityCheck = async () => {
+  checkingReality.value = true
+  try {
+    const rawRes: any = await checkRealityStatus()
+    const res: RealitySummaryStatus = (rawRes?.data && typeof rawRes.data === 'object' && rawRes.data.totalChecked !== undefined)
+      ? rawRes.data
+      : rawRes
+    realitySummary.value = res
+    const count = res?.totalChecked ?? res?.totalCount ?? (res?.items?.length || 0)
+    const errCount = res?.errorCount ?? 0
+    const warnCount = res?.warningCount ?? 0
+    if (errCount > 0) {
+      toast.warning(`检测完成：发现 ${errCount} 个 Reality 异常域名`)
+    } else if (warnCount > 0) {
+      toast.warning(`检测完成：发现 ${warnCount} 个 Reality 预警域名`)
+    } else {
+      toast.success(`Reality 检测完成：共巡检 ${count} 个目标，全部合规`)
+    }
+  } catch (err: any) {
+    toast.error('检测失败: ' + (err?.message || err))
+  } finally {
+    checkingReality.value = false
+  }
+}
+
+const getRealityItemsForInbound = (tag: string): RealityCheckItem[] => {
+  return realitySummary.value?.items?.filter((item) => item.inboundTag === tag) || []
+}
+
+const getInboundRealityOverallStatus = (tag: string) => {
+  const items = getRealityItemsForInbound(tag)
+  if (!items.length) return null
+  if (items.some((i) => i.status === 'error')) {
+    const firstErr = items.find((i) => i.status === 'error')!
+    return {
+      status: 'error' as const,
+      badgeText: `Reality 异常: ${firstErr.details || firstErr.errorType || '合规异常'}`,
+      item: firstErr,
+      items,
+    }
+  }
+  if (items.some((i) => i.status === 'warning')) {
+    const firstWarn = items.find((i) => i.status === 'warning')!
+    return {
+      status: 'warning' as const,
+      badgeText: `Reality 预警: ${firstWarn.details || firstWarn.errorType || '临期或预警'}`,
+      item: firstWarn,
+      items,
+    }
+  }
+  const firstOk = items[0]
+  const tls = firstOk.tlsVersion || 'TLS 1.3'
+  const alpn = firstOk.alpn ? ` / ${firstOk.alpn}` : ''
+  return {
+    status: 'ok' as const,
+    badgeText: `Reality 正常 (${tls}${alpn})`,
+    item: firstOk,
+    items,
+  }
+}
+
+const getRealityBadgeClass = (status: 'ok' | 'warning' | 'error') => {
+  switch (status) {
+    case 'ok':
+      return 'bg-emerald-500/15 text-emerald-300 border border-emerald-500/30'
+    case 'warning':
+      return 'bg-amber-500/15 text-amber-300 border border-amber-500/30'
+    case 'error':
+      return 'bg-rose-500/15 text-rose-300 border border-rose-500/30'
+  }
+}
+
+const getRealityDotClass = (status: 'ok' | 'warning' | 'error') => {
+  switch (status) {
+    case 'ok':
+      return 'bg-emerald-400'
+    case 'warning':
+      return 'bg-amber-400'
+    case 'error':
+      return 'bg-rose-400'
+  }
+}
+
 const fetchAll = async () => {
   try {
     const [inbRes, uRes, obRes]: any = await Promise.all([
@@ -902,6 +1053,7 @@ const fetchAll = async () => {
     if (!availableOutbounds.value.includes('direct')) {
       availableOutbounds.value.unshift('direct')
     }
+    fetchRealityStatus()
   } catch (err) {
     console.error(err)
   }

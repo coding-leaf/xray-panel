@@ -1,7 +1,7 @@
 # Xray Decoupled Panel (解耦运维监控与分流管理面板)
 
 <p align="center">
-  <img src="https://img.shields.io/badge/Version-v2.4.0-indigo?style=flat-square" alt="Version">
+  <img src="https://img.shields.io/badge/Version-v2.4.1-indigo?style=flat-square" alt="Version">
   <img src="https://img.shields.io/badge/Go-1.22+-00ADD8?style=flat-square&logo=go" alt="Go Version">
   <img src="https://img.shields.io/badge/Vue-3.4+-4FC08D?style=flat-square&logo=vue.js" alt="Vue Version">
   <img src="https://img.shields.io/badge/Architecture-Clean%20Architecture-blue?style=flat-square" alt="Clean Architecture">
@@ -64,6 +64,14 @@
 ---
 
 ## 更新日志
+
+### v2.4.1 (2026-09) - Reality 伪装域名网络合规性巡检与告警体系
+- **Reality 域名多维合规性主动巡检**：
+  - 支持 TCP 连通性、TLS 1.3 强制握手协商、ALPN (h2/http1.1) 支持度自动核验；
+  - 深度排查公共 CDN (Cloudflare) 拦截特征与回落风险，实现证书域名匹配校验与临期 (<7天) 预警。
+- **自动化后台调度与状态呈现**：
+  - 后台 12 小时自适应轻量轮询调度与读写锁缓存，支持面板 API 手动即时触发；
+  - 节点视图与仪表盘提供直观合规状态徽标与异常指引，联动 Telegram 告警通知。
 
 ### v2.4.0 (2026-09) - 架构分层解耦、后端高并发性能加固与前端分包优化
 - **前端包体与加载优化**：

@@ -24,6 +24,33 @@
       </div>
     </div>
 
+    <!-- Reality 域名异常/临期告警横幅 -->
+    <div
+      v-if="realityAlertCount > 0"
+      class="p-4 rounded-2xl border text-xs flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 shadow-lg transition-all"
+      :class="realitySummary?.errorCount ? 'bg-rose-500/10 border-rose-500/30 text-rose-300 shadow-rose-500/5' : 'bg-amber-500/10 border-amber-500/30 text-amber-300 shadow-amber-500/5'"
+    >
+      <div class="flex items-center gap-3">
+        <component :is="realitySummary?.errorCount ? AlertCircle : AlertTriangle" class="w-5 h-5 shrink-0" :class="realitySummary?.errorCount ? 'text-rose-400' : 'text-amber-400'" />
+        <div>
+          <p class="font-bold text-sm">
+            {{ realitySummary?.errorCount ? 'Reality 伪装域名存在异常风险' : 'Reality 伪装域名临期或配置预警' }}
+          </p>
+          <p class="text-xs opacity-90 mt-0.5">
+            ⚠️ 检测到 {{ realityAlertCount }} 个 Reality 入站伪装域名异常或临期，请及时检查与更换，避免节点服务中断。
+          </p>
+        </div>
+      </div>
+      <router-link
+        to="/inbounds"
+        class="shrink-0 px-3.5 py-1.5 rounded-xl font-semibold text-xs transition-all flex items-center gap-1 border"
+        :class="realitySummary?.errorCount ? 'bg-rose-600/30 hover:bg-rose-600/50 text-white border-rose-500/40' : 'bg-amber-600/30 hover:bg-amber-600/50 text-white border-amber-500/40'"
+      >
+        <span>立即前往处理</span>
+        <span>➔</span>
+      </router-link>
+    </div>
+
     <!-- Quick Stats 4 Grid Cards -->
     <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
       <!-- CPU -->
@@ -230,7 +257,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted } from 'vue'
 import {
   Cpu,
   Activity,
@@ -241,19 +268,40 @@ import {
   ArrowDownRight,
   Server,
   RefreshCw,
+  AlertTriangle,
+  AlertCircle,
 } from 'lucide-vue-next'
 import { toast } from '../utils/toast'
 import api from '../api'
+import { getRealityStatus, type RealitySummaryStatus } from '../api/reality'
 
 const dashboard = ref<any>(null)
 const refreshing = ref(false)
 const restarting = ref(false)
+const realitySummary = ref<RealitySummaryStatus | null>(null)
 let timer: any = null
+
+const realityAlertCount = computed(() => {
+  if (!realitySummary.value) return 0
+  return (realitySummary.value.errorCount || 0) + (realitySummary.value.warningCount || 0)
+})
+
+const fetchRealityAlerts = async () => {
+  try {
+    const rawRes: any = await getRealityStatus()
+    realitySummary.value = (rawRes?.data && typeof rawRes.data === 'object' && rawRes.data.totalChecked !== undefined)
+      ? rawRes.data
+      : rawRes
+  } catch (err) {
+    // 静默降级
+  }
+}
 
 const fetchData = async () => {
   refreshing.value = true
   try {
     dashboard.value = await api.get('/dashboard')
+    fetchRealityAlerts()
   } catch (err) {
     console.error(err)
   } finally {

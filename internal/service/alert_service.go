@@ -163,6 +163,56 @@ func (s *AlertService) CheckCertificates(ctx context.Context) error {
 	return nil
 }
 
+// NotifyRealityAbnormal sends a notification when a Reality domain check yields warning or error,
+// with a 24-hour debounce cooldown per (inboundTag, serverName, errorType).
+func (s *AlertService) NotifyRealityAbnormal(ctx context.Context, item domain.RealityCheckItem) error {
+	if item.Status == domain.RealityStatusOk || item.Status == "" {
+		return nil
+	}
+	if s.notifier == nil {
+		return nil
+	}
+
+	cacheKey := fmt.Sprintf("reality_alert:%s:%s:%s", item.InboundTag, item.ServerName, item.ErrorType)
+	if _, found := s.cache.Get(cacheKey); found {
+		return nil // 冷却期内，跳过重复告警
+	}
+
+	statusBadge := "🟠 预警 (Warning)"
+	if item.Status == domain.RealityStatusError {
+		statusBadge = "🔴 异常 (Error)"
+	}
+
+	text := fmt.Sprintf(
+		"⚠️ <b>Reality 域名合规性告警</b>\n\n"+
+			"🏷️ <b>入站标签:</b> <code>%s</code>\n"+
+			"🌐 <b>目标域名:</b> <code>%s</code>\n"+
+			"🚨 <b>错误类型:</b> %s\n"+
+			"📊 <b>健康状态:</b> %s\n"+
+			"📝 <b>详细描述:</b> %s\n"+
+			"⏰ <b>检测时间:</b> %s",
+		item.InboundTag,
+		item.ServerName,
+		item.ErrorType,
+		statusBadge,
+		item.Details,
+		time.Now().Format("2006-01-02 15:04:05"),
+	)
+
+	if err := s.notifier.SendMessage(ctx, text); err != nil {
+		logger.FromContext(ctx).Warn("Send reality abnormal alert failed",
+			slog.String("inbound_tag", item.InboundTag),
+			slog.String("server_name", item.ServerName),
+			slog.String("error_type", item.ErrorType),
+			slog.String("error", err.Error()),
+		)
+		return err
+	}
+
+	s.cache.Set(cacheKey, true, 24*time.Hour)
+	return nil
+}
+
 func parseCertFile(certPath string) (*certInfo, error) {
 	data, err := os.ReadFile(certPath)
 	if err != nil {

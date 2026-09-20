@@ -162,6 +162,84 @@ export async function handleMockRequest(url: string, method: string, data?: any)
     })
   }
 
+  if (cleanUrl.endsWith('/inbounds/reality-status') && method === 'GET') {
+    const items: any[] = []
+    state.inbounds.forEach((inb) => {
+      try {
+        const stream = JSON.parse(inb.streamSettings || '{}')
+        if (stream.security === 'reality') {
+          const reality = stream.realitySettings || {}
+          const dest = reality.dest || 'gateway.icloud.com:443'
+          const serverNames = reality.serverNames || (reality.serverName ? [reality.serverName] : ['gateway.icloud.com'])
+          serverNames.forEach((sn: string) => {
+            items.push({
+              inboundId: inb.id,
+              inboundTag: inb.tag,
+              dest,
+              serverName: sn,
+              status: 'ok',
+              errorType: '',
+              details: '域名检测正常 (支持 TLS 1.3 与 ALPN, 证书有效)',
+              tlsVersion: 'TLS 1.3',
+              alpn: 'h2',
+              certExpiry: new Date(Date.now() + 60 * 86400000).toISOString().replace('T', ' ').substring(0, 19),
+              daysLeft: 60,
+              latencyMs: 38,
+              checkedAt: new Date().toISOString(),
+            })
+          })
+        }
+      } catch (e) {}
+    })
+    return delay({
+      totalChecked: items.length,
+      okCount: items.filter((i) => i.status === 'ok').length,
+      warningCount: items.filter((i) => i.status === 'warning').length,
+      errorCount: items.filter((i) => i.status === 'error').length,
+      items,
+      lastCheckAt: new Date().toISOString(),
+    })
+  }
+
+  if (cleanUrl.endsWith('/inbounds/reality-status/check') && method === 'POST') {
+    const items: any[] = []
+    state.inbounds.forEach((inb) => {
+      try {
+        const stream = JSON.parse(inb.streamSettings || '{}')
+        if (stream.security === 'reality') {
+          const reality = stream.realitySettings || {}
+          const dest = reality.dest || 'gateway.icloud.com:443'
+          const serverNames = reality.serverNames || (reality.serverName ? [reality.serverName] : ['gateway.icloud.com'])
+          serverNames.forEach((sn: string) => {
+            items.push({
+              inboundId: inb.id,
+              inboundTag: inb.tag,
+              dest,
+              serverName: sn,
+              status: 'ok',
+              errorType: '',
+              details: '域名检测正常 (支持 TLS 1.3 与 ALPN, 证书有效)',
+              tlsVersion: 'TLS 1.3',
+              alpn: 'h2',
+              certExpiry: new Date(Date.now() + 60 * 86400000).toISOString().replace('T', ' ').substring(0, 19),
+              daysLeft: 60,
+              latencyMs: 42,
+              checkedAt: new Date().toISOString(),
+            })
+          })
+        }
+      } catch (e) {}
+    })
+    return delay({
+      totalChecked: items.length,
+      okCount: items.filter((i) => i.status === 'ok').length,
+      warningCount: items.filter((i) => i.status === 'warning').length,
+      errorCount: items.filter((i) => i.status === 'error').length,
+      items,
+      lastCheckAt: new Date().toISOString(),
+    }, 400)
+  }
+
   // 4. Outbounds 落地出口
   if (cleanUrl.endsWith('/outbounds') && method === 'GET') {
     return delay(state.outbounds)

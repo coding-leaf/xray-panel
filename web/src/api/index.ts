@@ -28,30 +28,31 @@ instance.interceptors.response.use(
 )
 
 const api = {
-  get: (url: string, config?: any) => {
+  get: <T = any>(url: string, config?: any): Promise<T> => {
     if (isMockMode()) {
-      return handleMockRequest(url, 'GET')
+      return handleMockRequest(url, 'GET') as Promise<T>
     }
-    return instance.get(url, config)
+    return instance.get(url, config) as Promise<T>
   },
-  post: (url: string, data?: any, config?: any) => {
+  post: <T = any>(url: string, data?: any, config?: any): Promise<T> => {
     if (isMockMode()) {
-      return handleMockRequest(url, 'POST', data)
+      return handleMockRequest(url, 'POST', data) as Promise<T>
     }
-    return instance.post(url, data, config)
+    return instance.post(url, data, config) as Promise<T>
   },
-  put: (url: string, data?: any, config?: any) => {
+  put: <T = any>(url: string, data?: any, config?: any): Promise<T> => {
     if (isMockMode()) {
-      return handleMockRequest(url, 'PUT', data)
+      return handleMockRequest(url, 'PUT', data) as Promise<T>
     }
-    return instance.put(url, data, config)
+    return instance.put(url, data, config) as Promise<T>
   },
-  delete: (url: string, config?: any) => {
+  delete: <T = any>(url: string, config?: any): Promise<T> => {
     if (isMockMode()) {
-      return handleMockRequest(url, 'DELETE')
+      return handleMockRequest(url, 'DELETE') as Promise<T>
     }
-    return instance.delete(url, config)
+    return instance.delete(url, config) as Promise<T>
   },
 }
 
+export * from './reality'
 export default api

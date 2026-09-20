@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	"panel/internal/domain"
@@ -11,6 +12,7 @@ type mockNotifier struct {
 	trafficAlerts []domain.TrafficAlert
 	systemAlerts  []domain.SystemAlert
 	certAlerts    []domain.CertAlert
+	messages      []string
 }
 
 func (m *mockNotifier) SendTrafficAlert(ctx context.Context, alert domain.TrafficAlert) error {
@@ -33,6 +35,7 @@ func (m *mockNotifier) SendCertAlert(ctx context.Context, alert domain.CertAlert
 }
 
 func (m *mockNotifier) SendMessage(ctx context.Context, text string) error {
+	m.messages = append(m.messages, text)
 	return nil
 }
 
@@ -129,5 +132,87 @@ func TestAlertService_CheckCertificates_Empty(t *testing.T) {
 	}
 	if len(notifier.certAlerts) != 0 {
 		t.Fatalf("expected 0 cert alerts, got %d", len(notifier.certAlerts))
+	}
+}
+
+func TestNotifyRealityAbnormal(t *testing.T) {
+	notifier := &mockNotifier{}
+	svc := NewAlertService(notifier, nil, nil, nil)
+	ctx := context.Background()
+
+	item1 := domain.RealityCheckItem{
+		InboundTag: "vless-reality-1",
+		ServerName: "apple.com",
+		ErrorType:  domain.ErrTypeTLSVersionLow,
+		Status:     domain.RealityStatusError,
+		Details:    "TLS 协商版本过低",
+	}
+
+	// 1. 首次触发 Error，应该成功发送
+	if err := svc.NotifyRealityAbnormal(ctx, item1); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(notifier.messages) != 1 {
+		t.Fatalf("expected 1 message, got %d", len(notifier.messages))
+	}
+
+	// 检查消息内容
+	msg := notifier.messages[0]
+	if !strings.Contains(msg, "vless-reality-1") ||
+		!strings.Contains(msg, "apple.com") ||
+		!strings.Contains(msg, domain.ErrTypeTLSVersionLow) ||
+		!strings.Contains(msg, "TLS 协商版本过低") {
+		t.Fatalf("message missing critical fields: %s", msg)
+	}
+
+	// 2. 相同 tag, serverName, errorType 再次触发，应被 24h 冷却拦截
+	if err := svc.NotifyRealityAbnormal(ctx, item1); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(notifier.messages) != 1 {
+		t.Fatalf("expected message count to stay 1 due to 24h debounce, got %d", len(notifier.messages))
+	}
+
+	// 3. 相同 tag, 相同 serverName, 但不同 errorType，应能成功发送
+	itemDifferentErr := domain.RealityCheckItem{
+		InboundTag: "vless-reality-1",
+		ServerName: "apple.com",
+		ErrorType:  domain.ErrTypeCDNDetected,
+		Status:     domain.RealityStatusError,
+		Details:    "目标套用 Cloudflare CDN",
+	}
+	if err := svc.NotifyRealityAbnormal(ctx, itemDifferentErr); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(notifier.messages) != 2 {
+		t.Fatalf("expected 2 messages, got %d", len(notifier.messages))
+	}
+
+	// 4. 相同 tag, 不同 serverName，应能成功发送
+	itemDifferentSN := domain.RealityCheckItem{
+		InboundTag: "vless-reality-1",
+		ServerName: "microsoft.com",
+		ErrorType:  domain.ErrTypeTLSVersionLow,
+		Status:     domain.RealityStatusError,
+		Details:    "TLS 协商版本过低",
+	}
+	if err := svc.NotifyRealityAbnormal(ctx, itemDifferentSN); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(notifier.messages) != 3 {
+		t.Fatalf("expected 3 messages, got %d", len(notifier.messages))
+	}
+
+	// 5. 状态为 Ok 时不发送
+	itemOk := domain.RealityCheckItem{
+		InboundTag: "vless-reality-2",
+		ServerName: "google.com",
+		Status:     domain.RealityStatusOk,
+	}
+	if err := svc.NotifyRealityAbnormal(ctx, itemOk); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(notifier.messages) != 3 {
+		t.Fatalf("expected ok item not to trigger message, got %d", len(notifier.messages))
 	}
 }

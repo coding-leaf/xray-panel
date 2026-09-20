@@ -119,6 +119,10 @@ func SetupRouter(handlers *Handlers, jwtSecret string, staticFS fs.FS) *gin.Engi
 			authGroup.PUT("/inbounds/:id", handlers.Inbound.Update)
 			authGroup.DELETE("/inbounds/:id", handlers.Inbound.Delete)
 			authGroup.GET("/inbounds/reality-keypair", handlers.Inbound.GenerateRealityKey)
+			authGroup.GET("/inbounds/reality-status", handlers.Inbound.GetRealityStatus)
+			authGroup.POST("/inbounds/reality-status/check", handlers.Inbound.TriggerRealityCheck)
+			authGroup.GET("/v1/inbounds/reality-status", handlers.Inbound.GetRealityStatus)
+			authGroup.POST("/v1/inbounds/reality-status/check", handlers.Inbound.TriggerRealityCheck)
 
 			// 出站管理
 			authGroup.GET("/outbounds", handlers.Outbound.List)

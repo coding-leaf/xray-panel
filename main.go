@@ -16,6 +16,7 @@ import (
 	"golang.org/x/sync/errgroup"
 
 	"panel/internal/adapter/monitor"
+	"panel/internal/adapter/reality"
 	"panel/internal/adapter/repository"
 	"panel/internal/adapter/telegram"
 	"panel/internal/adapter/xray"
@@ -28,7 +29,7 @@ import (
 )
 
 var (
-	Version   = "v2.4.0"
+	Version   = "v2.4.1"
 	Commit    = "dev"
 	BuildTime = "unknown"
 )
@@ -136,13 +137,15 @@ func main() {
 	auditLogSvc := service.NewAuditLogService(auditLogRepo)
 	authSvc := service.NewAuthService(adminRepo, cfg.JWTSecret, auditLogSvc)
 	settingSvc := service.NewSettingService(settingRepo, configMgr, supervisor, botAdapter, auditLogSvc)
+	realityProber := reality.NewDefaultRealityProber()
+	realityMonitorSvc := service.NewRealityMonitorService(inboundRepo, realityProber, alertSvc)
 
 	// 5. 初始化 HTTP API 处理器
 	handlers := &deliveryHTTP.Handlers{
 		Auth:      deliveryHTTP.NewAuthHandler(authSvc),
 		Dashboard: deliveryHTTP.NewDashboardHandler(monitorSvc),
 		User:      deliveryHTTP.NewUserHandler(userSvc, subSvc, auditLogSvc),
-		Inbound:   deliveryHTTP.NewInboundHandler(configSvc, auditLogSvc),
+		Inbound:   deliveryHTTP.NewInboundHandler(configSvc, auditLogSvc, realityMonitorSvc),
 		Outbound:  deliveryHTTP.NewOutboundHandler(configSvc, auditLogSvc),
 		Routing:   deliveryHTTP.NewRoutingHandler(configSvc, auditLogSvc),
 		Config:    deliveryHTTP.NewConfigHandler(configSvc, auditLogSvc),
@@ -164,6 +167,7 @@ func main() {
 
 	httpSvc := deliveryHTTP.NewServer(cfg.ListenPort, router, deliveryHTTP.WithShutdownTimeout(5*time.Second))
 	syncJob := deliveryCron.NewTrafficSyncJob(xrayManager, userRepo, inboundRepo, trafficLogRepo, alertSvc, userSvc, ticketRepo, 5*time.Second)
+	realitySyncJob := deliveryCron.NewRealitySyncJob(realityMonitorSvc, 12*time.Hour)
 
 	services := []struct {
 		name    string
@@ -172,6 +176,7 @@ func main() {
 		{name: "Host Monitor", service: hostMonitor},
 		{name: "HTTP Server", service: httpSvc},
 		{name: "Traffic Sync Job", service: syncJob},
+		{name: "Reality Sync Job", service: realitySyncJob},
 		{name: "Telegram Bot", service: botHandler},
 	}
 

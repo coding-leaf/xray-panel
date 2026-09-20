@@ -11,3 +11,4 @@
 | web-bundle-optimization | 前端路由动态懒加载与 Vite manualChunks 细粒度分包优化 | Deploy | `3cc4331` | typecheck, npm run build, go test -race, go build 全部全绿通过 | 2026-09-20 |
 | backend-dataflow-perf | 后端限流分段锁、日志缓冲池复用、Dashboard快照缓存与速率批量更新优化 | Deploy | `527e6b9` | go test -race ./... 全绿, go vet 0告警, go build 成功 | 2026-09-20 |
 | arch-domain-decoupling | 架构分层解耦：Service层定义Caller-scoped接口彻底切断对Adapter的反向依赖；提炼AuthService与SettingService纯化Handler；节点转换统一至protocol包并清理死代码 | Deploy | `08cda5f` | go test -race ./... 全绿, go vet 0告警, go build 成功 | 2026-09-20 |
+| reality-domain-monitor | 成功实现 Reality 域名合规性定期监测与面板告警及前端异常修复 | Deploy | `05c3d55` | go test -race ./... 及 npm run build 全绿通过 | 2026-09-20 |

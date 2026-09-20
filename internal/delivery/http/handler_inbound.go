@@ -12,14 +12,18 @@ import (
 )
 
 type InboundHandler struct {
-	configSvc *service.ConfigService
-	auditSvc  *service.AuditLogService
+	configSvc         *service.ConfigService
+	auditSvc          *service.AuditLogService
+	realityMonitorSvc *service.RealityMonitorService
 }
 
-func NewInboundHandler(configSvc *service.ConfigService, auditSvc ...*service.AuditLogService) *InboundHandler {
-	h := &InboundHandler{configSvc: configSvc}
-	if len(auditSvc) > 0 {
-		h.auditSvc = auditSvc[0]
+func NewInboundHandler(configSvc *service.ConfigService, auditSvc *service.AuditLogService, realityMonitorSvc ...*service.RealityMonitorService) *InboundHandler {
+	h := &InboundHandler{
+		configSvc: configSvc,
+		auditSvc:  auditSvc,
+	}
+	if len(realityMonitorSvc) > 0 {
+		h.realityMonitorSvc = realityMonitorSvc[0]
 	}
 	return h
 }
@@ -104,4 +108,54 @@ func (h *InboundHandler) GenerateRealityKey(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, pair)
+}
+
+// GetRealityStatus retrieves the latest aggregated Reality disguise domain status.
+func (h *InboundHandler) GetRealityStatus(c *gin.Context) {
+	if h.realityMonitorSvc == nil {
+		c.JSON(http.StatusOK, gin.H{
+			"code": 0,
+			"msg":  "success",
+			"data": domain.RealitySummaryStatus{
+				Items: []domain.RealityCheckItem{},
+			},
+		})
+		return
+	}
+
+	summary := h.realityMonitorSvc.GetStatus()
+	c.JSON(http.StatusOK, gin.H{
+		"code": 0,
+		"msg":  "success",
+		"data": summary,
+	})
+}
+
+// TriggerRealityCheck immediately triggers an active probe check for all Reality inbounds.
+func (h *InboundHandler) TriggerRealityCheck(c *gin.Context) {
+	if h.realityMonitorSvc == nil {
+		c.JSON(http.StatusOK, gin.H{
+			"code": 0,
+			"msg":  "reality check completed",
+			"data": domain.RealitySummaryStatus{
+				Items: []domain.RealityCheckItem{},
+			},
+		})
+		return
+	}
+
+	summary, err := h.realityMonitorSvc.CheckAll(c.Request.Context())
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"code":  -1,
+			"error": err.Error(),
+		})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"code": 0,
+		"msg":  "reality check completed",
+		"data": summary,
+	})
 }

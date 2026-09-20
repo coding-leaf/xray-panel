@@ -2,25 +2,39 @@ package service
 
 import (
 	"context"
+	"crypto/x509"
+	"encoding/pem"
 	"fmt"
 	"log/slog"
+	"os"
+	"strings"
 	"time"
 
-	"panel/internal/adapter/xray"
 	"panel/internal/domain"
 	"panel/internal/pkg/cache"
 	"panel/internal/pkg/logger"
 )
 
+type CertificateInspector interface {
+	GetCertificatePaths() []string
+}
+
+type certInfo struct {
+	DomainName string
+	DaysLeft   int
+	NotAfter   time.Time
+	Path       string
+}
+
 type AlertService struct {
 	notifier  domain.Notifier
 	userRepo  domain.UserRepository
 	monitor   domain.HostMonitor
-	configMgr *xray.ConfigManager
+	configMgr CertificateInspector
 	cache     *cache.Cache[bool]
 }
 
-func NewAlertService(notifier domain.Notifier, userRepo domain.UserRepository, monitor domain.HostMonitor, configMgr *xray.ConfigManager) *AlertService {
+func NewAlertService(notifier domain.Notifier, userRepo domain.UserRepository, monitor domain.HostMonitor, configMgr CertificateInspector) *AlertService {
 	return &AlertService{
 		notifier:  notifier,
 		userRepo:  userRepo,
@@ -126,19 +140,19 @@ func (s *AlertService) CheckCertificates(ctx context.Context) error {
 	}
 	certPaths := s.configMgr.GetCertificatePaths()
 	for _, p := range certPaths {
-		certInfo, err := xray.ParseCertFile(p)
+		info, err := parseCertFile(p)
 		if err != nil {
 			continue
 		}
 		// 剩余天数 <= 15 天时触发预警
-		if certInfo.DaysLeft <= 15 {
-			cacheKey := fmt.Sprintf("cert_alert:%s", certInfo.DomainName)
+		if info.DaysLeft <= 15 {
+			cacheKey := fmt.Sprintf("cert_alert:%s", info.DomainName)
 			if _, found := s.cache.Get(cacheKey); !found {
 				alert := domain.CertAlert{
-					DomainName: certInfo.DomainName,
-					DaysLeft:   certInfo.DaysLeft,
-					NotAfter:   certInfo.NotAfter.Format("2006-01-02 15:04:05"),
-					Path:       certInfo.Path,
+					DomainName: info.DomainName,
+					DaysLeft:   info.DaysLeft,
+					NotAfter:   info.NotAfter.Format("2006-01-02 15:04:05"),
+					Path:       info.Path,
 				}
 				if err := s.notifier.SendCertAlert(ctx, alert); err == nil {
 					s.cache.Set(cacheKey, true, 24*time.Hour)
@@ -147,4 +161,35 @@ func (s *AlertService) CheckCertificates(ctx context.Context) error {
 		}
 	}
 	return nil
+}
+
+func parseCertFile(certPath string) (*certInfo, error) {
+	data, err := os.ReadFile(certPath)
+	if err != nil {
+		return nil, fmt.Errorf("read cert file failed: %w", err)
+	}
+
+	block, _ := pem.Decode(data)
+	if block == nil {
+		return nil, fmt.Errorf("failed to decode PEM block from %s", certPath)
+	}
+
+	cert, err := x509.ParseCertificate(block.Bytes)
+	if err != nil {
+		return nil, fmt.Errorf("parse x509 cert failed: %w", err)
+	}
+
+	domainName := cert.Subject.CommonName
+	if len(cert.DNSNames) > 0 {
+		domainName = strings.Join(cert.DNSNames, ", ")
+	}
+
+	daysLeft := int(time.Until(cert.NotAfter).Hours() / 24)
+
+	return &certInfo{
+		DomainName: domainName,
+		DaysLeft:   daysLeft,
+		NotAfter:   cert.NotAfter,
+		Path:       certPath,
+	}, nil
 }

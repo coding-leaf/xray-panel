@@ -7,8 +7,8 @@ import (
 	"strings"
 	"testing"
 
-	"panel/internal/adapter/xray"
 	"panel/internal/domain"
+	"panel/internal/protocol"
 )
 
 func TestBuildShareLink_FullParameterParity(t *testing.T) {
@@ -27,7 +27,7 @@ func TestBuildShareLink_FullParameterParity(t *testing.T) {
 			StreamSettings: `{"network":"ws","security":"tls","tlsSettings":{"serverName":"trojan.example.com","alpn":["h2","http/1.1"]},"wsSettings":{"path":"/trojan-path","headers":{"Host":"trojan.example.com"}}}`,
 		}
 
-		link := xray.BuildShareLink(inbound, user, "", 0)
+		link := protocol.BuildShareLink(inbound, user, "", 0)
 		if !strings.HasPrefix(link, "trojan://") {
 			t.Fatalf("expected trojan:// prefix, got %s", link)
 		}
@@ -62,7 +62,7 @@ func TestBuildShareLink_FullParameterParity(t *testing.T) {
 			StreamSettings: `{"network":"ws","security":"tls","tlsSettings":{"serverName":"vmess.example.com"},"wsSettings":{"path":"/vmess-path","headers":{"Host":"vmess.example.com"}}}`,
 		}
 
-		link := xray.BuildShareLink(inbound, user, "", 0)
+		link := protocol.BuildShareLink(inbound, user, "", 0)
 		if !strings.HasPrefix(link, "vmess://") {
 			t.Fatalf("expected vmess:// prefix, got %s", link)
 		}
@@ -99,7 +99,7 @@ func TestBuildShareLink_FullParameterParity(t *testing.T) {
 			StreamSettings: `{"network":"tcp","security":"reality","realitySettings":{"serverName":"apple.com","shortId":"aabbcc1122","publicKey":"test-pbk"}}`,
 		}
 
-		link := xray.BuildShareLink(inbound, user, "", 0)
+		link := protocol.BuildShareLink(inbound, user, "", 0)
 		u, err := url.Parse(link)
 		if err != nil {
 			t.Fatalf("failed to parse generated URL: %v", err)
@@ -126,12 +126,12 @@ func TestBuildShareLink_FullParameterParity(t *testing.T) {
 			StreamSettings: `{"network":"tcp","security":"none"}`,
 		}
 
-		link := xray.BuildShareLink(inbound, user, "", 0)
+		link := protocol.BuildShareLink(inbound, user, "", 0)
 		if !strings.Contains(link, "@[2408:8207:dead:beef::1]:443") {
 			t.Fatalf("expected bracketed IPv6 in link, got: %s", link)
 		}
 
-		node := xray.InboundToNodeConfig(inbound, user, "", 0)
+		node := protocol.InboundToNodeConfig(inbound, user, "", 0)
 		if node.Address != "2408:8207:dead:beef::1" {
 			t.Errorf("expected raw IPv6 address preserved in NodeConfig, got: %s", node.Address)
 		}
@@ -146,7 +146,7 @@ func TestBuildShareLink_FullParameterParity(t *testing.T) {
 			StreamSettings: `{"network":"xhttp","security":"none","xhttpSettings":{"path":"/xhttp-path","mode":"stream-up","host":"xhttp.origin.com"}}`,
 		}
 
-		node := xray.InboundToNodeConfig(inbound, user, "", 0)
+		node := protocol.InboundToNodeConfig(inbound, user, "", 0)
 		if node.GetParam("host") != "xhttp.origin.com" {
 			t.Errorf("expected xhttp host to be xhttp.origin.com, got: %s", node.GetParam("host"))
 		}
@@ -169,12 +169,12 @@ func TestBuildShareLink_FullParameterParity(t *testing.T) {
 			StreamSettings: `{"network":"xhttp","security":"reality","realitySettings":{"publicKey":"test-pbk","serverName":"example.com"}}`,
 		}
 
-		node := xray.InboundToNodeConfig(inbound, userWithFlow, "", 0)
+		node := protocol.InboundToNodeConfig(inbound, userWithFlow, "", 0)
 		if node.GetParam("flow") != "" {
 			t.Errorf("expected empty flow in NodeConfig for xhttp, got: %s", node.GetParam("flow"))
 		}
 
-		link := xray.BuildShareLink(inbound, userWithFlow, "", 0)
+		link := protocol.BuildShareLink(inbound, userWithFlow, "", 0)
 		u, err := url.Parse(link)
 		if err != nil {
 			t.Fatalf("failed to parse link: %v", err)

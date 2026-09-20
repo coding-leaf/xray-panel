@@ -421,7 +421,7 @@ func TestUserService_ZeroDowntimeAndAutoRestore(t *testing.T) {
 		_ = os.WriteFile(cfgPath, []byte("{}"), 0644)
 		configMgr := xray.NewConfigManager(cfgPath, "")
 		mockSup := &mockSupervisor{}
-		configSvc := NewConfigService(configMgr, mockSup, nil, repo, nil)
+		configSvc := NewConfigService(configMgr, mockSup, nil, repo, nil, xray.NewXrayCompiler())
 
 		svc := NewUserService(repo, nil, nil, mockXray, configSvc)
 
@@ -617,7 +617,7 @@ func TestUserService_ZeroDowntimeAndAutoRestore(t *testing.T) {
 			},
 		}
 
-		configSvc := NewConfigService(configMgr, mockSup, inboundRepo, repo, nil)
+		configSvc := NewConfigService(configMgr, mockSup, inboundRepo, repo, nil, xray.NewXrayCompiler())
 
 		user, _ := repo.GetByID(context.Background(), 5)
 		if err := configSvc.SyncUserToFile(context.Background(), []string{"vless-in"}, user, false); err != nil {
@@ -697,7 +697,7 @@ func TestUserService_ZeroDowntimeAndAutoRestore(t *testing.T) {
 		_ = os.WriteFile(cfgPath, []byte("{}"), 0644)
 		configMgr := xray.NewConfigManager(cfgPath, "")
 		mockSup := &mockSupervisor{}
-		configSvc := NewConfigService(configMgr, mockSup, nil, repo, nil)
+		configSvc := NewConfigService(configMgr, mockSup, nil, repo, nil, xray.NewXrayCompiler())
 
 		svc := NewUserService(repo, nil, nil, mockXray, configSvc)
 

@@ -1,31 +1,19 @@
 package middleware
 
 import (
-	"fmt"
 	"net/http"
 	"strings"
 	"time"
 
+	paneljwt "panel/internal/pkg/jwt"
+
 	"github.com/gin-gonic/gin"
-	"github.com/golang-jwt/jwt/v5"
 )
 
-type JWTClaims struct {
-	Username string `json:"username"`
-	jwt.RegisteredClaims
-}
+type JWTClaims = paneljwt.Claims
 
 func GenerateToken(username, secret string, expireDuration time.Duration) (string, error) {
-	claims := JWTClaims{
-		Username: username,
-		RegisteredClaims: jwt.RegisteredClaims{
-			ExpiresAt: jwt.NewNumericDate(time.Now().Add(expireDuration)),
-			IssuedAt:  jwt.NewNumericDate(time.Now()),
-			Subject:   username,
-		},
-	}
-	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
-	return token.SignedString([]byte(secret))
+	return paneljwt.GenerateToken(username, secret, expireDuration)
 }
 
 func JWTAuth(secret string) gin.HandlerFunc {
@@ -43,15 +31,8 @@ func JWTAuth(secret string) gin.HandlerFunc {
 		}
 
 		tokenString := parts[1]
-		claims := &JWTClaims{}
-		token, err := jwt.ParseWithClaims(tokenString, claims, func(t *jwt.Token) (interface{}, error) {
-			if _, ok := t.Method.(*jwt.SigningMethodHMAC); !ok {
-				return nil, fmt.Errorf("unexpected signing method")
-			}
-			return []byte(secret), nil
-		})
-
-		if err != nil || !token.Valid {
+		claims, err := paneljwt.ParseToken(tokenString, secret)
+		if err != nil {
 			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "token is invalid or expired"})
 			return
 		}

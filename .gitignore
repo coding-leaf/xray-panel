@@ -63,21 +63,15 @@ deploy.sh
 deploy-*.sh
 deploy_*.sh
 
-# Agent Context & Private Documentation / AI-Native SDLC Scaffolding (Local Experiment)
-AGENTS.md
-AGENT.md
-.agents/
+# Local / Private IDE & Domain Notes (Do Not Track)
 .serena/
-tooling/
-opencode.json
-opencode.jsonc
-.opencode/
-docs/ACTIVE_TASKS.md
-docs/process/
-docs/sdlc/
 *.local
 docs/REALITY_DOMAIN_GUIDE.md
 docs/*_GUIDE.md
+
+# Python & Test Caches
+tooling/__pycache__/
+tooling/tests/__pycache__/
 
 
 # Secrets, SSH Keys & Certificates

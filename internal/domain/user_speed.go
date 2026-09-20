@@ -19,11 +19,84 @@ type UserSpeedStatus struct {
 	IsOnline   bool   `json:"isOnline"`
 }
 
+type UserTrafficDeltaUpdate struct {
+	Email string
+	Up    int64
+	Down  int64
+}
+
 var (
 	speedTrackerMu sync.RWMutex
 	speedTracker   = make(map[string]*UserSpeedRecord)
 	userResetTimes = make(map[string]int64)
 )
+
+// CalculateSpeedDelta 速率计算纯函数，含除以零与异常保护
+func CalculateSpeedDelta(upBytes, downBytes, intervalSec int64) (upSpeed, downSpeed int64) {
+	if intervalSec <= 0 {
+		intervalSec = 1
+	}
+	if upBytes < 0 {
+		upBytes = 0
+	}
+	if downBytes < 0 {
+		downBytes = 0
+	}
+	return upBytes / intervalSec, downBytes / intervalSec
+}
+
+// BatchUpdateUserRuntimeSpeeds 单次获取写锁，原子完成全量用户速率计算、无流量清零及过期缓存淘汰
+func BatchUpdateUserRuntimeSpeeds(deltas []UserTrafficDeltaUpdate, intervalSec int64, nowMs int64) {
+	if nowMs <= 0 {
+		nowMs = time.Now().UnixMilli()
+	}
+	if intervalSec <= 0 {
+		intervalSec = 1
+	}
+
+	speedTrackerMu.Lock()
+	defer speedTrackerMu.Unlock()
+
+	activeEmails := make(map[string]struct{}, len(deltas))
+	for _, d := range deltas {
+		activeEmails[d.Email] = struct{}{}
+		rec, ok := speedTracker[d.Email]
+		if !ok {
+			rec = &UserSpeedRecord{}
+			speedTracker[d.Email] = rec
+		}
+		upSpeed, downSpeed := CalculateSpeedDelta(d.Up, d.Down, intervalSec)
+		if d.Up > 0 || d.Down > 0 {
+			rec.UpSpeed = upSpeed
+			rec.DownSpeed = downSpeed
+			rec.LastActive = nowMs
+		} else {
+			rec.UpSpeed = 0
+			rec.DownSpeed = 0
+		}
+	}
+
+	// 对本轮未提供增量的用户，瞬时速率置零；若超过 10 分钟无活跃流量，则淘汰回收内存
+	const inactiveEvictMs = 10 * 60 * 1000 // 10 分钟
+	for email, rec := range speedTracker {
+		if _, ok := activeEmails[email]; !ok {
+			rec.UpSpeed = 0
+			rec.DownSpeed = 0
+			if rec.LastActive > 0 && (nowMs-rec.LastActive > inactiveEvictMs) {
+				delete(speedTracker, email)
+			}
+		}
+	}
+
+	// 顺带清理 userResetTimes 中超过 15 秒的历史记录，防止 map 内存泄漏
+	const resetExpireMs = 15 * 1000 // 15 秒
+	for email, resetTime := range userResetTimes {
+		if nowMs-resetTime > resetExpireMs {
+			delete(userResetTimes, email)
+		}
+	}
+}
+
 
 func SetUserRuntimeSpeed(email string, upSpeed, downSpeed, lastActive int64) {
 	speedTrackerMu.Lock()

@@ -28,7 +28,7 @@ import (
 )
 
 var (
-	Version   = "v2.1.0"
+	Version   = "v2.4.0"
 	Commit    = "dev"
 	BuildTime = "unknown"
 )
@@ -134,10 +134,12 @@ func main() {
 	geoSvc := service.NewGeoDataService(cfg.XrayBinPath, xrayManager)
 	ticketSvc := service.NewTicketService(ticketRepo, userRepo, subSvc, settingRepo)
 	auditLogSvc := service.NewAuditLogService(auditLogRepo)
+	authSvc := service.NewAuthService(adminRepo, cfg.JWTSecret, auditLogSvc)
+	settingSvc := service.NewSettingService(settingRepo, configMgr, supervisor, botAdapter, auditLogSvc)
 
 	// 5. 初始化 HTTP API 处理器
 	handlers := &deliveryHTTP.Handlers{
-		Auth:      deliveryHTTP.NewAuthHandler(adminRepo, cfg.JWTSecret, auditLogSvc),
+		Auth:      deliveryHTTP.NewAuthHandler(authSvc),
 		Dashboard: deliveryHTTP.NewDashboardHandler(monitorSvc),
 		User:      deliveryHTTP.NewUserHandler(userSvc, subSvc, auditLogSvc),
 		Inbound:   deliveryHTTP.NewInboundHandler(configSvc, auditLogSvc),
@@ -145,7 +147,7 @@ func main() {
 		Routing:   deliveryHTTP.NewRoutingHandler(configSvc, auditLogSvc),
 		Config:    deliveryHTTP.NewConfigHandler(configSvc, auditLogSvc),
 		Sub:       deliveryHTTP.NewSubHandler(subSvc),
-		Setting:   deliveryHTTP.NewSettingHandler(settingRepo, botAdapter, configMgr, supervisor, auditLogSvc),
+		Setting:   deliveryHTTP.NewSettingHandler(settingSvc),
 		Log:       deliveryHTTP.NewLogHandler(logSvc, auditLogSvc),
 		DNS:       deliveryHTTP.NewDNSHandler(configSvc),
 		GeoData:   deliveryHTTP.NewGeoDataHandler(geoSvc),

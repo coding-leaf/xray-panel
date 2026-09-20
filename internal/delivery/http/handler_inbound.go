@@ -5,7 +5,6 @@ import (
 	"net/http"
 	"strconv"
 
-	"panel/internal/adapter/xray"
 	"panel/internal/domain"
 	"panel/internal/service"
 
@@ -99,7 +98,7 @@ func (h *InboundHandler) Delete(c *gin.Context) {
 }
 
 func (h *InboundHandler) GenerateRealityKey(c *gin.Context) {
-	pair, err := xray.GenerateRealityKeyPair()
+	pair, err := h.configSvc.GenerateRealityKeyPair()
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return

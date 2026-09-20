@@ -1,17 +1,16 @@
-# 🚀 Xray Decoupled Panel (解耦运维监控与分流管理面板)
+# Xray Decoupled Panel (解耦运维监控与分流管理面板)
 
 <p align="center">
-  <img src="https://img.shields.io/badge/Version-v2.3.0-indigo?style=flat-square" alt="Version">
+  <img src="https://img.shields.io/badge/Version-v2.4.0-indigo?style=flat-square" alt="Version">
   <img src="https://img.shields.io/badge/Go-1.22+-00ADD8?style=flat-square&logo=go" alt="Go Version">
   <img src="https://img.shields.io/badge/Vue-3.4+-4FC08D?style=flat-square&logo=vue.js" alt="Vue Version">
   <img src="https://img.shields.io/badge/Architecture-Clean%20Architecture-blue?style=flat-square" alt="Clean Architecture">
   <img src="https://img.shields.io/badge/Live%20Demo-GitHub%20Pages-success?style=flat-square&logo=github" alt="Live Demo">
-  <img src="https://img.shields.io/badge/Developed%20with-AI%20Assisted-8A2BE2?style=flat-square&logo=google-gemini" alt="Developed with AI">
   <img src="https://img.shields.io/badge/License-MIT-green.svg?style=flat-square" alt="License">
 </p>
 
 <p align="center">
-  <b>🌟 在线免部署体验 Demo：</b>
+  <b>在线免部署体验 Demo：</b>
   <a href="https://coding-leaf.github.io/xray-panel/" target="_blank">
     <b>https://coding-leaf.github.io/xray-panel/</b>
   </a>
@@ -19,196 +18,108 @@
 
 ---
 
-**Xray Decoupled Panel** 是一款基于 Go 与 Vue 3 构建的高性能 Xray 运维监控、节点分流与聚合订阅管理面板。项目采用彻底解耦的运行时架构，通过 Xray 官方原生 gRPC API (`HandlerService` / `StatsService`) 与系统服务直接通信交互，将动态用户状态与物理静态 `config.json` 完全解耦，支持用户毫秒级热增删、多入站/多出站分流编排、用户实时流量监控与多客户端聚合订阅分发。
+**Xray Decoupled Panel** 是基于 Go 与 Vue 3 构建的轻量级 Xray 运维监控、节点分流与订阅管理面板。系统采用控制面与数据面解耦架构，通过 Xray 官方原生 gRPC API（HandlerService / StatsService）直接与运行中内核通信，支持用户毫秒级热增删、多入站与多出站分流编排、实时流量采集与多客户端聚合订阅分发。
 
 ---
 
-## 🤖 AI 辅助开发与审计声明 (AI Disclosure)
+## 核心架构与功能特性
 
-本项目在架构设计、深层次代码审计、安全漏洞排查及单元测试编写过程中，使用了 AI 工具（Google DeepMind / Antigravity Agent）进行结对开发与分析辅助。
-
-- **客观性提示**：项目文档与代码中的部分实现可能带有 AI 辅助生成的痕迹。虽然所有关键变更均已经过静态检查、语法校验与自动化单元测试，但在实际生产环境中使用前，仍建议使用者根据自身网络环境与安全策略进行充分测试与验证；
-- **合规声明**：请使用者自觉遵守当地法律法规，合理合法使用网络代理技术。
-
----
-
-## ⚡ 核心功能与特性 (Features)
-
-- 🚀 **Xray 原生 gRPC 纯契约解耦与状态热重载**：
-  - 自研轻量级 Protobuf/gRPC 协议契约（`HandlerService` 与 `StatsService`），彻底剥离 `xray-core` 运行时巨石及 400+ 级联依赖，依赖树精简 75%；
-  - 深度接入 Xray 官方 gRPC API，用户增删与状态变更通过 gRPC 协议毫秒级下发至运行中内核；
-  - 运行中长连接（WebSocket、gRPC、VLESS REALITY）零中断、不掉线，彻底告别传统面板修改 `config.json` 并强制重启 Xray 进程引发的连接中断问题；
-  - 仅在入站、出站、全局路由分流规则或 DNS 发生结构性变更时才执行平滑内核重载。
-- 💾 **纯 Go SQLite ACID 事务持久化与批量单事务落盘**：
-  - 采用纯 Go 嵌入式存储引擎（`glebarez/sqlite`），彻底告别 CGO 跨平台编译依赖与环境地狱；
-  - 启用 WAL（Write-Ahead Logging）模式并优化 `synchronous=NORMAL`，单轮流量采集聚合为单原子事务落盘，消灭写放大与磁盘锁等待；
-  - 具备状态协调与逆向补偿机制：gRPC 下发与本地事务强一致绑定，杜绝脏状态与幽灵用户。
-- ❄️ **冷启动双轨落盘容灾与自动配置编译**：
-  - 系统关机、守护退出或配置变更时，自动将 SQLite 动态用户集合与路由拓扑安全编译合并落盘至 `config.json`，确保宿主机断电或冷启动时 Xray 核心能够零延迟恢复全量用户独立运行。
-- 🎯 **多协议多态账户适配与废弃字段彻底淘汰**：
-  - 统一支持 VLESS (Vision/Reality)、VMess、Trojan、Shadowsocks (2022/AEAD) 等主流协议多态 Account 结构与订阅分享转换；
-  - 彻底淘汰并移除 VMess 协议已废弃且存在安全隐患的 `alterId`，严格遵循现代 Xray 官方规范（强制 `alterId=0` / AEAD 加密）。
-- 🔄 **统一服务生命周期编排 (`app.Service`)**：
-  - 抽象标准 `app.Service` 契约，基于 `errgroup` 统一调度 HTTP Server、Telegram Bot Poller、Traffic Sync 定时轮询；
-  - 支持系统退出信号拦截、优雅关机（HTTP 活跃 Keep-Alive 连接排空）与有序资源释放（先关 gRPC 连接，再释放数据库文件锁）。
-- 🛡️ **并发流量统计防冲正**：
-  - 采用字段隔离更新与重置时间窗口过滤，避免并发写入或旧周期增量冲正刚归零的流量。
-- 🛡️ **带外高熵安全分发系统 (Out-of-Band Ticket Distribution & 阅后即焚)**：
-  - 采用 6 位 Crockford Base32 编码（10.7 亿高熵空间），生成中立提件码，支持在微信、QQ 等境内即时通讯安全发送；
-  - 客户端在专属【分布式网管接入点】输入提件码即可一键获取急救节点与长效订阅，完全脱敏、阻断爬虫主动探测；
-  - **四维自毁保障**：秒级逻辑失效（CAS 原子校验）、磁盘物理抹除（次数耗尽即刻 DELETE + 60秒定时垃圾回收）、客户端绝对时钟自毁（防切后台休眠）、传输层 `Cache-Control: no-store` 强制防缓存。
-- 🌐 **前后端彻底解耦 Headless API 与独立轻量单文件门户**：
-  - 标准化 `POST /api/portal/claim` 接口并全局放行 CORS 跨域；
-  - 提供开箱即用、零构建依赖的轻量单文件 HTML 模板（`deploy/standalone-portal.html`，~15KB 原生 Vanilla JS/CSS），支持直接部署于 Cloudflare Pages、GitHub Pages 或轻量虚拟主机中独立托管，源站 VPS 零暴露。
-- ☁️ **Cloudflare 边缘中立门户网关与反探测代理**：
-  - 提供工业级加固版 Cloudflare Worker / Pages 脚本（`deploy/cloudflare-worker-sub-proxy.js` 与 `deploy/cloudflare-pages/`）；
-  - 根路径伪装为中立健康站点，Fixed-point 多重解码彻底杜绝路径穿越；智能识别腾讯、微信及自动化扫描爬虫并返回 200 OK 伪装页，保护域名免遭拦截报红。
-- 🚀 **生产级平滑安装与热升级守护 ([deploy/install.sh](file:///home/yezisama/workspace/WorkSpace/xray-panel/deploy/install.sh))**：
-  - 升级为 Linux `install -m 755` 原子覆盖写入，彻底消除生产环境二进制热更新时的 `Text file busy` (ETXTBSY) 错误；
-  - 具备智能多路径自动寻径，并对敏感存储目录自动设置 `chmod 700` 权限安全收敛。
-- 🌐 **单入站多通道分流 (VLESS Route)**：
-  - 支持基于 VLESS UUID 映射的多出口分流机制，单个入站端口可按用户线路映射到不同落地出站，自动展开多通道独立订阅节点。
-- 🎭 **纯前端 Mock 演示沙盒 (GitHub Pages)**：
-  - 内置升级版 LocalStorage v3 数据仿真引擎，无需后端服务器即可完整体验多协议节点增删、通道编排与扫码订阅。
-- 🧩 **单二进制交付**：
-  - 前端基于 Vue 3 + Tailwind CSS 构建，所有静态资源通过 Go `//go:embed` 编译进单一二进制文件，无外部静态资源依赖，极简运维。
-- 📊 **实时监控与在线追踪**：
-  - 采集主机 CPU、内存、磁盘与双向网卡吞吐速率；
-  - 基于 Xray gRPC `StatsService` 定时轮询，精准追踪用户瞬时速率与在线连接状态。
-- 🔗 **聚合订阅与二维码分发**：
-  - 采用独立 `subToken` 鉴权，支持通用 Base64、Clash / Mihomo、Sing-box 等主流订阅格式导出与二维码扫码。
-- 🌍 **GeoData 规则库热更新**：
-  - 支持在线拉取 `geoip.dat` 与 `geosite.dat` 规则库并平滑重载。
-- 🤖 **Telegram 运维机器人**：
-  - 支持 `/status`、`/traffic`、`/sub`、`/restart` 等交互式管理指令与告警推送（流量超额、系统过载、SSL 临期）。
-- 🔒 **安全防护与访问控制**：
-  - 支持 TOTP 双因素认证（2FA）、动态高熵 JWT 密钥持久化、公开订阅接口防刷限流及 10MB 请求体大小上限防护。
+- **Xray 原生 gRPC 纯契约解耦与状态热重载**：
+  - 基于轻量级 Protobuf/gRPC 契约包与 Xray API 通信，剥离运行时多余依赖；
+  - 用户增删与状态变更通过 gRPC 协议毫秒级下发，长连接不中断；
+  - 仅在入站、出站、全局路由分流规则或 DNS 发生结构性变更时执行平滑内核重载。
+- **纯 Go SQLite ACID 事务持久化与批量单事务落盘**：
+  - 采用纯 Go 嵌入式存储引擎（glebarez/sqlite），无 CGO 编译依赖；
+  - 启用 WAL（Write-Ahead Logging）模式并优化 synchronous=NORMAL，单轮流量采集聚合为单原子事务落盘，降低磁盘写放大与锁等待；
+  - 具备状态协调机制：gRPC 下发与本地事务强一致绑定，防止状态不一致。
+- **冷启动双轨落盘容灾与自动配置编译**：
+  - 系统关机、退出或配置变更时，将 SQLite 用户集合与路由拓扑编译落盘至物理 config.json，保证冷启动独立恢复。
+- **多协议多态账户适配**：
+  - 原生支持 VLESS (Vision/Reality)、VMess、Trojan、Shadowsocks (2022/AEAD) 等协议的多态序列化与分享链接转换；
+  - 淘汰已废弃的 alterId 字段，遵循现代 Xray 规范（alterId=0 / AEAD 加密）。
+- **统一服务生命周期编排 (app.Service)**：
+  - 基于 errgroup 统一调度 HTTP Server、Telegram Bot Poller 与流量定时轮询任务；
+  - 支持系统退出信号拦截、优雅停机（Keep-Alive 连接排空）与有序资源释放。
+- **高并发性能优化与内存缓冲复用**：
+  - 接口防刷限流中间件采用 16 分段哈希锁（Sharded Mutex），消除高频并发互斥锁竞争；
+  - 日志逆向分页流式扫描采用 sync.Pool 缓冲池复用，降低垃圾回收压力；
+  - 系统看板与指标统计支持读写双重检查（DCL）轻量缓存，避免前端轮询高频全表扫描；
+  - 瞬时速率统计支持批量持锁更新与过期空闲对象自动淘汰。
+- **前端按需加载与细粒度分包优化**：
+  - 视图组件全面采用标准 ES 动态导入懒加载；
+  - 配置 Rollup manualChunks 细粒度分包，核心运行时、图表库、图标库与工具库独立分块，消除大产物打包告警并提升首屏加载性能。
+- **带外凭据分发与阅后即焚系统 (Ticket Distribution)**：
+  - 采用 6 位 Crockford Base32 编码生成高熵提件码，支持中立凭据安全分发；
+  - 提供 CAS 原子校验、物理磁盘抹除、客户端超时自毁与 Cache-Control: no-store 传输防缓存。
+- **单二进制交付**：
+  - 前端基于 Vue 3 + Tailwind CSS 构建，所有静态资源通过 Go embed 编译进单一二进制文件，无外部静态资源依赖。
+- **实时监控与在线追踪**：
+  - 采集主机 CPU、内存、磁盘与双向网卡吞吐速率（自动过滤回环及虚拟网卡）；
+  - 基于 StatsService 定时轮询，精准追踪用户瞬时速率与在线连接状态。
+- **聚合订阅与二维码分发**：
+  - 采用独立 subToken 鉴权，支持 Base64、Clash / Mihomo、Sing-box 等主流订阅格式导出与二维码扫码。
+- **安全防护与访问控制**：
+  - 支持 TOTP 双因素认证（2FA）、高熵 JWT 签名密钥、敏感配置字段脱敏与 10MB 请求体上限防护。
 
 ---
 
-## 📝 最近更新日志
+## 更新日志
 
-### 🚀 v2.3.0 (2026-09) - 纯契约协议解耦、核心依赖精简与 SQLite 存储性能飞跃
-- **⚡ Xray gRPC 纯契约化解耦**：
-  - 自研轻量级 Protobuf/gRPC 协议契约包（`internal/adapter/xray/proto`），100% 字节级兼容 Xray 原生 Wire 格式；
-  - 彻底拔除 `xray-core` 运行时及其捆绑的 400+ 级联依赖（包括 gVisor 网络内核、WireGuard、uTLS 等），依赖树削减 75%，大幅收敛攻击面与二进制体积；
-- **🛡️ 核心组件去冗余与现代化**：
-  - 纯 Go 标准库实现 RFC 6238 TOTP 认证器，拔除第三方库与冗余图片生成依赖；
-  - 纯 Go 泛型并发安全 TTL 缓存（`internal/pkg/cache`），零反射开销替代旧版缓存；
-  - 升级 `yaml.v3` 并收敛限流器为 Go 官方 `golang.org/x/time/rate` 令牌桶算法；
-- **💾 SQLite 存储性能与批量事务落盘**：
-  - 连接配置启用 `synchronous=NORMAL`，消除单连接 WAL 模式下每次提交的高延迟强制落盘；
-  - 流量同步支持单事务批量落盘（`BatchSyncTraffic`），将单轮周期的 $3N$ 次单句数据库操作收敛为单一原子事务，彻底根治磁盘写放大与 SQLite 锁竞争；
-- **🧩 KISS 规范架构治理**：
-  - 清除 `internal/sub/exporter.go` 中空转的类型别名与代理函数，外部统一面向原生领域模型。
+### v2.4.0 (2026-09) - 架构分层解耦、后端高并发性能加固与前端分包优化
+- **前端包体与加载优化**：
+  - 将所有路由视图组件重构为标准 ES 动态懒加载；
+  - 配置 Vite/Rollup manualChunks 细粒度代码拆分（vendor-vue, vendor-icons, vendor-qrcode, vendor-utils），彻底消除 500kB 单 chunk 警告，核心 runtime 产物压缩至约 103kB。
+- **后端数据流与并发性能加固**：
+  - 限流中间件升级为 16 分段哈希互斥锁，大幅降低高频 API 请求下的锁冲突概率；
+  - 日志逆向分页检索引入 sync.Pool 64KB 缓冲区池化复用与不可变截断拷贝，消除频繁 GC 压力；
+  - 系统看板监控聚合引入 2 秒 TTL 读写双检快照缓存，阻断前端短轮询对 SQLite 的重复全表扫描；
+  - 实时速率统计由逐用户抢占锁重构为单次加锁批量更新，并自动淘汰过期空闲条目，杜绝内存泄漏风险。
+- **Clean Architecture 架构分层解耦**：
+  - Service 层全面定义消费端 Caller-scoped 接口，彻底切断对 Adapter 具体实现的直接反向依赖；
+  - 提炼 AuthService 与 SettingService，剥离 HTTP Handler 内的复杂用例编排与跨模块联动，纯化请求接入层；
+  - 将节点转换与订阅配置生成逻辑归位至 internal/protocol 包，移除废弃孤立函数与冗余类型别名，保证代码 KISS 极简。
 
-### 🚀 v2.2.0 (2026-09)
-- **入站协议扩展**：入站支持选择 Socks5 (`socks`)、HTTP 代理及任意门 (`dokodemo-door`)，并支持 Socks 导出为链接、Clash 与 Sing-box 订阅；
-- **流控绑定修复**：修复 VLESS TCP TLS/Reality 入站强制绑定 Vision 的问题，支持选择并保存无流控 (`none`)；
-- **出站配置修复**：修复出站节点编辑时参数被清空丢失的问题；VLESS 出站支持配置 Vision 流控 (`xtls-rprx-vision`)；
-- **前端适配**：根据入站协议自动隐藏无关设置项，卡片按协议展示对应运行信息。
+### v2.3.1 (2026-09) - 网卡回环过滤、节点流量防清零与移动端历史图表重构
+- **主机网卡监控吞吐校准与回环过滤**：
+  - 重构网卡 I/O 采集算法，过滤回环网卡（lo、loopback）及虚拟/容器网卡（Docker、veth、Bridge、CNI 等）；
+  - 采样快照引入读写并发锁保护，保障主机吞吐与网络累计指标的线程安全与原子一致性。
+- **节点配置修改防流量清零**：
+  - 修复入站节点在保存修改基本属性时，因上层未带计数导致已有入站 up_bytes 和 down_bytes 被误覆盖置零的问题；
+  - 持久化层应用 Omit 安全隔离策略，并补齐 CRUD 与增量流量统计单测。
+- **移动端历史流量图表交互与响应式优化**：
+  - 修复移动端下用户流量历史弹窗超出屏幕与图表重叠错位的问题；
+  - 表格表头增加 sticky 吸顶，柱状图适配触摸屏点击高亮与数值常驻冻结。
+- **订阅凭据展示安全收敛**：
+  - 移除用户列表快捷一键直连订阅复制，引导使用聚合导出、二维码或阅后即焚分发。
 
-### 🚀 v2.1.0 (2026-09) - 核心监控平滑治理、管理审查审计系统与入站日志流向分类
-- **⚡ CPU 瞬态虚高与微秒级微分放大根因治理**：
-  - 将 `GopsutilMonitor` 重构为 `app.Service` 标准后台生命周期托管，采用 2 秒固定间隔滑动采样；
-  - 前端与定时探活查询时持读锁 0ms 内存直读，彻底消除微秒级微分放大与页面加载瞬时 100% 毛刺；
-  - `SystemdSupervisor` 增加 `xray version` 常驻缓存与 `systemctl is-active` 3 秒节流缓存，消除高并发刷新时 Fork 操作系统子进程的系统抖动；
-  - 解耦出高频轻量探活端点 `/service/status`，`App.vue`、`DashboardView.vue`、`LogsView.vue` 全面引入 `visibilitychange` 标签页休眠感知，切出后台时彻底停止轮询，大幅降低客户端与服务端无意义开销。
-- **📋 生产级管理员操作审计日志子系统 (Audit Logs)**：
-  - 新增 `domain.AuditLog` 领域模型与 19 项标准操作类型，GORM 自动迁移 `audit_logs` 表；
-  - `GormAuditLogRepository` 实现轻量原子滚动清理（保留最新 3,000 条），严格遵循单连接 SQLite 事务写入规范；
-  - 8 大 Handler 采用向前兼容的可变参数注入，保留 100% 既有单测兼容；
-  - 前端日志页面新增【操作审计 (Audit)】专属标签页，支持动作类型多色徽章、条件筛选、分页与载荷详情弹窗。
-- **🔍 Xray 访问日志入站分类与 64KB 定块分流解析**：
-  - 实现 64KB Chunk Buffer 逆向流式扫描，设置 10MB/30,000 行扫描安全预算与关键词/入站 Tag 免正则预筛；
-  - 将 `[inboundTag -> outboundTag]` 路由流向拆解，前端采用青色入站徽标与专属出站徽标直观分离展示；
-  - Access 模式工具栏支持按入站节点下拉筛选，并支持点击表格入站徽章联动过滤。
-- **🛡️ 上下文感知日志与审计一键清空**：
-  - 顶部集成上下文感知的日志/审计清空功能，带二次确认弹窗防误触，清空动作本身即时记入审计记录。
-
-### 📦 v2.0.0 (重大里程碑)
-
-- **🎉 带外高熵安全凭据分发与阅后即焚系统 (Ticket Distribution System)**：
-  - 新增 `internal/domain/ticket.go`、`internal/service/ticket_service.go` 与 `internal/delivery/http/handler_ticket.go`；
-  - 生成 6 位 Crockford Base32 提取凭据（10.7 亿高熵组合），支持在微信/QQ等境内即时通讯安全发送；
-  - 客户端在纯中立的【分布式网管接入点】输入提件码即可获取双轨配置（轨道 1：急救直连节点，轨道 2：长效自动更新订阅）；
-  - **闭环四维阅后即焚**：
-    1. **逻辑时效**：CAS 条件原子更新 `remaining_uses > 0 AND expires_at > now`，到期即拒；
-    2. **物理磁盘抹除**：兑换次数归零后立即从 SQLite 物理删除（`DELETE`），后台守护协程每 60 秒定期彻底清空过期记录；
-    3. **客户端内存自毁**：前端采用绝对时间戳与 `visibilitychange` 事件监听，手机锁屏休眠唤醒超时立即清空内存 `payload` 并卸载 DOM；
-    4. **传输层 Zero-Store**：接口响应显式注入 `Cache-Control: no-store`，杜绝任何中间代理和浏览器磁盘缓存。
-- **🌐 架构彻底解耦：Headless API 与零依赖独立单文件门户**：
-  - 核心分发接口 `POST /api/portal/claim` 规范为标准 JSON API，全局启用 CORS 跨域支持；
-  - 新增单文件纯 HTML 静态模板 `deploy/standalone-portal.html`（原生 Vanilla JS + 纯 CSS，单文件仅 ~15KB），支持独立部署于 Cloudflare Pages、GitHub Pages 或轻量虚拟主机中独立托管，源站 VPS 零暴露。
-- **☁️ Cloudflare 边缘中立门户网关与反探测代理**：
-  - 提供生产加固版 Cloudflare Worker（`deploy/cloudflare-worker-sub-proxy.js`）与 Cloudflare Pages（`deploy/cloudflare-pages/`）代理脚本；
-  - 根路径伪装为中立静态页面，实现 Fixed-point 收敛多重 URL 解码防御路径穿越；
-  - 精准识别腾讯、微信官方扫描爬虫与网络探测器并返回 200 OK 伪装页，保护分发域名免遭拦截报红。
-- **🚀 生产环境平滑升级与安装脚本加固 (`deploy/install.sh`)**：
-  - 升级为 Linux `install -m 755` 原子覆盖覆写机制，彻底解决 Linux 内核对运行中进程报错 `Text file busy` (ETXTBSY) 导致安装中断的顽疾；
-  - 脚本支持智能多路径自动寻径（无论在根目录、deploy 子目录或 /tmp/ 下执行均可自动定位二进制）；
-  - 敏感数据目录 `data/` 自动应用 `chmod 700` 权限安全收敛。
-- **⚡ 单入站多通道分流线路展开优化 (SubRoutes Fan-out)**：
-  - 修复并优化了多出口分流的订阅分发，支持在获取单节点或提取码时将入站绑定的所有可用多通道线路全量展开。
-- **🧹 全工作区敏感信息脱敏审查与构建优化**：
-  - 公开未鉴权页面全面移除所有代理协议敏感关键字，统一中立化伪装为“分布式网管接入点”；
-  - 代码库所有示例与单元测试 100% 剥离个人真实 IP 与域名，彻底杜绝隐私泄露风险。
-
-### 历史版本 (v1.6.0)
-
-- **Xray-core 原生 gRPC 运行时热重载架构落地**：
-  - 新增 `internal/xray` 高性能运行时协调器，全面接入官方 `proxyman/command.HandlerServiceClient`，实现用户增删（AddUser / RemoveUser）毫秒级动态下发；
-  - 接入官方 `stats/command.StatsServiceClient`，实施无锁、低开销的实时用户双向流量采集；
-  - 彻底解耦动态用户状态与物理静态 `config.json`，用户变动时长连接不断线、零重启。
-- **嵌入式 BoltDB ACID 事务存储与故障补偿回滚**：
-  - 新增 `internal/storage` 模块，提供基于 bbolt 的嵌入式强一致持久化；
-  - 引入双向事务安全与自动逆向补偿机制：gRPC 调用失败中止提交，DB 写入异常自动调用 gRPC 逆向回滚，保障内存与磁盘强一致。
-- **冷启动容灾回写管道 (`SyncToDiskConfig`)**：
-  - 提供安全落盘合并引擎，在服务退出或手动触发时将 BoltDB 动态用户集合原子写回物理 `config.json`，确保冷启动与停机恢复零数据漂移。
-- **多协议多态账户体系与废弃字段彻底淘汰**：
-  - 新增 `internal/protocol` 领域格式化引擎，原生支持 VLESS (Vision/Reality)、VMess、Trojan、Shadowsocks 等协议的多态序列化与分享链接转换；
-  - 全面清理过时 `alterId` 字段，严格对齐现代 Xray 规范，VMess 强制启用 AEAD 加密；
-  - 新增 `internal/sub` 聚合订阅导出器，支持通用 Base64、Clash/Mihomo 与 Sing-box 订阅转换。
-- **全链路生命周期纳管与优雅退出**：
-  - 抽象 `app.Service` 标准接口，通过 `errgroup.WithContext` 统一拉起并编排 HTTP Server、Traffic Sync Job 与 Telegram Bot；
-  - 优雅关机支持 Keep-Alive 连接排空，退出阶段按序关闭 gRPC 连接并释放数据库独占文件锁。
-- **纯前端演示沙盒全面升级 (v3)**：
-  - 升级 LocalStorage 演示沙盒至 v3 引擎，支持多协议节点生成、实时指标仪表盘与 gRPC 运行时交互日志仿真。
-
-### 历史版本 (v1.5.1)
-
-- **安全性加固**：
-  - 修复 TOTP 2FA 关闭时的参数校验逻辑，强制要求输入 6 位动态验证码；
-  - 移除默认静态硬编码 JWT 密钥，改为首次启动自动生成 256 位高熵密钥持久化，并在设置查询接口中脱敏；
-  - 公开订阅接口 `/sub` 增加独立限流中间件，防止高频遍历扫描消耗 SQLite 连接；
-  - 全局增加 10MB 请求体大小上限，防止超大恶意报文引发内存 OOM 异常。
-- **协议与核心编译修复**：
-  - 修复 Shadowsocks 客户端编译时缺失 Method 加密算法导致 Xray 内核崩溃的问题；
-  - 完善配置文件读写容灾：配置读取异常时中止保存以保护物理文件，写入操作改为同目录临时文件原子重命名并配合读写锁；
-  - 补齐 Trojan 与 VMess 订阅链接中的 SNI、ALPN、WebSocket 路径与 Host 等关键握手参数；
-  - 自适应支持 REALITY 配置中的单数（serverName/shortId）与复数（serverNames/shortIds）字段。
-- **并发与生命周期优化**：
-  - 定时任务协程解耦：流量计费主循环与 Telegram 外部网络告警分离至独立协程，避免外部网络抖动阻塞计费；
-  - 改进月度流量重置逻辑，自适应月末天数（如平年 2 月 28 天）并增加停机恢复补偿能力；
-  - 每日历史流量表增加 `(user_email, date)` 复合唯一索引，杜绝并发写入导致的重复记录；
-  - 修复用户删除后内存中运行时速率追踪器对象的常驻泄漏问题。
+### v2.3.0 (2026-09) - 纯契约协议解耦、核心依赖精简与 SQLite 存储性能优化
+- **Xray gRPC 纯契约化解耦**：
+  - 自研轻量级 Protobuf/gRPC 协议契约包（internal/adapter/xray/proto），兼容 Xray 原生 Wire 格式；
+  - 剥离 xray-core 运行时及其依赖树，依赖体积精简 75%，大幅收敛攻击面；
+- **核心组件去冗余**：
+  - 纯 Go 标准库实现 RFC 6238 TOTP 认证器，拔除第三方库与多余图片生成依赖；
+  - 纯 Go 泛型并发安全 TTL 缓存（internal/pkg/cache），替代旧版反射缓存；
+  - 升级 yaml.v3 并收敛限流器为官方令牌桶算法；
+- **SQLite 批量事务落盘**：
+  - 启用 synchronous=NORMAL，消除 WAL 模式下每次提交的强制落盘开销；
+  - 流量同步支持单事务批量落盘（BatchSyncTraffic），将单轮周期的多次数据库操作收敛为单一原子事务。
 
 ---
 
-## 🏗️ 架构分层 (Clean Architecture)
+## 架构分层 (Clean Architecture)
 
-> 💡 详细的业务领域模型、单端口多出口分流、4 层 Scoped 路由编排机制与双轨运行时架构全景图解请参阅：
-> 👉 **[架构与系统逻辑全景图解 (docs/ARCHITECTURE_AND_LOGIC.md)](docs/ARCHITECTURE_AND_LOGIC.md)**
+详细的业务领域模型、单端口多出口分流与双轨运行时架构请参阅：
+[架构与系统逻辑全景图解 (docs/ARCHITECTURE_AND_LOGIC.md)](docs/ARCHITECTURE_AND_LOGIC.md)
 
 ```
 internal/
 ├── app/               # 应用生命周期契约与服务抽象 (Service, ServiceFunc)
-├── domain/            # 业务领域实体与接口契约 (Inbound, Outbound, User, Route)
-├── protocol/          # 多协议多态格式化与订阅生成 (VLESS, VMess, Trojan, Shadowsocks)
-├── service/           # 核心用例与编译管道 (ConfigService, UserService, AlertService, SubService)
+├── domain/            # 业务领域实体与纯业务契约 (Inbound, Outbound, User, Route)
+├── protocol/          # 多协议格式化、节点转换与分享链接生成
+├── service/           # 核心用例编排 (AuthService, SettingService, ConfigService, SubService 等)
 ├── sub/               # 聚合订阅导出器 (Base64, Clash/Mihomo, Sing-box)
-├── adapter/           # 外部系统适配实现
-│   ├── xray/          # 强类型 Compiler、Config Parser、gRPC Client 与 Supervisor
+├── adapter/           # 外部基础设施与系统适配实现
+│   ├── xray/          # gRPC Client, Config Parser, Supervisor 与日志读取
 │   ├── repository/    # SQLite & GORM 仓储实现（WAL 模式加固）
 │   ├── telegram/      # Telegram Bot 适配器与告警通知
 │   └── monitor/       # gopsutil 硬件性能指标采集
@@ -219,9 +130,9 @@ internal/
 
 ---
 
-## 🚀 快速开始
+## 快速开始
 
-### 方式一：Linux Systemd 一键安装（推荐生产环境）
+### 方式一：Linux Systemd 安装（推荐生产环境）
 
 确保系统已安装 Xray-core 并正常运行：
 
@@ -230,11 +141,11 @@ internal/
 git clone https://github.com/coding-leaf/xray-panel.git
 cd xray-panel
 
-# 2. 执行一键部署安装脚本
+# 2. 执行部署安装脚本
 sudo bash deploy/install.sh
 ```
 
-一键脚本将自动完成：
+一键脚本将完成：
 1. 注册并配置 `/usr/local/xray-panel` 工作目录；
 2. 注册并启动 `/etc/systemd/system/panel.service` 系统守护进程；
 3. 配置开机自启并输出面板访问地址。
@@ -262,7 +173,7 @@ sudo bash deploy/install.sh
 
 ---
 
-## 🛠️ 本地开发与编译
+## 本地开发与编译
 
 ### 前置要求
 - Go 1.22+
@@ -289,15 +200,15 @@ go build -ldflags="-s -w" -o panel .
 
 ---
 
-## 🔒 安全与加固建议
+## 安全与加固建议
 
 1. **配置反向代理**：建议使用 Nginx / Caddy 申请 SSL 证书反向代理面板 Web 端口；
-2. **首次登录修改密码**：初始账号为 `admin` / `admin123`，登录后请立即进入【系统设置】修改密码并启用 **TOTP 双因素认证 (2FA)**；
+2. **首次登录修改密码**：初始账号为 `admin` / `admin123`，登录后请立即进入系统设置修改密码并启用 TOTP 双因素认证 (2FA)；
 3. **隔离 gRPC API 通信端口**：Xray 的 gRPC API 监听地址建议限定为 `127.0.0.1:8080`，避免对公网开放；
 4. **防火墙规则**：仅对外开放业务代理端口与 Web 管理端口。
 
 ---
 
-## 📄 开源许可证
+## 开源许可证
 
 本项目基于 [MIT License](LICENSE) 协议开源。

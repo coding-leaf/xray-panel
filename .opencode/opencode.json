@@ -1,0 +1,34 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "tool_output": {
+    "max_lines": 80,
+    "max_bytes": 8192
+  },
+  "compaction": {
+    "auto": true,
+    "tail_turns": 25
+  },
+  "skills": {
+    "paths": [
+      ".agents/skills",
+      ".opencode/skills"
+    ]
+  },
+  "mcp": {
+    "playwright": {
+      "type": "local",
+      "command": [
+        "npx",
+        "-y",
+        "@playwright/mcp@latest",
+        "--browser=chromium"
+      ],
+      "enabled": false
+    },
+    "docs-langchain": {
+      "type": "remote",
+      "url": "https://docs.langchain.com/mcp",
+      "enabled": false
+    }
+  }
+}

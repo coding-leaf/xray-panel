@@ -1,0 +1,13 @@
+# Xray Panel SDLC Archive (已归档成果与变更审计)
+
+> **定位说明**：  
+> 本文件是已交付任务的成果索引大表。  
+> 本表仅作成果与证据索引，不重复记录任务的完整设计细节（完整过程由对应的 `docs/sdlc/<task-id>/` 目录留存）。
+
+---
+
+| Task | Outcome | Final Stage | Commit/PR | Verification | Completed |
+|---|---|---|---|---|---|
+| web-bundle-optimization | 前端路由动态懒加载与 Vite manualChunks 细粒度分包优化 | Deploy | `3cc4331` | typecheck, npm run build, go test -race, go build 全部全绿通过 | 2026-09-20 |
+| backend-dataflow-perf | 后端限流分段锁、日志缓冲池复用、Dashboard快照缓存与速率批量更新优化 | Deploy | `527e6b9` | go test -race ./... 全绿, go vet 0告警, go build 成功 | 2026-09-20 |
+| arch-domain-decoupling | 架构分层解耦：Service层定义Caller-scoped接口彻底切断对Adapter的反向依赖；提炼AuthService与SettingService纯化Handler；节点转换统一至protocol包并清理死代码 | Deploy | `08cda5f` | go test -race ./... 全绿, go vet 0告警, go build 成功 | 2026-09-20 |

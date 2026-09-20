@@ -1,10 +1,6 @@
 ---
 description: 3-Pass 审查代码变更对 spec 架构契约、并发安全与 KISS 规范的合规性（只读）
 mode: subagent
-permission:
-  edit: deny
-  write: deny
-  bash: ask
 ---
 
 # Subagent Role: Reviewer & Verification (审查与把关专有职责)

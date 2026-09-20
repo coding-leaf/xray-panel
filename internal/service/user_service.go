@@ -225,6 +225,15 @@ func (s *UserService) GetByID(ctx context.Context, id uint) (*domain.User, error
 	return u, nil
 }
 
+func (s *UserService) GetByEmail(ctx context.Context, email string) (*domain.User, error) {
+	u, err := s.userRepo.GetByEmail(ctx, email)
+	if err != nil || u == nil {
+		return u, err
+	}
+	u.UpSpeed, u.DownSpeed, u.LastActive, u.IsOnline = domain.GetUserRuntimeSpeed(u.Email)
+	return u, nil
+}
+
 func (s *UserService) ListUsers(ctx context.Context) ([]domain.User, error) {
 	users, err := s.userRepo.ListAll(ctx)
 	if err != nil {

@@ -108,8 +108,6 @@ func main() {
 	botAdapter := telegram.NewBotAdapter(tgToken, tgChatID)
 	_ = botAdapter.Init()
 
-	botHandler := telegram.NewBotHandler(botAdapter, userRepo, inboundRepo, hostMonitor, xrayManager, cfg.PublicURL)
-
 	// 4. 初始化业务用例深模块 Services
 	grpcPort := 8080
 	if cfg.XrayGRPCAddr != "" {
@@ -128,6 +126,7 @@ func main() {
 	_ = configSvc.RecompileAndApply(bgCtx, "面板启动自动同步与编译配置")
 
 	userSvc := service.NewUserService(userRepo, inboundRepo, trafficLogRepo, xrayManager, configSvc)
+	botHandler := telegram.NewBotHandler(botAdapter, userRepo, inboundRepo, hostMonitor, xrayManager, userSvc, cfg.PublicURL)
 	subSvc := service.NewSubService(userRepo, inboundRepo, settingRepo)
 	monitorSvc := service.NewMonitorService(hostMonitor, xrayManager, userRepo, inboundRepo)
 	alertSvc := service.NewAlertService(botAdapter, userRepo, hostMonitor, configMgr)

@@ -110,3 +110,24 @@ func TestAlertService_DebounceSystemLoad(t *testing.T) {
 		t.Fatalf("expected still 3 system alerts, got %d", len(notifier.systemAlerts))
 	}
 }
+
+type mockCertInspector struct {
+	paths []string
+}
+
+func (m *mockCertInspector) GetCertificatePaths() []string {
+	return m.paths
+}
+
+func TestAlertService_CheckCertificates_Empty(t *testing.T) {
+	notifier := &mockNotifier{}
+	inspector := &mockCertInspector{paths: []string{}}
+	svc := NewAlertService(notifier, nil, nil, inspector)
+
+	if err := svc.CheckCertificates(context.Background()); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(notifier.certAlerts) != 0 {
+		t.Fatalf("expected 0 cert alerts, got %d", len(notifier.certAlerts))
+	}
+}

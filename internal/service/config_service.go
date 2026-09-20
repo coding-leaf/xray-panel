@@ -12,9 +12,9 @@ import (
 	"strings"
 	"time"
 
-	"panel/internal/adapter/xray"
 	"panel/internal/domain"
 	"panel/internal/pkg/jsonc"
+	"panel/internal/protocol"
 )
 
 type ServiceSupervisor interface {
@@ -22,24 +22,34 @@ type ServiceSupervisor interface {
 	Restart(ctx context.Context) error
 }
 
+type ConfigStorage interface {
+	ReadRawConfig() ([]byte, error)
+	WriteConfig(ctx context.Context, rawJSON []byte) error
+	ValidateConfig(ctx context.Context, rawJSON []byte) error
+}
+
+type ConfigCompiler interface {
+	CompileToJSON(inbounds []domain.Inbound, outbounds []domain.Outbound, routing *domain.RoutingConfig, dns *domain.DNSConfig, users []domain.User) ([]byte, error)
+}
+
 type ConfigService struct {
-	configMgr    *xray.ConfigManager
+	configMgr    ConfigStorage
 	supervisor   ServiceSupervisor
 	inboundRepo  domain.InboundRepository
 	userRepo     domain.UserRepository
 	snapshotRepo domain.ConfigSnapshotRepository
-	compiler     *xray.XrayCompiler
+	compiler     ConfigCompiler
 }
 
 func NewConfigService(
-	configMgr *xray.ConfigManager,
+	configMgr ConfigStorage,
 	supervisor ServiceSupervisor,
 	inboundRepo domain.InboundRepository,
 	userRepo domain.UserRepository,
 	snapshotRepo domain.ConfigSnapshotRepository,
-	compiler ...*xray.XrayCompiler,
+	compiler ...ConfigCompiler,
 ) *ConfigService {
-	c := xray.NewXrayCompiler()
+	var c ConfigCompiler
 	if len(compiler) > 0 && compiler[0] != nil {
 		c = compiler[0]
 	}
@@ -161,6 +171,9 @@ func (s *ConfigService) SaveConfigQuietly(ctx context.Context, remark string) er
 	}
 
 	// 6. 单向编译为强类型 JSON
+	if s.compiler == nil {
+		return fmt.Errorf("compiler not configured")
+	}
 	jsonBytes, err := s.compiler.CompileToJSON(inbounds, outbounds, routing, dns, users)
 	if err != nil {
 		return fmt.Errorf("compile config failed: %w", err)
@@ -458,6 +471,9 @@ func (s *ConfigService) saveOutboundsListAndRecompile(ctx context.Context, outbo
 		users, _ = s.userRepo.ListAll(ctx)
 	}
 
+	if s.compiler == nil {
+		return fmt.Errorf("compiler not configured")
+	}
 	jsonBytes, err := s.compiler.CompileToJSON(inbounds, outbounds, routing, dns, users)
 	if err != nil {
 		return err
@@ -512,6 +528,9 @@ func (s *ConfigService) SaveRoutingConfig(ctx context.Context, cfg *domain.Routi
 		users, _ = s.userRepo.ListAll(ctx)
 	}
 
+	if s.compiler == nil {
+		return fmt.Errorf("compiler not configured")
+	}
 	jsonBytes, err := s.compiler.CompileToJSON(inbounds, outbounds, cfg, dns, users)
 	if err != nil {
 		return err
@@ -569,6 +588,9 @@ func (s *ConfigService) SaveDNSConfig(ctx context.Context, cfg *domain.DNSConfig
 		users, _ = s.userRepo.ListAll(ctx)
 	}
 
+	if s.compiler == nil {
+		return fmt.Errorf("compiler not configured")
+	}
 	jsonBytes, err := s.compiler.CompileToJSON(inbounds, outbounds, routing, cfg, users)
 	if err != nil {
 		return err
@@ -583,4 +605,8 @@ func (s *ConfigService) SaveDNSConfig(ctx context.Context, cfg *domain.DNSConfig
 
 func (s *ConfigService) RestartService(ctx context.Context) error {
 	return s.supervisor.Restart(ctx)
+}
+
+func (s *ConfigService) GenerateRealityKeyPair() (*protocol.RealityKeyPair, error) {
+	return protocol.GenerateRealityKeyPair()
 }

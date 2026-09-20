@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"panel/internal/domain"
+	"panel/internal/service"
 
 	"github.com/gin-gonic/gin"
 )
@@ -49,7 +50,7 @@ func TestSettingHandler_JWTSecretProtection(t *testing.T) {
 		_ = repo.Set(context.Background(), "jwt_secret", "super-sensitive-jwt-key")
 		_ = repo.Set(context.Background(), "sub_domain", "sub.example.com")
 
-		handler := NewSettingHandler(repo, nil, nil, nil)
+		handler := NewSettingHandler(service.NewSettingService(repo, nil, nil, nil))
 
 		w := httptest.NewRecorder()
 		c, _ := gin.CreateTestContext(w)
@@ -78,7 +79,7 @@ func TestSettingHandler_JWTSecretProtection(t *testing.T) {
 		repo := newMockSettingRepo()
 		_ = repo.Set(context.Background(), "jwt_secret", "original-secure-key")
 
-		handler := NewSettingHandler(repo, nil, nil, nil)
+		handler := NewSettingHandler(service.NewSettingService(repo, nil, nil, nil))
 
 		w := httptest.NewRecorder()
 		c, _ := gin.CreateTestContext(w)

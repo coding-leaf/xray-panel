@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"strings"
 
-	"panel/internal/adapter/xray"
 	"panel/internal/domain"
 	"panel/internal/protocol"
 	"panel/internal/sub"
@@ -70,7 +69,7 @@ func (s *SubService) resolveSubscriptionNodes(ctx context.Context, token string,
 		}
 	}
 
-	nodes := xray.InboundsToNodeConfigs(inbounds, user, hostDomain, defaultPort, tagFilter)
+	nodes := protocol.InboundsToNodeConfigs(inbounds, user, hostDomain, defaultPort, tagFilter)
 	return user, nodes, nil
 }
 
@@ -200,7 +199,7 @@ func (s *SubService) GetUserShareInfo(ctx context.Context, userID uint, baseURL 
 		}
 		subRoutes := in.GetSubRoutes()
 		if len(subRoutes) == 0 {
-			link := xray.BuildShareLink(&in, user, hostDomain, defaultPort)
+			link := protocol.BuildShareLink(&in, user, hostDomain, defaultPort)
 			remark := in.Remark
 			if remark == "" {
 				remark = in.Tag
@@ -226,7 +225,7 @@ func (s *SubService) GetUserShareInfo(ctx context.Context, userID uint, baseURL 
 				tempIn.Remark = fmt.Sprintf("%s - 线路 #%d", in.Tag, sr.RouteID)
 			}
 			tempIn.RouteID = sr.RouteID
-			link := xray.BuildShareLink(&tempIn, user, hostDomain, defaultPort)
+			link := protocol.BuildShareLink(&tempIn, user, hostDomain, defaultPort)
 			resp.Nodes = append(resp.Nodes, domain.NodeShareInfo{
 				Tag:       in.Tag,
 				Protocol:  in.Protocol,

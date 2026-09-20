@@ -8,6 +8,8 @@ import (
 	"regexp"
 	"strings"
 	"sync"
+
+	"panel/internal/domain"
 )
 
 var (
@@ -22,37 +24,9 @@ var (
 	}
 )
 
-type AccessLogEntry struct {
-	Time        string `json:"time"`
-	FromIP      string `json:"from_ip"`
-	Protocol    string `json:"protocol"`
-	Target      string `json:"target"`
-	Route       string `json:"route"`
-	InboundTag  string `json:"inbound_tag"`
-	OutboundTag string `json:"outbound_tag"`
-	Email       string `json:"email"`
-	Action      string `json:"action"`
-	Raw         string `json:"raw"`
-}
-
-type ErrorLogEntry struct {
-	Time     string `json:"time"`
-	Level    string `json:"level"`
-	Module   string `json:"module"`
-	Message  string `json:"message"`
-	SmartTip string `json:"smartTip"`
-	Raw      string `json:"raw"`
-}
-
-type LogFilter struct {
-	InboundTag string
-	Keyword    string
-}
-
-// ReadLastLines 从文件末尾反向读取
-func ReadLastLines(filePath string, maxLines int) ([]string, error) {
-	return ReadLastLinesFiltered(filePath, maxLines, LogFilter{})
-}
+type AccessLogEntry = domain.AccessLogEntry
+type ErrorLogEntry = domain.ErrorLogEntry
+type LogFilter = domain.LogFilter
 
 // ParseLogLineFast 基于字节数组的高速过滤与元信息提取，零堆分配
 func ParseLogLineFast(raw []byte, filter LogFilter) (matched bool, timeStr, fromIP, target string) {

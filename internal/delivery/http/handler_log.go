@@ -4,7 +4,6 @@ import (
 	"net/http"
 	"strconv"
 
-	"panel/internal/adapter/xray"
 	"panel/internal/domain"
 	"panel/internal/service"
 
@@ -32,7 +31,7 @@ func (h *LogHandler) GetLogs(c *gin.Context) {
 	inbound := c.Query("inbound")
 	keyword := c.Query("keyword")
 
-	filter := xray.LogFilter{
+	filter := domain.LogFilter{
 		InboundTag: inbound,
 		Keyword:    keyword,
 	}

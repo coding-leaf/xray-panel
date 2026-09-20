@@ -86,7 +86,7 @@ func (c *GRPCClient) AddUser(ctx context.Context, inbound *domain.Inbound, user 
 		return err
 	}
 
-	accountMsg, err := buildAccountMessage(inbound, user)
+	accountMsg, err := BuildAccountMessage(inbound, user)
 	if err != nil {
 		return err
 	}
@@ -196,10 +196,6 @@ func (c *GRPCClient) QueryTrafficStats(ctx context.Context, reset bool) ([]domai
 		})
 	}
 	return results, nil
-}
-
-func buildAccountMessage(inbound *domain.Inbound, u *domain.User) (*proto.TypedMessage, error) {
-	return BuildAccountMessage(inbound, u)
 }
 
 func BuildAccountMessage(inbound *domain.Inbound, u *domain.User) (*proto.TypedMessage, error) {

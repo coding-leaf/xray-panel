@@ -5,27 +5,34 @@ import (
 	"fmt"
 	"os"
 
-	"panel/internal/adapter/xray"
+	"panel/internal/domain"
 )
 
-type LogService struct {
-	configMgr *xray.ConfigManager
+type LogReader interface {
+	GetLogPaths() (accessLog, errorLog string)
+	ReadLastLinesFiltered(filePath string, maxLines int, filter domain.LogFilter) ([]string, error)
+	ParseAccessLog(line string) *domain.AccessLogEntry
+	ParseErrorLog(line string) *domain.ErrorLogEntry
 }
 
-func NewLogService(configMgr *xray.ConfigManager) *LogService {
-	return &LogService{configMgr: configMgr}
+type LogService struct {
+	reader LogReader
+}
+
+func NewLogService(reader LogReader) *LogService {
+	return &LogService{reader: reader}
 }
 
 type LogResponse struct {
-	Type     string                `json:"type"`
-	FilePath string                `json:"filePath"`
-	Lines    []string              `json:"lines"`
-	Access   []xray.AccessLogEntry `json:"access,omitempty"`
-	Errors   []xray.ErrorLogEntry  `json:"errors,omitempty"`
+	Type     string                  `json:"type"`
+	FilePath string                  `json:"filePath"`
+	Lines    []string                `json:"lines"`
+	Access   []domain.AccessLogEntry `json:"access,omitempty"`
+	Errors   []domain.ErrorLogEntry  `json:"errors,omitempty"`
 }
 
-func (s *LogService) GetRecentLogs(ctx context.Context, logType string, maxLines int, filters ...xray.LogFilter) (*LogResponse, error) {
-	accessPath, errorPath := s.configMgr.GetLogPaths()
+func (s *LogService) GetRecentLogs(ctx context.Context, logType string, maxLines int, filters ...domain.LogFilter) (*LogResponse, error) {
+	accessPath, errorPath := s.reader.GetLogPaths()
 
 	var targetPath string
 	if logType == "error" {
@@ -43,12 +50,12 @@ func (s *LogService) GetRecentLogs(ctx context.Context, logType string, maxLines
 		}, nil
 	}
 
-	filter := xray.LogFilter{}
+	filter := domain.LogFilter{}
 	if len(filters) > 0 {
 		filter = filters[0]
 	}
 
-	lines, err := xray.ReadLastLinesFiltered(targetPath, maxLines, filter)
+	lines, err := s.reader.ReadLastLinesFiltered(targetPath, maxLines, filter)
 	if err != nil {
 		return &LogResponse{
 			Type:     logType,
@@ -64,17 +71,17 @@ func (s *LogService) GetRecentLogs(ctx context.Context, logType string, maxLines
 	}
 
 	if logType == "access" {
-		entries := make([]xray.AccessLogEntry, 0, len(lines))
+		entries := make([]domain.AccessLogEntry, 0, len(lines))
 		for _, l := range lines {
-			if e := xray.ParseAccessLogLine(l); e != nil {
+			if e := s.reader.ParseAccessLog(l); e != nil {
 				entries = append(entries, *e)
 			}
 		}
 		resp.Access = entries
 	} else {
-		entries := make([]xray.ErrorLogEntry, 0, len(lines))
+		entries := make([]domain.ErrorLogEntry, 0, len(lines))
 		for _, l := range lines {
-			if e := xray.ParseErrorLogLine(l); e != nil {
+			if e := s.reader.ParseErrorLog(l); e != nil {
 				entries = append(entries, *e)
 			}
 		}
@@ -86,7 +93,7 @@ func (s *LogService) GetRecentLogs(ctx context.Context, logType string, maxLines
 
 // ClearLogs 安全截断日志文件（大小置为 0）
 func (s *LogService) ClearLogs(ctx context.Context, logType string) error {
-	accessPath, errorPath := s.configMgr.GetLogPaths()
+	accessPath, errorPath := s.reader.GetLogPaths()
 
 	var targetPath string
 	if logType == "error" {

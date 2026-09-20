@@ -3,7 +3,7 @@ package xray_test
 import (
 	"testing"
 
-	"panel/internal/adapter/xray"
+	"panel/internal/protocol"
 )
 
 func TestApplyVlessRouteToUUID(t *testing.T) {
@@ -55,7 +55,7 @@ func TestApplyVlessRouteToUUID(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			actual := xray.ApplyVlessRouteToUUID(tt.rawUUID, tt.routeID)
+			actual := protocol.ApplyVlessRouteToUUID(tt.rawUUID, tt.routeID)
 			if actual != tt.expected {
 				t.Errorf("ApplyVlessRouteToUUID(%q, %d) = %q; want %q", tt.rawUUID, tt.routeID, actual, tt.expected)
 			}

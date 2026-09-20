@@ -8,13 +8,14 @@ import (
 	"testing"
 
 	deliveryHTTP "panel/internal/delivery/http"
+	"panel/internal/service"
 )
 
 func TestRouter_StaticFilesAndSPAFallback(t *testing.T) {
 	staticFS := os.DirFS("../../../web/dist")
 	handlers := &deliveryHTTP.Handlers{
 		Sub:  deliveryHTTP.NewSubHandler(nil),
-		Auth: deliveryHTTP.NewAuthHandler(nil, "secret"),
+		Auth: deliveryHTTP.NewAuthHandler(service.NewAuthService(nil, "secret")),
 	}
 
 	router := deliveryHTTP.SetupRouter(handlers, "secret", staticFS)

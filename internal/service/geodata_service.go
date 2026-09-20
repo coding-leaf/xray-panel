@@ -10,9 +10,12 @@ import (
 	"runtime"
 	"sync"
 	"time"
-
-	"panel/internal/adapter/xray"
 )
+
+type CoreController interface {
+	GetVersion(ctx context.Context) (string, error)
+	RestartService(ctx context.Context) error
+}
 
 type GeoDataStatus struct {
 	GeoIPExists     bool      `json:"geoipExists"`
@@ -39,12 +42,12 @@ type GeoDataProgress struct {
 
 type GeoDataService struct {
 	xrayBinPath string
-	manager     *xray.Manager
+	manager     CoreController
 	progressMu  sync.RWMutex
 	progress    GeoDataProgress
 }
 
-func NewGeoDataService(xrayBinPath string, manager *xray.Manager) *GeoDataService {
+func NewGeoDataService(xrayBinPath string, manager CoreController) *GeoDataService {
 	return &GeoDataService{
 		xrayBinPath: xrayBinPath,
 		manager:     manager,

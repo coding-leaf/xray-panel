@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"panel/internal/domain"
+	"panel/internal/service"
 
 	"github.com/gin-gonic/gin"
 	"panel/internal/pkg/totp"
@@ -54,7 +55,8 @@ func TestAuthHandler_Disable2FA(t *testing.T) {
 
 	newTestContext := func(admin *domain.AdminUser, reqBody map[string]interface{}) (*AuthHandler, *httptest.ResponseRecorder, *gin.Context) {
 		repo := &mockAdminRepo{admin: admin}
-		handler := NewAuthHandler(repo, "test-secret")
+		authSvc := service.NewAuthService(repo, "test-secret")
+		handler := NewAuthHandler(authSvc)
 
 		w := httptest.NewRecorder()
 		c, _ := gin.CreateTestContext(w)

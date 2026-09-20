@@ -61,8 +61,8 @@ func TestTicketHandler_CreateTicket(t *testing.T) {
 
 	handlers := &deliveryHTTP.Handlers{
 		Ticket:  ticketHandler,
-		Auth:    deliveryHTTP.NewAuthHandler(adminRepo, "test-secret"),
-		Setting: deliveryHTTP.NewSettingHandler(settingRepo, nil, nil, nil),
+		Auth:    deliveryHTTP.NewAuthHandler(service.NewAuthService(adminRepo, "test-secret")),
+		Setting: deliveryHTTP.NewSettingHandler(service.NewSettingService(settingRepo, nil, nil, nil)),
 	}
 	router := deliveryHTTP.SetupRouter(handlers, "test-secret", nil)
 	adminToken := generateAdminToken("test-secret")
@@ -151,8 +151,8 @@ func TestTicketHandler_ClaimTicket(t *testing.T) {
 
 	handlers := &deliveryHTTP.Handlers{
 		Ticket:  ticketHandler,
-		Auth:    deliveryHTTP.NewAuthHandler(adminRepo, "test-secret"),
-		Setting: deliveryHTTP.NewSettingHandler(settingRepo, nil, nil, nil),
+		Auth:    deliveryHTTP.NewAuthHandler(service.NewAuthService(adminRepo, "test-secret")),
+		Setting: deliveryHTTP.NewSettingHandler(service.NewSettingService(settingRepo, nil, nil, nil)),
 	}
 	router := deliveryHTTP.SetupRouter(handlers, "test-secret", nil)
 

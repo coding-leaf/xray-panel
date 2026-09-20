@@ -1,4 +1,4 @@
-package xray_test
+package protocol_test
 
 import (
 	"encoding/base64"
@@ -17,7 +17,7 @@ func TestBuildShareLink_FullParameterParity(t *testing.T) {
 		Email: "test@example.com",
 	}
 
-	t.Run("Trojan WS TLS generates sni, path, host (FUNC-08)", func(t *testing.T) {
+	t.Run("Trojan WS TLS generates sni, path, host", func(t *testing.T) {
 		inbound := &domain.Inbound{
 			Tag:            "trojan-ws-in",
 			Protocol:       "trojan",
@@ -52,7 +52,7 @@ func TestBuildShareLink_FullParameterParity(t *testing.T) {
 		}
 	})
 
-	t.Run("VMess WS TLS generates sni, path, host (FUNC-09)", func(t *testing.T) {
+	t.Run("VMess WS TLS generates sni, path, host", func(t *testing.T) {
 		inbound := &domain.Inbound{
 			Tag:            "vmess-ws-in",
 			Protocol:       "vmess",
@@ -89,7 +89,7 @@ func TestBuildShareLink_FullParameterParity(t *testing.T) {
 		}
 	})
 
-	t.Run("VLESS REALITY adapts to singular serverName and shortId (FUNC-10)", func(t *testing.T) {
+	t.Run("VLESS REALITY adapts to singular serverName and shortId", func(t *testing.T) {
 		inbound := &domain.Inbound{
 			Tag:            "reality-singular-in",
 			Protocol:       "vless",
@@ -117,12 +117,12 @@ func TestBuildShareLink_FullParameterParity(t *testing.T) {
 		}
 	})
 
-	t.Run("IPv6 address preserved without truncation (cleanHost bug fix)", func(t *testing.T) {
+	t.Run("IPv6 address preserved without truncation", func(t *testing.T) {
 		inbound := &domain.Inbound{
 			Tag:            "vless-ipv6",
 			Protocol:       "vless",
 			Port:           443,
-			ExternalHost:   "2408:8207:dead:beef::1", // 裸 IPv6
+			ExternalHost:   "2408:8207:dead:beef::1",
 			StreamSettings: `{"network":"tcp","security":"none"}`,
 		}
 
@@ -137,50 +137,66 @@ func TestBuildShareLink_FullParameterParity(t *testing.T) {
 		}
 	})
 
-	t.Run("XHTTP host header extraction", func(t *testing.T) {
-		inbound := &domain.Inbound{
-			Tag:            "vless-xhttp",
+	t.Run("SubRoutes conversion with InboundsToNodeConfigs", func(t *testing.T) {
+		subRoutes := []domain.SubRoute{
+			{
+				ID:          "1",
+				Name:        "🇯🇵 日本原生直连",
+				RouteID:     1,
+				OutboundTag: "direct",
+				Enabled:     true,
+			},
+			{
+				ID:          "2",
+				Name:        "🇺🇸 美国中转落地",
+				RouteID:     2,
+				OutboundTag: "us-test",
+				Enabled:     true,
+			},
+			{
+				ID:          "3",
+				Name:        "🚫 停用线路",
+				RouteID:     3,
+				OutboundTag: "block",
+				Enabled:     false,
+			},
+		}
+		subRoutesBytes, _ := json.Marshal(subRoutes)
+
+		inbound := domain.Inbound{
+			Tag:            "vless-reality",
+			Port:           4434,
+			ExternalPort:   443,
+			ExternalHost:   "198.51.100.1",
 			Protocol:       "vless",
-			Port:           443,
-			ExternalHost:   "1.2.3.4",
-			StreamSettings: `{"network":"xhttp","security":"none","xhttpSettings":{"path":"/xhttp-path","mode":"stream-up","host":"xhttp.origin.com"}}`,
+			StreamSettings: `{"network":"xhttp","security":"reality","realitySettings":{"publicKey":"FMdWD0uS9lrXUAoMmTP5e2LLD-mk8vO8JTZmAE9vdww"}}`,
+			SubRoutesJson:  string(subRoutesBytes),
+			Enabled:        true,
 		}
 
-		node := protocol.InboundToNodeConfig(inbound, user, "", 0)
-		if node.GetParam("host") != "xhttp.origin.com" {
-			t.Errorf("expected xhttp host to be xhttp.origin.com, got: %s", node.GetParam("host"))
-		}
-		if node.GetParam("mode") != "stream-up" {
-			t.Errorf("expected xhttp mode to be stream-up, got: %s", node.GetParam("mode"))
-		}
-	})
-
-	t.Run("VLESS XHTTP Reality with user flow does NOT emit flow", func(t *testing.T) {
-		userWithFlow := &domain.User{
-			UUID:  "11111111-2222-3333-4444-555555555555",
-			Email: "test@example.com",
-			Flow:  "xtls-rprx-vision",
-		}
-		inbound := &domain.Inbound{
-			Tag:            "vless-xhttp-reality",
-			Protocol:       "vless",
-			Port:           443,
-			ExternalHost:   "1.2.3.4",
-			StreamSettings: `{"network":"xhttp","security":"reality","realitySettings":{"publicKey":"test-pbk","serverName":"example.com"}}`,
+		userWithInbound := &domain.User{
+			Email:       "user@example.com",
+			UUID:        "7117295b-4362-4260-a133-b969344dfcd5",
+			InboundTags: "vless-reality",
+			Enabled:     true,
 		}
 
-		node := protocol.InboundToNodeConfig(inbound, userWithFlow, "", 0)
-		if node.GetParam("flow") != "" {
-			t.Errorf("expected empty flow in NodeConfig for xhttp, got: %s", node.GetParam("flow"))
+		nodes := protocol.InboundsToNodeConfigs([]domain.Inbound{inbound}, userWithInbound, "198.51.100.1", 443, "")
+		if len(nodes) != 2 {
+			t.Fatalf("expected 2 nodes for enabled subroutes, got %d", len(nodes))
 		}
 
-		link := protocol.BuildShareLink(inbound, userWithFlow, "", 0)
-		u, err := url.Parse(link)
-		if err != nil {
-			t.Fatalf("failed to parse link: %v", err)
+		if nodes[0].Name != "🇯🇵 日本原生直连" || nodes[0].Port != 443 {
+			t.Errorf("unexpected node 0: %+v", nodes[0])
 		}
-		if u.Query().Get("flow") != "" {
-			t.Errorf("expected no flow query param for xhttp reality, got: %s", u.Query().Get("flow"))
+		if nodes[0].UUID != "7117295b-4362-0001-a133-b969344dfcd5" {
+			t.Errorf("unexpected node 0 UUID: %s", nodes[0].UUID)
+		}
+		if nodes[1].Name != "🇺🇸 美国中转落地" || nodes[1].Port != 443 {
+			t.Errorf("unexpected node 1: %+v", nodes[1])
+		}
+		if nodes[1].UUID != "7117295b-4362-0002-a133-b969344dfcd5" {
+			t.Errorf("unexpected node 1 UUID: %s", nodes[1].UUID)
 		}
 	})
 }

@@ -9,7 +9,7 @@ import (
 	"testing"
 )
 
-func TestReadLastLines(t *testing.T) {
+func TestReadLastLinesFiltered_Basic(t *testing.T) {
 	tmpDir := t.TempDir()
 
 	// 1. 测试常规文件及末尾截取
@@ -23,9 +23,9 @@ func TestReadLastLines(t *testing.T) {
 	}
 	f.Close()
 
-	lines, err := ReadLastLines(logFile, 5)
+	lines, err := ReadLastLinesFiltered(logFile, 5, LogFilter{})
 	if err != nil {
-		t.Fatalf("ReadLastLines failed: %v", err)
+		t.Fatalf("ReadLastLinesFiltered failed: %v", err)
 	}
 
 	if len(lines) != 5 {
@@ -37,9 +37,9 @@ func TestReadLastLines(t *testing.T) {
 	}
 
 	// 2. 测试请求行数大于总行数
-	allLines, err := ReadLastLines(logFile, 500)
+	allLines, err := ReadLastLinesFiltered(logFile, 500, LogFilter{})
 	if err != nil {
-		t.Fatalf("ReadLastLines with large maxLines failed: %v", err)
+		t.Fatalf("ReadLastLinesFiltered with large maxLines failed: %v", err)
 	}
 	if len(allLines) != 200 {
 		t.Errorf("expected 200 lines, got %d", len(allLines))
@@ -56,9 +56,9 @@ func TestReadLastLines(t *testing.T) {
 	}
 	fEmpty.Close()
 
-	emptyLines, err := ReadLastLines(emptyFile, 10)
+	emptyLines, err := ReadLastLinesFiltered(emptyFile, 10, LogFilter{})
 	if err != nil {
-		t.Fatalf("ReadLastLines on empty file failed: %v", err)
+		t.Fatalf("ReadLastLinesFiltered on empty file failed: %v", err)
 	}
 	if len(emptyLines) != 0 {
 		t.Errorf("expected 0 lines from empty file, got %d", len(emptyLines))
@@ -66,7 +66,7 @@ func TestReadLastLines(t *testing.T) {
 
 	// 4. 测试不存在的文件
 	nonExistent := filepath.Join(tmpDir, "non_existent.log")
-	_, err = ReadLastLines(nonExistent, 10)
+	_, err = ReadLastLinesFiltered(nonExistent, 10, LogFilter{})
 	if err == nil {
 		t.Errorf("expected error for non-existent file, got nil")
 	}

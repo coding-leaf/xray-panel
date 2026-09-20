@@ -1,8 +1,10 @@
 package middleware
 
 import (
+	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"sync"
 	"testing"
 
 	"github.com/gin-gonic/gin"
@@ -76,3 +78,45 @@ func TestGlobalRateLimiter(t *testing.T) {
 		t.Fatalf("request 3 expected status 429, got %d", w.Code)
 	}
 }
+
+func TestHashIPToShard(t *testing.T) {
+	shardCount := 16
+	idx1 := HashIPToShard("192.168.1.1", shardCount)
+	idx2 := HashIPToShard("192.168.1.1", shardCount)
+	if idx1 != idx2 {
+		t.Fatalf("expected hash to be deterministic, got %d and %d", idx1, idx2)
+	}
+	if idx1 < 0 || idx1 >= shardCount {
+		t.Fatalf("hash index out of bounds: %d", idx1)
+	}
+
+	// 边界检查: 0 或负数 shardCount
+	if idx := HashIPToShard("1.1.1.1", 0); idx != 0 {
+		t.Fatalf("expected 0 for shardCount=0, got %d", idx)
+	}
+}
+
+func TestShardedIPRateLimiter_Concurrent(t *testing.T) {
+	limiter := newShardedIPRateLimiter(100, 100)
+	var wg sync.WaitGroup
+	const goroutines = 50
+	const iterations = 100
+
+	wg.Add(goroutines)
+	for i := 0; i < goroutines; i++ {
+		go func(gid int) {
+			defer wg.Done()
+			for it := 0; it < iterations; it++ {
+				ip := fmt.Sprintf("192.168.%d.%d", gid%16, it%255)
+				lim := limiter.getLimiter(ip)
+				if lim == nil {
+					t.Errorf("expected non-nil limiter for ip %s", ip)
+					return
+				}
+				_ = lim.Allow()
+			}
+		}(i)
+	}
+	wg.Wait()
+}
+

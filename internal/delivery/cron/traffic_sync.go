@@ -257,22 +257,25 @@ func (j *TrafficSyncJob) syncOnce(ctx context.Context) {
 		}
 	}
 
-	// 更新速度追踪器 (有增量计算速率，无增量即时将瞬时速率置零)
-	allTracked := domain.GetAllUserRuntimeSpeeds()
-	for email := range allTracked {
-		up := userDeltaUp[email]
-		down := userDeltaDown[email]
-		if up > 0 || down > 0 {
-			domain.SetUserRuntimeSpeed(email, up/sec, down/sec, nowMs)
-		} else {
-			// 本轮周期无新增流量，立即将瞬时速率置零
-			domain.SetUserRuntimeSpeed(email, 0, 0, 0)
-		}
-	}
+	// 更新速度追踪器：单次原子批量更新，消除逐用户抢占写锁的颠簸
+	speedUpdates := make([]domain.UserTrafficDeltaUpdate, 0, len(userDeltaUp)+len(userDeltaDown))
+	seenEmails := make(map[string]struct{}, len(userDeltaUp)+len(userDeltaDown))
 	for email, up := range userDeltaUp {
-		if _, ok := allTracked[email]; !ok {
-			down := userDeltaDown[email]
-			domain.SetUserRuntimeSpeed(email, up/sec, down/sec, nowMs)
+		seenEmails[email] = struct{}{}
+		speedUpdates = append(speedUpdates, domain.UserTrafficDeltaUpdate{
+			Email: email,
+			Up:    up,
+			Down:  userDeltaDown[email],
+		})
+	}
+	for email, down := range userDeltaDown {
+		if _, ok := seenEmails[email]; !ok {
+			speedUpdates = append(speedUpdates, domain.UserTrafficDeltaUpdate{
+				Email: email,
+				Up:    0,
+				Down:  down,
+			})
 		}
 	}
+	domain.BatchUpdateUserRuntimeSpeeds(speedUpdates, sec, nowMs)
 }

@@ -16,40 +16,67 @@ type ipLimiterEntry struct {
 	lastSeen time.Time
 }
 
-type ipRateLimiter struct {
+const defaultShardCount = 16
+
+type ipLimiterShard struct {
 	mu       sync.Mutex
 	limiters map[string]*ipLimiterEntry
-	r        rate.Limit
-	b        int
 	calls    uint64
 }
 
-func newIPRateLimiter(r rate.Limit, b int) *ipRateLimiter {
-	return &ipRateLimiter{
-		limiters: make(map[string]*ipLimiterEntry),
-		r:        r,
-		b:        b,
-	}
+type shardedIPRateLimiter struct {
+	shards [defaultShardCount]*ipLimiterShard
+	r      rate.Limit
+	b      int
 }
 
-func (l *ipRateLimiter) getLimiter(ip string) *rate.Limiter {
-	l.mu.Lock()
-	defer l.mu.Unlock()
+func newShardedIPRateLimiter(r rate.Limit, b int) *shardedIPRateLimiter {
+	limiter := &shardedIPRateLimiter{
+		r: r,
+		b: b,
+	}
+	for i := 0; i < defaultShardCount; i++ {
+		limiter.shards[i] = &ipLimiterShard{
+			limiters: make(map[string]*ipLimiterEntry),
+		}
+	}
+	return limiter
+}
+
+// HashIPToShard 基于 FNV-1a 确定性哈希将 IP 分散到分段锁桶
+func HashIPToShard(ip string, shardCount int) int {
+	if shardCount <= 0 {
+		return 0
+	}
+	var hash uint32 = 2166136261
+	for i := 0; i < len(ip); i++ {
+		hash ^= uint32(ip[i])
+		hash *= 16777619
+	}
+	return int(hash % uint32(shardCount))
+}
+
+func (l *shardedIPRateLimiter) getLimiter(ip string) *rate.Limiter {
+	shardIdx := HashIPToShard(ip, defaultShardCount)
+	shard := l.shards[shardIdx]
+
+	shard.mu.Lock()
+	defer shard.mu.Unlock()
 
 	now := time.Now()
-	l.calls++
-	if l.calls%256 == 0 && len(l.limiters) > 50 {
-		for k, entry := range l.limiters {
+	shard.calls++
+	if shard.calls%256 == 0 && len(shard.limiters) > 50 {
+		for k, entry := range shard.limiters {
 			if now.Sub(entry.lastSeen) > 10*time.Minute {
-				delete(l.limiters, k)
+				delete(shard.limiters, k)
 			}
 		}
 	}
 
-	entry, exists := l.limiters[ip]
+	entry, exists := shard.limiters[ip]
 	if !exists {
 		lim := rate.NewLimiter(l.r, l.b)
-		l.limiters[ip] = &ipLimiterEntry{limiter: lim, lastSeen: now}
+		shard.limiters[ip] = &ipLimiterEntry{limiter: lim, lastSeen: now}
 		return lim
 	}
 
@@ -84,7 +111,7 @@ func parseRate(rateFormatted string, defaultLimit int) (rate.Limit, int) {
 
 func NewRateLimiter(rateFormatted string) gin.HandlerFunc {
 	r, b := parseRate(rateFormatted, 10)
-	limiter := newIPRateLimiter(r, b)
+	limiter := newShardedIPRateLimiter(r, b)
 
 	return func(c *gin.Context) {
 		ip := c.ClientIP()

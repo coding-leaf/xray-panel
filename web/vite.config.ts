@@ -22,5 +22,30 @@ export default defineConfig({
   build: {
     outDir: 'dist',
     emptyOutDir: true,
+    chunkSizeWarningLimit: 600,
+    rollupOptions: {
+      output: {
+        manualChunks(id) {
+          if (id.includes('node_modules')) {
+            if (id.includes('lucide-vue-next')) {
+              return 'vendor-icons'
+            }
+            if (id.includes('qrcode.vue')) {
+              return 'vendor-qrcode'
+            }
+            if (id.includes('axios')) {
+              return 'vendor-utils'
+            }
+            if (id.includes('vue') || id.includes('pinia')) {
+              return 'vendor-vue'
+            }
+            return 'vendor-libs'
+          }
+        },
+        chunkFileNames: 'assets/js/[name]-[hash].js',
+        entryFileNames: 'assets/js/[name]-[hash].js',
+        assetFileNames: 'assets/[ext]/[name]-[hash].[ext]',
+      },
+    },
   },
 })

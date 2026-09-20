@@ -1,18 +1,18 @@
 import { createRouter, createWebHistory, type RouteRecordRaw } from 'vue-router'
-import DashboardView from '../views/DashboardView.vue'
-import TopologyView from '../views/TopologyView.vue'
-import InboundsView from '../views/InboundsView.vue'
-import OutboundsView from '../views/OutboundsView.vue'
-import RoutingView from '../views/RoutingView.vue'
-import DNSView from '../views/DNSView.vue'
-import UsersView from '../views/UsersView.vue'
-import ConfigView from '../views/ConfigView.vue'
-import LogsView from '../views/LogsView.vue'
-import SettingsView from '../views/SettingsView.vue'
-import LoginView from '../views/LoginView.vue'
-import PortalClaimView from '../views/PortalClaimView.vue'
-
 import { isMockMode } from '../mock'
+
+const LoginView = () => import('../views/LoginView.vue')
+const PortalClaimView = () => import('../views/PortalClaimView.vue')
+const DashboardView = () => import('../views/DashboardView.vue')
+const TopologyView = () => import('../views/TopologyView.vue')
+const InboundsView = () => import('../views/InboundsView.vue')
+const OutboundsView = () => import('../views/OutboundsView.vue')
+const RoutingView = () => import('../views/RoutingView.vue')
+const DNSView = () => import('../views/DNSView.vue')
+const UsersView = () => import('../views/UsersView.vue')
+const ConfigView = () => import('../views/ConfigView.vue')
+const LogsView = () => import('../views/LogsView.vue')
+const SettingsView = () => import('../views/SettingsView.vue')
 
 const routes: RouteRecordRaw[] = [
   { path: '/login', component: LoginView, meta: { layout: 'blank' } },

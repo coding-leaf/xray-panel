@@ -109,12 +109,36 @@ func parseRate(rateFormatted string, defaultLimit int) (rate.Limit, int) {
 	return rate.Limit(float64(limit) / period.Seconds()), limit
 }
 
+// GetRealClientIP 通用获取客户端真实 IP 函数：
+// 优先检查 CF-Connecting-IP，其次 X-Real-IP，其次 X-Forwarded-For（取首个有效 IP），最后回退到 c.ClientIP()。
+// 保证去除首尾空格并验证非空。
+func GetRealClientIP(c *gin.Context) string {
+	if c == nil {
+		return ""
+	}
+	if cfIP := strings.TrimSpace(c.GetHeader("CF-Connecting-IP")); cfIP != "" {
+		return cfIP
+	}
+	if realIP := strings.TrimSpace(c.GetHeader("X-Real-IP")); realIP != "" {
+		return realIP
+	}
+	if xff := strings.TrimSpace(c.GetHeader("X-Forwarded-For")); xff != "" {
+		for _, part := range strings.Split(xff, ",") {
+			ip := strings.TrimSpace(part)
+			if ip != "" {
+				return ip
+			}
+		}
+	}
+	return strings.TrimSpace(c.ClientIP())
+}
+
 func NewRateLimiter(rateFormatted string) gin.HandlerFunc {
 	r, b := parseRate(rateFormatted, 10)
 	limiter := newShardedIPRateLimiter(r, b)
 
 	return func(c *gin.Context) {
-		ip := c.ClientIP()
+		ip := GetRealClientIP(c)
 		if !limiter.getLimiter(ip).Allow() {
 			c.AbortWithStatusJSON(http.StatusTooManyRequests, gin.H{
 				"error": "请求过于频繁，已被限流保护，请稍后再试",

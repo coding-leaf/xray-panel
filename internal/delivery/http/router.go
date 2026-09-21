@@ -72,10 +72,10 @@ func SetupRouter(handlers *Handlers, jwtSecret string, staticFS fs.FS) *gin.Engi
 		api.GET("/sub/:token", subLimiter, handlers.Sub.GetSubscription)
 		api.GET("/sub", subLimiter, handlers.Sub.GetSubscription)
 
-		// 凭据安全兑换公开接口 (单 IP 5 次/分钟, 全局总额 60 次/分钟)
+		// 凭据安全兑换公开接口 (单 IP 20 次/分钟, 全局总额 120 次/分钟)
 		if handlers.Ticket != nil {
-			portalIPLimiter := middleware.NewRateLimiter("5-M")
-			portalGlobalLimiter := middleware.NewGlobalRateLimiter("60-M", "global_portal_claim")
+			portalIPLimiter := middleware.NewRateLimiter("20-M")
+			portalGlobalLimiter := middleware.NewGlobalRateLimiter("120-M", "global_portal_claim")
 			api.POST("/portal/claim", portalGlobalLimiter, portalIPLimiter, handlers.Ticket.ClaimTicket)
 		}
 

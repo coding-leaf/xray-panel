@@ -276,6 +276,7 @@ export default {
       const newHeaders = new Headers(request.headers);
 
       // 真实 IP、域名与协议安全注入
+      newHeaders.set("CF-Connecting-IP", clientIP);
       newHeaders.set("X-Real-IP", clientIP);
       newHeaders.set("X-Forwarded-For", clientIP);
       newHeaders.set("X-Forwarded-Proto", "https");

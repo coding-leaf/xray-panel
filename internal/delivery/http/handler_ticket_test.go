@@ -200,6 +200,22 @@ func TestTicketHandler_ClaimTicket(t *testing.T) {
 		}
 	})
 
+	t.Run("Claim ticket with CF-Connecting-IP uses real client IP", func(t *testing.T) {
+		body, _ := json.Marshal(map[string]string{
+			"code": ticket.Code,
+		})
+		req := httptest.NewRequest("POST", "/api/portal/claim", bytes.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("CF-Connecting-IP", "203.0.113.88")
+		req.RemoteAddr = "127.0.0.1:12345"
+		w := httptest.NewRecorder()
+		router.ServeHTTP(w, req)
+
+		if w.Code != http.StatusOK {
+			t.Fatalf("expected 200 OK, got %d, body: %s", w.Code, w.Body.String())
+		}
+	})
+
 	t.Run("Claim ticket with invalid code returns 400 and uniform error message", func(t *testing.T) {
 		body, _ := json.Marshal(map[string]string{
 			"code": "WRONG1",

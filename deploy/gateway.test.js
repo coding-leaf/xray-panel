@@ -96,12 +96,14 @@ describe("Cloudflare Gateway Unit & Integration Tests", () => {
       const requestBody = JSON.stringify({ code: "CLAIM-12345" });
       const calledHosts = [];
       const receivedBodies = [];
+      const receivedCfIps = [];
 
       globalThis.fetch = async (req) => {
         const url = new URL(req.url);
         calledHosts.push(url.host);
         const text = await req.text();
         receivedBodies.push(text);
+        receivedCfIps.push(req.headers.get("CF-Connecting-IP"));
 
         if (url.host === "vps1.example.com") {
           return new Response("Not found on node 1", { status: 404 });
@@ -140,6 +142,7 @@ describe("Cloudflare Gateway Unit & Integration Tests", () => {
 
       assert.deepEqual(calledHosts, ["vps1.example.com", "vps2.example.com"]);
       assert.deepEqual(receivedBodies, [requestBody, requestBody]);
+      assert.deepEqual(receivedCfIps, ["203.0.113.195", "203.0.113.195"]);
       // Verify header sanitization
       assert.equal(res.headers.has("Server"), false);
       assert.equal(res.headers.has("X-Powered-By"), false);
@@ -381,10 +384,12 @@ describe("Cloudflare Gateway Unit & Integration Tests", () => {
     it("Pages: should buffer POST body and successfully reuse it across candidates", async () => {
       const requestBody = JSON.stringify({ claim_code: "PAGES-999" });
       const calledHosts = [];
+      const receivedCfIps = [];
 
       globalThis.fetch = async (req) => {
         const url = new URL(req.url);
         calledHosts.push(url.host);
+        receivedCfIps.push(req.headers.get("CF-Connecting-IP"));
         if (url.host === "pages-node1.com") {
           return new Response("Miss", { status: 404 });
         }
@@ -396,7 +401,10 @@ describe("Cloudflare Gateway Unit & Integration Tests", () => {
 
       const request = new Request("https://pages.internal/api/portal/claim", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          "CF-Connecting-IP": "198.51.100.88",
+        },
         body: requestBody,
       });
 
@@ -407,6 +415,7 @@ describe("Cloudflare Gateway Unit & Integration Tests", () => {
       const res = await pagesScript.fetch(request, env, {});
       assert.equal(res.status, 200);
       assert.deepEqual(calledHosts, ["pages-node1.com", "pages-node2.com"]);
+      assert.deepEqual(receivedCfIps, ["198.51.100.88", "198.51.100.88"]);
     });
 
     it("should return 200 OK innocent page for bot UA", async () => {

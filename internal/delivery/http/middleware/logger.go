@@ -34,7 +34,7 @@ func SlogLogger() gin.HandlerFunc {
 			slog.String("method", c.Request.Method),
 			slog.String("path", c.Request.URL.Path),
 			slog.Int("status", status),
-			slog.String("client_ip", c.ClientIP()),
+			slog.String("client_ip", GetRealClientIP(c)),
 			slog.Duration("latency", latency),
 		)
 	}

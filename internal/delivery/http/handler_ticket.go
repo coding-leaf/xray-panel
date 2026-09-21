@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"strconv"
 
+	"panel/internal/delivery/http/middleware"
 	"panel/internal/domain"
 	"panel/internal/service"
 
@@ -100,7 +101,7 @@ func (h *TicketHandler) ClaimTicket(c *gin.Context) {
 		reqBaseURL = fmt.Sprintf("%s://%s", scheme, reqHost)
 	}
 
-	clientIP := c.ClientIP()
+	clientIP := middleware.GetRealClientIP(c)
 	payload, err := h.ticketSvc.ClaimTicket(c.Request.Context(), req.Code, clientIP, reqBaseURL)
 	if err != nil {
 		if errors.Is(err, domain.ErrIPRateLimited) {

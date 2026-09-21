@@ -120,3 +120,77 @@ func TestShardedIPRateLimiter_Concurrent(t *testing.T) {
 	wg.Wait()
 }
 
+func TestGetRealClientIP(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	t.Run("nil context", func(t *testing.T) {
+		ip := GetRealClientIP(nil)
+		if ip != "" {
+			t.Fatalf("expected empty string for nil context, got %q", ip)
+		}
+	})
+
+	t.Run("CF-Connecting-IP priority", func(t *testing.T) {
+		w := httptest.NewRecorder()
+		c, _ := gin.CreateTestContext(w)
+		req := httptest.NewRequest("GET", "/", nil)
+		req.Header.Set("CF-Connecting-IP", " 203.0.113.10 ")
+		req.Header.Set("X-Real-IP", "198.51.100.20")
+		req.Header.Set("X-Forwarded-For", "192.0.2.30, 10.0.0.1")
+		req.RemoteAddr = "127.0.0.1:12345"
+		c.Request = req
+
+		ip := GetRealClientIP(c)
+		if ip != "203.0.113.10" {
+			t.Fatalf("expected 203.0.113.10, got %q", ip)
+		}
+	})
+
+	t.Run("X-Real-IP priority when CF-Connecting-IP missing or whitespace", func(t *testing.T) {
+		w := httptest.NewRecorder()
+		c, _ := gin.CreateTestContext(w)
+		req := httptest.NewRequest("GET", "/", nil)
+		req.Header.Set("CF-Connecting-IP", "   ")
+		req.Header.Set("X-Real-IP", " 198.51.100.20 ")
+		req.Header.Set("X-Forwarded-For", "192.0.2.30, 10.0.0.1")
+		req.RemoteAddr = "127.0.0.1:12345"
+		c.Request = req
+
+		ip := GetRealClientIP(c)
+		if ip != "198.51.100.20" {
+			t.Fatalf("expected 198.51.100.20, got %q", ip)
+		}
+	})
+
+	t.Run("X-Forwarded-For first IP when CF and X-Real missing", func(t *testing.T) {
+		w := httptest.NewRecorder()
+		c, _ := gin.CreateTestContext(w)
+		req := httptest.NewRequest("GET", "/", nil)
+		req.Header.Set("X-Forwarded-For", "  192.0.2.30  , 10.0.0.1, 10.0.0.2")
+		req.RemoteAddr = "127.0.0.1:12345"
+		c.Request = req
+
+		ip := GetRealClientIP(c)
+		if ip != "192.0.2.30" {
+			t.Fatalf("expected 192.0.2.30, got %q", ip)
+		}
+	})
+
+	t.Run("fallback to ClientIP when headers empty", func(t *testing.T) {
+		w := httptest.NewRecorder()
+		c, _ := gin.CreateTestContext(w)
+		req := httptest.NewRequest("GET", "/", nil)
+		req.Header.Set("CF-Connecting-IP", "")
+		req.Header.Set("X-Real-IP", "  ")
+		req.Header.Set("X-Forwarded-For", " , ")
+		req.RemoteAddr = "192.0.2.99:12345"
+		c.Request = req
+
+		ip := GetRealClientIP(c)
+		if ip != "192.0.2.99" {
+			t.Fatalf("expected 192.0.2.99, got %q", ip)
+		}
+	})
+}
+
+

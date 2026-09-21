@@ -1,18 +1,20 @@
 /**
  * ==============================================================================
- * Cloudflare Worker: 免翻墙中立门户网关与反探测代理 (v3.0 生产工业级加固版)
+ * Cloudflare Worker: 免翻墙中立门户网关与多源站弹性漫游反探测代理 (v4.0 生产工业级版)
  * ==============================================================================
  * 
  * 安全审计加固项：
  * 1. 终结多重编码绕过：实现 Fixed-point 收敛解码，严密拦截 %252e 等双重/多重 URL 编码路径穿越；
- * 2. 敏感数据防缓存注入：对 /api/portal/ 与 /sub 接口强制注入 Cache-Control: no-store，杜绝边缘串号与凭据泄露；
- * 3. 补齐 HTTPS 协议标头：显式注入 X-Forwarded-Proto: https，确保后端生成标准合法订阅链接；
- * 4. 完美兼容 /sub 接口：同时放行 /sub/:token 路径模式与 /sub?token=... 参数查询模式；
- * 5. 环境变量解耦：优先读取 env.UPSTREAM_ORIGIN，支持在 Cloudflare 控制台热更新与密钥保护；
- * 6. 爬虫欺骗高存活策略：检测到审查爬虫时返回 200 OK 中立“健康运行”空白页，杜绝被腾讯判定为异常站点弹窗报红。
+ * 2. 多源站顺序漫游调度：支持 UPSTREAM_ORIGINS 逗号/换行分隔多节点，实现 2.5s 极速超时熔断与中立故障转移；
+ * 3. 请求体跨机复用：非 GET/HEAD 请求通过 ArrayBuffer 预读缓存，杜绝 Body already consumed 异常；
+ * 4. 敏感数据防缓存注入：对 /api/portal/ 与 /sub 接口强制注入 Cache-Control: no-store，杜绝边缘串号与凭据泄露；
+ * 5. 补齐 HTTPS 协议标头：显式注入 X-Forwarded-Proto: https，确保后端生成标准合法订阅链接；
+ * 6. 完美兼容 /sub 接口：同时放行 /sub/:token 路径模式与 /sub?token=... 参数查询模式；
+ * 7. 爬虫欺骗高存活策略：检测到审查爬虫时返回 200 OK 中立“健康运行”空白页，杜绝被腾讯判定为异常站点弹窗报红；
+ * 8. 源站指纹剥离：隐匿 Server 与 X-Powered-By，全节点穷尽后对外输出统一中立安全兜底。
  */
 
-// 默认兜底后端 VPS 面板地址（生产环境推荐在 Cloudflare Worker 的 Settings -> Variables 中配置 UPSTREAM_ORIGIN）
+// 默认兜底后端 VPS 面板地址（生产环境推荐在 Cloudflare Worker 的 Settings -> Variables 中配置 UPSTREAM_ORIGINS）
 const DEFAULT_UPSTREAM_ORIGIN = "https://panel.yourdomain.com";
 
 // 审查爬虫与自动化扫描特征正则（精准识别，绝不误杀真实普通微信/移动端用户）
@@ -52,6 +54,50 @@ const PREFIX_ALLOWED_PATHS = [
 ];
 
 /**
+ * 解析并清洗上游多源站配置
+ * @param {string|null|undefined} rawConfig - 原始配置字符串（支持逗号或换行分隔）
+ * @param {string} [defaultOrigin] - 默认兜底源站
+ * @returns {string[]} 有效的标准化候选源站列表
+ */
+function parseUpstreamOrigins(rawConfig, defaultOrigin = DEFAULT_UPSTREAM_ORIGIN) {
+  const config =
+    rawConfig !== undefined && rawConfig !== null && String(rawConfig).trim() !== ""
+      ? String(rawConfig)
+      : defaultOrigin;
+
+  if (!config) return [];
+
+  // 占位符拦截：若配置包含默认模板占位符，直接判定未配置
+  if (config.includes("yourdomain.com")) {
+    return [];
+  }
+
+  const parts = config.split(/[\r\n,]+/);
+  const origins = [];
+
+  for (let part of parts) {
+    part = part.trim();
+    if (!part) continue;
+    if (part.includes("yourdomain.com")) {
+      return [];
+    }
+    // 去除 URL 尾部的末尾斜杠
+    part = part.replace(/\/+$/, "");
+    try {
+      const parsed = new URL(part);
+      if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+        continue;
+      }
+      origins.push(part);
+    } catch {
+      continue;
+    }
+  }
+
+  return origins;
+}
+
+/**
  * 严格路径规范化：执行多重 URL 解码直至收敛，消除所有穿越向量
  */
 function normalizeAndSanitizePath(rawPath) {
@@ -80,6 +126,40 @@ function normalizeAndSanitizePath(rawPath) {
   } catch {
     return null;
   }
+}
+
+/**
+ * 漫游超时信号发生器（2500ms 极速超时熔断）
+ * 采用显式 AbortController + setTimeout 配合 cleanup 彻底杜绝定时器泄露
+ */
+function createRoamingTimeoutSignal(timeoutMs = 2500) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => {
+    controller.abort(new DOMException("The operation was aborted due to timeout", "TimeoutError"));
+  }, timeoutMs);
+  return {
+    signal: controller.signal,
+    cleanup: () => clearTimeout(timer),
+  };
+}
+
+/**
+ * 候选源站响应评估状态机
+ */
+function evaluateCandidateResponse(status, isAbortedOrNetworkError) {
+  if (isAbortedOrNetworkError) {
+    return { action: "NEXT", category: "NETWORK_ERROR" };
+  }
+  if (status >= 200 && status < 300) {
+    return { action: "HIT", category: "SUCCESS" };
+  }
+  if (status === 400 || status === 403 || status === 404) {
+    return { action: "NEXT", category: "CLIENT_MISS" };
+  }
+  if (status >= 500) {
+    return { action: "NEXT", category: "SERVER_ERROR" };
+  }
+  return { action: "NEXT", category: "OTHER" };
 }
 
 /**
@@ -122,7 +202,6 @@ export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
     const userAgent = request.headers.get("User-Agent") || "";
-    const upstreamBase = env?.UPSTREAM_ORIGIN || DEFAULT_UPSTREAM_ORIGIN;
 
     // 1. 爬虫伪装防御：返回 200 OK 中立正常页，杜绝被腾讯标记为不可访问站点
     const isBot = BOT_UA_PATTERNS.some((pattern) => pattern.test(userAgent));
@@ -150,61 +229,139 @@ export default {
       return new Response("404 Not Found", { status: 404 });
     }
 
-    // 5. 构建发往真实 VPS 源站的上游请求（严格使用净化后的 normalizedPath）
-    const upstreamUrl = new URL(normalizedPath + url.search, upstreamBase);
-    const newHeaders = new Headers(request.headers);
+    // 5. 多源站配置解析与占位符拦截
+    const rawOrigins = env?.UPSTREAM_ORIGINS || env?.UPSTREAM_ORIGIN;
+    const candidates = parseUpstreamOrigins(rawOrigins, DEFAULT_UPSTREAM_ORIGIN);
 
-    // 6. 真实 IP 与协议安全注入
-    const clientIP = request.headers.get("CF-Connecting-IP") || "127.0.0.1";
-    newHeaders.set("X-Real-IP", clientIP);
-    newHeaders.set("X-Forwarded-For", clientIP);
-    newHeaders.set("X-Forwarded-Proto", "https"); // 告知后端当前经由 HTTPS 访问，生成正确的订阅 URL 前缀
-    newHeaders.set("X-Forwarded-Host", url.host); // 告知后端 Worker 的外部访问域名
-    newHeaders.set("Host", upstreamUrl.host);
+    if (!candidates || candidates.length === 0) {
+      return new Response(
+        "500 Configuration Required: Please configure UPSTREAM_ORIGINS in Cloudflare Settings -> Variables, then redeploy.",
+        { status: 500, headers: { "Content-Type": "text/plain; charset=utf-8" } }
+      );
+    }
 
-    // 7. 遵守 WHATWG Fetch 规范：GET / HEAD 请求强制置空 body
+    // 6. 请求体预读缓存（ArrayBuffer 支持多次安全复用，规避 body already consumed 异常）
     const isBodyAllowed = !["GET", "HEAD"].includes(request.method.toUpperCase());
-    const modifiedRequest = new Request(upstreamUrl.toString(), {
-      method: request.method,
-      headers: newHeaders,
-      body: isBodyAllowed ? request.body : null,
-      redirect: "follow",
-    });
+    let cachedBody = null;
+    if (isBodyAllowed) {
+      cachedBody = await request.arrayBuffer();
+    }
 
-    // 8. 代理回源执行与敏感标头净化
-    try {
-      const response = await fetch(modifiedRequest);
-      const resHeaders = new Headers(response.headers);
+    const clientIP = request.headers.get("CF-Connecting-IP") || "127.0.0.1";
 
-      // 剥离暴露源站技术的指纹标头
-      resHeaders.delete("Server");
-      resHeaders.delete("X-Powered-By");
+    let hasClientMiss = false;
+    let hasServerError = false;
+    let hasNetworkError = false;
 
-      // 注入基础 Web 安全防护标头 (防点击劫持、防 MIME 嗅探、防 Referer 泄漏)
-      resHeaders.set("X-Frame-Options", "DENY");
-      resHeaders.set("X-Content-Type-Options", "nosniff");
-      resHeaders.set("Referrer-Policy", "no-referrer");
+    // 7. 顺序漫游寻呼状态机 (Sequential Roaming Loop)
+    for (const upstreamBase of candidates) {
+      const upstreamUrl = new URL(normalizedPath + url.search, upstreamBase);
+      const newHeaders = new Headers(request.headers);
 
-      // 关键安全防线：对包含临时凭据与节点明文的路由强制禁止任何边缘或共享缓存
-      if (normalizedPath.startsWith("/api/portal") || normalizedPath.startsWith("/sub")) {
-        resHeaders.set("Cache-Control", "no-store, no-cache, must-revalidate, private");
-        resHeaders.set("Pragma", "no-cache");
-        resHeaders.set("Expires", "0");
-      } else if (normalizedPath === "/portal" || normalizedPath.startsWith("/portal/")) {
-        // SPA 门户页面强制协商缓存，防止前端打包发版后客户端缓存旧 HTML 出现白屏死锁
-        resHeaders.set("Cache-Control", "no-cache");
-      }
+      // 安全标头注入与 Host 重写
+      newHeaders.set("X-Real-IP", clientIP);
+      newHeaders.set("X-Forwarded-For", clientIP);
+      newHeaders.set("X-Forwarded-Proto", "https");
+      newHeaders.set("X-Forwarded-Host", url.host);
+      newHeaders.set("Host", upstreamUrl.host);
 
-      return new Response(response.body, {
-        status: response.status,
-        statusText: response.statusText,
-        headers: resHeaders,
+      const modifiedRequest = new Request(upstreamUrl.toString(), {
+        method: request.method,
+        headers: newHeaders,
+        body: isBodyAllowed ? cachedBody : null,
+        redirect: "follow",
       });
-    } catch (err) {
-      return new Response("Gateway upstream connection timeout or reset.", {
-        status: 502,
-        headers: { "Content-Type": "text/plain; charset=utf-8" },
+
+      const { signal, cleanup } = createRoamingTimeoutSignal(2500);
+
+      try {
+        let response;
+        try {
+          response = await fetch(modifiedRequest, { signal });
+        } finally {
+          cleanup();
+        }
+
+        const evaluation = evaluateCandidateResponse(response.status, false);
+
+        // 命中即止 (Hit Stop)
+        if (evaluation.action === "HIT") {
+          const resHeaders = new Headers(response.headers);
+
+          // 剥离暴露源站技术的指纹标头
+          resHeaders.delete("Server");
+          resHeaders.delete("X-Powered-By");
+
+          // 注入基础 Web 安全防护标头
+          resHeaders.set("X-Frame-Options", "DENY");
+          resHeaders.set("X-Content-Type-Options", "nosniff");
+          resHeaders.set("Referrer-Policy", "no-referrer");
+
+          // 关键安全防线：敏感数据路由禁止缓存
+          if (normalizedPath.startsWith("/api/portal") || normalizedPath.startsWith("/sub")) {
+            resHeaders.set("Cache-Control", "no-store, no-cache, must-revalidate, private");
+            resHeaders.set("Pragma", "no-cache");
+            resHeaders.set("Expires", "0");
+          } else if (normalizedPath === "/portal" || normalizedPath.startsWith("/portal/")) {
+            resHeaders.set("Cache-Control", "no-cache");
+          }
+
+          return new Response(response.body, {
+            status: response.status,
+            statusText: response.statusText,
+            headers: resHeaders,
+          });
+        }
+
+        // 状态机记录
+        if (evaluation.category === "CLIENT_MISS") {
+          hasClientMiss = true;
+        } else if (evaluation.category === "SERVER_ERROR") {
+          hasServerError = true;
+        }
+      } catch (err) {
+        cleanup();
+        hasNetworkError = true;
+      }
+    }
+
+    // 8. 漫游全穷尽中立兜底处理 (Neutral Fallback)
+    if (hasClientMiss) {
+      if (normalizedPath.startsWith("/api/portal/claim")) {
+        return new Response(JSON.stringify({ error: "凭据无效、已过期或未配置" }), {
+          status: 404,
+          headers: {
+            "Content-Type": "application/json; charset=utf-8",
+            "Cache-Control": "no-store, no-cache, must-revalidate, private",
+          },
+        });
+      }
+      return new Response("404 Not Found", {
+        status: 404,
+        headers: {
+          "Content-Type": "text/plain; charset=utf-8",
+          "Cache-Control": "no-store, no-cache, must-revalidate, private",
+        },
       });
     }
+
+    // 全部节点超时、阻断或 5xx 故障
+    return new Response("Gateway upstream connection timeout or reset.", {
+      status: 502,
+      headers: { "Content-Type": "text/plain; charset=utf-8" },
+    });
   },
 };
+
+export {
+  DEFAULT_UPSTREAM_ORIGIN,
+  BOT_UA_PATTERNS,
+  EXACT_ALLOWED_PATHS,
+  PREFIX_ALLOWED_PATHS,
+  parseUpstreamOrigins,
+  normalizeAndSanitizePath,
+  createRoamingTimeoutSignal,
+  evaluateCandidateResponse,
+  makeInnocentBotResponse,
+};
+

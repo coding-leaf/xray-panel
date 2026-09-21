@@ -7,4 +7,12 @@
 
 ---
 
-(暂无活跃任务)
+## cf-multi-upstream-gateway
+- Stage: Review
+- Status: in_progress
+- Risk: Tier 2
+- Owner: Dev
+- Created: 2026-09-21 18:36
+- Next: 委托 reviewer 执行 3-Pass 审计
+- Blocked: None
+- SDLC: docs/sdlc/cf-multi-upstream-gateway/

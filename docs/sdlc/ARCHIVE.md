@@ -14,3 +14,4 @@
 | reality-domain-monitor | 成功实现 Reality 域名合规性定期监测与面板告警及前端异常修复 | Deploy | `05c3d55` | go test -race ./... 及 npm run build 全绿通过 | 2026-09-20 |
 | tg-bot-enhancement | Telegram Bot 交互体验与运维管控能力增强（InlineKeyboard原地刷新、用户启停/重置、快捷开号等）及脚手架前缀缓存优化 | Deploy | `v2.4.2` | go test -race ./... 全绿, go vet 0告警, 多节点部署上线成功 | 2026-09-20 |
 | subroute-user-isolation | 实现 SubRoute 节点分流线路细粒度用户权限隔离（展示层双层订阅过滤 + Xray 引擎 Layer 3 物理强隔离 + 前端可视化权限分配与动态联动响应） | Deploy | `v2.5.0` | go test -race ./... 全绿, go vet 0告警, npm run build 编译成功 | 2026-09-20 |
+| cf-multi-upstream-gateway | 支持 Cloudflare 多 VPS 弹性调度、顺序漫游寻呼与真实客户端 IP 穿透 | Deploy | `aa25a25` | 22 gateway tests passed, go test -race 100% passed | 2026-09-21 |

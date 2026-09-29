@@ -1,7 +1,7 @@
 # Xray Decoupled Panel (解耦运维监控与分流管理面板)
 
 <p align="center">
-  <img src="https://img.shields.io/badge/Version-v2.5.0-indigo?style=flat-square" alt="Version">
+  <img src="https://img.shields.io/badge/Version-v2.6.0--beta.1-indigo?style=flat-square" alt="Version">
   <img src="https://img.shields.io/badge/Go-1.22+-00ADD8?style=flat-square&logo=go" alt="Go Version">
   <img src="https://img.shields.io/badge/Vue-3.4+-4FC08D?style=flat-square&logo=vue.js" alt="Vue Version">
   <img src="https://img.shields.io/badge/Architecture-Clean%20Architecture-blue?style=flat-square" alt="Clean Architecture">
@@ -68,6 +68,24 @@
 ---
 
 ## 更新日志
+
+### v2.6.0-beta.1 (2026-09) - 控制台现代化重塑、巨石视图解耦与 TypeScript 质量加固
+- **前端控制台体系升级与视觉重塑 (Console Redesign)**：
+  - 核心设计语言全面转向 Vercel / Linear 风格高密度开发者控制台体系，收敛中性语义令牌，剔除花哨冗余渐变；
+  - 视图结构重构为“Table-First + 侧边巡检/配置抽屉”模式，信息密度与可操作性大幅提升；
+  - 凭据提取 Gateway 与登录视图支持端侧主题自适应、沉浸式卡片和平滑交互。
+- **巨石视图拆解与性能按需加载 (Architecture & Performance)**：
+  - 沉淀通用 UI 原语组件（`FormField`、`SectionCard`、`Modal`），消除跨视图重复代码并统一交互规范；
+  - 拆解千行巨石视图 `InboundsView.vue`（由 1973 行精简至 193 行）与 `UsersView.vue`（由 1935 行精简至 140 行），转化为清晰的事件/状态调度器；
+  - 将重型表单抽屉（`InboundFormDrawer`、`UserFormDrawer`）及弹窗（`UserShareModal`、`UserTrafficModal`）重构为 `defineAsyncComponent` 异步按需加载，隔离第三方重量库（如 `qrcode.vue`），大幅降低首屏 Chunk 体积。
+- **用户领域层模型与安全参数清洗**：
+  - 抽取 `UserSubscriptionService` 统一收敛 VLESS/VMess/Trojan/Shadowsocks 订阅拼接逻辑；
+  - 实现纯函数领域清洗器 `sanitizeUserPayload` 与 `sanitizeInboundPayload`，严格过滤无意义监控与异构协议参数，杜绝前端浅拷贝提交脏数据。
+- **TypeScript 严格约束与 LSP 规范治理**：
+  - 前端工程全面开启 `noUnusedLocals`、`noUnusedParameters`、`noFallthroughCasesInSwitch` 等严格检查；
+  - 接入 Volar 接管模式与统一 VSCode settings，修复存量未用变量与类型穿透问题，实现 `npm run typecheck` 零告警、零错误门禁。
+- **Cloudflare 多机漫游寻呼网关与多 VPS 弹性调度**：
+  - 支持 Cloudflare Worker / Pages 作为统一凭据漫游寻呼网关，穿透真实客户端 IP 并放宽多机漫游兑换限流。
 
 ### v2.5.0 (2026-09) - SubRoute 节点分流线路细粒度用户权限隔离
 - **领域模型与强隔离数据契约**：

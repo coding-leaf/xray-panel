@@ -1,0 +1,28 @@
+{
+  "id": "docs-refresh-archive",
+  "name": "docs-refresh-archive",
+  "title": "文档刷新与归档：README / 架构总览 / SDLC 归档",
+  "description": "核对 README.md 与 docs/ARCHITECTURE_AND_LOGIC.md 是否与当前源码分层（domain/service/adapter/web）一致，不一致处重写；过时文档按原路径出新版、旧版移入 docs/archive/ 留档；补齐 docs/sdlc/ARCHIVE.md 索引。",
+  "status": "completed",
+  "dev_type": null,
+  "scope": null,
+  "package": null,
+  "priority": "P2",
+  "creator": "coding-leaf",
+  "assignee": "coding-leaf",
+  "createdAt": "2026-09-30",
+  "completedAt": "2026-09-30",
+  "branch": "master",
+  "base_branch": "master",
+  "worktree_path": null,
+  "commit": null,
+  "pr_url": null,
+  "subtasks": [],
+  "children": [],
+  "parent": null,
+  "relatedFiles": [],
+  "notes": "",
+  "meta": {
+    "description": "让仓库入口文档与当前 v2.6.0-beta.1 源码事实一致：校正 README（版本/Go 版本/启动参数/分层树）、按 v2.6 重写 docs/ARCHITECTURE_AND_LOGIC.md 并将旧 v2.0.0 版封存到 docs/archive/、将已停用的 docs/sdlc/ 整体封存到 docs/archive/sdlc/，并统一 main.go 兜底版本号。"
+  }
+}

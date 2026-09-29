@@ -1,0 +1,5 @@
+{"file": ".trellis/spec/backend/directory-structure.md", "reason": "权威分层定义（domain/service/adapter/delivery），用于校正 README 分层树与新版架构文档，防止幽灵目录/遗漏目录"}
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "KISS 与资源/并发红线；本任务改动 main.go 需遵守并据此确认门禁范围"}
+{"file": ".trellis/spec/backend/index.md", "reason": "后端规格索引，确认是否有其他与本任务相关的契约约束"}
+{"file": ".trellis/spec/frontend/directory-structure.md", "reason": "前端目录结构，用于架构文档前端控制台与分包章节的准确性"}
+{"file": ".trellis/spec/guides/index.md", "reason": "Pre-Modification Rule：改任何值前先全仓搜索，避免‘忘了同步 X’（版本号/引用正是此类风险）"}

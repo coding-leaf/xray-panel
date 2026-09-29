@@ -1,0 +1,4 @@
+{"file": ".trellis/spec/backend/directory-structure.md", "reason": "逐条核对 README 分层树与新版架构文档所述分层是否与规范一致"}
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "确认质量门禁与红线；验证 main.go 改动未引入回归"}
+{"file": ".trellis/spec/guides/review-3pass-guide.md", "reason": "三遍审查流程，用于查验文档事实性疏漏与残留旧表述"}
+{"file": ".trellis/spec/guides/index.md", "reason": "交叉审查假阳性模式；核对版本号/引用一致性不被误判"}

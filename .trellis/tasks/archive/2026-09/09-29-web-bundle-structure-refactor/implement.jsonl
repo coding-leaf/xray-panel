@@ -1,0 +1,3 @@
+{"file": ".trellis/spec/frontend/index.md", "reason": "Frontend guidelines and tech stack"}
+{"file": ".trellis/spec/frontend/directory-structure.md", "reason": "Directory structure and component naming conventions"}
+{"file": ".trellis/spec/frontend/components-and-routing.md", "reason": "Component architecture and routing conventions"}

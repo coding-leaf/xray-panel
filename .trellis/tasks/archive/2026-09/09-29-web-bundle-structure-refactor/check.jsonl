@@ -1,0 +1,2 @@
+{"file": ".trellis/spec/frontend/quality-guidelines.md", "reason": "Verification commands and quality gates"}
+{"file": ".trellis/spec/frontend/api-and-dataflow.md", "reason": "API contracts and dataflow safety"}

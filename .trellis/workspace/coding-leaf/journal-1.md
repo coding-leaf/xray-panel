@@ -137,3 +137,25 @@
 ### Status
 
 [OK] **Completed**
+
+
+## Session 7: 强化 TypeScript 与 LSP 代码卫生约束
+<!-- trellis-session: v=2 fp=505579b17e47a3ef -->
+
+**Date**: 2026-09-29
+**Task**: 强化 TypeScript 与 LSP 代码卫生约束
+**Branch**: `master`
+
+### Summary
+
+配置 web/tsconfig.json 启用 noUnusedLocals、noUnusedParameters 等严格约束，补齐 VSCode/LSP 规则并清理存量代码卫生，使 vue-tsc 保持 0 错误 0 警告门禁
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `67eb26e` | chore(task): archive 09-29-ts-lsp-hygiene-config |
+
+### Status
+
+[OK] **Completed**

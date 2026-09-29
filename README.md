@@ -2,7 +2,7 @@
 
 <p align="center">
   <img src="https://img.shields.io/badge/Version-v2.6.0--beta.1-indigo?style=flat-square" alt="Version">
-  <img src="https://img.shields.io/badge/Go-1.22+-00ADD8?style=flat-square&logo=go" alt="Go Version">
+  <img src="https://img.shields.io/badge/Go-1.26+-00ADD8?style=flat-square&logo=go" alt="Go Version">
   <img src="https://img.shields.io/badge/Vue-3.4+-4FC08D?style=flat-square&logo=vue.js" alt="Vue Version">
   <img src="https://img.shields.io/badge/Architecture-Clean%20Architecture-blue?style=flat-square" alt="Clean Architecture">
   <img src="https://img.shields.io/badge/Live%20Demo-GitHub%20Pages-success?style=flat-square&logo=github" alt="Live Demo">
@@ -158,18 +158,28 @@
 ```
 internal/
 ├── app/               # 应用生命周期契约与服务抽象 (Service, ServiceFunc)
-├── domain/            # 业务领域实体与纯业务契约 (Inbound, Outbound, User, Route)
-├── protocol/          # 多协议格式化、节点转换与分享链接生成
-├── service/           # 核心用例编排 (AuthService, SettingService, ConfigService, SubService 等)
+├── config/            # 启动配置装载 (flag + 环境变量)
+├── domain/            # 业务领域实体与纯业务契约 (Inbound, Outbound, User, SubRoute, Ticket, AuditLog, Reality 等)
+├── protocol/          # 多协议注册表、节点转换与分享链接生成 (vless/vmess/trojan/shadowsocks/hysteria2/socks)
+├── service/           # 核心用例编排 (Auth/Setting/Config/User/Sub/Monitor/Alert/GeoData/Reality/Ticket/AuditLog 等)
 ├── sub/               # 聚合订阅导出器 (Base64, Clash/Mihomo, Sing-box)
 ├── adapter/           # 外部基础设施与系统适配实现
-│   ├── xray/          # gRPC Client, Config Parser, Supervisor 与日志读取
+│   ├── xray/          # gRPC Client, XrayCompiler, Config Parser, Supervisor 与日志读取
+│   │   └── proto/     # 自研轻量 Protobuf/gRPC 契约客户端定义
 │   ├── repository/    # SQLite & GORM 仓储实现（WAL 模式加固）
 │   ├── telegram/      # Telegram Bot 适配器与告警通知
+│   ├── reality/       # REALITY 伪装域名探测与合规评估
 │   └── monitor/       # gopsutil 硬件性能指标采集
-└── delivery/          # 传输接入与服务暴露层
-    ├── http/          # RESTful API、Gin 路由、优雅停机 Server 与防护中间件
-    └── cron/          # 流量同步与状态轮询调度
+├── delivery/          # 传输接入与服务暴露层
+│   ├── http/          # RESTful API、Gin 路由、优雅停机 Server
+│   │   └── middleware/# JWT 鉴权、限流与防护中间件
+│   └── cron/          # 流量同步 (TrafficSyncJob) 与 Reality 巡检调度 (RealitySyncJob)
+└── pkg/               # 基础设施通用工具库
+    ├── cache/         # 泛型并发安全 TTL 缓存
+    ├── jsonc/         # 带注释 JSON 解析
+    ├── jwt/           # JWT 签发与校验
+    ├── logger/        # 结构化日志初始化
+    └── totp/          # 纯 Go RFC 6238 TOTP 认证器
 ```
 
 ---
@@ -208,19 +218,24 @@ sudo bash deploy/install.sh
 | 参数名 | 环境变量 | 默认值 | 描述 |
 | :--- | :--- | :--- | :--- |
 | `-port` | `PANEL_PORT` | `9000` | 面板 Web 监听端口 |
-| `-xray-config` | `XRAY_CONFIG_PATH` | `/usr/local/etc/xray/config.json` | Xray 核心主配置文件路径 |
 | `-xray-grpc` | `XRAY_GRPC_ADDR` | `127.0.0.1:8080` | Xray 核心 API gRPC 监听地址 |
-| `-xray-bin` | `XRAY_BIN_PATH` | `xray` | Xray 核心二进制程序路径 |
-| `-service` | `SERVICE_NAME` | `xray` | Xray 的 systemd 服务名 |
+| `-xray-config` | `XRAY_CONFIG_PATH` | 平台自动探测（Linux: `/usr/local/etc/xray/config.json`，否则 `config.json`） | Xray 核心主配置文件路径 |
+| `-xray-bin` | `XRAY_BIN_PATH` | 平台自动探测（Linux: `/usr/local/bin/xray`，Windows: `xray.exe`） | Xray 核心二进制程序路径 |
 | `-db` | `DB_PATH` | `data/panel.db` | 面板 SQLite 数据库文件路径 |
-| `-jwt-secret` | `PANEL_JWT_SECRET` | 自动生成入库 | 管理员鉴权 JWT 签名密钥 |
+| `-jwt-secret` | `PANEL_JWT_SECRET`（兼容 `JWT_SECRET`） | 留空则自动生成高熵密钥并入库 | 管理员鉴权 JWT 签名密钥 |
+| `-log-level` | `LOG_LEVEL` | `info` | 日志级别（`debug` / `info` / `warn` / `error`） |
+| `-log-json` | 无 | `false` | 是否以 JSON 结构化格式输出日志 |
+| `-service` | `SERVICE_NAME` | `xray` | Xray 的 systemd 服务名 |
+| `-public-url` | `PUBLIC_URL` | `http://127.0.0.1:9000` | 用于生成订阅链接的面板公开访问地址 |
+| `-v` | 无 | `false` | 打印版本信息后退出 |
+| `-version` | 无 | `false` | 打印版本信息后退出（`-v` 同义长参数） |
 
 ---
 
 ## 本地开发与编译
 
 ### 前置要求
-- Go 1.22+
+- Go 1.26+
 - Node.js 20+ & npm
 
 ```bash

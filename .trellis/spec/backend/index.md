@@ -31,6 +31,21 @@ internal/
 
 ---
 
+## 版本与发布事实源 (Version Source of Truth)
+
+版本发布线以 README / CHANGELOG 为准（当前 `v2.6.0-beta.1`），改动版本号时必须**四处同步**，否则会产生版本分叉：
+
+| 位置 | 角色 | 说明 |
+|---|---|---|
+| `README.md` 版本徽章 + CHANGELOG 首条 | **事实源** | 发布线的权威表述 |
+| `main.go` 的 `Version` | 本地构建兜底值 | 会被 CI/release 的 ldflags 覆盖（`-X 'main.Version=...'`，见 `.github/workflows/ci.yml`、`release.yml`） |
+| `web/package.json` + `web/package-lock.json` | 前端包元数据 | 使用 npm semver（无前导 `v`，如 `2.6.0-beta.1`） |
+
+- 变量名 `main.Version` 是 ldflags 注入契约，**禁止重命名**，否则 CI 版本注入失效。
+- `docs/`（含 `docs/archive/`）不参与 `go:embed`（仅嵌入 `web/dist`），文档移动/归档不影响构建。
+
+---
+
 ## 核心规范文件索引
 
 | 规约文档 | 覆盖范围与说明 | 状态 |

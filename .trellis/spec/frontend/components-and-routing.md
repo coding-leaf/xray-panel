@@ -9,7 +9,7 @@
 - 所有 `.vue` 一律使用 `<script setup lang="ts">`，**禁止 Options API**。
 - **组件分层**：
   - **原子组件（`web/src/components/ui/`）**：强类型通用原语（如 `Button`, `Input`, `Badge`, `Drawer`, `Modal`, `Table` 系列，以及 `FormField`, `SectionCard` 容器），严格使用 `defineProps` 约束变体、尺寸与状态，基于 CSS 变量语义令牌，负责收敛 Label/Hint/Error 与居中/抽屉浮层深度，禁止散落内联 Hex 颜色。
-  - **业务领域子组件（`web/src/views/<feature>/components/`）**：针对 50KB+ 的庞大视图，按领域就近聚合拆分为子组件（如 `InboundTable`, `UserTable`, `UserDetailDrawer`, `UserFormDrawer`）；重型表单抽屉与大型弹窗（如二维码、趋势图）采用 `defineAsyncComponent` 异步懒加载以优化首屏 chunk 体积。
+  - **业务领域子组件（`web/src/views/<feature>/components/`）**：针对 50KB+ 的庞大视图，按领域就近聚合拆分为子组件（如 `InboundTable`, `UserTable`, `OutboundTable`, `OutboundDetailDrawer`, `OutboundFormDrawer`）；重型表单抽屉与大型弹窗（如二维码、趋势图）采用 `defineAsyncComponent` 异步懒加载以优化首屏 chunk 体积。
   - **业务调度视图（`web/src/views/`）**：遵循自包含与轻量化原则，主视图作为调度器协调过滤状态、表格与双抽屉，局部类型与参数清洗收敛至 `views/<feature>/types.ts`。
 - 页面协作与模块解耦：跨层单例协作继续通过导入模块单例（`toast`、`api`）完成。
 - 生命周期配合清理：`onMounted` 注册 `setInterval`，`onUnmounted` 清理，

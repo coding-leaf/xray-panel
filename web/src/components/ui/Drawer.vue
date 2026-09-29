@@ -12,7 +12,7 @@
       >
         <div
           v-if="modelValue"
-          class="fixed inset-0 bg-black/65 backdrop-blur-[1px]"
+          class="fixed inset-0 bg-black/65"
           @click="close"
         />
       </transition>

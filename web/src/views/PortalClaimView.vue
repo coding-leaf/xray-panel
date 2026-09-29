@@ -1,219 +1,205 @@
 <template>
-  <div class="relative min-h-screen flex items-center justify-center p-4 sm:p-6 lg:p-8 overflow-hidden bg-[#07090E] text-slate-100 selection:bg-indigo-500/30 selection:text-indigo-200">
-    <!-- Ambient Cyber Glows -->
-    <div class="absolute -top-32 left-1/2 -translate-x-1/2 w-[550px] h-[350px] bg-gradient-to-tr from-indigo-600/20 via-cyan-500/10 to-transparent rounded-full blur-[110px] pointer-events-none"></div>
-    <div class="absolute -bottom-24 -left-20 w-[380px] h-[380px] bg-purple-900/15 rounded-full blur-[120px] pointer-events-none"></div>
-    <div class="absolute -bottom-24 -right-20 w-[380px] h-[380px] bg-cyan-600/10 rounded-full blur-[120px] pointer-events-none"></div>
-
-    <!-- Fine Grid Background Overlay -->
-    <div class="absolute inset-0 bg-[linear-gradient(to_right,#1e293b12_1px,transparent_1px),linear-gradient(to_bottom,#1e293b12_1px,transparent_1px)] bg-[size:3.5rem_3.5rem] [mask-image:radial-gradient(ellipse_60%_50%_at_50%_50%,#000_70%,transparent_100%)] pointer-events-none"></div>
-
+  <div class="relative min-h-screen flex items-center justify-center p-4 sm:p-6 lg:p-8 bg-background text-foreground selection:bg-neutral-800 selection:text-foreground">
     <div class="w-full max-w-xl relative z-10 my-auto py-8">
       <!-- Status Badge -->
       <div class="flex justify-center mb-5">
-        <div class="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-indigo-500/10 border border-indigo-500/20 text-indigo-300 text-xs font-medium tracking-wide shadow-sm">
-          <Shield class="w-3.5 h-3.5 text-indigo-400" />
+        <div class="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-neutral-900 border border-border text-neutral-300 text-xs font-mono">
+          <Shield class="w-3.5 h-3.5 text-neutral-400" />
           <span>分布式网管接入点 · 节点运维受保护</span>
         </div>
       </div>
 
-      <!-- Glass Frame Container -->
-      <div class="relative rounded-3xl p-[1px] bg-gradient-to-b from-white/15 via-white/[0.05] to-transparent shadow-[0_20px_60px_-15px_rgba(0,0,0,0.85)]">
-        <div class="absolute top-0 left-1/2 -translate-x-1/2 w-48 h-[2px] bg-gradient-to-r from-transparent via-indigo-500 to-transparent"></div>
+      <!-- Card Container -->
+      <div class="rounded-lg bg-card border border-border p-6 sm:p-8 shadow-xl">
+        <!-- Header -->
+        <div class="text-center mb-6">
+          <div class="w-12 h-12 mx-auto mb-3.5 rounded-md bg-neutral-900 border border-border flex items-center justify-center">
+            <KeyRound class="w-6 h-6 text-foreground" />
+          </div>
+          <h1 class="text-lg font-semibold tracking-tight text-foreground font-mono">分布式网管接入点</h1>
+          <p class="text-xs text-muted-foreground mt-1 font-mono">Distributed Network Operations Point</p>
+        </div>
 
-        <div class="relative rounded-[23px] bg-[#0c101b]/95 backdrop-blur-2xl p-6 sm:p-9 border border-white/[0.04]">
-          <!-- Header -->
-          <div class="text-center mb-7">
-            <div class="w-13 h-13 mx-auto mb-3.5 rounded-2xl p-[1px] bg-gradient-to-tr from-indigo-500 via-cyan-400 to-indigo-600 shadow-lg shadow-indigo-500/20 flex items-center justify-center">
-              <div class="w-12 h-12 rounded-[15px] bg-[#0b0f19] flex items-center justify-center">
-                <KeyRound class="w-6 h-6 text-indigo-400" />
-              </div>
+        <!-- Phase 1: Input Ticket Form -->
+        <div v-if="!payload" class="space-y-4">
+          <div>
+            <label class="block text-xs font-medium text-muted-foreground mb-2 text-center font-mono">
+              请输入 6 位提取凭据 (一次性安全码)
+            </label>
+            <div class="relative max-w-xs mx-auto">
+              <input
+                ref="codeInputRef"
+                v-model="inputCode"
+                type="text"
+                maxlength="8"
+                placeholder="如: 7K9X2P"
+                @input="handleInputFormat"
+                @keydown.enter="handleClaim"
+                class="w-full bg-neutral-950 border border-border rounded-md px-4 py-3 text-center text-2xl font-mono font-bold tracking-[0.4em] text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring focus:border-neutral-500 transition-colors uppercase"
+              />
             </div>
-            <h1 class="text-xl sm:text-2xl font-bold tracking-tight text-white">分布式网管接入点</h1>
-            <p class="text-xs text-slate-400 mt-1.5 font-mono">Distributed Network Operations Point</p>
+            <p class="text-[11px] text-muted-foreground text-center mt-2 font-mono">
+              不区分大小写，自动忽略混淆字符 (O/0、I/L/1)
+            </p>
           </div>
 
-          <!-- Phase 1: Input Ticket Form -->
-          <div v-if="!payload" class="space-y-5">
-            <div>
-              <label class="block text-xs font-semibold uppercase tracking-wider text-slate-400 mb-2 text-center">
-                请输入 6 位提取凭据 (一次性安全码)
-              </label>
-              <div class="relative max-w-xs mx-auto">
-                <input
-                  ref="codeInputRef"
-                  v-model="inputCode"
-                  type="text"
-                  maxlength="8"
-                  placeholder="如: 7K9X2P"
-                  @input="handleInputFormat"
-                  @keydown.enter="handleClaim"
-                  class="w-full bg-[#111624]/90 border border-slate-700/80 rounded-xl px-4 py-3.5 text-center text-2xl font-mono font-bold tracking-[0.4em] text-indigo-300 placeholder-slate-600 focus:outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/30 transition-all uppercase"
-                />
+          <!-- Error Notification Alert -->
+          <div v-if="errorMessage" class="p-2.5 rounded-md bg-rose-500/10 border border-rose-500/20 flex items-start gap-2.5 text-rose-400 text-xs">
+            <AlertCircle class="w-4 h-4 shrink-0 mt-0.5 text-rose-400" />
+            <div class="flex-1 font-mono leading-snug">
+              <span>{{ errorMessage }}</span>
+            </div>
+          </div>
+
+          <Button
+            @click="handleClaim"
+            :disabled="loading || !inputCode.trim()"
+            :loading="loading"
+            class="w-full h-10 text-xs font-medium"
+          >
+            <span>{{ loading ? '正在验证凭据...' : '立即提取配置' }}</span>
+            <ArrowRight v-if="!loading" class="w-3.5 h-3.5 ml-1.5" />
+          </Button>
+        </div>
+
+        <!-- Phase 2: Dual-Track Delivery Display -->
+        <div v-else class="space-y-5">
+          <!-- Auto-burn Countdown Bar -->
+          <div class="p-3 rounded-md bg-amber-500/10 border border-amber-500/20 flex items-center justify-between text-xs text-amber-400 font-mono">
+            <div class="flex items-center gap-2">
+              <Flame class="w-4 h-4 text-amber-400 animate-pulse" />
+              <span>内存安全自毁倒计时</span>
+            </div>
+            <span class="font-bold">{{ countdownSeconds }} 秒后清除</span>
+          </div>
+
+          <!-- Track 1: Emergency Cold-start Nodes -->
+          <div class="rounded-md bg-neutral-950 border border-border p-4 space-y-3">
+            <div class="flex items-center justify-between">
+              <div class="flex items-center gap-2">
+                <span class="w-2 h-2 rounded-full bg-emerald-400"></span>
+                <h3 class="text-xs font-semibold text-foreground tracking-wide font-mono">轨道 1：急救连接节点</h3>
               </div>
-              <p class="text-[11px] text-slate-500 text-center mt-2">
-                不区分大小写，自动忽略混淆字符 (O/0、I/L/1)
-              </p>
+              <span class="text-[11px] font-mono px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+                {{ payload.emergency_nodes?.length || 0 }} 个节点
+              </span>
             </div>
 
-            <!-- Error Notification Alert -->
-            <div v-if="errorMessage" class="p-3.5 rounded-xl bg-rose-500/10 border border-rose-500/20 flex items-start gap-3 text-rose-300 text-xs">
-              <AlertCircle class="w-4 h-4 shrink-0 mt-0.5 text-rose-400" />
-              <div class="flex-1">
-                <span class="font-medium">{{ errorMessage }}</span>
-              </div>
-            </div>
+            <p class="text-xs text-muted-foreground leading-relaxed">
+              用于首次配网或建立高可用专属加密通道。
+            </p>
 
-            <button
-              @click="handleClaim"
-              :disabled="loading || !inputCode.trim()"
-              class="w-full relative group overflow-hidden rounded-xl bg-gradient-to-r from-indigo-600 via-indigo-500 to-cyan-500 p-[1px] font-semibold text-white shadow-lg shadow-indigo-500/20 disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200"
+            <!-- Main Action: Copy all emergency nodes -->
+            <Button
+              @click="copyEmergencyNodes"
+              class="w-full h-9 text-xs"
             >
-              <div class="relative flex items-center justify-center gap-2 rounded-xl bg-[#0c101b] px-4 py-3 group-hover:bg-opacity-0 transition-all duration-200">
-                <Loader2 v-if="loading" class="w-4 h-4 animate-spin text-indigo-400" />
-                <ArrowRight v-else class="w-4 h-4 text-indigo-400 group-hover:translate-x-0.5 transition-transform" />
-                <span class="text-sm tracking-wide">{{ loading ? '正在验证凭据...' : '立即提取配置' }}</span>
+              <Check v-if="copiedNodes" class="w-3.5 h-3.5 mr-1.5 text-emerald-400" />
+              <Copy v-else class="w-3.5 h-3.5 mr-1.5" />
+              <span>{{ copiedNodes ? '已成功复制全部节点链接！' : '一键复制全部急救节点' }}</span>
+            </Button>
+
+            <!-- Fallback Textarea for Mobile/WeChat -->
+            <div class="pt-1">
+              <div class="text-[11px] text-muted-foreground mb-1 font-mono">
+                长按下方区域手动全选复制（手机端兜底）：
               </div>
-            </button>
+              <textarea
+                readonly
+                rows="3"
+                @click="selectTarget"
+                :value="joinedNodes"
+                class="w-full bg-neutral-900 border border-border rounded-md p-2 font-mono text-[11px] text-neutral-300 focus:outline-none focus:border-neutral-500 select-all"
+              ></textarea>
+            </div>
+
+            <!-- Quick Client Instructions Accordion -->
+            <div class="pt-2 border-t border-border">
+              <button
+                @click="showGuide = !showGuide"
+                class="w-full flex items-center justify-between text-xs text-muted-foreground hover:text-foreground transition-colors py-1"
+              >
+                <span class="flex items-center gap-1.5">
+                  <HelpCircle class="w-3.5 h-3.5 text-muted-foreground" />
+                  <span>各客户端一键导入指引</span>
+                </span>
+                <ChevronDown class="w-3.5 h-3.5 transition-transform" :class="{ 'rotate-180': showGuide }" />
+              </button>
+
+              <div v-if="showGuide" class="mt-2 space-y-2 text-[11px] text-muted-foreground bg-neutral-900 p-3 rounded-md border border-border">
+                <div>
+                  <strong class="text-neutral-200">Android 客户端：</strong>
+                  点击右上角「+」号 ➔ 选择「从剪贴板导入」➔ 启动连接。
+                </div>
+                <div>
+                  <strong class="text-neutral-200">iOS 客户端：</strong>
+                  打开客户端即会弹出提示「从剪贴板添加」➔ 点击允许并启动连接。
+                </div>
+                <div>
+                  <strong class="text-neutral-200">PC / Mac 客户端：</strong>
+                  在节点配置中选择从剪贴板粘贴节点 ➔ 选中后开启系统代理。
+                </div>
+              </div>
+            </div>
           </div>
 
-          <!-- Phase 2: Dual-Track Delivery Display -->
-          <div v-else class="space-y-6">
-            <!-- Auto-burn Countdown Bar -->
-            <div class="p-3 rounded-xl bg-amber-500/10 border border-amber-500/20 flex items-center justify-between text-xs text-amber-300">
+          <!-- Track 2: In-Tunnel Auto-Update Subscription -->
+          <div class="rounded-md bg-neutral-950 border border-border p-4 space-y-3">
+            <div class="flex items-center justify-between">
               <div class="flex items-center gap-2">
-                <Flame class="w-4 h-4 text-amber-400 animate-pulse" />
-                <span>内存安全自毁倒计时</span>
+                <span class="w-2 h-2 rounded-full bg-blue-400"></span>
+                <h3 class="text-xs font-semibold text-foreground tracking-wide font-mono">轨道 2：长效自动更新订阅</h3>
               </div>
-              <span class="font-mono font-bold text-amber-400">{{ countdownSeconds }} 秒后清除</span>
+              <span class="text-[11px] font-mono px-2 py-0.5 rounded bg-neutral-800 text-neutral-300 border border-border">
+                长效保障
+              </span>
             </div>
 
-            <!-- Track 1: Emergency Cold-start Nodes -->
-            <div class="rounded-2xl bg-[#111624]/70 border border-slate-800 p-4 space-y-3">
-              <div class="flex items-center justify-between">
-                <div class="flex items-center gap-2">
-                  <div class="w-2 h-2 rounded-full bg-emerald-400"></div>
-                  <h3 class="text-sm font-bold text-white tracking-wide">轨道 1：急救连接节点</h3>
-                </div>
-                <span class="text-[11px] font-mono px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
-                  {{ payload.emergency_nodes?.length || 0 }} 个节点
-                </span>
-              </div>
+            <p class="text-xs text-muted-foreground leading-relaxed">
+              在连接急救节点成功后，将订阅链接填入客户端。后续节点网络调整均可自动同步更新。
+            </p>
 
-              <p class="text-xs text-slate-400 leading-relaxed">
-                用于首次配网或建立高可用专属加密通道。
-              </p>
-
-              <!-- Main Action: Copy all emergency nodes -->
-              <button
-                @click="copyEmergencyNodes"
-                class="w-full flex items-center justify-center gap-2 py-2.5 px-4 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold shadow-md shadow-indigo-600/20 transition-colors"
+            <div class="flex items-center gap-2">
+              <input
+                readonly
+                :value="payload.subscription_url"
+                @click="selectTarget"
+                class="flex-1 h-9 bg-neutral-900 border border-border rounded-md px-3 text-xs font-mono text-neutral-300 focus:outline-none focus:border-neutral-500 select-all"
+              />
+              <Button
+                variant="secondary"
+                size="sm"
+                @click="copySubscriptionURL"
+                class="shrink-0 h-9 px-3"
               >
-                <Check v-if="copiedNodes" class="w-4 h-4 text-emerald-300" />
-                <Copy v-else class="w-4 h-4" />
-                <span>{{ copiedNodes ? '已成功复制全部节点链接！' : '一键复制全部急救节点' }}</span>
-              </button>
-
-              <!-- Fallback Textarea for Mobile/WeChat -->
-              <div class="pt-1">
-                <div class="flex items-center justify-between text-[11px] text-slate-400 mb-1">
-                  <span>长按下方区域手动全选复制（手机端兜底）：</span>
-                </div>
-                <textarea
-                  readonly
-                  rows="3"
-                  @click="selectTarget"
-                  :value="joinedNodes"
-                  class="w-full bg-black/40 border border-slate-800 rounded-lg p-2 font-mono text-[11px] text-slate-300 focus:outline-none focus:border-indigo-500/60 select-all"
-                ></textarea>
-              </div>
-
-              <!-- Quick Client Instructions Accordion -->
-              <div class="pt-2 border-t border-white/[0.05]">
-                <button
-                  @click="showGuide = !showGuide"
-                  class="w-full flex items-center justify-between text-xs text-slate-400 hover:text-slate-200 transition-colors py-1"
-                >
-                  <span class="flex items-center gap-1.5">
-                    <HelpCircle class="w-3.5 h-3.5 text-indigo-400" />
-                    <span>各客户端一键导入指引</span>
-                  </span>
-                  <ChevronDown class="w-3.5 h-3.5 transition-transform" :class="{ 'rotate-180': showGuide }" />
-                </button>
-
-                <div v-if="showGuide" class="mt-2 space-y-2 text-[11px] text-slate-400 bg-black/30 p-3 rounded-xl border border-white/[0.04]">
-                  <div>
-                    <strong class="text-slate-200">Android 客户端：</strong>
-                    点击右上角「+」号 ➔ 选择「从剪贴板导入」➔ 启动连接。
-                  </div>
-                  <div>
-                    <strong class="text-slate-200">iOS 客户端：</strong>
-                    打开客户端即会弹出提示「从剪贴板添加」➔ 点击允许并启动连接。
-                  </div>
-                  <div>
-                    <strong class="text-slate-200">PC / Mac 客户端：</strong>
-                    在节点配置中选择从剪贴板粘贴节点 ➔ 选中后开启系统代理。
-                  </div>
-                </div>
-              </div>
+                <Check v-if="copiedSub" class="w-3.5 h-3.5 mr-1 text-emerald-400" />
+                <Copy v-else class="w-3.5 h-3.5 mr-1" />
+                <span>{{ copiedSub ? '已复制' : '复制' }}</span>
+              </Button>
             </div>
 
-            <!-- Track 2: In-Tunnel Auto-Update Subscription -->
-            <div class="rounded-2xl bg-[#111624]/70 border border-slate-800 p-4 space-y-3">
-              <div class="flex items-center justify-between">
-                <div class="flex items-center gap-2">
-                  <div class="w-2 h-2 rounded-full bg-indigo-400"></div>
-                  <h3 class="text-sm font-bold text-white tracking-wide">轨道 2：长效自动更新订阅</h3>
-                </div>
-                <span class="text-[11px] font-mono px-2 py-0.5 rounded bg-indigo-500/10 text-indigo-400 border border-indigo-500/20">
-                  长效保障
-                </span>
-              </div>
-
-              <p class="text-xs text-slate-400 leading-relaxed">
-                在连接急救节点成功后，将订阅链接填入客户端。后续节点网络调整均可自动同步更新。
-              </p>
-
-              <div class="flex items-center gap-2">
-                <input
-                  readonly
-                  :value="payload.subscription_url"
-                  @click="selectTarget"
-                  class="flex-1 bg-black/40 border border-slate-800 rounded-xl px-3 py-2 text-xs font-mono text-slate-300 focus:outline-none select-all"
-                />
-                <button
-                  @click="copySubscriptionURL"
-                  class="shrink-0 px-3 py-2 rounded-xl bg-white/[0.08] hover:bg-white/[0.12] text-white text-xs font-semibold transition-colors flex items-center gap-1.5"
-                >
-                  <Check v-if="copiedSub" class="w-3.5 h-3.5 text-emerald-300" />
-                  <Copy v-else class="w-3.5 h-3.5" />
-                  <span>{{ copiedSub ? '已复制' : '复制' }}</span>
-                </button>
-              </div>
-
-              <div class="p-2.5 rounded-xl bg-indigo-500/5 border border-indigo-500/15 text-[11px] text-indigo-300/90 leading-normal">
-                💡 <span class="font-semibold">使用建议：</span>添加订阅后，建议在客户端配置中开启<strong>「通过代理更新订阅」</strong>以保证在复杂网络下持续稳定同步。
-              </div>
+            <div class="p-2.5 rounded-md bg-neutral-900 border border-border text-[11px] text-muted-foreground leading-normal">
+              💡 <span class="font-medium text-foreground">使用建议：</span>添加订阅后，建议在客户端配置中开启<strong>「通过代理更新订阅」</strong>以保证在复杂网络下持续稳定同步。
             </div>
+          </div>
 
-            <!-- Manual Reset / Destroy Button -->
-            <div class="pt-2 text-center">
-              <button
-                @click="resetPortal"
-                class="text-xs text-slate-500 hover:text-rose-400 transition-colors inline-flex items-center gap-1"
-              >
-                <Trash2 class="w-3.5 h-3.5" />
-                <span>立即销毁当前数据并返回</span>
-              </button>
-            </div>
+          <!-- Manual Reset / Destroy Button -->
+          <div class="pt-2 text-center">
+            <button
+              @click="resetPortal"
+              class="text-xs text-muted-foreground hover:text-rose-400 transition-colors inline-flex items-center gap-1 font-mono"
+            >
+              <Trash2 class="w-3.5 h-3.5" />
+              <span>立即销毁当前数据并返回</span>
+            </button>
           </div>
         </div>
       </div>
 
       <!-- Footer Info -->
-      <div class="text-center mt-6 text-xs text-slate-600 space-y-1">
+      <div class="text-center mt-6 text-xs text-muted-foreground space-y-1 font-mono">
         <p>端到端加密与访问控制已启用 · 阅后即焚保护机制</p>
-        <p class="text-[10px] font-mono text-slate-700">NetOps Version 1.3 · Distributed Network Operations Hub</p>
+        <p class="text-[10px] text-neutral-600">NetOps Version 1.3 · Distributed Network Operations Hub</p>
       </div>
     </div>
   </div>
@@ -225,7 +211,6 @@ import {
   Shield,
   KeyRound,
   ArrowRight,
-  Loader2,
   AlertCircle,
   Check,
   Copy,
@@ -234,6 +219,7 @@ import {
   HelpCircle,
   Trash2,
 } from 'lucide-vue-next'
+import Button from '../components/ui/Button.vue'
 import api from '../api'
 
 const inputCode = ref('')

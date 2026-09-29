@@ -4,11 +4,11 @@
       <div
         v-for="item in toasts"
         :key="item.id"
-        class="pointer-events-auto flex items-start gap-3 p-3.5 rounded-2xl shadow-2xl backdrop-blur-xl border transition-all duration-300 relative overflow-hidden"
+        class="pointer-events-auto flex items-start gap-3 p-3.5 rounded-lg shadow-lg border bg-neutral-900 border-border text-foreground transition-all duration-300 relative overflow-hidden"
         :class="getToastClass(item.type)"
       >
         <!-- Icon -->
-        <component :is="getIcon(item.type)" class="w-5 h-5 shrink-0 mt-0.5" />
+        <component :is="getIcon(item.type)" class="w-4 h-4 shrink-0 mt-0.5" :class="getIconClass(item.type)" />
 
         <!-- Message -->
         <div class="flex-1 text-xs font-medium leading-relaxed pr-2">
@@ -18,14 +18,14 @@
         <!-- Close Button -->
         <button
           @click="removeToast(item.id)"
-          class="text-gray-400 hover:text-white transition-colors p-0.5 rounded-lg hover:bg-white/10"
+          class="text-muted-foreground hover:text-foreground transition-colors p-0.5 rounded-md hover:bg-muted"
         >
           <X class="w-3.5 h-3.5" />
         </button>
 
         <!-- Progress bar -->
         <div
-          class="absolute bottom-0 left-0 h-0.5 bg-current opacity-30 animate-progress"
+          class="absolute bottom-0 left-0 h-0.5 bg-neutral-600 opacity-40 animate-progress"
           :style="{ animationDuration: `${item.duration}ms` }"
         ></div>
       </div>
@@ -50,16 +50,29 @@ const getIcon = (type: ToastType) => {
   }
 }
 
+const getIconClass = (type: ToastType) => {
+  switch (type) {
+    case 'success':
+      return 'text-emerald-400'
+    case 'error':
+      return 'text-rose-400'
+    case 'warning':
+      return 'text-amber-400'
+    default:
+      return 'text-muted-foreground'
+  }
+}
+
 const getToastClass = (type: ToastType) => {
   switch (type) {
     case 'success':
-      return 'bg-[#0B1416]/90 border-emerald-500/40 text-emerald-300 shadow-emerald-500/10'
+      return 'border-emerald-500/30'
     case 'error':
-      return 'bg-[#180B0F]/90 border-rose-500/40 text-rose-300 shadow-rose-500/10'
+      return 'border-rose-500/30'
     case 'warning':
-      return 'bg-[#18130B]/90 border-amber-500/40 text-amber-300 shadow-amber-500/10'
+      return 'border-amber-500/30'
     default:
-      return 'bg-[#0C121E]/90 border-indigo-500/40 text-indigo-300 shadow-indigo-500/10'
+      return 'border-border'
   }
 }
 </script>

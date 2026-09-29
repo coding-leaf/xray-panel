@@ -17,15 +17,15 @@
       <div class="flex flex-wrap items-center gap-2.5">
         <button
           @click="openWizard"
-          class="px-4 py-2 bg-gradient-to-r from-brand-600 via-indigo-600 to-cyan-500 hover:from-brand-500 hover:to-cyan-400 text-white text-xs font-bold rounded-xl transition-all shadow-lg shadow-brand-500/25 flex items-center gap-1.5 animate-pulse hover:animate-none"
+          class="px-3.5 py-1.5 bg-foreground text-background hover:bg-foreground/90 text-xs font-medium rounded-md transition-colors flex items-center gap-1.5 shadow-sm"
         >
-          <Zap class="w-4 h-4 text-amber-300" />
-          <span>⚡ 1步发布落地线路</span>
+          <Zap class="w-3.5 h-3.5" />
+          <span>1步发布落地线路</span>
         </button>
 
         <button
           @click="openCreateGatewayModal"
-          class="px-3.5 py-2 bg-gray-900/80 hover:bg-gray-800 text-gray-200 hover:text-white border border-gray-700 hover:border-gray-600 text-xs font-semibold rounded-xl transition-all flex items-center gap-1.5"
+          class="px-3 py-1.5 bg-muted text-foreground hover:bg-muted/80 border border-border text-xs font-medium rounded-md transition-colors flex items-center gap-1.5"
         >
           <Plus class="w-3.5 h-3.5" />
           <span>新建接入网关</span>
@@ -33,7 +33,7 @@
 
         <button
           @click="openCreateExitModal"
-          class="px-3.5 py-2 bg-gray-900/80 hover:bg-gray-800 text-gray-200 hover:text-white border border-gray-700 hover:border-gray-600 text-xs font-semibold rounded-xl transition-all flex items-center gap-1.5"
+          class="px-3 py-1.5 bg-muted text-foreground hover:bg-muted/80 border border-border text-xs font-medium rounded-md transition-colors flex items-center gap-1.5"
         >
           <Plus class="w-3.5 h-3.5" />
           <span>新建落地出口</span>
@@ -384,14 +384,14 @@
             <button
               type="button"
               @click="showWizardModal = false"
-              class="px-4 py-2 rounded-xl text-gray-400 hover:text-white"
+              class="px-3.5 py-1.5 rounded-md text-xs font-medium text-muted-foreground hover:text-foreground transition-colors"
             >
               取消
             </button>
             <button
               type="submit"
               :disabled="wizardSubmitting"
-              class="px-5 py-2 bg-gradient-to-r from-brand-600 to-indigo-600 hover:from-brand-500 hover:to-indigo-500 text-white font-bold rounded-xl shadow-lg shadow-brand-500/25 disabled:opacity-50"
+              class="px-4 py-2 bg-foreground text-background hover:bg-foreground/90 font-medium text-xs rounded-md shadow-sm transition-colors disabled:opacity-50"
             >
               {{ wizardSubmitting ? '正在发布...' : '立即发布并生效' }}
             </button>

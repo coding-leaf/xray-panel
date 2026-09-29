@@ -72,7 +72,7 @@
       <!-- Backdrop -->
       <div
         @click="isMobileDrawerOpen = false"
-        class="fixed inset-0 bg-black/70 backdrop-blur-[2px] transition-opacity"
+        class="fixed inset-0 bg-black/70 transition-opacity"
       ></div>
 
       <!-- Drawer Content -->

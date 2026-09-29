@@ -93,3 +93,25 @@
 ### Status
 
 [OK] **Completed**
+
+
+## Session 5: 登录与Portal网关控制台风格收敛归档
+<!-- trellis-session: v=2 fp=eee28a949234b6bf -->
+
+**Date**: 2026-09-29
+**Task**: 登录与Portal网关控制台风格收敛归档
+**Branch**: `master`
+
+### Summary
+
+重构 LoginView、PortalClaimView 为 Vercel 开发者控制台风格，清除全站残留毛玻璃与彩光渐变
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `052e8b9` | feat(web): 重构登录与 Portal 凭据提取网关为 Vercel 开发者控制台风格 |
+
+### Status
+
+[OK] **Completed**

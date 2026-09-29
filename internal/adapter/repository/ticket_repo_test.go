@@ -22,6 +22,12 @@ func setupTestTicketDB(t *testing.T) *gorm.DB {
 	if err != nil {
 		t.Fatalf("failed to open sqlite test db: %v", err)
 	}
+	sqlDB, err := db.DB()
+	if err == nil {
+		t.Cleanup(func() {
+			_ = sqlDB.Close()
+		})
+	}
 	if err := db.AutoMigrate(&domain.User{}, &domain.Ticket{}); err != nil {
 		t.Fatalf("failed to auto-migrate tables: %v", err)
 	}

@@ -20,6 +20,12 @@ func setupTestDB(t *testing.T) *gorm.DB {
 	if err != nil {
 		t.Fatalf("failed to open sqlite test db: %v", err)
 	}
+	sqlDB, err := db.DB()
+	if err == nil {
+		t.Cleanup(func() {
+			_ = sqlDB.Close()
+		})
+	}
 	if err := db.AutoMigrate(&domain.User{}, &domain.Inbound{}, &domain.TrafficLog{}); err != nil {
 		t.Fatalf("failed to auto-migrate tables: %v", err)
 	}
@@ -247,5 +253,3 @@ func TestUserRepo_BatchSyncTraffic(t *testing.T) {
 		t.Fatalf("expected log1 traffic to accumulate to 150/250, got %d/%d", log1Round2.UpBytes, log1Round2.DownBytes)
 	}
 }
-
-

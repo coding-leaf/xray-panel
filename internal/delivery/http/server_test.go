@@ -78,7 +78,7 @@ func TestServer_GracefulShutdown(t *testing.T) {
 
 func TestServer_BindError(t *testing.T) {
 	// Bind a port first
-	l, err := net.Listen("tcp", "127.0.0.1:0")
+	l, err := net.Listen("tcp", ":0")
 	if err != nil {
 		t.Fatalf("failed to listen: %v", err)
 	}
@@ -89,7 +89,8 @@ func TestServer_BindError(t *testing.T) {
 	mux := http.NewServeMux()
 	srv := deliveryHTTP.NewServer(port, mux)
 
-	ctx := context.Background()
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
 	err = srv.Start(ctx)
 	if err == nil {
 		t.Fatal("expected bind error when port is already in use, got nil")
@@ -215,4 +216,3 @@ func TestServer_UnexpectedStop(t *testing.T) {
 		t.Fatal("server did not return after Close()")
 	}
 }
-

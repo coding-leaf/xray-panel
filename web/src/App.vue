@@ -2,269 +2,259 @@
   <!-- Global Toast Notification Container -->
   <ToastContainer />
 
-  <div v-if="isBlankLayout" class="min-h-screen bg-[#07090E]">
+  <div v-if="isBlankLayout" class="min-h-screen bg-background">
     <router-view />
   </div>
 
-  <div v-else class="min-h-screen flex bg-[#07090E] text-gray-100 selection:bg-indigo-500/30 selection:text-indigo-200">
-    <!-- Sidebar (Desktop) -->
-    <aside class="w-64 glass-panel border-r border-white/[0.06] flex flex-col justify-between hidden md:flex shrink-0 z-20">
-      <div>
-        <!-- Brand Logo Header -->
-        <div class="h-16 flex items-center px-5 gap-3 border-b border-white/[0.06]">
-          <div class="w-8 h-8 rounded-xl bg-gradient-to-tr from-indigo-600 via-indigo-500 to-cyan-400 flex items-center justify-center shadow-lg shadow-indigo-500/25 ring-1 ring-white/20">
-            <Radio class="w-4 h-4 text-white" />
+  <div v-else class="min-h-screen flex bg-background text-foreground font-sans selection:bg-neutral-800 selection:text-neutral-200">
+    <!-- Compact Desktop Sidebar (Vercel / Linear Style) -->
+    <aside class="w-56 bg-neutral-950 border-r border-border flex flex-col justify-between hidden md:flex shrink-0 z-20">
+      <div class="flex-1 overflow-y-auto py-3">
+        <!-- Brand Header -->
+        <div class="h-10 flex items-center px-4 gap-2.5 mb-2">
+          <div class="w-6 h-6 rounded-md bg-neutral-900 border border-border flex items-center justify-center text-foreground">
+            <Radio class="w-3.5 h-3.5 text-neutral-200" />
           </div>
-          <div>
-            <div class="font-bold tracking-tight text-white text-sm flex items-center gap-1.5">
-              <span>XRAY</span>
-              <span class="text-[10px] px-1.5 py-0.5 rounded-md bg-indigo-500/20 text-indigo-300 font-mono border border-indigo-500/30">DECOUPLED</span>
-            </div>
-            <p class="text-[11px] text-gray-400 font-medium flex items-center gap-1.5">
-              <span>Control Plane</span>
-              <span class="text-[9px] text-indigo-300 font-mono bg-indigo-500/20 px-1 py-0.5 rounded border border-indigo-500/30">v2.0.0</span>
-            </p>
+          <div class="flex items-center gap-1.5">
+            <span class="font-mono font-semibold tracking-tight text-xs text-foreground">XRAY PANEL</span>
+            <span class="text-[9px] font-mono px-1 py-0.2 bg-muted text-muted-foreground rounded border border-border/60">v2.5</span>
           </div>
         </div>
 
-        <!-- Navigation Links -->
-        <nav class="p-3.5 space-y-1">
-          <router-link
-            v-for="item in navItems"
-            :key="item.path"
-            :to="item.path"
-            class="flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-xs font-semibold transition-all duration-200 group relative"
-            :class="[
-              $route.path === item.path
-                ? 'bg-gradient-to-r from-indigo-600/25 to-indigo-500/10 text-white border border-indigo-500/30 shadow-sm'
-                : 'text-gray-400 hover:text-gray-200 hover:bg-white/[0.04]'
-            ]"
-          >
-            <div
-              v-if="$route.path === item.path"
-              class="absolute left-0 top-2 bottom-2 w-1 rounded-r-full bg-indigo-500 shadow-[0_0_8px_rgba(99,102,241,0.8)]"
-            ></div>
-            <component
-              :is="item.icon"
-              class="w-4 h-4 shrink-0 transition-transform group-hover:scale-110"
-              :class="$route.path === item.path ? 'text-indigo-400' : 'text-gray-500 group-hover:text-gray-300'"
-            />
-            <span>{{ item.name }}</span>
-          </router-link>
+        <!-- Categorized Navigation -->
+        <nav class="px-2 space-y-4">
+          <div v-for="section in navSections" :key="section.title" class="space-y-0.5">
+            <div class="text-[10px] font-mono uppercase tracking-wider text-muted-foreground/60 px-2 py-1">
+              {{ section.title }}
+            </div>
+            <router-link
+              v-for="item in section.items"
+              :key="item.path"
+              :to="item.path"
+              class="flex items-center gap-2.5 px-2.5 py-1.5 rounded-md text-xs font-medium transition-colors"
+              :class="[
+                $route.path === item.path
+                  ? 'bg-muted text-foreground border border-border/60 shadow-xs'
+                  : 'text-muted-foreground hover:text-foreground hover:bg-muted/40 border border-transparent'
+              ]"
+            >
+              <component
+                :is="item.icon"
+                class="w-3.5 h-3.5 shrink-0"
+                :class="$route.path === item.path ? 'text-foreground' : 'text-muted-foreground'"
+              />
+              <span>{{ item.name }}</span>
+            </router-link>
+          </div>
         </nav>
       </div>
 
       <!-- User footer -->
-      <div class="p-3.5 border-t border-white/[0.06] bg-black/20">
+      <div class="p-2.5 border-t border-border bg-neutral-950">
         <button
           @click="logout"
-          class="w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl text-xs font-medium text-gray-400 hover:text-rose-400 hover:bg-rose-500/10 transition-colors group border border-transparent hover:border-rose-500/20"
+          class="w-full flex items-center justify-between px-2.5 py-1.5 rounded-md text-xs font-medium text-muted-foreground hover:text-rose-400 hover:bg-rose-500/10 transition-colors group border border-transparent hover:border-rose-500/20"
         >
-          <span class="flex items-center gap-2.5">
-            <LogOut class="w-4 h-4 group-hover:-translate-x-0.5 transition-transform" />
-            <span>退出登录</span>
+          <span class="flex items-center gap-2">
+            <LogOut class="w-3.5 h-3.5 group-hover:-translate-x-0.5 transition-transform" />
+            <span>退出系统</span>
           </span>
-          <span class="text-[11px] text-gray-500 font-mono bg-white/[0.04] px-2 py-0.5 rounded-md">{{ username }}</span>
+          <span class="text-[10px] text-muted-foreground font-mono bg-muted/60 px-1.5 py-0.5 rounded border border-border/40">{{ username }}</span>
         </button>
       </div>
     </aside>
 
-    <!-- Mobile Drawer (滑出式全量菜单) -->
+    <!-- Mobile Drawer -->
     <div
       v-if="isMobileDrawerOpen"
       class="fixed inset-0 z-50 md:hidden flex"
     >
-      <!-- 背景遮罩 -->
+      <!-- Backdrop -->
       <div
         @click="isMobileDrawerOpen = false"
-        class="fixed inset-0 bg-black/75 backdrop-blur-sm transition-opacity duration-300"
+        class="fixed inset-0 bg-black/70 backdrop-blur-[2px] transition-opacity"
       ></div>
 
-      <!-- 抽屉菜单本体 -->
-      <div class="relative w-4/5 max-w-xs bg-[#090D16] border-r border-white/10 h-full flex flex-col justify-between z-10 shadow-2xl animate-fade-in">
-        <div class="overflow-y-auto">
-          <!-- 抽屉顶部 -->
-          <div class="h-16 flex items-center justify-between px-5 border-b border-white/[0.08]">
-            <div class="flex items-center gap-3">
-              <div class="w-8 h-8 rounded-xl bg-gradient-to-tr from-indigo-600 via-indigo-500 to-cyan-400 flex items-center justify-center shadow-lg shadow-indigo-500/25">
-                <Radio class="w-4 h-4 text-white" />
+      <!-- Drawer Content -->
+      <div class="relative w-72 max-w-xs bg-neutral-950 border-r border-border h-full flex flex-col justify-between z-10 shadow-2xl">
+        <div class="overflow-y-auto py-3">
+          <!-- Drawer Header -->
+          <div class="h-12 flex items-center justify-between px-4 border-b border-border mb-2">
+            <div class="flex items-center gap-2">
+              <div class="w-6 h-6 rounded-md bg-neutral-900 border border-border flex items-center justify-center">
+                <Radio class="w-3.5 h-3.5 text-neutral-200" />
               </div>
-              <div>
-                <div class="font-bold text-white text-sm">XRAY PANEL</div>
-                <div class="text-[10px] text-gray-400">全部功能导航</div>
-              </div>
+              <span class="font-mono font-semibold text-xs text-foreground">XRAY PANEL</span>
             </div>
             <button
               @click="isMobileDrawerOpen = false"
-              class="p-1.5 rounded-lg text-gray-400 hover:text-white hover:bg-white/10"
+              class="p-1 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted"
             >
-              <X class="w-5 h-5" />
+              <X class="w-4 h-4" />
             </button>
           </div>
 
-          <!-- Xray 状态卡片 (手机抽屉内) -->
-          <div class="p-3.5">
+          <!-- Xray Status -->
+          <div class="px-3 py-2">
             <div
-              class="flex items-center justify-between px-3 py-2 rounded-xl border text-xs font-mono"
+              class="flex items-center justify-between px-2.5 py-1.5 rounded-md border text-xs font-mono"
               :class="coreStatus.active ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-400' : 'bg-rose-500/10 border-rose-500/20 text-rose-400'"
             >
-              <div class="flex items-center gap-2">
-                <span class="w-2 h-2 rounded-full" :class="coreStatus.active ? 'bg-emerald-400 pulse-green' : 'bg-rose-500 animate-pulse'"></span>
-                <span>{{ coreStatus.active ? 'Xray Core 运行中' : 'Xray Core 已停止' }}</span>
+              <div class="flex items-center gap-1.5">
+                <span class="w-1.5 h-1.5 rounded-full" :class="coreStatus.active ? 'bg-emerald-400' : 'bg-rose-500'"></span>
+                <span class="text-[11px]">{{ coreStatus.active ? 'Xray Core 运行中' : 'Core 已停止' }}</span>
               </div>
               <button
                 @click="restartCore"
                 :disabled="restarting"
-                class="px-2 py-1 rounded bg-indigo-600/30 text-indigo-300 hover:text-white text-[11px]"
+                class="px-2 py-0.5 rounded bg-neutral-800 text-neutral-300 hover:text-white text-[10px] border border-border"
               >
                 {{ restarting ? '...' : '重启' }}
               </button>
             </div>
           </div>
 
-          <!-- 导航菜单列表 -->
-          <nav class="px-3 pb-6 space-y-1">
-            <router-link
-              v-for="item in navItems"
-              :key="item.path"
-              :to="item.path"
-              @click="isMobileDrawerOpen = false"
-              class="flex items-center gap-3 px-3.5 py-3 rounded-xl text-xs font-semibold transition-all group"
-              :class="[
-                $route.path === item.path
-                  ? 'bg-indigo-600/25 text-white border border-indigo-500/30'
-                  : 'text-gray-300 hover:text-white hover:bg-white/[0.05]'
-              ]"
-            >
-              <component
-                :is="item.icon"
-                class="w-4 h-4 shrink-0"
-                :class="$route.path === item.path ? 'text-indigo-400' : 'text-gray-400 group-hover:text-gray-200'"
-              />
-              <span>{{ item.name }}</span>
-            </router-link>
+          <!-- Navigation items -->
+          <nav class="px-2 space-y-4 pb-6">
+            <div v-for="section in navSections" :key="section.title" class="space-y-0.5">
+              <div class="text-[10px] font-mono uppercase tracking-wider text-muted-foreground/60 px-2 py-1">
+                {{ section.title }}
+              </div>
+              <router-link
+                v-for="item in section.items"
+                :key="item.path"
+                :to="item.path"
+                @click="isMobileDrawerOpen = false"
+                class="flex items-center gap-2.5 px-2.5 py-2 rounded-md text-xs font-medium transition-colors"
+                :class="[
+                  $route.path === item.path
+                    ? 'bg-muted text-foreground border border-border/60'
+                    : 'text-muted-foreground hover:text-foreground hover:bg-muted/40'
+                ]"
+              >
+                <component
+                  :is="item.icon"
+                  class="w-3.5 h-3.5 shrink-0"
+                  :class="$route.path === item.path ? 'text-foreground' : 'text-muted-foreground'"
+                />
+                <span>{{ item.name }}</span>
+              </router-link>
+            </div>
           </nav>
         </div>
 
-        <!-- 抽屉底部用户退出 -->
-        <div class="p-3.5 border-t border-white/[0.08] bg-black/30">
+        <!-- Drawer Footer -->
+        <div class="p-3 border-t border-border bg-neutral-950">
           <button
             @click="logout"
-            class="w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl text-xs font-medium text-gray-400 hover:text-rose-400 hover:bg-rose-500/10 transition-colors"
+            class="w-full flex items-center justify-between px-2.5 py-1.5 rounded-md text-xs font-medium text-muted-foreground hover:text-rose-400 transition-colors"
           >
-            <span class="flex items-center gap-2.5">
-              <LogOut class="w-4 h-4" />
-              <span>退出登录</span>
+            <span class="flex items-center gap-2">
+              <LogOut class="w-3.5 h-3.5" />
+              <span>退出系统</span>
             </span>
-            <span class="text-[11px] text-gray-500 font-mono bg-white/[0.05] px-2 py-0.5 rounded-md">{{ username }}</span>
+            <span class="text-[10px] font-mono text-muted-foreground bg-muted/60 px-1.5 py-0.5 rounded">{{ username }}</span>
           </button>
         </div>
       </div>
     </div>
 
-    <!-- Main Content Area -->
+    <!-- Main Shell Area -->
     <div class="flex-1 flex flex-col min-w-0 overflow-hidden">
-      <!-- Desktop Top Status & Action Bar -->
-      <header class="h-16 glass-panel border-b border-white/[0.06] hidden md:flex items-center justify-between px-6 z-10 shrink-0">
-        <!-- View title & breadcrumb -->
-        <div class="flex items-center gap-2.5">
-          <span class="text-xs text-gray-500 font-medium font-mono">PANEL /</span>
-          <h1 class="text-sm font-bold text-white tracking-wide">{{ currentViewName }}</h1>
+      <!-- Desktop Top Console Bar -->
+      <header class="h-12 bg-neutral-950 border-b border-border hidden md:flex items-center justify-between px-6 z-10 shrink-0">
+        <!-- Breadcrumb -->
+        <div class="flex items-center gap-2">
+          <span class="text-[11px] text-muted-foreground font-mono">{{ currentSectionTitle }}</span>
+          <span class="text-neutral-600 text-xs">/</span>
+          <span class="text-xs font-medium text-foreground">{{ currentViewName }}</span>
         </div>
 
         <!-- Global Status Pill & Quick Controls -->
-        <div class="flex items-center gap-3">
+        <div class="flex items-center gap-2.5">
+          <!-- Mock Demo Indicator -->
+          <div v-if="isMock" class="flex items-center gap-1.5 bg-amber-500/10 border border-amber-500/20 px-2 py-0.5 rounded-md text-amber-300 text-[11px] font-mono">
+            <span class="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse"></span>
+            <span>DEMO</span>
+            <button
+              @click="handleResetDemo"
+              class="ml-1 px-1.5 py-0.2 rounded bg-amber-500/20 hover:bg-amber-500/30 text-[10px] text-amber-200 transition-colors border border-amber-500/30"
+              title="重置演示状态"
+            >
+              重置
+            </button>
+          </div>
+
           <!-- Xray Active Status Badge -->
           <div
-            class="flex items-center gap-2 px-3 py-1.5 rounded-full border text-xs font-medium font-mono transition-colors shadow-sm"
+            class="flex items-center gap-1.5 px-2.5 py-1 rounded-md border text-[11px] font-mono transition-colors"
             :class="coreStatus.active ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-400' : 'bg-rose-500/10 border-rose-500/20 text-rose-400'"
           >
             <span
-              class="w-2 h-2 rounded-full"
+              class="w-1.5 h-1.5 rounded-full"
               :class="coreStatus.active ? 'bg-emerald-400 pulse-green' : 'bg-rose-500 animate-pulse'"
             ></span>
-            <span>{{ coreStatus.active ? (coreStatus.version ? `Xray Core 运行中 (${coreStatus.version})` : 'Xray Core 运行中') : 'Xray Core 已停止' }}</span>
+            <span>{{ coreStatus.active ? (coreStatus.version ? `Core ${coreStatus.version}` : 'Core Active') : 'Core Stopped' }}</span>
           </div>
 
           <!-- Quick Refresh Button -->
           <button
             @click="triggerGlobalRefresh"
             :disabled="refreshing"
-            class="p-2 rounded-xl bg-white/[0.04] hover:bg-white/[0.08] text-gray-400 hover:text-white border border-white/[0.06] transition-colors"
+            class="h-7 w-7 rounded-md bg-muted/50 hover:bg-muted text-muted-foreground hover:text-foreground border border-border/60 flex items-center justify-center transition-colors"
             title="刷新数据"
           >
-            <RefreshCw class="w-4 h-4" :class="{ 'animate-spin': refreshing }" />
+            <RefreshCw class="w-3.5 h-3.5" :class="{ 'animate-spin': refreshing }" />
           </button>
 
           <!-- Quick Restart Core -->
           <button
             @click="restartCore"
             :disabled="restarting"
-            class="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-indigo-600/20 hover:bg-indigo-600/30 text-indigo-300 hover:text-white border border-indigo-500/30 text-xs font-semibold transition-all shadow-sm disabled:opacity-50"
-            title="重载/重启 Xray 核心"
+            class="h-7 px-2.5 rounded-md bg-muted/60 hover:bg-muted text-muted-foreground hover:text-foreground border border-border/80 text-[11px] font-mono flex items-center gap-1.5 transition-colors disabled:opacity-50"
+            title="重启 Xray 核心"
           >
-            <Zap class="w-3.5 h-3.5 text-indigo-400" />
+            <Zap class="w-3 h-3 text-amber-400" />
             <span>{{ restarting ? '重启中...' : '重启核心' }}</span>
           </button>
         </div>
       </header>
 
       <!-- Mobile Top Navbar -->
-      <header class="h-14 md:hidden glass-panel border-b border-white/[0.08] flex items-center justify-between px-3.5 z-10 shrink-0">
-        <div class="flex items-center gap-2.5">
-          <!-- 汉堡按钮 -->
+      <header class="h-12 md:hidden bg-neutral-950 border-b border-border flex items-center justify-between px-3.5 z-10 shrink-0">
+        <div class="flex items-center gap-2">
           <button
             @click="isMobileDrawerOpen = true"
-            class="p-1.5 -ml-1 rounded-lg bg-white/[0.04] text-gray-300 hover:text-white border border-white/[0.08]"
+            class="p-1.5 rounded-md bg-muted text-muted-foreground hover:text-foreground border border-border"
             title="展开导航菜单"
           >
-            <Menu class="w-5 h-5" />
+            <Menu class="w-4 h-4" />
           </button>
-
-          <div class="flex items-center gap-1.5">
-            <span class="font-bold text-xs text-white tracking-wide">{{ currentViewName }}</span>
-          </div>
+          <span class="font-medium text-xs text-foreground">{{ currentViewName }}</span>
         </div>
 
-        <!-- 手机顶栏右侧状态与快捷键 -->
-        <div class="flex items-center gap-2">
-          <!-- 演示模式专属徽章与重置 -->
-          <div v-if="isMock" class="flex items-center gap-1.5 bg-amber-500/10 border border-amber-500/20 px-2.5 py-1 rounded-lg text-amber-300 text-xs">
-            <span class="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse"></span>
-            <span class="font-medium hidden sm:inline">🎭 毛坯房演示</span>
-            <button
-              @click="handleResetDemo"
-              class="ml-0.5 px-1.5 py-0.5 rounded bg-amber-500/20 hover:bg-amber-500/30 text-[10px] text-amber-200 transition-colors border border-amber-500/30"
-              title="重置为初始毛坯房状态"
-            >
-              重置
-            </button>
-          </div>
-
-          <!-- 核心状态小胶囊 -->
+        <div class="flex items-center gap-1.5">
           <div
-            class="flex items-center gap-1 px-2 py-1 rounded-full border text-[10px] font-mono"
+            class="flex items-center gap-1 px-2 py-0.5 rounded-md border text-[10px] font-mono"
             :class="coreStatus.active ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-400' : 'bg-rose-500/10 border-rose-500/20 text-rose-400'"
           >
-            <span class="w-1.5 h-1.5 rounded-full" :class="coreStatus.active ? 'bg-emerald-400' : 'bg-rose-500 animate-pulse'"></span>
+            <span class="w-1.5 h-1.5 rounded-full" :class="coreStatus.active ? 'bg-emerald-400' : 'bg-rose-500'"></span>
             <span>{{ coreStatus.active ? '运行中' : '停止' }}</span>
           </div>
 
-          <!-- 一键重启 -->
           <button
             @click="restartCore"
             :disabled="restarting"
-            class="p-1.5 rounded-lg bg-indigo-600/20 text-indigo-300 border border-indigo-500/30 text-xs disabled:opacity-50"
+            class="p-1.5 rounded-md bg-muted text-muted-foreground border border-border text-xs"
             title="重启核心"
           >
             <Zap class="w-3.5 h-3.5" :class="{ 'animate-spin': restarting }" />
           </button>
 
-          <!-- 刷新 -->
           <button
             @click="triggerGlobalRefresh"
             :disabled="refreshing"
-            class="p-1.5 rounded-lg bg-white/[0.04] text-gray-300 border border-white/[0.08]"
+            class="p-1.5 rounded-md bg-muted text-muted-foreground border border-border text-xs"
             title="刷新"
           >
             <RefreshCw class="w-3.5 h-3.5" :class="{ 'animate-spin': refreshing }" />
@@ -272,22 +262,22 @@
         </div>
       </header>
 
-      <!-- Mobile Bottom Navigation Bar (4个高频快捷页) -->
-      <nav class="md:hidden fixed bottom-0 left-0 right-0 h-14 pb-[env(safe-area-inset-bottom)] box-content bg-[#070A11]/90 backdrop-blur-xl border-t border-white/[0.08] flex items-center justify-around px-2 z-40">
+      <!-- Mobile Bottom Navigation Bar (4 high-frequency items) -->
+      <nav class="md:hidden fixed bottom-0 left-0 right-0 h-12 pb-[env(safe-area-inset-bottom)] box-content bg-neutral-950/95 border-t border-border flex items-center justify-around px-2 z-40">
         <router-link
           v-for="item in mobileNavItems"
           :key="item.path"
           :to="item.path"
-          class="flex flex-col items-center justify-center gap-0.5 text-[10px] font-medium transition-all px-3 py-1 rounded-xl"
-          :class="$route.path === item.path ? 'text-indigo-400 font-bold bg-indigo-500/10' : 'text-gray-400 hover:text-gray-200'"
+          class="flex flex-col items-center justify-center gap-0.5 text-[10px] font-medium transition-colors px-3 py-1 rounded-md"
+          :class="$route.path === item.path ? 'text-foreground font-semibold bg-muted' : 'text-muted-foreground hover:text-foreground'"
         >
-          <component :is="item.icon" class="w-4 h-4" />
+          <component :is="item.icon" class="w-3.5 h-3.5" />
           <span>{{ item.shortName || item.name }}</span>
         </router-link>
       </nav>
 
-      <!-- Router View Area -->
-      <main class="flex-1 overflow-y-auto p-3.5 sm:p-6 lg:p-8 pb-20 md:pb-8">
+      <!-- Main Router Content View Area -->
+      <main class="flex-1 overflow-y-auto p-4 sm:p-6 lg:p-7 pb-20 md:pb-8 min-w-0">
         <router-view v-slot="{ Component }">
           <transition name="fade-slide" mode="out-in">
             <component :is="Component" :key="$route.path" />
@@ -328,9 +318,9 @@ const router = useRouter()
 
 const isMock = computed(() => isMockMode())
 const handleResetDemo = () => {
-  if (confirm('确认将演示数据重置为初始毛坯房状态吗？')) {
+  if (confirm('确认将演示数据重置为初始状态吗？')) {
     resetMockState()
-    toast.success('已恢复初始毛坯房状态！')
+    toast.success('已恢复初始状态！')
     window.location.reload()
   }
 }
@@ -345,29 +335,71 @@ const isMobileDrawerOpen = ref(false)
 const refreshing = ref(false)
 const restarting = ref(false)
 
-const navItems = [
-  { name: '运行监控', path: '/', icon: LayoutDashboard, shortName: '监控' },
-  { name: '线路与拓扑', path: '/topology', icon: Network, shortName: '拓扑' },
-  { name: '用户与订阅', path: '/users', icon: Users, shortName: '用户' },
-  { name: '路由分流', path: '/routing', icon: RouteIcon, shortName: '路由' },
-  { name: '入站网关', path: '/inbounds', icon: Radio, shortName: '网关' },
-  { name: '出站出口', path: '/outbounds', icon: Send, shortName: '出站' },
-  { name: 'DNS 设置', path: '/dns', icon: Globe, shortName: 'DNS' },
-  { name: '配置编辑', path: '/config', icon: FileCode2, shortName: '配置' },
-  { name: '运行日志', path: '/logs', icon: ScrollText, shortName: '日志' },
-  { name: '系统设置', path: '/settings', icon: Settings, shortName: '设置' },
+interface NavItem {
+  name: string
+  path: string
+  icon: any
+  shortName?: string
+}
+
+interface NavSection {
+  title: string
+  items: NavItem[]
+}
+
+const navSections: NavSection[] = [
+  {
+    title: 'OVERVIEW',
+    items: [
+      { name: '运行监控', path: '/', icon: LayoutDashboard, shortName: '监控' },
+    ],
+  },
+  {
+    title: 'RESOURCES',
+    items: [
+      { name: '入站网关', path: '/inbounds', icon: Radio, shortName: '网关' },
+      { name: '出站出口', path: '/outbounds', icon: Send, shortName: '出站' },
+      { name: '路由分流', path: '/routing', icon: RouteIcon, shortName: '路由' },
+      { name: '用户与订阅', path: '/users', icon: Users, shortName: '用户' },
+    ],
+  },
+  {
+    title: 'OPERATIONS',
+    items: [
+      { name: '线路与拓扑', path: '/topology', icon: Network, shortName: '拓扑' },
+      { name: '运行日志', path: '/logs', icon: ScrollText, shortName: '日志' },
+    ],
+  },
+  {
+    title: 'SYSTEM',
+    items: [
+      { name: 'DNS 设置', path: '/dns', icon: Globe, shortName: 'DNS' },
+      { name: '配置编辑', path: '/config', icon: FileCode2, shortName: '配置' },
+      { name: '系统设置', path: '/settings', icon: Settings, shortName: '设置' },
+    ],
+  },
 ]
 
-// 手机端底部常驻 4 个最常用的核心导航
+const allNavItems = computed(() => navSections.flatMap((s) => s.items))
+
 const mobileNavItems = [
-  navItems[0], // 监控
-  navItems[1], // 拓扑
-  navItems[2], // 用户
-  navItems[8], // 日志
+  navSections[0].items[0], // 监控
+  navSections[1].items[0], // 入站
+  navSections[1].items[3], // 用户
+  navSections[2].items[1], // 日志
 ]
+
+const currentSectionTitle = computed(() => {
+  for (const s of navSections) {
+    if (s.items.some((i) => i.path === route.path)) {
+      return s.title
+    }
+  }
+  return 'PANEL'
+})
 
 const currentViewName = computed(() => {
-  const cur = navItems.find((n) => n.path === route.path)
+  const cur = allNavItems.value.find((n) => n.path === route.path)
   return cur ? cur.name : '控制面板'
 })
 
@@ -397,7 +429,7 @@ const triggerGlobalRefresh = () => {
   fetchCoreStatus()
   setTimeout(() => {
     refreshing.value = false
-    toast.info('面板数据已同步更新')
+    toast.info('面板数据已同步')
   }, 400)
 }
 
@@ -405,7 +437,7 @@ const restartCore = async () => {
   restarting.value = true
   try {
     await api.post('/service/restart')
-    toast.success('Xray 核心已成功重启！')
+    toast.success('Xray 核心已成功重启')
     await fetchCoreStatus()
   } catch (err: any) {
     toast.error('重启失败: ' + err)

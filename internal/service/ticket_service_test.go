@@ -26,6 +26,12 @@ func setupTestTicketServiceDB(t *testing.T) *gorm.DB {
 	if err != nil {
 		t.Fatalf("failed to open test sqlite: %v", err)
 	}
+	sqlDB, err := db.DB()
+	if err == nil {
+		t.Cleanup(func() {
+			_ = sqlDB.Close()
+		})
+	}
 	if err := db.AutoMigrate(&domain.User{}, &domain.Ticket{}, &domain.Inbound{}, &domain.Setting{}); err != nil {
 		t.Fatalf("auto migrate failed: %v", err)
 	}
@@ -69,12 +75,12 @@ func TestNormalizeTicketCode(t *testing.T) {
 		expected string
 	}{
 		{"7K9X2P", "7K9X2P"},
-		{"７Ｋ９Ｘ２Ｐ", "7K9X2P"},                       // 全角大写
-		{"７ｋ９ｘ２ｐ", "7K9X2P"},                       // 全角小写
-		{" 7k-9_x.2p ", "7K9X2P"},                   // 空格与分隔符
-		{"OI Loil", "011011"},                       // 混淆字符映射 (O/o->0, I/i/L/l->1)
-		{"０１２３４５６７８９", "0123456789"},               // 全角数字
-		{"ＡＢＣＤＥＦＧＨＪＫＭＮ", "ABCDEFGHJKMN"},         // 全角字母
+		{"７Ｋ９Ｘ２Ｐ", "7K9X2P"},             // 全角大写
+		{"７ｋ９ｘ２ｐ", "7K9X2P"},             // 全角小写
+		{" 7k-9_x.2p ", "7K9X2P"},        // 空格与分隔符
+		{"OI Loil", "011011"},            // 混淆字符映射 (O/o->0, I/i/L/l->1)
+		{"０１２３４５６７８９", "0123456789"},     // 全角数字
+		{"ＡＢＣＤＥＦＧＨＪＫＭＮ", "ABCDEFGHJKMN"}, // 全角字母
 	}
 
 	for _, tc := range cases {
@@ -437,5 +443,3 @@ func TestTicketService_GenerateTicket_OverwriteOldTickets(t *testing.T) {
 		t.Fatalf("ticket2 should be valid and active: %v", err)
 	}
 }
-
-

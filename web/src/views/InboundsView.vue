@@ -1,914 +1,1036 @@
 <template>
-  <div class="space-y-6">
-    <!-- Header -->
-    <div class="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+  <div class="space-y-4">
+    <!-- Top Action & Filter Header -->
+    <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-2 border-b border-border/60">
       <div>
-        <div class="flex items-center gap-2.5">
-          <h1 class="text-2xl font-extrabold text-white tracking-tight">入站节点管理 (Inbounds)</h1>
-          <span class="px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-amber-500/15 text-amber-400 border border-amber-500/30 flex items-center gap-1">
-            <span>🟠 修改配置自动重启核心 (重新绑定系统端口)</span>
-          </span>
+        <div class="flex items-center gap-2">
+          <h1 class="text-lg font-semibold text-foreground tracking-tight">入站网关 (Inbounds)</h1>
+          <Badge variant="outline" class="text-[10px]">
+            {{ filteredInbounds.length }} 个节点
+          </Badge>
         </div>
-        <p class="text-xs text-gray-400 mt-0.5">全可视化分层配置 Xray 入站代理节点，节点级专属 Flow 继承与双向批量用户关联</p>
+        <p class="text-xs text-muted-foreground mt-0.5">
+          管理 Xray 入站代理节点，支持 VLESS Reality 伪装巡检与单端口多出口分流
+        </p>
       </div>
-      <div class="flex items-center gap-2.5">
-        <button
+
+      <!-- Action Buttons -->
+      <div class="flex items-center gap-2">
+        <Button
+          variant="secondary"
+          size="sm"
+          :loading="checkingReality"
           @click="triggerRealityCheck"
-          :disabled="checkingReality"
-          class="px-3.5 py-2 rounded-xl text-xs bg-gray-800/80 hover:bg-gray-700/80 text-gray-200 border border-gray-700/60 transition-colors flex items-center gap-1.5 disabled:opacity-50"
+          title="巡检所有 Reality 伪装域名证书与可达性"
         >
-          <ShieldCheck class="w-4 h-4 text-emerald-400" :class="{ 'animate-spin': checkingReality }" />
-          <span>{{ checkingReality ? '检测中...' : '检测 Reality 状态' }}</span>
-        </button>
-        <button
-          @click="openCreateModal"
-          class="px-4 py-2 bg-gradient-to-r from-brand-600 to-indigo-600 hover:from-brand-500 hover:to-indigo-500 text-white text-xs font-semibold rounded-xl transition-all shadow-lg shadow-brand-500/25 flex items-center gap-1.5"
+          <ShieldCheck class="w-3.5 h-3.5 mr-1.5 text-emerald-400" />
+          <span>{{ checkingReality ? '检测中...' : '检测 Reality' }}</span>
+        </Button>
+        <Button
+          variant="default"
+          size="sm"
+          @click="openCreateDrawer"
         >
-          <Plus class="w-4 h-4" />
-          <span>添加新节点</span>
-        </button>
+          <Plus class="w-3.5 h-3.5 mr-1" />
+          <span>添加新入站</span>
+        </Button>
       </div>
     </div>
 
-    <!-- Inbounds List Grid -->
-    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
-      <div
-        v-for="inb in inbounds"
-        :key="inb.id"
-        class="glass-panel p-5 rounded-2xl border border-gray-800/80 hover:border-brand-500/40 transition-all flex flex-col justify-between"
-      >
-        <div>
-          <div class="flex items-center justify-between mb-3">
-            <span class="text-base font-bold text-white tracking-tight font-mono">{{ inb.tag }}</span>
+    <!-- Filter Bar -->
+    <div class="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-2.5">
+      <div class="flex flex-1 items-center gap-2 max-w-md">
+        <!-- Search Input -->
+        <div class="relative w-full">
+          <Search class="absolute left-2.5 top-2.5 w-3.5 h-3.5 text-muted-foreground" />
+          <input
+            v-model="searchQuery"
+            type="text"
+            placeholder="搜索节点 Tag / 端口 / 协议 / 域名..."
+            class="w-full bg-neutral-950 border border-border text-foreground text-xs rounded-md pl-8 pr-3 h-8 placeholder:text-muted-foreground font-mono focus:outline-none focus:ring-1 focus:ring-ring"
+          />
+        </div>
+
+        <!-- Protocol Filter -->
+        <select
+          v-model="protocolFilter"
+          class="h-8 bg-neutral-950 border border-border text-foreground text-xs rounded-md px-2.5 font-mono focus:outline-none focus:ring-1 focus:ring-ring shrink-0"
+        >
+          <option value="all">全部协议</option>
+          <option value="vless">VLESS</option>
+          <option value="vmess">VMess</option>
+          <option value="trojan">Trojan</option>
+          <option value="shadowsocks">Shadowsocks</option>
+          <option value="socks">Socks</option>
+          <option value="http">HTTP</option>
+          <option value="dokodemo-door">dokodemo-door</option>
+        </select>
+      </div>
+
+      <!-- Reality Alert Summary Banner if any warning/error -->
+      <div v-if="realityAlertCount > 0" class="flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-amber-500/10 border border-amber-500/20 text-amber-300 text-xs font-mono">
+        <AlertTriangle class="w-3.5 h-3.5 text-amber-400 shrink-0" />
+        <span>发现 {{ realityAlertCount }} 个 Reality 目标需关注</span>
+      </div>
+    </div>
+
+    <!-- Main Table View -->
+    <div class="relative w-full overflow-hidden rounded-lg border border-border bg-neutral-950">
+      <table class="w-full caption-bottom text-xs border-collapse">
+        <thead class="border-b border-border bg-neutral-900">
+          <tr>
+            <th class="h-9 px-3.5 text-left align-middle font-mono text-[11px] font-medium text-muted-foreground uppercase tracking-wider">节点标识 (Tag)</th>
+            <th class="h-9 px-3.5 text-left align-middle font-mono text-[11px] font-medium text-muted-foreground uppercase tracking-wider">协议与流控</th>
+            <th class="h-9 px-3.5 text-left align-middle font-mono text-[11px] font-medium text-muted-foreground uppercase tracking-wider">端口映射与网络</th>
+            <th class="h-9 px-3.5 text-left align-middle font-mono text-[11px] font-medium text-muted-foreground uppercase tracking-wider">传输安全 / 伪装</th>
+            <th class="h-9 px-3.5 text-left align-middle font-mono text-[11px] font-medium text-muted-foreground uppercase tracking-wider">用户与线路</th>
+            <th class="h-9 px-3.5 text-left align-middle font-mono text-[11px] font-medium text-muted-foreground uppercase tracking-wider">端口状态</th>
+            <th class="h-9 px-3.5 text-right align-middle font-mono text-[11px] font-medium text-muted-foreground uppercase tracking-wider">操作</th>
+          </tr>
+        </thead>
+        <tbody class="divide-y divide-border/40">
+          <tr
+            v-for="inb in filteredInbounds"
+            :key="inb.id"
+            @click="inspectInbound(inb)"
+            class="border-b border-border/30 transition-colors hover:bg-muted/30 cursor-pointer"
+            :class="{ 'bg-muted/20': selectedInbound?.id === inb.id }"
+          >
+            <!-- 1. Tag & Remarks -->
+            <td class="p-3.5 align-middle">
+              <div class="flex items-center gap-2">
+                <span class="font-mono font-semibold text-foreground text-xs">{{ inb.tag }}</span>
+                <span v-if="inb.routeId > 0 && (!inb.subRoutes || inb.subRoutes.length === 0)" class="text-[10px] font-mono px-1 py-0.2 rounded bg-neutral-800 text-neutral-300 border border-neutral-700">
+                  #{{ inb.routeId }}
+                </span>
+              </div>
+              <div class="text-[11px] text-muted-foreground mt-0.5 font-mono truncate max-w-[200px]">
+                {{ inb.listen || '0.0.0.0' }}:{{ inb.port }}
+              </div>
+            </td>
+
+            <!-- 2. Protocol & Flow -->
+            <td class="p-3.5 align-middle">
+              <div class="flex items-center gap-1.5">
+                <Badge :variant="getProtocolBadgeVariant(inb.protocol)">
+                  {{ inb.protocol?.toUpperCase() }}
+                </Badge>
+                <span v-if="getNodeFlow(inb) !== 'none'" class="text-[10px] font-mono px-1.5 py-0.5 rounded bg-neutral-900 text-neutral-300 border border-neutral-800">
+                  {{ getNodeFlow(inb) }}
+                </span>
+              </div>
+            </td>
+
+            <!-- 3. Port & Network -->
+            <td class="p-3.5 align-middle font-mono">
+              <div class="flex items-center gap-1.5 text-xs">
+                <span class="text-foreground">:{{ inb.externalPort || inb.port }}</span>
+                <span class="text-neutral-600">/</span>
+                <span class="text-neutral-400 text-[11px] uppercase">{{ getStreamNetwork(inb) }}</span>
+                <span v-if="(inb.externalPort || inb.port) !== 443 && isReality(inb)" class="text-amber-400 text-[10px]" title="非443端口Reality存在阻断风险">
+                  ⚠️
+                </span>
+              </div>
+              <div v-if="inb.externalHost" class="text-[10px] text-muted-foreground truncate max-w-[150px]">
+                {{ inb.externalHost }}
+              </div>
+            </td>
+
+            <!-- 4. Security & Reality -->
+            <td class="p-3.5 align-middle">
+              <div class="flex items-center gap-1.5">
+                <Badge :variant="getSecurityBadgeVariant(getSecurityType(inb))">
+                  {{ getSecurityType(inb)?.toUpperCase() }}
+                </Badge>
+                <!-- Reality Status Indicator -->
+                <div v-if="isReality(inb) && getInboundRealityOverallStatus(inb.tag)">
+                  <span
+                    class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-mono border"
+                    :class="getRealityBadgeClass(getInboundRealityOverallStatus(inb.tag)!.status)"
+                    :title="getInboundRealityOverallStatus(inb.tag)!.badgeText"
+                  >
+                    <span class="w-1 h-1 rounded-full" :class="getRealityDotClass(getInboundRealityOverallStatus(inb.tag)!.status)"></span>
+                    <span>{{ getInboundRealityOverallStatus(inb.tag)!.status.toUpperCase() }}</span>
+                  </span>
+                </div>
+              </div>
+            </td>
+
+            <!-- 5. Users & SubRoutes -->
+            <td class="p-3.5 align-middle font-mono text-xs">
+              <div class="flex items-center gap-2">
+                <span class="text-foreground">{{ getClientCount(inb) }} 用户</span>
+                <span v-if="inb.subRoutes?.length" class="text-[10px] px-1.5 py-0.5 rounded bg-muted/60 text-muted-foreground border border-border/40">
+                  {{ inb.subRoutes.length }} 线路
+                </span>
+              </div>
+            </td>
+
+            <!-- 6. Alive & Latency -->
+            <td class="p-3.5 align-middle font-mono text-xs">
+              <div class="flex items-center gap-1.5">
+                <span
+                  class="w-1.5 h-1.5 rounded-full"
+                  :class="inb.isAlive ? 'bg-emerald-400' : 'bg-rose-500'"
+                />
+                <span :class="inb.isAlive ? 'text-neutral-300' : 'text-rose-400'">
+                  {{ inb.isAlive ? `${inb.latencyMs || 1}ms` : '未响应' }}
+                </span>
+              </div>
+            </td>
+
+            <!-- 7. Actions -->
+            <td class="p-3.5 align-middle text-right" @click.stop>
+              <div class="flex items-center justify-end gap-1.5">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  class="h-7 px-2 text-[11px]"
+                  @click="inspectInbound(inb)"
+                >
+                  详情
+                </Button>
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  class="h-7 px-2 text-[11px]"
+                  @click="editInbound(inb)"
+                >
+                  编辑
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  class="h-7 px-2 text-[11px] text-rose-400 hover:text-rose-300 hover:bg-rose-500/10"
+                  @click="deleteInbound(inb.id)"
+                >
+                  删除
+                </Button>
+              </div>
+            </td>
+          </tr>
+
+          <!-- Empty State -->
+          <tr v-if="!filteredInbounds.length">
+            <td colspan="7" class="p-10 text-center text-muted-foreground">
+              <div class="flex flex-col items-center justify-center gap-2">
+                <Radio class="w-8 h-8 text-neutral-600 mb-1" />
+                <p class="text-xs font-medium text-neutral-300">没有匹配的入站节点</p>
+                <p class="text-[11px] text-muted-foreground">可尝试调整搜索条件，或点击右上角添加新节点</p>
+              </div>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <!-- Inspector Drawer (Right Sheet) -->
+    <Drawer
+      v-model="showInspectorDrawer"
+      :title="`入站节点: ${selectedInbound?.tag || ''}`"
+      :description="`协议 ${selectedInbound?.protocol?.toUpperCase()} / 端口 :${selectedInbound?.port}`"
+      width="w-full sm:max-w-xl md:max-w-2xl"
+    >
+      <div v-if="selectedInbound" class="space-y-4 text-xs">
+        <!-- 1. Node Overview Card -->
+        <div class="rounded-lg border border-border bg-card p-4 space-y-3">
+          <div class="flex items-center justify-between border-b border-border/60 pb-2">
+            <span class="font-mono font-semibold text-foreground text-xs uppercase tracking-wider">节点概览 (Overview)</span>
             <div class="flex items-center gap-1.5">
-              <span v-if="inb.routeId > 0 && (!inb.subRoutes || inb.subRoutes.length === 0)" class="px-2 py-0.5 rounded-md text-[11px] font-mono font-bold bg-indigo-500/20 text-indigo-300 border border-indigo-500/30">
-                Route #{{ inb.routeId }}
-              </span>
-              <span class="px-2 py-0.5 rounded-md text-[11px] font-mono font-bold uppercase" :class="protocolBadgeColor(inb.protocol)">
-                {{ inb.protocol }}
-              </span>
-              <span class="px-2 py-0.5 rounded-md text-[11px] font-mono font-medium bg-gray-800 text-cyan-400 border border-gray-700">
-                {{ getStreamNetwork(inb) }}
-              </span>
+              <Badge :variant="selectedInbound.isAlive ? 'success' : 'destructive'" :dot="true">
+                {{ selectedInbound.isAlive ? `运行正常 (${selectedInbound.latencyMs || 1}ms)` : '端口未响应' }}
+              </Badge>
+              <Badge :variant="getProtocolBadgeVariant(selectedInbound.protocol)">
+                {{ selectedInbound.protocol?.toUpperCase() }}
+              </Badge>
             </div>
           </div>
 
-          <div class="space-y-2 text-xs text-gray-400">
-            <div v-if="inb.routeId > 0 && (!inb.subRoutes || inb.subRoutes.length === 0)" class="flex justify-between py-1 border-b border-gray-800/60">
-              <span>VLESS 路由编号 (Route ID)</span>
-              <span class="text-indigo-300 font-mono font-bold">#{{ inb.routeId }} (0x{{ inb.routeId.toString(16).padStart(4, '0') }})</span>
+          <div class="grid grid-cols-2 sm:grid-cols-3 gap-3 font-mono">
+            <div>
+              <span class="block text-[10px] text-muted-foreground">Tag 标识</span>
+              <span class="text-foreground font-semibold">{{ selectedInbound.tag }}</span>
             </div>
-            <div class="flex justify-between py-1 border-b border-gray-800/60">
-              <span>端口映射 (内部:外部)</span>
-              <div class="flex items-center gap-1.5 font-mono">
-                <span class="text-gray-400">内部 :{{ inb.port }}</span>
-                <span class="text-gray-600">➔</span>
-                <span class="text-brand-300 font-bold">外部 :{{ inb.externalPort || 443 }}</span>
-                <span v-if="(inb.externalPort || inb.port) !== 443 && isReality(inb)" class="text-amber-400 font-semibold text-[10px]" title="非443端口Reality存在阻断风险">⚠️ 非443</span>
+            <div>
+              <span class="block text-[10px] text-muted-foreground">内部监听</span>
+              <span class="text-neutral-300">{{ selectedInbound.listen || '0.0.0.0' }}:{{ selectedInbound.port }}</span>
+            </div>
+            <div>
+              <span class="block text-[10px] text-muted-foreground">公网外部端口</span>
+              <span class="text-foreground font-semibold">:{{ selectedInbound.externalPort || selectedInbound.port }}</span>
+            </div>
+            <div>
+              <span class="block text-[10px] text-muted-foreground">传输协议 (Network)</span>
+              <span class="text-neutral-300 uppercase">{{ getStreamNetwork(selectedInbound) }}</span>
+            </div>
+            <div>
+              <span class="block text-[10px] text-muted-foreground">安全协议 (Security)</span>
+              <span class="text-neutral-300 uppercase">{{ getSecurityType(selectedInbound) }}</span>
+            </div>
+            <div>
+              <span class="block text-[10px] text-muted-foreground">节点流控 (Flow)</span>
+              <span class="text-neutral-300">{{ getNodeFlow(selectedInbound) }}</span>
+            </div>
+          </div>
+
+          <div v-if="selectedInbound.externalHost" class="pt-2 border-t border-border/40 font-mono text-[11px]">
+            <span class="text-muted-foreground">自定义外部域名: </span>
+            <span class="text-neutral-300">{{ selectedInbound.externalHost }}</span>
+          </div>
+        </div>
+
+        <!-- 2. Reality / TLS Inspection Card -->
+        <div v-if="isReality(selectedInbound)" class="rounded-lg border border-border bg-card p-4 space-y-3">
+          <div class="flex items-center justify-between border-b border-border/60 pb-2">
+            <div class="flex items-center gap-2">
+              <Shield class="w-3.5 h-3.5 text-neutral-300" />
+              <span class="font-mono font-semibold text-foreground text-xs uppercase tracking-wider">REALITY 伪装配置与合规状态</span>
+            </div>
+            <Button
+              variant="outline"
+              size="sm"
+              class="h-6 px-2 text-[10px]"
+              :loading="checkingReality"
+              @click="triggerRealityCheck"
+            >
+              刷新检测
+            </Button>
+          </div>
+
+          <!-- Reality Target & SNI -->
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-2 font-mono text-[11px]">
+            <div class="p-2 rounded bg-neutral-900/80 border border-border/40">
+              <span class="block text-[10px] text-muted-foreground">回落伪装目标 (Dest)</span>
+              <span class="text-foreground">{{ getInboundRealityField(selectedInbound, 'dest') || 'www.example.com:443' }}</span>
+            </div>
+            <div class="p-2 rounded bg-neutral-900/80 border border-border/40">
+              <span class="block text-[10px] text-muted-foreground">SNI 域名列表</span>
+              <span class="text-foreground">{{ getInboundRealityField(selectedInbound, 'serverNames') || 'www.example.com' }}</span>
+            </div>
+          </div>
+
+          <!-- Public Key & ShortIDs -->
+          <div class="space-y-1.5 font-mono text-[11px]">
+            <div class="p-2 rounded bg-neutral-900/80 border border-border/40 flex items-center justify-between">
+              <div class="min-w-0 pr-2">
+                <span class="block text-[10px] text-muted-foreground">Short ID</span>
+                <span class="text-foreground truncate">{{ getInboundRealityField(selectedInbound, 'shortIds') || '0123456789abcdef' }}</span>
               </div>
-            </div>
-            <div v-if="!['socks', 'http', 'dokodemo-door'].includes(inb.protocol)" class="flex justify-between py-1 border-b border-gray-800/60">
-              <span>节点流控 (Flow)</span>
-              <span class="text-cyan-300 font-mono font-semibold">{{ getNodeFlow(inb) }}</span>
-            </div>
-            <div v-if="!['socks', 'http', 'dokodemo-door'].includes(inb.protocol)" class="flex justify-between py-1 border-b border-gray-800/60">
-              <span>安全协议</span>
-              <span class="text-gray-200 font-mono font-semibold uppercase">{{ getSecurityType(inb) }}</span>
-            </div>
-            <div v-if="!['socks', 'http', 'dokodemo-door'].includes(inb.protocol)" class="flex justify-between py-1 border-b border-gray-800/60">
-              <span>已授权用户数</span>
-              <span class="text-brand-300 font-mono font-bold">{{ getClientCount(inb) }} 人</span>
-            </div>
-            <div v-if="inb.protocol === 'socks'" class="flex justify-between py-1 border-b border-gray-800/60">
-              <span>Socks 认证模式</span>
-              <span class="text-emerald-300 font-mono font-semibold">{{ getSocksAuth(inb) }}</span>
-            </div>
-            <div v-if="inb.protocol === 'dokodemo-door'" class="flex justify-between py-1 border-b border-gray-800/60">
-              <span>转发目标</span>
-              <span class="text-rose-300 font-mono font-semibold">{{ getDokodemoTarget(inb) }}</span>
-            </div>
-            <div class="flex justify-between py-1">
-              <span>端口连通性 (TCP Ping)</span>
-              <span
-                class="font-semibold flex items-center gap-1"
-                :class="inb.isAlive ? 'text-emerald-400' : 'text-rose-400'"
+              <Button
+                variant="ghost"
+                size="sm"
+                class="h-6 px-2 text-[10px] shrink-0"
+                @click="copyToClipboard(getInboundRealityField(selectedInbound, 'shortIds'))"
               >
-                <span class="w-1.5 h-1.5 rounded-full" :class="inb.isAlive ? 'bg-emerald-400' : 'bg-rose-400'"></span>
-                <span>{{ inb.isAlive ? `正常连通 (${inb.latencyMs || 1}ms)` : '端口未响应' }}</span>
-              </span>
+                <Copy class="w-3 h-3 mr-1" />
+                复制
+              </Button>
             </div>
+          </div>
 
-            <!-- Reality 伪装域名合规巡检 -->
-            <div v-if="isReality(inb)" class="flex items-center justify-between py-1 border-t border-gray-800/60">
-              <span>Reality 域名合规</span>
-              <div v-if="getInboundRealityOverallStatus(inb.tag)" class="relative group">
+          <!-- Reality Detailed Check Items -->
+          <div v-if="getInboundRealityOverallStatus(selectedInbound.tag)" class="pt-2 border-t border-border/40 space-y-2">
+            <span class="text-[10px] font-mono uppercase text-muted-foreground tracking-wider">巡检明细 (Inspection Results)</span>
+            <div
+              v-for="(item, idx) in getInboundRealityOverallStatus(selectedInbound.tag)!.items"
+              :key="idx"
+              class="p-2.5 rounded-md border text-[11px] font-mono space-y-1"
+              :class="item.status === 'ok' ? 'bg-neutral-900/60 border-neutral-800' : item.status === 'warning' ? 'bg-amber-500/5 border-amber-500/20' : 'bg-rose-500/5 border-rose-500/20'"
+            >
+              <div class="flex items-center justify-between">
+                <span class="text-foreground font-semibold">{{ item.serverName }}</span>
                 <span
-                  class="px-2 py-0.5 rounded text-[11px] font-medium flex items-center gap-1 cursor-pointer transition-colors"
-                  :class="getRealityBadgeClass(getInboundRealityOverallStatus(inb.tag)!.status)"
+                  class="px-1.5 py-0.2 rounded text-[10px] font-semibold"
+                  :class="item.status === 'ok' ? 'text-emerald-400 bg-emerald-500/10' : item.status === 'warning' ? 'text-amber-400 bg-amber-500/10' : 'text-rose-400 bg-rose-500/10'"
                 >
-                  <span class="w-1.5 h-1.5 rounded-full" :class="getRealityDotClass(getInboundRealityOverallStatus(inb.tag)!.status)"></span>
-                  <span class="max-w-[140px] sm:max-w-[170px] truncate">{{ getInboundRealityOverallStatus(inb.tag)!.badgeText }}</span>
+                  {{ item.status.toUpperCase() }}
                 </span>
-
-                <!-- Hover Tooltip 弹出卡片 -->
-                <div class="absolute right-0 bottom-full mb-1.5 hidden group-hover:block z-30 w-72 p-3 bg-gray-950/95 backdrop-blur-md border border-gray-700/80 rounded-xl shadow-2xl text-[11px] text-gray-200 pointer-events-none">
-                  <div class="font-bold text-xs pb-1.5 mb-1.5 border-b border-gray-800 flex items-center justify-between">
-                    <span>Reality 域名合规明细</span>
-                    <span class="font-mono text-[10px] text-gray-400">{{ getInboundRealityOverallStatus(inb.tag)!.items.length }} 个目标</span>
-                  </div>
-                  <div class="space-y-2 max-h-48 overflow-y-auto">
-                    <div v-for="(item, idx) in getInboundRealityOverallStatus(inb.tag)!.items" :key="idx" class="space-y-1">
-                      <div class="flex items-center justify-between font-mono">
-                        <span class="text-white font-semibold truncate max-w-[150px]">{{ item.serverName }}</span>
-                        <span :class="item.status === 'ok' ? 'text-emerald-400' : item.status === 'warning' ? 'text-amber-400' : 'text-rose-400'">
-                          {{ item.status.toUpperCase() }}
-                        </span>
-                      </div>
-                      <div class="text-[10px] text-gray-400 flex justify-between">
-                        <span>目标: <span class="text-gray-300 font-mono">{{ item.dest }}</span></span>
-                        <span v-if="item.daysLeft >= 0">证书剩 {{ item.daysLeft }} 天</span>
-                      </div>
-                      <div v-if="item.tlsVersion || item.alpn" class="text-[10px] text-gray-400 flex justify-between">
-                        <span>握手: {{ item.tlsVersion || 'TLS' }} / {{ item.alpn || 'none' }}</span>
-                        <span>{{ item.latencyMs }}ms</span>
-                      </div>
-                      <div class="text-[10px] leading-tight" :class="item.status === 'ok' ? 'text-gray-400' : item.status === 'warning' ? 'text-amber-300' : 'text-rose-300'">
-                        {{ item.details }}
-                      </div>
-                    </div>
-                  </div>
-                </div>
               </div>
-              <span v-else class="text-gray-500 text-[11px] font-mono">待检测</span>
+              <div class="flex items-center justify-between text-[10px] text-muted-foreground">
+                <span>目标: {{ item.dest }}</span>
+                <span v-if="item.daysLeft >= 0">证书剩 {{ item.daysLeft }} 天</span>
+                <span>{{ item.tlsVersion || 'TLS' }} / {{ item.latencyMs || 0 }}ms</span>
+              </div>
+              <div v-if="item.details" class="text-[10px] text-neutral-400">
+                {{ item.details }}
+              </div>
             </div>
+          </div>
+          <div v-else class="text-[11px] text-muted-foreground font-mono">
+            暂无巡检缓存，请点击“刷新检测”执行实时探测。
+          </div>
+        </div>
 
-            <!-- 分流订阅线路 (Sub-Routes) -->
-            <div v-if="inb.subRoutes?.length" class="pt-2 border-t border-gray-800/60">
-              <div class="text-[11px] font-semibold text-gray-400 mb-1.5 flex items-center justify-between">
-                <span>分流订阅线路 ({{ inb.subRoutes.length }}条)</span>
-                <span class="text-[10px] text-indigo-400 font-mono">共用单端口 :{{ inb.externalPort || 443 }}</span>
+        <!-- 3. SubRoutes (单端口多出口) -->
+        <div v-if="selectedInbound.subRoutes?.length" class="rounded-lg border border-border bg-card p-4 space-y-3">
+          <div class="flex items-center justify-between border-b border-border/60 pb-2">
+            <span class="font-mono font-semibold text-foreground text-xs uppercase tracking-wider">分流订阅线路 (Sub-Routes)</span>
+            <span class="text-[10px] font-mono text-muted-foreground">共 {{ selectedInbound.subRoutes.length }} 条</span>
+          </div>
+
+          <div class="space-y-2">
+            <div
+              v-for="sr in selectedInbound.subRoutes"
+              :key="sr.id || sr.routeId"
+              class="p-2.5 rounded-md border border-border/60 bg-neutral-900/60 font-mono text-[11px] flex items-center justify-between"
+            >
+              <div class="flex items-center gap-2">
+                <span class="px-1.5 py-0.5 rounded bg-neutral-800 text-neutral-300 font-bold">#{{ sr.routeId }}</span>
+                <span class="text-foreground font-sans font-medium">{{ sr.name || ('线路 #' + sr.routeId) }}</span>
+                <span class="text-neutral-500 text-[10px]">➔ {{ sr.outboundTag || 'direct' }}</span>
               </div>
-              <div class="flex flex-wrap gap-1.5">
-                <span
-                  v-for="sr in inb.subRoutes"
-                  :key="sr.id || sr.routeId"
-                  class="px-2 py-0.5 rounded-md text-[11px] font-mono flex items-center gap-1 border"
-                  :class="sr.enabled ? 'bg-indigo-500/15 text-indigo-300 border-indigo-500/30 font-medium' : 'bg-gray-900 text-gray-500 border-gray-800 line-through'"
-                >
-                  <span class="font-bold text-cyan-400">#{{ sr.routeId }}</span>
-                  <span class="text-white">{{ sr.name || sr.remark || ('线路 #' + sr.routeId) }}</span>
-                  <span class="text-gray-400">➔ {{ sr.outboundTag || 'direct' }}</span>
-                  <span
-                    v-if="sr.allowedUsers && sr.allowedUsers.length > 0"
-                    class="ml-1 px-1 py-0.2 rounded text-[9px] bg-amber-500/20 text-amber-300 border border-amber-500/30 font-sans font-normal"
-                    :title="'限定授权用户: ' + sr.allowedUsers.join(', ')"
-                  >
-                    {{ getSubRouteUserCount(sr) }}人
-                  </span>
-                  <span
-                    v-else
-                    class="ml-1 px-1 py-0.2 rounded text-[9px] bg-emerald-500/15 text-emerald-400/90 border border-emerald-500/25 font-sans font-normal"
-                    title="全员开放"
-                  >
-                    全员
-                  </span>
-                </span>
+              <div class="flex items-center gap-1.5">
+                <Badge :variant="sr.enabled ? 'success' : 'secondary'">
+                  {{ sr.enabled ? '已启用' : '已停用' }}
+                </Badge>
+                <Badge variant="outline" class="text-[10px]">
+                  {{ sr.allowedUsers?.length ? `${sr.allowedUsers.length} 人授权` : '全员' }}
+                </Badge>
               </div>
             </div>
           </div>
         </div>
 
-        <div class="mt-4 pt-3 border-t border-gray-800/60 flex items-center justify-between">
-          <button
-            @click="editInbound(inb)"
-            class="text-xs text-brand-400 hover:text-brand-300 font-medium transition-colors"
-          >
-            编辑参数与关联用户
-          </button>
-          <button
-            @click="deleteInbound(inb.id)"
-            class="text-xs text-red-400 hover:text-red-300 transition-colors"
-          >
-            删除
-          </button>
+        <!-- 4. Authorized Users -->
+        <div v-if="['vless', 'vmess', 'trojan', 'shadowsocks'].includes(selectedInbound.protocol)" class="rounded-lg border border-border bg-card p-4 space-y-3">
+          <div class="flex items-center justify-between border-b border-border/60 pb-2">
+            <span class="font-mono font-semibold text-foreground text-xs uppercase tracking-wider">已关联授权用户</span>
+            <span class="text-[10px] font-mono text-muted-foreground">{{ getClientCount(selectedInbound) }} 位用户</span>
+          </div>
+
+          <div class="flex flex-wrap gap-1.5 max-h-36 overflow-y-auto">
+            <span
+              v-for="email in getAssignedUserEmails(selectedInbound)"
+              :key="email"
+              class="px-2 py-1 rounded bg-neutral-900 border border-border/60 text-neutral-300 font-mono text-[11px] flex items-center gap-1.5"
+            >
+              <span class="w-1.5 h-1.5 rounded-full bg-neutral-500"></span>
+              <span>{{ email }}</span>
+            </span>
+            <span v-if="!getAssignedUserEmails(selectedInbound).length" class="text-[11px] text-muted-foreground font-mono">
+              暂无绑定用户
+            </span>
+          </div>
         </div>
       </div>
-    </div>
 
-    <!-- Empty state -->
-    <div v-if="!inbounds.length" class="glass-panel p-12 text-center rounded-2xl">
-      <Radio class="w-12 h-12 mx-auto text-gray-600 mb-3" />
-      <h3 class="text-sm font-semibold text-gray-300">暂无入站节点</h3>
-      <p class="text-xs text-gray-500 mt-1">点击右上角“添加新节点”开始配置</p>
-    </div>
+      <template #footer>
+        <Button
+          variant="outline"
+          size="sm"
+          @click="showInspectorDrawer = false"
+        >
+          关闭
+        </Button>
+        <Button
+          variant="destructive"
+          size="sm"
+          @click="deleteInbound(selectedInbound.id)"
+        >
+          删除节点
+        </Button>
+        <Button
+          variant="default"
+          size="sm"
+          @click="editInbound(selectedInbound)"
+        >
+          编辑配置
+        </Button>
+      </template>
+    </Drawer>
 
-    <!-- Comprehensive Cascading Inbound Modal -->
-    <div v-if="showModal" class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/75 backdrop-blur-sm overflow-y-auto">
-      <div class="glass-panel w-full max-w-2xl p-6 sm:p-8 rounded-3xl border border-gray-800 shadow-2xl space-y-5 my-8 max-h-[90vh] overflow-y-auto">
-        <div class="flex items-center justify-between pb-2 border-b border-gray-800">
-          <div>
-            <h2 class="text-lg font-bold text-white">{{ isEditing ? '编辑入站节点' : '分层添加新节点' }}</h2>
-            <p class="text-xs text-gray-400 mt-0.5">配置专属流控策略并双向批量分配授权用户</p>
-          </div>
-          <button @click="showModal = false" class="text-gray-400 hover:text-white text-lg">✕</button>
-        </div>
-
-        <form @submit.prevent="saveInbound" class="space-y-5 text-xs">
-          <!-- 1. 基础设置 -->
-          <div class="space-y-3 bg-gray-900/50 p-4 rounded-2xl border border-gray-800/80">
-            <h3 class="font-bold text-brand-400 uppercase tracking-wider text-[11px] flex items-center gap-1.5">
-              <span>① 基础网络与端口设置</span>
-            </h3>
-
-            <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
-              <div>
-                <label class="block text-gray-300 mb-1 font-medium">节点标识 (Tag)</label>
-                <input
-                  v-model="form.tag"
-                  type="text"
-                  required
-                  placeholder="vless-reality"
-                  class="w-full bg-gray-900 border border-gray-700 rounded-xl px-3 py-2 text-white font-mono focus:outline-none focus:border-brand-500"
-                />
-              </div>
-
-              <div>
-                <label class="block text-gray-300 mb-1 font-medium">监听 IP</label>
-                <input
-                  v-model="form.listen"
-                  type="text"
-                  placeholder="0.0.0.0"
-                  class="w-full bg-gray-900 border border-gray-700 rounded-xl px-3 py-2 text-white font-mono focus:outline-none focus:border-brand-500"
-                />
-              </div>
-
-              <div>
-                <label class="block text-gray-300 mb-1 font-medium">内部监听端口 (Port)</label>
-                <input
-                  v-model.number="form.port"
-                  type="number"
-                  required
-                  placeholder="4434"
-                  class="w-full bg-gray-900 border border-gray-700 rounded-xl px-3 py-2 text-white font-mono focus:outline-none focus:border-brand-500"
-                />
-              </div>
-
-              <div>
-                <label class="block text-gray-300 mb-1 font-medium">
-                  外部公网端口 (External Port)
-                </label>
-                <input
-                  v-model.number="form.externalPort"
-                  type="number"
-                  placeholder="443 (默认前置 Nginx 443 端口)"
-                  class="w-full bg-gray-900 border border-gray-700 rounded-xl px-3 py-2 text-white font-mono focus:outline-none focus:border-brand-500"
-                />
-                <p class="text-[10px] text-gray-500 mt-0.5">客户端连接端口（如 Nginx 443 反代）</p>
-              </div>
-
-              <div>
-                <label class="block text-gray-300 mb-1 font-medium">
-                  外部连接域名/IP (External Host)
-                </label>
-                <input
-                  v-model="form.externalHost"
-                  type="text"
-                  placeholder="留空则使用全局公网域名"
-                  class="w-full bg-gray-900 border border-gray-700 rounded-xl px-3 py-2 text-white font-mono focus:outline-none focus:border-brand-500"
-                />
-                <p class="text-[10px] text-gray-500 mt-0.5">订阅下发的目标地址，留空继承全局设置</p>
-              </div>
-            </div>
-
-            <!-- 非 443 端口安全告警卡片 (外部端口为 443 时自动豁免) -->
-            <div
-              v-if="(form.externalPort || form.port) !== 443 && form.security === 'reality'"
-              class="p-3 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-300 text-xs flex items-start gap-2.5"
-            >
-              <AlertTriangle class="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
-              <div>
-                <p class="font-bold">⚠️ 安全风险警报 (Non-443 Port Alert)</p>
-                <p class="mt-0.5 text-[11px] opacity-90">
-                  当前节点配置了 Reality 伪装，但外部公网连接端口为 <b>{{ form.externalPort || form.port }}</b>（非标准 443 端口）。监听非 443 端口极易被 GFW 的 SNI 白名单与主动探测特征识别阻断！强烈建议将外部端口映射为 <b>443</b>。
-                </p>
-              </div>
-            </div>
+    <!-- Create / Edit Inbound Drawer (Right Sheet) -->
+    <Drawer
+      v-model="showFormDrawer"
+      :title="isEditing ? `编辑入站: ${form.tag}` : '添加新入站节点'"
+      :description="isEditing ? '修改入站端口、传输层安全与关联授权用户' : '分层配置 Xray 协议、网络传输层与 Reality 密钥'"
+      width="w-full sm:max-w-xl md:max-w-2xl lg:max-w-3xl"
+    >
+      <form id="inbound-form" @submit.prevent="saveInbound" class="space-y-4 text-xs">
+        <!-- 1. 基础网络与端口设置 -->
+        <div class="rounded-lg border border-border bg-card p-4 space-y-3">
+          <div class="font-mono font-semibold text-foreground text-xs uppercase tracking-wider flex items-center gap-1.5">
+            <span>① 基础网络与端口设置</span>
           </div>
 
-          <!-- 2. 协议与传输层设置（严格级联互斥 + 节点专属 Flow） -->
-          <div class="space-y-3 bg-gray-900/50 p-4 rounded-2xl border border-gray-800/80">
-            <h3 class="font-bold text-brand-400 uppercase tracking-wider text-[11px] flex items-center gap-1.5">
-              <span>② 入站协议与传输层 (定义节点级流控)</span>
-            </h3>
-
-            <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
-              <div>
-                <label class="block text-gray-300 mb-1 font-medium">入站协议 (Protocol)</label>
-                <select
-                  v-model="form.protocol"
-                  @change="onProtocolChange"
-                  class="w-full bg-gray-900 border border-gray-700 rounded-xl px-3 py-2 text-white focus:outline-none focus:border-brand-500 font-medium"
-                >
-                  <option value="vless">VLESS (推荐)</option>
-                  <option value="vmess">VMess</option>
-                  <option value="trojan">Trojan</option>
-                  <option value="shadowsocks">Shadowsocks</option>
-                  <option value="socks">Socks (Socks5 / Socks4)</option>
-                  <option value="http">HTTP 代理入站</option>
-                  <option value="dokodemo-door">dokodemo-door (任意门转发)</option>
-                </select>
-              </div>
-
-              <div>
-                <label class="block text-gray-300 mb-1 font-medium">传输协议 (Network)</label>
-                <select
-                  v-model="form.network"
-                  @change="onNetworkChange"
-                  class="w-full bg-gray-900 border border-gray-700 rounded-xl px-3 py-2 text-white focus:outline-none focus:border-brand-500 font-mono"
-                >
-                  <option value="tcp">TCP (RAW 推荐)</option>
-                  <option value="xhttp">XHTTP (SplitHTTP 推荐)</option>
-                  <option value="grpc">gRPC</option>
-                  <option value="ws">WebSocket</option>
-                  <option value="httpupgrade">HTTPUpgrade</option>
-                  <option value="mkcp">mKCP (UDP)</option>
-                </select>
-              </div>
-
-              <div>
-                <label class="block text-gray-300 mb-1 font-medium">安全协议 (Security)</label>
-                <select
-                  v-model="form.security"
-                  class="w-full bg-gray-900 border border-gray-700 rounded-xl px-3 py-2 text-white focus:outline-none focus:border-brand-500 font-mono"
-                >
-                  <option v-if="isRealitySupported" value="reality">REALITY (推荐)</option>
-                  <option value="tls">TLS</option>
-                  <option value="none">None (无加密)</option>
-                </select>
-              </div>
-            </div>
-
-            <!-- 不兼容 Reality 自动限制提示 -->
-            <div v-if="!['socks', 'http', 'dokodemo-door'].includes(form.protocol) && !isRealitySupported" class="p-2 rounded-xl bg-blue-500/10 border border-blue-500/20 text-blue-300 text-[11px]">
-              ℹ️ 官方规范说明：当前传输协议 (<code>{{ form.network }}</code>) 不支持 REALITY，安全协议仅支持 TLS 或 None。
-            </div>
-
-            <!-- 节点级 VLESS 流控选项（用户归属此节点时将自动继承此 Flow） -->
-            <div v-if="form.protocol === 'vless'" class="pt-2 border-t border-gray-800">
-              <div class="flex items-center justify-between mb-1">
-                <label class="text-gray-300 font-medium">节点默认流控模式 (Node Flow Policy)</label>
-                <span class="text-[11px] text-brand-400 font-mono">归属此节点的用户将自动继承该流控</span>
-              </div>
-              <select
-                v-model="form.vlessFlow"
-                :disabled="form.network !== 'tcp'"
-                class="w-full bg-gray-900 border border-gray-700 rounded-xl px-3 py-2 text-white focus:outline-none focus:border-brand-500 disabled:opacity-40 font-mono"
-              >
-                <option v-if="form.network === 'tcp'" value="xtls-rprx-vision">xtls-rprx-vision (XTLS Vision 极速流控 - 推荐)</option>
-                <option v-if="form.network === 'tcp'" value="xtls-rprx-vision-udp443">xtls-rprx-vision-udp443</option>
-                <option value="">none (无流控 - 适用于 XHTTP / gRPC / WS 等)</option>
-              </select>
-              <p v-if="form.network !== 'tcp'" class="text-[11px] text-gray-500 mt-1">
-                * Vision 流控仅适用于 TCP/RAW 传输层，当前传输协议已自动锁定为无流控。
-              </p>
-            </div>
-
-            <!-- XHTTP 专属配置项 -->
-            <div v-if="form.network === 'xhttp'" class="pt-2 border-t border-gray-800 space-y-3">
-              <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <div>
-                  <label class="block text-gray-400 mb-1">XHTTP 路径 (Path)</label>
-                  <input
-                    v-model="form.xhttpPath"
-                    type="text"
-                    placeholder="/mbqyfa4grswh5ntz"
-                    class="w-full bg-gray-900 border border-gray-700 rounded-xl px-3 py-2 text-white font-mono focus:outline-none focus:border-brand-500"
-                  />
-                </div>
-                <div>
-                  <label class="block text-gray-400 mb-1">XHTTP 模式 (Mode)</label>
-                  <select
-                    v-model="form.xhttpMode"
-                    class="w-full bg-gray-900 border border-gray-700 rounded-xl px-3 py-2 text-white focus:outline-none focus:border-brand-500 font-mono"
-                  >
-                    <option value="auto">auto (自动)</option>
-                    <option value="stream-up">stream-up</option>
-                    <option value="packet-up">packet-up</option>
-                  </select>
-                </div>
-              </div>
-            </div>
-
-            <!-- WS 专属配置项 -->
-            <div v-if="form.network === 'ws'" class="pt-2 border-t border-gray-800">
-              <label class="block text-gray-400 mb-1">WebSocket 路径 (Path)</label>
-              <input
-                v-model="form.wsPath"
-                type="text"
-                placeholder="/ws"
-                class="w-full bg-gray-900 border border-gray-700 rounded-xl px-3 py-2 text-white font-mono focus:outline-none focus:border-brand-500"
-              />
-            </div>
-
-            <!-- gRPC 专属配置项 -->
-            <div v-if="form.network === 'grpc'" class="pt-2 border-t border-gray-800">
-              <label class="block text-gray-400 mb-1">gRPC 服务名 (ServiceName)</label>
-              <input
-                v-model="form.grpcService"
-                type="text"
-                placeholder="xray-grpc"
-                class="w-full bg-gray-900 border border-gray-700 rounded-xl px-3 py-2 text-white font-mono focus:outline-none focus:border-brand-500"
-              />
-            </div>
-
-            <!-- Socks 专属配置项 -->
-            <div v-if="form.protocol === 'socks'" class="pt-2 border-t border-gray-800 space-y-3">
-              <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <div>
-                  <label class="block text-gray-400 mb-1">认证模式 (Auth)</label>
-                  <select
-                    v-model="form.socksAuth"
-                    class="w-full bg-gray-900 border border-gray-700 rounded-xl px-3 py-2 text-white focus:outline-none focus:border-brand-500 font-mono"
-                  >
-                    <option value="noauth">noauth (无需认证)</option>
-                    <option value="password">password (用户名密码认证)</option>
-                  </select>
-                </div>
-                <div class="flex items-center pt-6">
-                  <label class="flex items-center gap-2 text-xs text-gray-300 cursor-pointer">
-                    <input v-model="form.socksUdp" type="checkbox" class="w-4 h-4 rounded text-brand-500 bg-gray-900 border-gray-700 focus:ring-0" />
-                    <span>启用 UDP 转发支持 (udp: true)</span>
-                  </label>
-                </div>
-              </div>
-              <div v-if="form.socksAuth === 'password'" class="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <div>
-                  <label class="block text-gray-400 mb-1">用户名 (Username)</label>
-                  <input
-                    v-model="form.socksUsername"
-                    type="text"
-                    placeholder="如: admin"
-                    class="w-full bg-gray-900 border border-gray-700 rounded-xl px-3 py-2 text-white font-mono focus:outline-none focus:border-brand-500"
-                  />
-                </div>
-                <div>
-                  <label class="block text-gray-400 mb-1">密码 (Password)</label>
-                  <input
-                    v-model="form.socksPassword"
-                    type="text"
-                    placeholder="如: secret"
-                    class="w-full bg-gray-900 border border-gray-700 rounded-xl px-3 py-2 text-white font-mono focus:outline-none focus:border-brand-500"
-                  />
-                </div>
-              </div>
-            </div>
-
-            <!-- HTTP 代理入站专属配置项 -->
-            <div v-if="form.protocol === 'http'" class="pt-2 border-t border-gray-800 space-y-3">
-              <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <div>
-                  <label class="block text-gray-400 mb-1">用户名 (选填)</label>
-                  <input
-                    v-model="form.httpUsername"
-                    type="text"
-                    placeholder="留空无需认证"
-                    class="w-full bg-gray-900 border border-gray-700 rounded-xl px-3 py-2 text-white font-mono focus:outline-none focus:border-brand-500"
-                  />
-                </div>
-                <div>
-                  <label class="block text-gray-400 mb-1">密码 (选填)</label>
-                  <input
-                    v-model="form.httpPassword"
-                    type="text"
-                    placeholder="留空无需认证"
-                    class="w-full bg-gray-900 border border-gray-700 rounded-xl px-3 py-2 text-white font-mono focus:outline-none focus:border-brand-500"
-                  />
-                </div>
-              </div>
-            </div>
-
-            <!-- dokodemo-door 任意门专属配置项 -->
-            <div v-if="form.protocol === 'dokodemo-door'" class="pt-2 border-t border-gray-800 space-y-3">
-              <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                <div>
-                  <label class="block text-gray-400 mb-1">目标转发地址 (Address)</label>
-                  <input
-                    v-model="form.dokoAddress"
-                    type="text"
-                    placeholder="1.1.1.1 或 127.0.0.1"
-                    class="w-full bg-gray-900 border border-gray-700 rounded-xl px-3 py-2 text-white font-mono focus:outline-none focus:border-brand-500"
-                  />
-                </div>
-                <div>
-                  <label class="block text-gray-400 mb-1">目标转发端口 (Port)</label>
-                  <input
-                    v-model.number="form.dokoPort"
-                    type="number"
-                    placeholder="53"
-                    class="w-full bg-gray-900 border border-gray-700 rounded-xl px-3 py-2 text-white font-mono focus:outline-none focus:border-brand-500"
-                  />
-                </div>
-                <div>
-                  <label class="block text-gray-400 mb-1">转发网络类型 (Network)</label>
-                  <select
-                    v-model="form.dokoNetwork"
-                    class="w-full bg-gray-900 border border-gray-700 rounded-xl px-3 py-2 text-white focus:outline-none focus:border-brand-500 font-mono"
-                  >
-                    <option value="tcp,udp">TCP + UDP</option>
-                    <option value="tcp">仅 TCP</option>
-                    <option value="udp">仅 UDP</option>
-                  </select>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          <!-- 3. 安全协议专属设置 (Reality / TLS) (仅限支持 TLS 的协议) -->
-          <div v-if="!['socks', 'http', 'dokodemo-door'].includes(form.protocol) && form.security === 'reality'" class="space-y-3 bg-gray-900/50 p-4 rounded-2xl border border-gray-800/80">
-            <div class="flex items-center justify-between">
-              <h3 class="font-bold text-cyan-400 uppercase tracking-wider text-[11px] flex items-center gap-1.5">
-                <span>③ REALITY 伪装与安全设置</span>
-              </h3>
-              <button
-                type="button"
-                @click="generateRealityKey"
-                class="px-2.5 py-1 bg-cyan-600/20 hover:bg-cyan-600/30 text-cyan-400 rounded-lg text-[11px] font-semibold border border-cyan-500/30 flex items-center gap-1"
-              >
-                <Key class="w-3 h-3" />
-                <span>⚡ 一键生成 x25519 密钥对与 ShortID</span>
-              </button>
-            </div>
-
-            <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <div>
-                <label class="block text-gray-300 mb-1 font-medium">目标伪装网站 (Target)</label>
-                <input
-                  v-model="form.realityTarget"
-                  type="text"
-                  placeholder="www.example.com:443"
-                  class="w-full bg-gray-900 border border-gray-700 rounded-xl px-3 py-2 text-white font-mono focus:outline-none focus:border-brand-500"
-                />
-              </div>
-              <div>
-                <label class="block text-gray-300 mb-1 font-medium">SNI 域名列表 (多个用逗号隔开)</label>
-                <input
-                  v-model="form.realityServerNames"
-                  type="text"
-                  placeholder="www.example.com"
-                  class="w-full bg-gray-900 border border-gray-700 rounded-xl px-3 py-2 text-white font-mono focus:outline-none focus:border-brand-500"
-                />
-              </div>
-            </div>
-
+          <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
             <div>
-              <label class="block text-gray-300 mb-1 font-medium">Private Key (私钥)</label>
-              <input
-                v-model="form.realityPrivateKey"
+              <label class="block text-muted-foreground mb-1 font-mono text-[11px]">节点标识 (Tag)</label>
+              <Input
+                v-model="form.tag"
                 type="text"
                 required
-                placeholder="自动生成或手动填入 base64 私钥"
-                class="w-full bg-gray-900 border border-gray-700 rounded-xl px-3 py-2 text-white font-mono text-[11px] focus:outline-none focus:border-brand-500"
+                placeholder="vless-reality"
               />
-            </div>
-
-            <div v-if="form.realityPublicKey" class="p-2.5 rounded-xl bg-gray-900 border border-gray-800 text-[11px] font-mono text-gray-400">
-              <span class="text-cyan-400 font-bold">Public Key (对应公钥，分发用):</span> {{ form.realityPublicKey }}
             </div>
 
             <div>
-              <label class="block text-gray-300 mb-1 font-medium">Short IDs (短ID，多个用逗号隔开)</label>
-              <input
-                v-model="form.realityShortIds"
+              <label class="block text-muted-foreground mb-1 font-mono text-[11px]">监听 IP</label>
+              <Input
+                v-model="form.listen"
                 type="text"
-                placeholder="0123456789abcdef"
-                class="w-full bg-gray-900 border border-gray-700 rounded-xl px-3 py-2 text-white font-mono focus:outline-none focus:border-brand-500"
+                placeholder="0.0.0.0"
               />
             </div>
+
+            <div>
+              <label class="block text-muted-foreground mb-1 font-mono text-[11px]">内部监听端口 (Port)</label>
+              <Input
+                v-model.number="form.port"
+                type="number"
+                required
+                placeholder="443"
+              />
+            </div>
+
+            <div>
+              <label class="block text-muted-foreground mb-1 font-mono text-[11px]">外部公网端口 (External Port)</label>
+              <Input
+                v-model.number="form.externalPort"
+                type="number"
+                placeholder="443 (默认443)"
+              />
+              <p class="text-[10px] text-muted-foreground mt-0.5">前置 Nginx 反代或端口映射端口</p>
+            </div>
+
+            <div class="sm:col-span-2">
+              <label class="block text-muted-foreground mb-1 font-mono text-[11px]">外部域名/IP (External Host)</label>
+              <Input
+                v-model="form.externalHost"
+                type="text"
+                placeholder="留空则继承全局节点公网域名"
+              />
+              <p class="text-[10px] text-muted-foreground mt-0.5">客户端订阅下发的主机地址</p>
+            </div>
           </div>
 
-          <div v-else-if="!['socks', 'http', 'dokodemo-door'].includes(form.protocol) && form.security === 'tls'" class="space-y-3 bg-gray-900/50 p-4 rounded-2xl border border-gray-800/80">
-            <h3 class="font-bold text-purple-400 uppercase tracking-wider text-[11px]">
-              ③ TLS 证书配置
-            </h3>
-            <div class="space-y-3">
-              <div>
-                <label class="block text-gray-300 mb-1">SNI 域名 (ServerName)</label>
-                <input
-                  v-model="form.tlsServerName"
-                  type="text"
-                  placeholder="yourdomain.com"
-                  class="w-full bg-gray-900 border border-gray-700 rounded-xl px-3 py-2 text-white font-mono focus:outline-none focus:border-brand-500"
-                />
-              </div>
-              <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <div>
-                  <label class="block text-gray-300 mb-1">证书路径 (Cert File)</label>
+          <!-- Non-443 Port Alert -->
+          <div
+            v-if="(form.externalPort || form.port) !== 443 && form.security === 'reality'"
+            class="p-2.5 rounded-md bg-amber-500/10 border border-amber-500/20 text-amber-300 text-[11px] flex items-start gap-2"
+          >
+            <AlertTriangle class="w-3.5 h-3.5 text-amber-400 shrink-0 mt-0.5" />
+            <span>当前配置了 Reality 伪装，但公网端口为 <b>{{ form.externalPort || form.port }}</b>（非 443）。监听非 443 端口可能存在 GFW 嗅探阻断风险，建议映射为 443 端口。</span>
+          </div>
+        </div>
+
+        <!-- 2. 入站协议与传输层 -->
+        <div class="rounded-lg border border-border bg-card p-4 space-y-3">
+          <div class="font-mono font-semibold text-foreground text-xs uppercase tracking-wider flex items-center gap-1.5">
+            <span>② 协议与传输层 (定义节点级流控)</span>
+          </div>
+
+          <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            <div>
+              <label class="block text-muted-foreground mb-1 font-mono text-[11px]">入站协议 (Protocol)</label>
+              <select
+                v-model="form.protocol"
+                @change="onProtocolChange"
+                class="w-full bg-neutral-950 border border-border rounded-md px-3 h-9 text-foreground font-mono focus:outline-none focus:ring-1 focus:ring-ring"
+              >
+                <option value="vless">VLESS (推荐)</option>
+                <option value="vmess">VMess</option>
+                <option value="trojan">Trojan</option>
+                <option value="shadowsocks">Shadowsocks</option>
+                <option value="socks">Socks</option>
+                <option value="http">HTTP</option>
+                <option value="dokodemo-door">dokodemo-door</option>
+              </select>
+            </div>
+
+            <div>
+              <label class="block text-muted-foreground mb-1 font-mono text-[11px]">传输协议 (Network)</label>
+              <select
+                v-model="form.network"
+                @change="onNetworkChange"
+                class="w-full bg-neutral-950 border border-border rounded-md px-3 h-9 text-foreground font-mono focus:outline-none focus:ring-1 focus:ring-ring"
+              >
+                <option value="tcp">TCP (RAW 推荐)</option>
+                <option value="xhttp">XHTTP (SplitHTTP)</option>
+                <option value="grpc">gRPC</option>
+                <option value="ws">WebSocket</option>
+                <option value="httpupgrade">HTTPUpgrade</option>
+                <option value="mkcp">mKCP (UDP)</option>
+              </select>
+            </div>
+
+            <div>
+              <label class="block text-muted-foreground mb-1 font-mono text-[11px]">安全协议 (Security)</label>
+              <select
+                v-model="form.security"
+                class="w-full bg-neutral-950 border border-border rounded-md px-3 h-9 text-foreground font-mono focus:outline-none focus:ring-1 focus:ring-ring"
+              >
+                <option v-if="isRealitySupported" value="reality">REALITY (推荐)</option>
+                <option value="tls">TLS</option>
+                <option value="none">None (无加密)</option>
+              </select>
+            </div>
+          </div>
+
+          <!-- Flow Policy -->
+          <div v-if="form.protocol === 'vless'" class="pt-2 border-t border-border/40">
+            <div class="flex items-center justify-between mb-1">
+              <label class="text-muted-foreground font-mono text-[11px]">默认流控模式 (Flow Policy)</label>
+              <span class="text-[10px] text-muted-foreground">分配给该节点的用户将继承此策略</span>
+            </div>
+            <select
+              v-model="form.vlessFlow"
+              :disabled="form.network !== 'tcp'"
+              class="w-full bg-neutral-950 border border-border rounded-md px-3 h-9 text-foreground font-mono focus:outline-none focus:ring-1 focus:ring-ring disabled:opacity-40"
+            >
+              <option v-if="form.network === 'tcp'" value="xtls-rprx-vision">xtls-rprx-vision (XTLS Vision 极速流控 - 推荐)</option>
+              <option v-if="form.network === 'tcp'" value="xtls-rprx-vision-udp443">xtls-rprx-vision-udp443</option>
+              <option value="">none (无流控 - 适用 XHTTP / gRPC / WS 等)</option>
+            </select>
+          </div>
+
+          <!-- XHTTP options -->
+          <div v-if="form.network === 'xhttp'" class="pt-2 border-t border-border/40 grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div>
+              <label class="block text-muted-foreground mb-1 font-mono text-[11px]">XHTTP 路径 (Path)</label>
+              <Input v-model="form.xhttpPath" placeholder="/split" />
+            </div>
+            <div>
+              <label class="block text-muted-foreground mb-1 font-mono text-[11px]">XHTTP 模式</label>
+              <select v-model="form.xhttpMode" class="w-full bg-neutral-950 border border-border rounded-md px-3 h-9 text-foreground font-mono focus:outline-none focus:ring-1 focus:ring-ring">
+                <option value="auto">auto (自动)</option>
+                <option value="stream-up">stream-up</option>
+                <option value="packet-up">packet-up</option>
+              </select>
+            </div>
+          </div>
+
+          <!-- WS options -->
+          <div v-if="form.network === 'ws'" class="pt-2 border-t border-border/40">
+            <label class="block text-muted-foreground mb-1 font-mono text-[11px]">WebSocket 路径</label>
+            <Input v-model="form.wsPath" placeholder="/ws" />
+          </div>
+
+          <!-- gRPC options -->
+          <div v-if="form.network === 'grpc'" class="pt-2 border-t border-border/40">
+            <label class="block text-muted-foreground mb-1 font-mono text-[11px]">gRPC 服务名</label>
+            <Input v-model="form.grpcService" placeholder="xray-grpc" />
+          </div>
+        </div>
+
+        <!-- 3. REALITY 伪装与安全配置 -->
+        <div v-if="!['socks', 'http', 'dokodemo-door'].includes(form.protocol) && form.security === 'reality'" class="rounded-lg border border-border bg-card p-4 space-y-3">
+          <div class="flex items-center justify-between">
+            <span class="font-mono font-semibold text-foreground text-xs uppercase tracking-wider">③ REALITY 伪装与密钥</span>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              class="h-7 text-[11px]"
+              @click="generateRealityKey"
+            >
+              <Key class="w-3 h-3 mr-1 text-neutral-300" />
+              <span>生成 x25519 密钥对</span>
+            </Button>
+          </div>
+
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div>
+              <label class="block text-muted-foreground mb-1 font-mono text-[11px]">目标伪装网站 (Target)</label>
+              <Input v-model="form.realityTarget" placeholder="www.example.com:443" />
+            </div>
+            <div>
+              <label class="block text-muted-foreground mb-1 font-mono text-[11px]">SNI 域名列表 (逗号隔开)</label>
+              <Input v-model="form.realityServerNames" placeholder="www.example.com" />
+            </div>
+          </div>
+
+          <div>
+            <label class="block text-muted-foreground mb-1 font-mono text-[11px]">Private Key (私钥)</label>
+            <Input v-model="form.realityPrivateKey" placeholder="base64 私钥" />
+          </div>
+
+          <div v-if="form.realityPublicKey" class="p-2.5 rounded bg-neutral-950 border border-border text-[11px] font-mono text-muted-foreground flex items-center justify-between">
+            <span class="truncate pr-2"><b>Public Key:</b> <span class="text-foreground">{{ form.realityPublicKey }}</span></span>
+            <Button type="button" variant="ghost" size="sm" class="h-6 px-2 text-[10px]" @click="copyToClipboard(form.realityPublicKey)">
+              复制公钥
+            </Button>
+          </div>
+
+          <div>
+            <label class="block text-muted-foreground mb-1 font-mono text-[11px]">Short IDs (多个逗号隔开)</label>
+            <Input v-model="form.realityShortIds" placeholder="0123456789abcdef" />
+          </div>
+        </div>
+
+        <!-- TLS 配置 -->
+        <div v-else-if="!['socks', 'http', 'dokodemo-door'].includes(form.protocol) && form.security === 'tls'" class="rounded-lg border border-border bg-card p-4 space-y-3">
+          <span class="font-mono font-semibold text-foreground text-xs uppercase tracking-wider block">③ TLS 证书配置</span>
+          <div>
+            <label class="block text-muted-foreground mb-1 font-mono text-[11px]">SNI 域名 (ServerName)</label>
+            <Input v-model="form.tlsServerName" placeholder="yourdomain.com" />
+          </div>
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div>
+              <label class="block text-muted-foreground mb-1 font-mono text-[11px]">证书文件路径 (Cert File)</label>
+              <Input v-model="form.tlsCertFile" placeholder="/etc/ssl/cert.pem" />
+            </div>
+            <div>
+              <label class="block text-muted-foreground mb-1 font-mono text-[11px]">私钥文件路径 (Key File)</label>
+              <Input v-model="form.tlsKeyFile" placeholder="/etc/ssl/key.pem" />
+            </div>
+          </div>
+        </div>
+
+        <!-- 4. 回落与嗅探设置 -->
+        <div class="rounded-lg border border-border bg-card p-4 space-y-3">
+          <span class="font-mono font-semibold text-foreground text-xs uppercase tracking-wider block">④ 回落伪装与流量探测 (Fallbacks & Sniffing)</span>
+          <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-1">
+            <label class="flex items-center gap-2 cursor-pointer text-muted-foreground hover:text-foreground">
+              <input type="checkbox" v-model="form.fallbacksEnabled" class="rounded bg-neutral-950 border-border text-neutral-200" />
+              <span>启用网站回落 (Fallbacks)</span>
+            </label>
+            <label class="flex items-center gap-2 cursor-pointer text-muted-foreground hover:text-foreground">
+              <input type="checkbox" v-model="form.sniffingEnabled" class="rounded bg-neutral-950 border-border text-neutral-200" />
+              <span>启用域名嗅探 (Sniffing)</span>
+            </label>
+          </div>
+
+          <div v-if="form.fallbacksEnabled" class="pt-2 border-t border-border/40 grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div>
+              <label class="block text-muted-foreground mb-1 font-mono text-[11px]">回落目标地址/端口</label>
+              <Input v-model="form.fallbackDest" placeholder="80 或 127.0.0.1:80" />
+            </div>
+            <div>
+              <label class="block text-muted-foreground mb-1 font-mono text-[11px]">PROXY Protocol (xver)</label>
+              <select v-model.number="form.fallbackXver" class="w-full bg-neutral-950 border border-border rounded-md px-3 h-9 text-foreground font-mono focus:outline-none focus:ring-1 focus:ring-ring">
+                <option :value="0">0 (关闭)</option>
+                <option :value="1">1 (v1)</option>
+                <option :value="2">2 (v2)</option>
+              </select>
+            </div>
+          </div>
+        </div>
+
+        <!-- 5. 分流订阅线路 (Sub-Routes) -->
+        <div v-if="form.protocol === 'vless'" class="rounded-lg border border-border bg-card p-4 space-y-3">
+          <div class="flex items-center justify-between">
+            <div>
+              <span class="font-mono font-semibold text-foreground text-xs uppercase tracking-wider block">⑤ 分流订阅线路 (Sub-Routes)</span>
+              <p class="text-[10px] text-muted-foreground mt-0.5">所有线路共用该入站的单端口与 Reality 密钥，订阅导出多个节点</p>
+            </div>
+            <Button
+              type="button"
+              variant="secondary"
+              size="sm"
+              class="h-7 text-[11px]"
+              @click="addSubRoute"
+            >
+              <Plus class="w-3 h-3 mr-1" />
+              <span>添加线路</span>
+            </Button>
+          </div>
+
+          <div v-if="form.subRoutes?.length" class="space-y-2">
+            <div
+              v-for="(sr, index) in form.subRoutes"
+              :key="sr.id || index"
+              class="p-2.5 rounded-md border border-border/60 bg-neutral-950"
+              :class="{ 'relative z-20': activeSubRoutePopoverIndex === index }"
+            >
+              <div class="flex flex-col sm:flex-row items-stretch sm:items-end gap-2">
+                <!-- Route ID -->
+                <div class="w-full sm:w-14 shrink-0">
+                  <label class="block text-[10px] text-muted-foreground font-mono mb-1 truncate">ID</label>
                   <input
-                    v-model="form.tlsCertFile"
-                    type="text"
-                    placeholder="/etc/ssl/cert.pem"
-                    class="w-full bg-gray-900 border border-gray-700 rounded-xl px-3 py-2 text-white font-mono text-[11px] focus:outline-none focus:border-brand-500"
+                    v-model.number="sr.routeId"
+                    type="number"
+                    min="1"
+                    class="w-full bg-neutral-900 border border-border rounded px-2 h-8 text-foreground font-mono text-xs focus:outline-none focus:ring-1 focus:ring-ring text-center"
                   />
                 </div>
-                <div>
-                  <label class="block text-gray-300 mb-1">密钥路径 (Key File)</label>
+
+                <!-- 线路名称 -->
+                <div class="flex-1 min-w-[120px]">
+                  <label class="block text-[10px] text-muted-foreground mb-1 truncate">线路名称</label>
                   <input
-                    v-model="form.tlsKeyFile"
+                    v-model="sr.name"
                     type="text"
-                    placeholder="/etc/ssl/key.pem"
-                    class="w-full bg-gray-900 border border-gray-700 rounded-xl px-3 py-2 text-white font-mono text-[11px] focus:outline-none focus:border-brand-500"
+                    placeholder="如 🇯🇵 日本原生直连"
+                    class="w-full bg-neutral-900 border border-border rounded px-2.5 h-8 text-foreground text-xs focus:outline-none focus:ring-1 focus:ring-ring"
                   />
                 </div>
-              </div>
-            </div>
-          </div>
 
-          <!-- 4. 回落分流设置 (Fallbacks) (仅针对客户端代理协议) -->
-          <div v-if="!['socks', 'http', 'dokodemo-door'].includes(form.protocol)" class="space-y-3 bg-gray-900/50 p-4 rounded-2xl border border-gray-800/80">
-            <div class="flex items-center justify-between">
-              <div>
-                <h3 class="font-bold text-gray-200 text-xs">④ 网站回落伪装 (Fallbacks 分流)</h3>
-                <p class="text-[11px] text-gray-500">非代理流量自动无缝回落到本地 Web 服务或指定端口</p>
-              </div>
-              <label class="relative inline-flex items-center cursor-pointer">
-                <input type="checkbox" v-model="form.fallbacksEnabled" class="sr-only peer">
-                <div class="w-9 h-5 bg-gray-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-brand-600"></div>
-              </label>
-            </div>
-
-            <div v-if="form.fallbacksEnabled" class="pt-2 border-t border-gray-800 grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <div>
-                <label class="block text-gray-400 mb-1">回落目标地址/端口 (dest)</label>
-                <input
-                  v-model="form.fallbackDest"
-                  type="text"
-                  placeholder="80 或 127.0.0.1:80"
-                  class="w-full bg-gray-900 border border-gray-700 rounded-xl px-3 py-2 text-white font-mono focus:outline-none focus:border-brand-500"
-                />
-              </div>
-              <div>
-                <label class="block text-gray-400 mb-1">PROXY Protocol (xver)</label>
-                <select
-                  v-model.number="form.fallbackXver"
-                  class="w-full bg-gray-900 border border-gray-700 rounded-xl px-3 py-2 text-white focus:outline-none focus:border-brand-500"
-                >
-                  <option :value="0">0 (关闭 PROXY 协议)</option>
-                  <option :value="1">1 (PROXY protocol v1)</option>
-                  <option :value="2">2 (PROXY protocol v2)</option>
-                </select>
-              </div>
-            </div>
-          </div>
-
-          <!-- 5. 流量嗅探 (Sniffing) -->
-          <div class="space-y-3 bg-gray-900/50 p-4 rounded-2xl border border-gray-800/80">
-            <div class="flex items-center justify-between">
-              <div>
-                <h3 class="font-bold text-gray-200 text-xs">⑤ 流量探测与域名嗅探 (Sniffing)</h3>
-                <p class="text-[11px] text-gray-500">自动探测连接真实域名并执行分流规则</p>
-              </div>
-              <label class="relative inline-flex items-center cursor-pointer">
-                <input type="checkbox" v-model="form.sniffingEnabled" class="sr-only peer">
-                <div class="w-9 h-5 bg-gray-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-brand-600"></div>
-              </label>
-            </div>
-
-            <div v-if="form.sniffingEnabled" class="pt-2 border-t border-gray-800 flex items-center gap-4 text-gray-400 text-[11px]">
-              <label class="flex items-center gap-1.5 cursor-pointer">
-                <input type="checkbox" v-model="form.sniffingRouteOnly" class="rounded bg-gray-800 border-gray-700 text-brand-600" />
-                <span>routeOnly (仅用于路由匹配，不篡改客户端真实目标地址 - 推荐)</span>
-              </label>
-            </div>
-          </div>
-
-          <!-- 5. 分流订阅线路配置 (Sub-Routes) - 单端口多出口 -->
-          <div v-if="form.protocol === 'vless'" class="space-y-3 bg-indigo-950/20 p-4 rounded-2xl border border-indigo-500/30">
-            <div class="flex items-center justify-between">
-              <div>
-                <h3 class="font-bold text-indigo-300 uppercase tracking-wider text-[11px] flex items-center gap-1.5">
-                  <span>⑤ 分流订阅线路 (Sub-Routes: 单端口多出口)</span>
-                </h3>
-                <p class="text-[10px] text-gray-400 mt-0.5">
-                  所有线路共用此入站的 Reality 密钥与端口，订阅将自动导出多个节点并按 RouteID 路由
-                </p>
-              </div>
-              <button
-                type="button"
-                @click="addSubRoute"
-                class="flex items-center gap-1 px-3 py-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-medium text-xs shadow-md shadow-indigo-600/20 transition-all"
-              >
-                <Plus class="w-3.5 h-3.5" />
-                <span>添加分流线路</span>
-              </button>
-            </div>
-
-            <!-- 线路列表 -->
-            <div v-if="form.subRoutes?.length" class="space-y-2.5 pt-1">
-              <div
-                v-for="(sr, index) in form.subRoutes"
-                :key="sr.id || index"
-                class="bg-gray-900/80 p-3 rounded-xl border border-gray-800 hover:border-gray-700/80 transition-colors space-y-2.5"
-              >
-                <!-- 基础参数行 -->
-                <div class="flex flex-wrap sm:flex-nowrap items-center gap-2">
-                  <!-- Route ID -->
-                  <div class="w-20 shrink-0">
-                    <label class="block text-[10px] text-gray-400 font-mono mb-0.5">Route ID</label>
-                    <input
-                      v-model.number="sr.routeId"
-                      type="number"
-                      min="1"
-                      max="65535"
-                      class="w-full bg-gray-800 border border-gray-700 rounded-lg px-2 py-1 text-white font-mono text-xs focus:outline-none focus:border-indigo-500"
-                    />
-                  </div>
-
-                  <!-- 线路名称 -->
-                  <div class="flex-1 min-w-[140px]">
-                    <label class="block text-[10px] text-gray-400 mb-0.5">订阅节点名称</label>
-                    <input
-                      v-model="sr.name"
-                      type="text"
-                      placeholder="如 🇯🇵 日本原生直连"
-                      class="w-full bg-gray-800 border border-gray-700 rounded-lg px-2.5 py-1 text-white text-xs focus:outline-none focus:border-indigo-500"
-                    />
-                  </div>
-
-                  <!-- 目标出站 -->
-                  <div class="w-36 shrink-0">
-                    <label class="block text-[10px] text-gray-400 mb-0.5">目标出站 (Outbound)</label>
-                    <select
-                      v-model="sr.outboundTag"
-                      class="w-full bg-gray-800 border border-gray-700 rounded-lg px-2 py-1 text-white font-mono text-xs focus:outline-none focus:border-indigo-500"
-                    >
-                      <option v-for="tag in availableOutbounds" :key="tag" :value="tag">
-                        {{ tag }}
-                      </option>
-                    </select>
-                  </div>
-
-                  <!-- 启用开关 & 删除 -->
-                  <div class="flex items-center gap-2 pt-3 shrink-0">
-                    <label class="flex items-center gap-1 cursor-pointer text-gray-300 text-[11px]">
-                      <input
-                        type="checkbox"
-                        v-model="sr.enabled"
-                        class="rounded bg-gray-800 border-gray-700 text-indigo-600 focus:ring-0"
-                      />
-                      <span>启用</span>
-                    </label>
-                    <button
-                      type="button"
-                      @click="removeSubRoute(Number(index))"
-                      class="p-1 rounded-lg text-rose-400 hover:bg-rose-500/20 transition-colors"
-                      title="删除线路"
-                    >
-                      <Trash2 class="w-3.5 h-3.5" />
-                    </button>
-                  </div>
+                <!-- 目标出站 -->
+                <div class="w-full sm:w-36 shrink-0">
+                  <label class="block text-[10px] text-muted-foreground mb-1 truncate">目标出站</label>
+                  <select
+                    v-model="sr.outboundTag"
+                    class="w-full bg-neutral-900 border border-border rounded px-2 h-8 text-foreground font-mono text-xs focus:outline-none focus:ring-1 focus:ring-ring"
+                  >
+                    <option v-for="tag in availableOutbounds" :key="tag" :value="tag">
+                      {{ tag }}
+                    </option>
+                  </select>
                 </div>
 
-                <!-- 授权用户隔离配置 (Allowed Users) -->
-                <div class="pt-2 border-t border-gray-800/60 space-y-1.5">
-                  <div class="flex items-center justify-between">
-                    <div class="flex items-center gap-1.5 flex-wrap">
-                      <span class="text-[11px] font-medium text-indigo-300 flex items-center gap-1">
-                        <Users class="w-3.5 h-3.5 text-indigo-400" />
-                        <span>授权用户权限:</span>
-                      </span>
-                      <span
-                        v-if="!sr.allowedUsers || sr.allowedUsers.length === 0"
-                        class="text-[10px] px-2 py-0.5 rounded bg-emerald-500/15 text-emerald-300 border border-emerald-500/30"
-                      >
-                        全员开放（不限制具体用户）
-                      </span>
-                      <span
-                        v-else
-                        class="text-[10px] px-2 py-0.5 rounded bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 font-mono"
-                      >
-                        已指定 {{ sr.allowedUsers.length }} 位授权用户
-                      </span>
+                <!-- 授权用户 Popover Trigger -->
+                <div class="relative shrink-0">
+                  <label class="block text-[10px] text-muted-foreground mb-1 truncate">授权用户</label>
+                  <button
+                    type="button"
+                    @click.stop="toggleSubRoutePopover(index)"
+                    class="h-8 px-2.5 rounded border text-xs font-mono flex items-center gap-1.5 transition-colors cursor-pointer select-none"
+                    :class="[
+                      isSubRouteAllOpen(sr)
+                        ? 'border-border bg-neutral-900 text-muted-foreground hover:text-foreground hover:border-neutral-700'
+                        : 'border-border bg-neutral-900 text-foreground font-medium hover:border-neutral-700',
+                      activeSubRoutePopoverIndex === index ? 'ring-1 ring-ring border-neutral-600' : ''
+                    ]"
+                  >
+                    <span
+                      class="w-1.5 h-1.5 rounded-full shrink-0"
+                      :class="isSubRouteAllOpen(sr) ? 'bg-neutral-500' : 'bg-emerald-400'"
+                    />
+                    <span class="truncate max-w-[110px]">
+                      {{ isSubRouteAllOpen(sr) ? '全员开放' : `已选 ${sr.allowedUsers.length} 人` }}
+                    </span>
+                    <ChevronDown
+                      class="w-3 h-3 text-muted-foreground transition-transform duration-150 shrink-0"
+                      :class="{ 'rotate-180': activeSubRoutePopoverIndex === index }"
+                    />
+                  </button>
+
+                  <!-- Floating Popover Menu -->
+                  <div
+                    v-if="activeSubRoutePopoverIndex === index"
+                    @click.stop
+                    class="absolute right-0 top-full mt-1.5 w-72 rounded-lg border border-border bg-neutral-950 shadow-2xl shadow-black/80 z-30 py-1 text-xs select-none"
+                  >
+                    <!-- Search input -->
+                    <div class="p-2 border-b border-border/60">
+                      <div class="relative">
+                        <Search class="w-3.5 h-3.5 text-muted-foreground absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+                        <input
+                          ref="userSearchInputRef"
+                          v-model="subRouteUserSearch"
+                          type="text"
+                          placeholder="搜索用户..."
+                          class="w-full bg-neutral-900 border border-border rounded px-2 pl-8 h-7 text-foreground text-xs placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
+                          @keydown.enter.prevent.stop
+                          @keydown.stop
+                        />
+                      </div>
                     </div>
 
-                    <div class="flex items-center gap-2 text-[10px]">
+                    <!-- Mode Radios: All vs Specific -->
+                    <div class="p-1.5 space-y-0.5 border-b border-border/60">
                       <button
-                        v-if="sr.allowedUsers && sr.allowedUsers.length > 0"
                         type="button"
-                        @click="clearSubRouteUsers(sr)"
-                        class="text-amber-400 hover:text-amber-300 transition-colors"
+                        @click="setSubRouteMode(sr, 'all')"
+                        class="w-full flex items-center gap-2 px-2 py-1.5 rounded hover:bg-neutral-900 text-left transition-colors cursor-pointer group"
                       >
-                        重置为全员开放
+                        <span
+                          class="w-3.5 h-3.5 rounded-full border flex items-center justify-center shrink-0 transition-colors"
+                          :class="isSubRouteAllOpen(sr) ? 'border-foreground' : 'border-neutral-600 group-hover:border-neutral-500'"
+                        >
+                          <span v-if="isSubRouteAllOpen(sr)" class="w-1.5 h-1.5 rounded-full bg-foreground" />
+                        </span>
+                        <span
+                          class="text-xs"
+                          :class="isSubRouteAllOpen(sr) ? 'text-foreground font-medium' : 'text-muted-foreground group-hover:text-foreground'"
+                        >
+                          全员开放 (不限制具体用户)
+                        </span>
                       </button>
                       <button
-                        v-if="usersList.length > 0 && (!sr.allowedUsers || sr.allowedUsers.length < usersList.length)"
+                        type="button"
+                        @click="setSubRouteMode(sr, 'specific')"
+                        class="w-full flex items-center gap-2 px-2 py-1.5 rounded hover:bg-neutral-900 text-left transition-colors cursor-pointer group"
+                      >
+                        <span
+                          class="w-3.5 h-3.5 rounded-full border flex items-center justify-center shrink-0 transition-colors"
+                          :class="!isSubRouteAllOpen(sr) ? 'border-foreground' : 'border-neutral-600 group-hover:border-neutral-500'"
+                        >
+                          <span v-if="!isSubRouteAllOpen(sr)" class="w-1.5 h-1.5 rounded-full bg-foreground" />
+                        </span>
+                        <span
+                          class="text-xs"
+                          :class="!isSubRouteAllOpen(sr) ? 'text-foreground font-medium' : 'text-muted-foreground group-hover:text-foreground'"
+                        >
+                          指定具体用户
+                        </span>
+                      </button>
+                    </div>
+
+                    <!-- User Checkbox List -->
+                    <div class="max-h-48 overflow-y-auto p-1.5 space-y-0.5">
+                      <div
+                        v-for="u in filteredUsersForSubRoute"
+                        :key="u.email"
+                        @click="toggleSubRouteUser(sr, u.email)"
+                        class="flex items-center gap-2 px-2 py-1.5 rounded hover:bg-neutral-900 cursor-pointer group transition-colors"
+                      >
+                        <div
+                          class="w-3.5 h-3.5 rounded border flex items-center justify-center shrink-0 transition-colors"
+                          :class="isSubRouteUserSelected(sr, u.email)
+                            ? 'bg-foreground border-foreground text-background'
+                            : 'border-neutral-600 bg-neutral-900 group-hover:border-neutral-500'"
+                        >
+                          <Check v-if="isSubRouteUserSelected(sr, u.email)" class="w-2.5 h-2.5 stroke-[3]" />
+                        </div>
+                        <span
+                          class="truncate font-mono text-[11px]"
+                          :class="isSubRouteUserSelected(sr, u.email) ? 'text-foreground font-medium' : 'text-muted-foreground group-hover:text-foreground'"
+                        >
+                          {{ u.email }}
+                        </span>
+                      </div>
+
+                      <!-- Empty state for search -->
+                      <div
+                        v-if="usersList.length > 0 && filteredUsersForSubRoute.length === 0"
+                        class="py-3 text-center text-muted-foreground font-mono text-[11px]"
+                      >
+                        无匹配用户
+                      </div>
+
+                      <!-- Empty state for no users in system -->
+                      <div
+                        v-if="usersList.length === 0"
+                        class="py-3 text-center text-muted-foreground text-[11px]"
+                      >
+                        暂无用户，可在「用户与订阅」模块添加
+                      </div>
+                    </div>
+
+                    <!-- Quick Actions Footer -->
+                    <div
+                      v-if="usersList.length > 0"
+                      class="px-2.5 py-1.5 border-t border-border/60 flex items-center justify-between text-[10px] font-mono text-muted-foreground"
+                    >
+                      <button
                         type="button"
                         @click="selectAllSubRouteUsers(sr)"
-                        class="text-gray-400 hover:text-gray-200 transition-colors"
+                        class="hover:text-foreground transition-colors cursor-pointer"
                       >
                         全选
                       </button>
+                      <button
+                        type="button"
+                        @click="clearSubRouteUsers(sr)"
+                        class="hover:text-foreground transition-colors cursor-pointer"
+                      >
+                        清空 (恢复全员)
+                      </button>
                     </div>
                   </div>
+                </div>
 
-                  <!-- 用户 Tag 勾选器 / 快速多选 -->
-                  <div v-if="usersList.length" class="flex flex-wrap gap-1.5 max-h-24 overflow-y-auto p-1.5 bg-gray-950/40 rounded-lg border border-gray-800/80">
-                    <button
-                      v-for="u in usersList"
-                      :key="u.email"
-                      type="button"
-                      @click="toggleSubRouteUser(sr, u.email)"
-                      class="px-2 py-0.5 rounded text-[11px] font-mono transition-all border flex items-center gap-1.5"
-                      :class="isSubRouteUserSelected(sr, u.email)
-                        ? 'bg-indigo-600/30 text-indigo-200 border-indigo-500/60 font-semibold shadow-sm'
-                        : 'bg-gray-900/60 text-gray-400 border-gray-800 hover:text-gray-200 hover:border-gray-700'"
-                      :title="isSubRouteUserSelected(sr, u.email) ? '点击取消授权' : '点击授权此用户'"
-                    >
-                      <span
-                        class="w-1.5 h-1.5 rounded-full"
-                        :class="isSubRouteUserSelected(sr, u.email) ? 'bg-indigo-400' : 'bg-gray-600'"
-                      ></span>
-                      <span>{{ u.email }}</span>
-                    </button>
-                  </div>
-                  <div v-else class="text-[10px] text-gray-500 py-0.5">
-                    暂无用户，可在「用户与订阅」模块添加
-                  </div>
+                <!-- 启用 & 删除 操作 -->
+                <div class="flex items-center gap-2 pt-1 sm:pt-0 shrink-0 h-8">
+                  <label class="flex items-center gap-1 cursor-pointer text-muted-foreground hover:text-foreground text-[11px] select-none h-8 px-1">
+                    <input
+                      type="checkbox"
+                      v-model="sr.enabled"
+                      class="rounded bg-neutral-950 border-border text-neutral-200"
+                    />
+                    <span>启用</span>
+                  </label>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    class="h-8 w-8 p-0 text-muted-foreground hover:text-rose-400 hover:bg-rose-500/10"
+                    @click="removeSubRoute(Number(index))"
+                    title="删除线路"
+                  >
+                    <Trash2 class="w-3.5 h-3.5" />
+                  </Button>
                 </div>
               </div>
             </div>
-
-            <div v-else class="text-center py-4 text-gray-500 text-[11px] border border-dashed border-gray-800 rounded-xl">
-              暂未配置分流线路（将仅作为单个普通节点导出）
-            </div>
           </div>
-
-          <!-- 6. 关联授权用户 (双向批量用户绑定，仅针对支持按用户鉴权的代理协议) -->
-          <div v-if="['vless', 'vmess', 'trojan', 'shadowsocks'].includes(form.protocol)" class="space-y-3 bg-gray-900/50 p-4 rounded-2xl border border-gray-800/80">
-            <div class="flex items-center justify-between">
-              <div>
-                <h3 class="font-bold text-gray-200 text-xs">⑥ 关联授权用户 (双向用户绑定)</h3>
-                <p class="text-[11px] text-gray-500">已勾选的用户将自动授权并同步注入至此节点（继承此节点 Flow 策略）</p>
-              </div>
-              <button
-                type="button"
-                @click="toggleSelectAllUsers"
-                class="text-brand-400 hover:text-brand-300 text-[11px] font-semibold"
-              >
-                {{ isAllUsersSelected ? '取消全选' : '全选所有用户' }}
-              </button>
-            </div>
-
-            <div class="space-y-1.5 max-h-40 overflow-y-auto bg-gray-900/80 p-3 rounded-xl border border-gray-800">
-              <label
-                v-for="u in usersList"
-                :key="u.email"
-                class="flex items-center justify-between p-2 rounded-lg hover:bg-gray-800/60 cursor-pointer transition-colors"
-              >
-                <div class="flex items-center gap-2.5">
-                  <input
-                    type="checkbox"
-                    :value="u.email"
-                    v-model="form.selectedUserEmails"
-                    class="rounded bg-gray-800 border-gray-700 text-brand-600 focus:ring-0"
-                  />
-                  <span class="font-mono text-white text-xs font-semibold">{{ u.email }}</span>
-                </div>
-                <span class="font-mono text-[10px] text-gray-500">{{ u.uuid?.substring(0, 8) }}...</span>
-              </label>
-
-              <div v-if="!usersList.length" class="text-center py-3 text-gray-500 text-[11px]">
-                暂无用户，可在「用户与订阅」中添加
-              </div>
-            </div>
+          <div v-else class="text-center py-3 text-muted-foreground font-mono text-[11px] border border-dashed border-border rounded">
+            暂未配置分流线路（将仅作为单一常规节点导出）
           </div>
+        </div>
 
-          <!-- Modal Action Buttons -->
-          <div class="flex justify-end gap-3 pt-2 border-t border-gray-800">
+        <!-- 6. 关联授权用户 -->
+        <div v-if="['vless', 'vmess', 'trojan', 'shadowsocks'].includes(form.protocol)" class="rounded-lg border border-border bg-card p-4 space-y-3">
+          <div class="flex items-center justify-between">
+            <span class="font-mono font-semibold text-foreground text-xs uppercase tracking-wider">⑥ 关联授权用户 (双向绑定)</span>
             <button
               type="button"
-              @click="showModal = false"
-              class="px-5 py-2.5 rounded-xl bg-gray-800 hover:bg-gray-700 text-gray-300 font-medium text-xs transition-colors"
+              @click="toggleSelectAllUsers"
+              class="text-neutral-300 hover:text-white text-[11px] font-mono underline"
             >
-              取消
-            </button>
-            <button
-              type="submit"
-              :disabled="saving"
-              class="px-5 py-2.5 bg-gradient-to-r from-brand-600 to-indigo-600 hover:from-brand-500 hover:to-indigo-500 text-white font-semibold text-xs rounded-xl transition-all shadow-lg shadow-brand-500/25 disabled:opacity-50"
-            >
-              <span>{{ saving ? '保存中...' : '保存节点并自动重启核心' }}</span>
+              {{ isAllUsersSelected ? '取消全选' : '全选所有用户' }}
             </button>
           </div>
-        </form>
-      </div>
-    </div>
+
+          <div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2 max-h-48 overflow-y-auto p-2 bg-neutral-950 rounded-md border border-border">
+            <label
+              v-for="u in usersList"
+              :key="u.email"
+              class="flex items-center justify-between p-2 rounded hover:bg-neutral-900 cursor-pointer font-mono text-[11px] border border-border/40"
+            >
+              <div class="flex items-center gap-2 min-w-0 pr-1">
+                <input
+                  type="checkbox"
+                  :value="u.email"
+                  v-model="form.selectedUserEmails"
+                  class="rounded bg-neutral-900 border-border text-neutral-200"
+                />
+                <span class="text-foreground truncate">{{ u.email }}</span>
+              </div>
+              <span class="text-muted-foreground text-[10px] shrink-0">{{ u.uuid?.substring(0, 6) }}...</span>
+            </label>
+            <div v-if="!usersList.length" class="col-span-full text-center py-3 text-muted-foreground text-[11px]">
+              暂无用户，可在「用户与订阅」模块中创建
+            </div>
+          </div>
+        </div>
+      </form>
+
+      <template #footer>
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          @click="showFormDrawer = false"
+        >
+          取消
+        </Button>
+        <Button
+          type="submit"
+          form="inbound-form"
+          variant="default"
+          size="sm"
+          :loading="saving"
+        >
+          <span>{{ saving ? '保存中...' : '保存节点并重载核心' }}</span>
+        </Button>
+      </template>
+    </Drawer>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, watch } from 'vue'
+import { ref, computed, onMounted, onUnmounted, watch, nextTick } from 'vue'
 import { useRoute } from 'vue-router'
-import { Plus, Radio, Key, AlertTriangle, Trash2, ShieldCheck, Users } from 'lucide-vue-next'
+import {
+  Plus,
+  Radio,
+  Key,
+  AlertTriangle,
+  Trash2,
+  ShieldCheck,
+  Search,
+  Copy,
+  Shield,
+  ChevronDown,
+  Check,
+} from 'lucide-vue-next'
+import Button from '../components/ui/Button.vue'
+import Input from '../components/ui/Input.vue'
+import Badge from '../components/ui/Badge.vue'
+import Drawer from '../components/ui/Drawer.vue'
 import { toast } from '../utils/toast'
 import api from '../api'
 import { getRealityStatus, checkRealityStatus, type RealitySummaryStatus, type RealityCheckItem } from '../api/reality'
@@ -925,12 +1047,28 @@ interface SubRouteItem {
 const inbounds = ref<any[]>([])
 const usersList = ref<any[]>([])
 const availableOutbounds = ref<string[]>(['direct', 'block'])
-const showModal = ref(false)
+const showInspectorDrawer = ref(false)
+const showFormDrawer = ref(false)
+const selectedInbound = ref<any>(null)
 const isEditing = ref(false)
 const saving = ref(false)
 const checkingReality = ref(false)
 const realitySummary = ref<RealitySummaryStatus | null>(null)
+const searchQuery = ref('')
+const protocolFilter = ref('all')
 const route = useRoute()
+
+const activeSubRoutePopoverIndex = ref<number | null>(null)
+const subRouteUserSearch = ref('')
+const userSearchInputRef = ref<HTMLInputElement | null>(null)
+
+const filteredUsersForSubRoute = computed(() => {
+  const query = subRouteUserSearch.value.trim().toLowerCase()
+  if (!query) return usersList.value
+  return usersList.value.filter((u: any) =>
+    (u.email || '').toLowerCase().includes(query)
+  )
+})
 
 const form = ref<any>({
   id: 0,
@@ -946,55 +1084,55 @@ const form = ref<any>({
   network: 'tcp',
   security: 'reality',
   selectedUserEmails: [] as string[],
-
-  // XHTTP
   xhttpPath: '/mbqyfa4grswh5ntz',
   xhttpMode: 'auto',
-
-  // WS
   wsPath: '/ws',
-
-  // gRPC
   grpcService: 'xray-grpc',
-
-  // Reality
   realityTarget: 'www.example.com:443',
   realityServerNames: 'www.example.com',
-  realityPrivateKey: 'OCiaG7JluOeRDE9IIuqPleHWArqqmnKJ_rKTxtjo7mc',
+  realityPrivateKey: '',
   realityPublicKey: '',
   realityShortIds: '0123456789abcdef',
-
-  // TLS
   tlsServerName: '',
   tlsCertFile: '',
   tlsKeyFile: '',
-
-  // Fallbacks
   fallbacksEnabled: false,
   fallbackDest: '80',
   fallbackXver: 0,
-
-  // Socks
   socksAuth: 'noauth',
   socksUdp: true,
   socksUsername: '',
   socksPassword: '',
-
-  // HTTP Inbound
   httpUsername: '',
   httpPassword: '',
-
-  // dokodemo-door
   dokoAddress: '127.0.0.1',
   dokoPort: 53,
   dokoNetwork: 'tcp,udp',
-
-  // Sniffing
   sniffingEnabled: true,
   sniffingRouteOnly: true,
 })
 
-// 官方传输组合矩阵判定：只有 TCP, XHTTP, gRPC 支持 REALITY
+const filteredInbounds = computed(() => {
+  return inbounds.value.filter((ib) => {
+    // Protocol filter
+    if (protocolFilter.value !== 'all' && ib.protocol?.toLowerCase() !== protocolFilter.value.toLowerCase()) {
+      return false
+    }
+    // Search query
+    if (!searchQuery.value) return true
+    const q = searchQuery.value.toLowerCase().trim()
+    const tagMatch = ib.tag?.toLowerCase().includes(q)
+    const portMatch = String(ib.port).includes(q) || String(ib.externalPort || '').includes(q)
+    const protoMatch = ib.protocol?.toLowerCase().includes(q)
+    const hostMatch = ib.externalHost?.toLowerCase().includes(q)
+    return tagMatch || portMatch || protoMatch || hostMatch
+  })
+})
+
+const realityAlertCount = computed(() => {
+  return (realitySummary.value?.errorCount || 0) + (realitySummary.value?.warningCount || 0)
+})
+
 const isRealitySupported = computed(() => {
   return ['tcp', 'xhttp', 'grpc'].includes(form.value.network)
 })
@@ -1029,6 +1167,21 @@ const onProtocolChange = () => {
   } else {
     form.value.vlessFlow = ''
   }
+}
+
+const copyToClipboard = async (text: string) => {
+  if (!text) return
+  try {
+    await navigator.clipboard.writeText(text)
+    toast.success('已复制到剪贴板')
+  } catch {
+    toast.error('复制失败，请手动选择复制')
+  }
+}
+
+const inspectInbound = (inb: any) => {
+  selectedInbound.value = inb
+  showInspectorDrawer.value = true
 }
 
 const fetchRealityStatus = async () => {
@@ -1103,14 +1256,53 @@ const getInboundRealityOverallStatus = (tag: string) => {
   }
 }
 
+const getInboundRealityField = (inb: any, field: string) => {
+  try {
+    const stream = JSON.parse(inb.streamSettingsJson || inb.streamSettings || '{}')
+    if (stream.realitySettings) {
+      if (field === 'serverNames' && Array.isArray(stream.realitySettings.serverNames)) {
+        return stream.realitySettings.serverNames.join(', ')
+      }
+      if (field === 'shortIds' && Array.isArray(stream.realitySettings.shortIds)) {
+        return stream.realitySettings.shortIds.join(', ')
+      }
+      return stream.realitySettings[field] || ''
+    }
+    return ''
+  } catch {
+    return ''
+  }
+}
+
+const getAssignedUserEmails = (inb: any): string[] => {
+  const result: string[] = []
+  try {
+    const s = JSON.parse(inb.settingsJson || '{}')
+    if (Array.isArray(s.clients)) {
+      for (const c of s.clients) {
+        if (c.email) result.push(c.email)
+      }
+    }
+  } catch {}
+  if (Array.isArray(usersList.value)) {
+    for (const u of usersList.value) {
+      const tags = (u.inboundTags || u.inboundTag || '').split(',').map((s: string) => s.trim())
+      if (tags.includes(inb.tag) && !result.includes(u.email)) {
+        result.push(u.email)
+      }
+    }
+  }
+  return result
+}
+
 const getRealityBadgeClass = (status: 'ok' | 'warning' | 'error') => {
   switch (status) {
     case 'ok':
-      return 'bg-emerald-500/15 text-emerald-300 border border-emerald-500/30'
+      return 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20'
     case 'warning':
-      return 'bg-amber-500/15 text-amber-300 border border-amber-500/30'
+      return 'bg-amber-500/10 text-amber-400 border-amber-500/20'
     case 'error':
-      return 'bg-rose-500/15 text-rose-300 border border-rose-500/30'
+      return 'bg-rose-500/10 text-rose-400 border-rose-500/20'
   }
 }
 
@@ -1122,6 +1314,36 @@ const getRealityDotClass = (status: 'ok' | 'warning' | 'error') => {
       return 'bg-amber-400'
     case 'error':
       return 'bg-rose-400'
+  }
+}
+
+const getProtocolBadgeVariant = (proto: string) => {
+  switch (proto?.toLowerCase()) {
+    case 'vless':
+    case 'trojan':
+    case 'vmess':
+      return 'default'
+    case 'shadowsocks':
+    case 'socks':
+      return 'secondary'
+    case 'http':
+    case 'dokodemo-door':
+      return 'outline'
+    default:
+      return 'secondary'
+  }
+}
+
+const getSecurityBadgeVariant = (sec: string) => {
+  switch (sec?.toLowerCase()) {
+    case 'reality':
+      return 'default'
+    case 'tls':
+      return 'secondary'
+    case 'none':
+      return 'outline'
+    default:
+      return 'outline'
   }
 }
 
@@ -1159,6 +1381,58 @@ const fetchAll = async () => {
   }
 }
 
+const isSubRouteAllOpen = (sr: any): boolean => {
+  return !sr.allowedUsers || sr.allowedUsers.length === 0
+}
+
+const toggleSubRoutePopover = (index: number) => {
+  if (activeSubRoutePopoverIndex.value === index) {
+    closeSubRoutePopover()
+  } else {
+    activeSubRoutePopoverIndex.value = index
+    subRouteUserSearch.value = ''
+    nextTick(() => {
+      userSearchInputRef.value?.focus()
+    })
+  }
+}
+
+const closeSubRoutePopover = () => {
+  activeSubRoutePopoverIndex.value = null
+  subRouteUserSearch.value = ''
+}
+
+const setSubRouteMode = (sr: any, mode: 'all' | 'specific') => {
+  if (mode === 'all') {
+    sr.allowedUsers = []
+  } else {
+    if (isSubRouteAllOpen(sr)) {
+      sr.allowedUsers = usersList.value.map((u: any) => u.email)
+    }
+  }
+}
+
+const handleDocumentClick = () => {
+  if (activeSubRoutePopoverIndex.value !== null) {
+    closeSubRoutePopover()
+  }
+}
+
+const handleSubRouteKeyDown = (e: KeyboardEvent) => {
+  if (e.key === 'Escape' && activeSubRoutePopoverIndex.value !== null) {
+    e.stopPropagation()
+    closeSubRoutePopover()
+  }
+}
+
+const clearSubRouteUsers = (sr: any) => {
+  sr.allowedUsers = []
+}
+
+const selectAllSubRouteUsers = (sr: any) => {
+  sr.allowedUsers = usersList.value.map((u: any) => u.email)
+}
+
 const isSubRouteUserSelected = (sr: any, email: string): boolean => {
   return Array.isArray(sr.allowedUsers) && sr.allowedUsers.includes(email)
 }
@@ -1173,14 +1447,6 @@ const toggleSubRouteUser = (sr: any, email: string) => {
   } else {
     sr.allowedUsers.push(email)
   }
-}
-
-const clearSubRouteUsers = (sr: any) => {
-  sr.allowedUsers = []
-}
-
-const selectAllSubRouteUsers = (sr: any) => {
-  sr.allowedUsers = usersList.value.map((u: any) => u.email)
 }
 
 const addSubRoute = () => {
@@ -1198,10 +1464,15 @@ const addSubRoute = () => {
 }
 
 const removeSubRoute = (idx: number) => {
+  if (activeSubRoutePopoverIndex.value === idx) {
+    closeSubRoutePopover()
+  } else if (activeSubRoutePopoverIndex.value !== null && activeSubRoutePopoverIndex.value > idx) {
+    activeSubRoutePopoverIndex.value -= 1
+  }
   form.value.subRoutes.splice(idx, 1)
 }
 
-const openCreateModal = () => {
+const openCreateDrawer = () => {
   isEditing.value = false
   form.value = {
     id: 0,
@@ -1218,7 +1489,7 @@ const openCreateModal = () => {
     vlessFlow: 'xtls-rprx-vision',
     network: 'tcp',
     security: 'reality',
-    selectedUserEmails: usersList.value.map((u) => u.email), // 默认选中全部现有用户
+    selectedUserEmails: usersList.value.map((u) => u.email),
     xhttpPath: '/' + Math.random().toString(36).substring(2, 12),
     xhttpMode: 'auto',
     wsPath: '/ws',
@@ -1247,7 +1518,8 @@ const openCreateModal = () => {
     sniffingRouteOnly: true,
   }
   generateRealityKey()
-  showModal.value = true
+  showInspectorDrawer.value = false
+  showFormDrawer.value = true
 }
 
 const generateRealityKey = async () => {
@@ -1386,7 +1658,8 @@ const editInbound = (inb: any) => {
   form.value.sniffingEnabled = sniff.enabled !== false
   form.value.sniffingRouteOnly = sniff.routeOnly === true
 
-  showModal.value = true
+  showInspectorDrawer.value = false
+  showFormDrawer.value = true
 }
 
 const buildSettingsJSON = () => {
@@ -1425,7 +1698,6 @@ const buildSettingsJSON = () => {
     return JSON.stringify(settings, null, 2)
   }
 
-  // 节点流控策略：仅在 TCP + (Reality / TLS) 下才允许使用 flow，XHTTP / WS / gRPC 下必须为空
   const isTcp = form.value.network === 'tcp'
   const isTlsOrReality = form.value.security === 'reality' || form.value.security === 'tls'
   const flowVal = (isTcp && isTlsOrReality) ? (form.value.vlessFlow || '') : ''
@@ -1434,7 +1706,6 @@ const buildSettingsJSON = () => {
     settings.decryption = 'none'
   }
 
-  // 构造关联用户列表，自动继承合法的 Flow 配置
   const clients: any[] = []
   for (const email of form.value.selectedUserEmails) {
     const userObj = usersList.value.find((u) => u.email === email)
@@ -1565,7 +1836,7 @@ const saveInbound = async () => {
       await api.post('/inbounds', payload)
     }
 
-    // 同步更新用户的 InboundTags 关系 (仅针对客户端代理协议)
+    // 同步更新用户的 InboundTags 关系
     if (['vless', 'vmess', 'trojan', 'shadowsocks'].includes(form.value.protocol)) {
       for (const u of usersList.value) {
         const currentTags = (u.inboundTags || u.inboundTag || '').split(',').map((s: string) => s.trim()).filter((s: string) => s)
@@ -1581,9 +1852,12 @@ const saveInbound = async () => {
       }
     }
 
-    showModal.value = false
-    toast.success('节点配置已成功保存并同步重载核心！')
+    showFormDrawer.value = false
+    toast.success('节点配置已成功保存并重载核心')
     await fetchAll()
+    if (selectedInbound.value && selectedInbound.value.id === form.value.id) {
+      selectedInbound.value = inbounds.value.find((i) => i.id === form.value.id) || null
+    }
   } catch (err: any) {
     toast.error('保存失败: ' + err)
   } finally {
@@ -1595,7 +1869,11 @@ const deleteInbound = async (id: number) => {
   if (!confirm('确定删除该入站节点吗？')) return
   try {
     await api.delete(`/inbounds/${id}`)
-    toast.success('入站节点已成功删除！')
+    toast.success('入站节点已成功删除')
+    if (selectedInbound.value?.id === id) {
+      showInspectorDrawer.value = false
+      selectedInbound.value = null
+    }
     await fetchAll()
   } catch (err: any) {
     toast.error('删除失败: ' + err)
@@ -1607,28 +1885,8 @@ const getNodeFlow = (inb: any) => {
     const s = JSON.parse(inb.settingsJson || '{}')
     if (s.flow !== undefined) return s.flow || 'none'
     return 'none'
-  } catch (e) {
+  } catch {
     return 'none'
-  }
-}
-
-const getDokodemoTarget = (inb: any) => {
-  try {
-    const s = JSON.parse(inb.settingsJson || '{}')
-    return `${s.address || '127.0.0.1'}:${s.port || 53}`
-  } catch (e) {
-    return '127.0.0.1:53'
-  }
-}
-
-const getSocksAuth = (inb: any) => {
-  try {
-    const s = JSON.parse(inb.settingsJson || '{}')
-    const auth = s.auth || 'noauth'
-    const udp = s.udp !== false ? ' + UDP' : ''
-    return `${auth}${udp}`
-  } catch (e) {
-    return 'noauth'
   }
 }
 
@@ -1645,23 +1903,16 @@ const getClientCount = (inb: any) => {
   try {
     const s = JSON.parse(inb.settingsJson || '{}')
     return s.clients?.length || 0
-  } catch (e) {
+  } catch {
     return 0
   }
-}
-
-const getSubRouteUserCount = (sr: any) => {
-  if (!sr.allowedUsers || !Array.isArray(sr.allowedUsers)) return 0
-  if (!usersList.value || usersList.value.length === 0) return sr.allowedUsers.length
-  const validSet = new Set(usersList.value.map((u: any) => u.email))
-  return sr.allowedUsers.filter((e: string) => validSet.has(e)).length
 }
 
 const getStreamNetwork = (inb: any) => {
   try {
     const s = JSON.parse(inb.streamSettings || '{}')
     return s.network || 'tcp'
-  } catch (e) {
+  } catch {
     return 'tcp'
   }
 }
@@ -1670,34 +1921,13 @@ const getSecurityType = (inb: any) => {
   try {
     const s = JSON.parse(inb.streamSettings || '{}')
     return s.security || 'none'
-  } catch (e) {
+  } catch {
     return 'none'
   }
 }
 
 const isReality = (inb: any) => {
   return getSecurityType(inb) === 'reality'
-}
-
-const protocolBadgeColor = (proto: string) => {
-  switch (proto?.toLowerCase()) {
-    case 'vless':
-      return 'bg-brand-500/15 text-brand-300 border border-brand-500/20'
-    case 'vmess':
-      return 'bg-purple-500/15 text-purple-300 border border-purple-500/20'
-    case 'trojan':
-      return 'bg-cyan-500/15 text-cyan-300 border border-cyan-500/20'
-    case 'shadowsocks':
-      return 'bg-amber-500/15 text-amber-300 border border-amber-500/20'
-    case 'socks':
-      return 'bg-emerald-500/15 text-emerald-300 border border-emerald-500/20'
-    case 'http':
-      return 'bg-blue-500/15 text-blue-300 border border-blue-500/20'
-    case 'dokodemo-door':
-      return 'bg-rose-500/15 text-rose-300 border border-rose-500/20'
-    default:
-      return 'bg-gray-700 text-gray-300 border border-gray-600'
-  }
 }
 
 const checkRouteQuery = () => {
@@ -1712,13 +1942,26 @@ const checkRouteQuery = () => {
       toast.warning('未找到指定的入站节点: ' + editQuery)
     }
   } else if (route.query.action === 'create' || route.query.create) {
-    openCreateModal()
+    openCreateDrawer()
   }
 }
 
 onMounted(async () => {
+  window.addEventListener('click', handleDocumentClick)
+  window.addEventListener('keydown', handleSubRouteKeyDown, { capture: true })
   await fetchAll()
   checkRouteQuery()
+})
+
+onUnmounted(() => {
+  window.removeEventListener('click', handleDocumentClick)
+  window.removeEventListener('keydown', handleSubRouteKeyDown, { capture: true })
+})
+
+watch(showFormDrawer, (val) => {
+  if (!val) {
+    closeSubRoutePopover()
+  }
 })
 
 watch(

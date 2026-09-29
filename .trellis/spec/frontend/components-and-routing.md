@@ -4,55 +4,29 @@
 
 ---
 
-## SFC 约定
+## SFC 约定与组件分层
 
 - 所有 `.vue` 一律使用 `<script setup lang="ts">`，**禁止 Options API**。
-- **不使用 props / emits**：全仓 `defineProps` / `defineEmits` / `defineExpose` / `withDefaults`
-  零匹配。组件协作通过导入模块单例（`toast`、`api`）完成，而非 prop 传递。
-- 没有自定义 composable（`useX()`）；`useRoute` / `useRouter` 是仅有的 `use*` 调用
-  （`App.vue:326-327`、`InboundsView.vue:933`、`OutboundsView.vue:500`、
-  `LoginView.vue:201`、`TopologyView.vue:419`）。
-- 页面尽量自包含：模板 + 单个 `<script setup>`；局部类型就近 `interface` 声明。
+- **组件分层**：
+  - **原子组件（`web/src/components/ui/`）**：强类型通用原语（如 `Button`, `Input`, `Badge`, `Drawer`, `Table` 系列），严格使用 `defineProps` 约束变体、尺寸与状态，基于 CSS 变量语义令牌，禁止散落内联 Hex 颜色。
+  - **业务视图（`web/src/views/`）**：遵循自包含原则，优先使用原子组件搭建高密度 Table-First 界面与 Inspector Drawer 检查器，局部类型就近 `interface` 声明。
+- 页面协作与模块解耦：跨层单例协作继续通过导入模块单例（`toast`、`api`）完成。
 - 生命周期配合清理：`onMounted` 注册 `setInterval`，`onUnmounted` 清理，
-  并处理 `visibilitychange`（`App.vue:417-440`）——新增轮询必须成对清理。
-- 仅 `components/ToastContainer.vue` 含 `<style scoped>`（`:67-95`，用于过渡关键帧）；
-  其余组件样式全部走 Tailwind class。
+  并处理 `visibilitychange`——新增轮询必须成对清理。
+- 样式主要全部走 Tailwind class 与 Design Tokens 语义类。
 
 ---
 
-## 路由（`web/src/router/index.ts`）
+## 样式体系与 Design Tokens 规范
 
-- 单文件、扁平路由表，无嵌套 `children`。
-- **懒加载**：每个视图以 `() => import('...')` 常量声明后再组表（`:4-15`）。
-- 路径：`/login`、`/portal`、`/`、`/topology`、`/inbounds`、`/outbounds`、`/routing`、
-  `/dns`、`/users`、`/config`、`/logs`、`/settings`，以及 catch-all 重定向（`:30`）。
-- **导航守卫**（单一全局 `router.beforeEach`，`:38-50`）：
-  - 从 `localStorage.getItem('token')` 判断登录态（`:42`）；
-  - 路由 `meta.requiresAuth` 且无 token → 跳 `/login`（`:43-44`）；
-  - mock 模式自动注入 token（`:39-41`）；
-  - 已登录访问 `/login` → 弹回首页（`:45-46`）。
-- **布局切换**：`/login` 与 `/portal` 标记 `meta.layout: 'blank'`（`:18-19`），
-  由 `App.vue:338-341` 消费以隐藏侧栏/导航。
-- `afterEach` 仅设置 `document.title`（`:52-60`）。
-
-> **规范**：新增页面 = 在 `views/` 建 `XxxView.vue` + 在路由表加懒加载条目；
-> 需要鉴权的路由显式标注 `meta.requiresAuth`。
-
----
-
-## 样式体系
-
-- Tailwind CSS + PostCSS，入口 `web/src/style.css:1-3`（`@tailwind base/components/utilities`）。
-- 全局设计类集中在 `style.css`，优先复用而非重写：
-  `.glass-panel`（`:20-26`）、`.glass-card`（`:28-41`）、`.btn-primary`（`:44-56`）、
-  `.btn-secondary`（`:58-68`）、`.pulse-green`（`:71-88`）、`.fade-slide-*`（`:91-102`）、
-  `.modal-scale-*`（`:105-113`）及自定义滚动条（`:116-129`）。
-- `web/tailwind.config.js`：`darkMode: 'class'`，扩展 `dark` / `brand` / `cyan` 调色板，
-  `plugins: []`（无 typography/forms 插件）。
-- **无组件库**（无 Element Plus / Naive / PrimeVue / Headless UI）；
-  界面由手写 Tailwind 组成，允许直接使用原始色值（如 `bg-[#07090E]`）。
-- 字体在 `web/index.html:8-10` 通过 Google Fonts 引入；
-  `web/index.html:2` 根节点固定 `class="dark"`。
+- Tailwind CSS + PostCSS，入口 `web/src/style.css`。
+- **开发者基础设施控制台设计令牌 (Neutral Design Tokens)**：
+  - 基于 CSS 语义变量（`--background`, `--foreground`, `--card`, `--muted`, `--border`, `--accent`）；
+  - 全站禁止毛玻璃 `glass-card`、`backdrop-blur` 和彩色发光渐变；
+  - 严禁随意内联 Hex 色值，一律收敛至 `bg-background`、`bg-card`、`border-border` 等语义令牌；
+  - 圆角统一收敛：控件 `6px` (`rounded-md`)，容器/面板 `8px` (`rounded-lg`)，抽屉/弹窗 `10px/12px`；
+  - 语义功能色严格收敛：仅允许绿 (正常/运行)、红 (异常/停止/危险操作)、黄 (警告/临期)、蓝/紫 (当前激活态/主操作)。
+- 字体在 `web/index.html` 引入，根节点固定 `class="dark"`。
 
 ---
 

@@ -27,3 +27,25 @@
 ### Status
 
 [OK] **Completed**
+
+
+## Session 2: 前端控制台底座重构与 Inbounds 标杆落地
+<!-- trellis-session: v=2 fp=5a808293e06738ec -->
+
+**Date**: 2026-09-29
+**Task**: 前端控制台底座重构与 Inbounds 标杆落地
+**Branch**: `master`
+
+### Summary
+
+完成前端控制台底座（Vercel+Linear）与 Inbounds 标杆重构，实现 Table-First、Inspector 抽屉与 SubRoute Popover 交互
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `d2de9a7` | feat(web): 重构控制台底座为 Vercel+Linear 风格并完成 Inbounds 标杆落地 |
+
+### Status
+
+[OK] **Completed**

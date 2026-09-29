@@ -8,21 +8,20 @@
 
 ```
 web/src/
-├── views/        # 12 个页面级 SFC，命名 *View.vue (PascalCase)
-├── components/   # 共享组件；当前仅 ToastContainer.vue
+├── views/        # 页面级 SFC (PascalCase) 与按特性拆分的子目录 (如 views/inbounds/)
+├── components/   # ui/ (Button, Input, Badge, Drawer, FormField, SectionCard) 与 ToastContainer.vue
 ├── api/          # index.ts (axios 单例) + reality.ts (类型化领域接口)
 ├── router/       # index.ts (单文件路由表)
 ├── mock/         # index.ts (请求分发器) + storage.ts (localStorage 状态)
-├── utils/        # 通用工具；当前仅 toast.ts
+├── utils/        # 通用工具；format.ts (流量/日期/时长), clipboard.ts (剪贴板), toast.ts
 ├── App.vue       # 布局骨架 + 全局轮询/可见性处理
 ├── main.ts       # createApp + createPinia 注册
 ├── style.css     # Tailwind 指令 + 全局设计类
 └── vite-env.d.ts # Vite 客户端引用 + *.vue shim
 ```
 
-- **不存在** `stores/` / `composables/` / `types/` / `assets/` 目录；新增文件前先确认是否真的需要新开目录。
-- 页面按规模单文件承载（最大 `views/InboundsView.vue` 约 1600 行），
-  模板与 `<script setup>` 同处一文件，**views 不写 `<style>` 块**。
+- **特性就近组织**：对于复杂模块（如 `views/inbounds/`），其对应的局部子组件、专属 composable 与局部 types 就近存放在所属业务目录下，严禁分散创建全局冗余目录。
+- **公共工具规范**：全仓通用的格式化（字节、速率、日期）与操作（剪贴板复制）统一收敛至 `utils/format.ts` 和 `utils/clipboard.ts`，禁止在各 View 内私自实现重复函数。
 
 ---
 

@@ -726,6 +726,7 @@ import Button from '../components/ui/Button.vue'
 import Badge from '../components/ui/Badge.vue'
 import Drawer from '../components/ui/Drawer.vue'
 import { toast } from '../utils/toast'
+import { copyText } from '../utils/clipboard'
 import api from '../api'
 
 const outbounds = ref<any[]>([])
@@ -1191,12 +1192,6 @@ const formatJsonPretty = (str: string) => {
   } catch {
     return str
   }
-}
-
-const copyText = (text: string) => {
-  if (!text) return
-  navigator.clipboard.writeText(text)
-  toast.success('已复制到剪贴板')
 }
 
 const checkRouteQuery = () => {

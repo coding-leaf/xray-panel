@@ -138,6 +138,7 @@ import { ref, onMounted } from 'vue'
 import { CheckCircle2, AlertCircle, Save, History } from 'lucide-vue-next'
 import Button from '../components/ui/Button.vue'
 import { toast } from '../utils/toast'
+import { formatDateTime as formatDate } from '../utils/format'
 import api from '../api'
 
 const rawContent = ref('')
@@ -223,11 +224,6 @@ const saveConfig = async () => {
   } finally {
     saving.value = false
   }
-}
-
-const formatDate = (dateStr: string) => {
-  if (!dateStr) return ''
-  return new Date(dateStr).toLocaleString()
 }
 
 onMounted(() => {

@@ -11,7 +11,7 @@
 
 <script setup lang="ts">
 const props = defineProps<{
-  class?: string
+  class?: any
 }>()
 const customClass = props.class
 </script>

@@ -1303,6 +1303,8 @@ import {
 } from 'lucide-vue-next'
 import QrcodeVue from 'qrcode.vue'
 import { toast } from '../utils/toast'
+import { copyText } from '../utils/clipboard'
+import { formatBytes, formatDate } from '../utils/format'
 import api from '../api'
 
 // Import UI Primitives
@@ -1910,28 +1912,10 @@ const historySummary = computed(() => {
 })
 
 // Utility Helpers
-const copyText = (text: string) => {
-  if (!text) return
-  navigator.clipboard.writeText(text)
-  toast.success('已成功复制到剪贴板！')
-}
-
 const getTrafficPercent = (user: any) => {
   if (!user || !user.totalBytes) return 0
   const used = user.upBytes + user.downBytes
   return (used / user.totalBytes) * 100
-}
-
-const formatBytes = (bytes: number) => {
-  if (!bytes || bytes <= 0) return '0 B'
-  const k = 1024
-  const sizes = ['B', 'KB', 'MB', 'GB', 'TB']
-  const i = Math.floor(Math.log(bytes) / Math.log(k))
-  return (bytes / Math.pow(k, i)).toFixed(2) + ' ' + sizes[i]
-}
-
-const formatDate = (ms: number) => {
-  return new Date(ms).toLocaleDateString()
 }
 
 // Lifecycle

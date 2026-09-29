@@ -41,6 +41,9 @@ export default defineConfig({
             }
             return 'vendor-libs'
           }
+          if (id.includes('src/components/ui/') || id.includes('src\\components\\ui\\')) {
+            return 'ui-primitives'
+          }
         },
         chunkFileNames: 'assets/js/[name]-[hash].js',
         entryFileNames: 'assets/js/[name]-[hash].js',

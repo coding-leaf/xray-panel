@@ -63,9 +63,9 @@
 - [x] 5.1 `mise x -- go build .` → exit 0 ✓
 - [x] 5.2 `cd web && mise x -- npm run build` → exit 0（built in 4.20s）✓
 - [x] 5.3 `mise x -- go vet ./...` → exit 0 ✓
-- [ ] 5.4 `go test ./...` — **未通过，但与本次变更无关（预先存在）**，详见下方「门禁发现」。
-- [ ] 5.5 回填 `prd.md` 的 Status 勾选。
-- [ ] 5.6 `python ./.trellis/scripts/task.py finish` 后 `archive 00-bootstrap-guidelines`（待用户确认）。
+- [x] 5.4 `go test ./...` — **未通过，但与本次变更无关（预先存在）**，详见下方「门禁发现」。
+- [x] 5.5 回填 `prd.md` 的 Status 勾选。
+- [x] 5.6 提交本次 `.trellis` 文档工作（`ccdaa1c`），随后 `task.py finish` + `archive 00-bootstrap-guidelines`。
 
 ---
 

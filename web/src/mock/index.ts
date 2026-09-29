@@ -1,6 +1,6 @@
 // Mock 拦截请求调度中心 (v3 - gRPC 运行时架构)
 
-import { loadMockState, saveMockState, resetMockState, MockState } from './storage'
+import { loadMockState, saveMockState, resetMockState } from './storage'
 
 export { resetMockState }
 

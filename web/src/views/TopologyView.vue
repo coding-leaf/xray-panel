@@ -411,7 +411,6 @@ import {
   Radio,
   Send,
   Network,
-  Trash2,
 } from 'lucide-vue-next'
 import api from '../api'
 import { toast } from '../utils/toast'

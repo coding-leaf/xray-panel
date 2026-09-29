@@ -5,7 +5,6 @@ import {
   getRealityStatus,
   checkRealityStatus,
   type RealitySummaryStatus,
-  type RealityCheckItem,
 } from '../../../api/reality'
 import type { InboundItem } from '../types'
 

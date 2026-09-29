@@ -118,7 +118,7 @@
       <!-- Current Servers List -->
       <div class="space-y-2 pt-1 text-xs">
         <div
-          v-for="(srv, idx) in dnsConfig.servers"
+          v-for="(_, idx) in dnsConfig.servers"
           :key="idx"
           class="p-2.5 bg-neutral-950 rounded-md border border-border flex items-center justify-between gap-3"
         >

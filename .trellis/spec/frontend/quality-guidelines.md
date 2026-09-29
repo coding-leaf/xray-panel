@@ -26,15 +26,20 @@ cd web && mise x -- npm run build       # vite build
 
 ---
 
-## 类型安全现状（写实）
+## 类型安全与代码卫生（写实与约束）
 
-- `web/tsconfig.json:7` 显式 `strict: false` —— 类型错误不作为阻断门禁；
-  `typecheck` 仍会报告语法与可解析的类型问题。
-- API 泛型默认 `any`，页面普遍 `ref<any>`；`: any` 用法广泛。
+- `web/tsconfig.json` 显式保持 `strict: false` —— 存量类型错误不作为阻断门禁；
+  API 泛型默认 `any`，页面普遍 `ref<any>`。
+- **代码卫生硬门禁**：
+  - `"noUnusedLocals": true`：禁止声明未使用的局部变量与僵尸导入；
+  - `"noUnusedParameters": true`：禁止未使用的函数参数（占位参数必须显式使用 `_` 或 `_` 前缀如 `_from`）；
+  - `"noFallthroughCasesInSwitch": true`：拦截 switch case 穿透隐患；
+  - `"forceConsistentCasingInFileNames": true`：防止跨平台文件名大小写问题。
 - 环境变量无 `ImportMetaEnv` 声明，读取处使用 `(import.meta as any).env?.*`。
 
 > **规范**：不要求为存量代码补齐严格类型，但**新增领域 API 应参照
 > `web/src/api/reality.ts` 提供类型**，避免继续扩散无类型数据。
+> 所有代码提交必须保证 `npm run typecheck` 零警告零错误。
 
 ---
 

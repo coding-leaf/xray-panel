@@ -35,7 +35,7 @@ const router = createRouter({
   routes,
 })
 
-router.beforeEach((to, from, next) => {
+router.beforeEach((to, _from, next) => {
   if (isMockMode() && !localStorage.getItem('token')) {
     localStorage.setItem('token', 'demo-mock-jwt-token')
   }

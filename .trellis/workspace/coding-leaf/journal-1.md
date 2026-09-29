@@ -181,3 +181,25 @@
 ### Status
 
 [OK] **Completed**
+
+
+## Session 9: 拆解 OutboundsView 巨石视图与组件化重构
+<!-- trellis-session: v=2 fp=5275d7c3c8c05bab -->
+
+**Date**: 2026-09-29
+**Task**: 拆解 OutboundsView 巨石视图与组件化重构
+**Branch**: `master`
+
+### Summary
+
+将 1222 行 OutboundsView 巨石视图拆解为 Table、DetailDrawer 与异步懒加载的 FormDrawer，沉淀出站领域模型与纯函数清洗器 sanitizeOutboundPayload，全量门禁与严格 TS 检查 100% 通过并归档
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `8700c5f` | chore(task): archive 09-29-outbounds-view-decomposition |
+
+### Status
+
+[OK] **Completed**

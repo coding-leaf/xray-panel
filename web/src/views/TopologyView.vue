@@ -77,44 +77,44 @@
         <div
           v-for="ch in allChannels"
           :key="ch.id"
-          class="glass-panel p-5 rounded-2xl border border-gray-800/80 hover:border-brand-500/40 transition-all flex flex-col justify-between group"
+          class="p-4 rounded-lg bg-card border border-border flex flex-col justify-between group"
         >
           <div>
             <!-- Channel Title & RouteID Badge -->
             <div class="flex items-center justify-between mb-3">
               <div class="flex items-center gap-2">
-                <span class="text-base font-bold text-white tracking-tight">{{ ch.name }}</span>
+                <span class="text-sm font-bold text-foreground tracking-tight">{{ ch.name }}</span>
               </div>
               <span
                 v-if="ch.routeId > 0"
-                class="px-2 py-0.5 rounded-md text-[11px] font-mono font-bold bg-indigo-500/20 text-indigo-300 border border-indigo-500/30"
+                class="px-2 py-0.5 rounded-md text-[11px] font-mono font-bold bg-indigo-950/60 text-indigo-300 border border-indigo-800/50"
               >
                 Route #{{ ch.routeId }}
               </span>
-              <span v-else class="px-2 py-0.5 rounded-md text-[11px] font-mono font-bold bg-gray-800 text-gray-400 border border-gray-700">
+              <span v-else class="px-2 py-0.5 rounded-md text-[11px] font-mono font-bold bg-neutral-900 text-muted-foreground border border-border">
                 直通
               </span>
             </div>
 
             <!-- Pipeline Flow Topology Card -->
-            <div class="bg-gray-950/60 p-3.5 rounded-xl border border-gray-800/60 space-y-2 text-xs font-mono">
+            <div class="bg-neutral-950 p-3 rounded-md border border-border space-y-2 text-xs font-mono">
               <!-- Gateway Info -->
-              <div class="flex items-center justify-between text-gray-400">
-                <span class="text-gray-500">接入网关</span>
+              <div class="flex items-center justify-between text-muted-foreground">
+                <span class="text-neutral-500">接入网关</span>
                 <span class="text-cyan-400 font-medium">{{ ch.gatewayTag }} (:{{ ch.externalPort || ch.gatewayPort }})</span>
               </div>
 
               <!-- Flow Arrow -->
-              <div class="flex items-center justify-center text-gray-600 text-[10px]">
+              <div class="flex items-center justify-center text-neutral-600 text-[10px]">
                 <span>↓ Scoped VLESS 分流 (0x{{ (ch.routeId || 0).toString(16).padStart(4, '0') }})</span>
               </div>
 
               <!-- Exit Node Info -->
-              <div class="flex items-center justify-between text-gray-400">
-                <span class="text-gray-500">落地出口</span>
+              <div class="flex items-center justify-between text-muted-foreground">
+                <span class="text-neutral-500">落地出口</span>
                 <span class="text-brand-300 font-bold flex items-center gap-1">
                   <span>{{ ch.outboundTag }}</span>
-                  <span class="text-[10px] px-1 py-0.2 rounded bg-gray-800 text-gray-300 font-normal uppercase">
+                  <span class="text-[10px] px-1 py-0.2 rounded bg-neutral-900 text-neutral-300 font-normal uppercase">
                     {{ getOutboundProtocol(ch.outboundTag) }}
                   </span>
                 </span>
@@ -122,17 +122,17 @@
             </div>
 
             <!-- Status & Meta -->
-            <div class="mt-3 flex items-center justify-between text-[11px] text-gray-500">
-              <span>状态: <span :class="ch.enabled ? 'text-emerald-400 font-medium' : 'text-gray-500 line-through'">{{ ch.enabled ? '已发布' : '已暂停' }}</span></span>
+            <div class="mt-3 flex items-center justify-between text-[11px] text-muted-foreground font-mono">
+              <span>状态: <span :class="ch.enabled ? 'text-emerald-400 font-medium' : 'text-neutral-500 line-through'">{{ ch.enabled ? '已发布' : '已暂停' }}</span></span>
               <span>单端口订阅就绪</span>
             </div>
           </div>
 
           <!-- Actions -->
-          <div class="mt-4 pt-3 border-t border-gray-800/60 flex items-center justify-between text-xs">
+          <div class="mt-4 pt-3 border-t border-border flex items-center justify-between text-xs">
             <button
               @click="toggleChannelStatus(ch)"
-              class="text-gray-400 hover:text-white transition-colors"
+              class="text-muted-foreground hover:text-foreground transition-colors"
             >
               {{ ch.enabled ? '暂停线路' : '启用线路' }}
             </button>
@@ -147,20 +147,20 @@
       </div>
 
       <!-- Empty State -->
-      <div v-else class="glass-panel p-12 text-center rounded-2xl border border-gray-800">
-        <Network class="w-12 h-12 mx-auto text-gray-600 mb-3" />
-        <h3 class="text-sm font-semibold text-gray-300">暂未发布任何分流线路</h3>
-        <p class="text-xs text-gray-500 mt-1">点击右上角“⚡ 1步发布落地线路”即可一键将落地节点发布为订阅线路</p>
+      <div v-else class="p-12 text-center rounded-lg bg-card border border-border">
+        <Network class="w-12 h-12 mx-auto text-neutral-600 mb-3" />
+        <h3 class="text-sm font-semibold text-foreground">暂未发布任何分流线路</h3>
+        <p class="text-xs text-muted-foreground mt-1">点击右上角“⚡ 1步发布落地线路”即可一键将落地节点发布为订阅线路</p>
       </div>
     </div>
 
     <!-- TAB 2: 接入网关池 (Gateways / Inbounds) -->
     <div v-if="activeTab === 'gateways'" class="space-y-4">
       <div class="flex items-center justify-between">
-        <span class="text-xs text-gray-400">已部署的入站接入网关节点（共 {{ inbounds.length }} 个）</span>
+        <span class="text-xs text-muted-foreground">已部署的入站接入网关节点（共 {{ inbounds.length }} 个）</span>
         <button
           @click="openCreateGatewayModal"
-          class="px-3.5 py-1.5 bg-gradient-to-r from-brand-600 to-indigo-600 hover:from-brand-500 hover:to-indigo-500 text-white text-xs font-semibold rounded-xl transition-all shadow-md shadow-brand-500/20 flex items-center gap-1.5"
+          class="px-3.5 py-1.5 bg-neutral-900 hover:bg-neutral-800 text-foreground border border-border text-xs font-semibold rounded-md transition-all flex items-center gap-1.5"
         >
           <Plus class="w-3.5 h-3.5" />
           <span>新建接入网关</span>
@@ -170,31 +170,31 @@
         <div
           v-for="inb in inbounds"
           :key="inb.id"
-          class="glass-panel p-5 rounded-2xl border border-gray-800/80 hover:border-brand-500/40 transition-all flex flex-col justify-between"
+          class="p-4 rounded-lg bg-card border border-border flex flex-col justify-between"
         >
           <div>
             <div class="flex items-center justify-between mb-3">
-              <span class="text-base font-bold text-white tracking-tight font-mono">{{ inb.tag }}</span>
+              <span class="text-sm font-bold text-foreground tracking-tight font-mono">{{ inb.tag }}</span>
               <div class="flex items-center gap-1.5">
                 <span class="px-2 py-0.5 rounded-md text-[11px] font-mono font-bold uppercase bg-brand-500/20 text-brand-300 border border-brand-500/30">
                   {{ inb.protocol }}
                 </span>
-                <span class="px-2 py-0.5 rounded-md text-[11px] font-mono font-medium bg-gray-800 text-cyan-400 border border-gray-700">
+                <span class="px-2 py-0.5 rounded-md text-[11px] font-mono font-medium bg-neutral-900 text-cyan-400 border border-border">
                   {{ getStreamNetwork(inb) }}
                 </span>
               </div>
             </div>
 
-            <div class="space-y-2 text-xs text-gray-400">
-              <div class="flex justify-between py-1 border-b border-gray-800/60">
+            <div class="space-y-2 text-xs text-muted-foreground">
+              <div class="flex justify-between py-1 border-b border-border/50">
                 <span>端口映射 (内部 ➔ 外部)</span>
                 <span class="text-brand-300 font-mono font-bold">:{{ inb.port }} ➔ :{{ inb.externalPort || 443 }}</span>
               </div>
-              <div class="flex justify-between py-1 border-b border-gray-800/60">
+              <div class="flex justify-between py-1 border-b border-border/50">
                 <span>安全协议 (Security)</span>
-                <span class="text-gray-200 font-mono uppercase font-semibold">{{ getSecurityType(inb) }}</span>
+                <span class="text-foreground font-mono uppercase font-semibold">{{ getSecurityType(inb) }}</span>
               </div>
-              <div class="flex justify-between py-1 border-b border-gray-800/60">
+              <div class="flex justify-between py-1 border-b border-border/50">
                 <span>挂载分流线路</span>
                 <span class="text-indigo-300 font-mono font-bold">{{ (inb.subRoutes || []).length }} 条</span>
               </div>
@@ -208,7 +208,7 @@
             </div>
           </div>
 
-          <div class="mt-4 pt-3 border-t border-gray-800/60 flex items-center justify-between">
+          <div class="mt-4 pt-3 border-t border-border flex items-center justify-between">
             <button @click="editGateway(inb)" class="text-xs text-brand-400 hover:text-brand-300">
               编辑网关参数
             </button>
@@ -223,10 +223,10 @@
     <!-- TAB 3: 落地出口池 (Exit Nodes / Outbounds) -->
     <div v-if="activeTab === 'exits'" class="space-y-4">
       <div class="flex items-center justify-between">
-        <span class="text-xs text-gray-400">已配置的落地出口节点（共 {{ outbounds.length }} 个）</span>
+        <span class="text-xs text-muted-foreground">已配置的落地出口节点（共 {{ outbounds.length }} 个）</span>
         <button
           @click="openCreateExitModal"
-          class="px-3.5 py-1.5 bg-gradient-to-r from-brand-600 to-indigo-600 hover:from-brand-500 hover:to-indigo-500 text-white text-xs font-semibold rounded-xl transition-all shadow-md shadow-brand-500/20 flex items-center gap-1.5"
+          class="px-3.5 py-1.5 bg-neutral-900 hover:bg-neutral-800 text-foreground border border-border text-xs font-semibold rounded-md transition-all flex items-center gap-1.5"
         >
           <Plus class="w-3.5 h-3.5" />
           <span>新建落地出口</span>
@@ -236,31 +236,31 @@
         <div
           v-for="ob in outbounds"
           :key="ob.tag"
-          class="glass-panel p-5 rounded-2xl border border-gray-800/80 hover:border-brand-500/40 transition-all flex flex-col justify-between"
+          class="p-4 rounded-lg bg-card border border-border flex flex-col justify-between"
         >
           <div>
             <div class="flex items-center justify-between mb-3">
-              <span class="text-base font-bold text-white tracking-tight font-mono">{{ ob.tag }}</span>
+              <span class="text-sm font-bold text-foreground tracking-tight font-mono">{{ ob.tag }}</span>
               <span class="px-2 py-0.5 rounded-md text-[11px] font-mono font-bold uppercase" :class="protocolBadgeColor(ob.protocol)">
                 {{ ob.protocol }}
               </span>
             </div>
 
-            <div class="space-y-2 text-xs text-gray-400">
-              <div class="flex justify-between py-1 border-b border-gray-800/60">
+            <div class="space-y-2 text-xs text-muted-foreground">
+              <div class="flex justify-between py-1 border-b border-border/50">
                 <span>出站协议</span>
-                <span class="text-gray-200 font-mono font-semibold">{{ ob.protocol }}</span>
+                <span class="text-foreground font-mono font-semibold">{{ ob.protocol }}</span>
               </div>
               <div class="py-1">
-                <span class="block mb-1 text-gray-500 text-[11px]">设置摘要:</span>
-                <div class="bg-gray-900/80 p-2 rounded-xl text-[11px] font-mono text-gray-300 truncate">
+                <span class="block mb-1 text-neutral-500 text-[11px]">设置摘要:</span>
+                <div class="bg-neutral-950 p-2 rounded-md border border-border text-[11px] font-mono text-muted-foreground truncate">
                   {{ formatSettingsSummary(ob) }}
                 </div>
               </div>
             </div>
           </div>
 
-          <div class="mt-4 pt-3 border-t border-gray-800/60 flex items-center justify-between">
+          <div class="mt-4 pt-3 border-t border-border flex items-center justify-between">
             <button @click="editOutbound(ob)" class="text-xs text-brand-400 hover:text-brand-300">
               编辑设置
             </button>
@@ -271,23 +271,23 @@
             >
               删除
             </button>
-            <span v-else class="text-xs text-gray-600 font-mono">系统保留</span>
+            <span v-else class="text-xs text-neutral-600 font-mono">系统保留</span>
           </div>
         </div>
       </div>
     </div>
 
     <!-- ⚡ 1步发布落地线路向导弹窗 (Quick Publish Wizard Modal) -->
-    <div v-if="showWizardModal" class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/75 backdrop-blur-sm overflow-y-auto">
-      <div class="glass-panel w-full max-w-lg p-6 sm:p-8 rounded-3xl border border-gray-800 shadow-2xl space-y-5 my-8 max-h-[90vh] overflow-y-auto">
-        <div class="flex items-center justify-between pb-2 border-b border-gray-800">
+    <div v-if="showWizardModal" class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/75 overflow-y-auto">
+      <div class="w-full max-w-lg p-5 rounded-lg border border-border bg-card shadow-2xl space-y-4 my-8 max-h-[90vh] overflow-y-auto">
+        <div class="flex items-center justify-between pb-2 border-b border-border">
           <div>
-            <h2 class="text-lg font-bold text-white flex items-center gap-2">
+            <h2 class="text-sm font-bold text-foreground flex items-center gap-2">
               <span>⚡ 1步发布落地线路向导</span>
             </h2>
-            <p class="text-xs text-gray-400 mt-0.5">自动创建出口节点、绑定接入网关、分配 RouteID 并下发订阅</p>
+            <p class="text-xs text-muted-foreground mt-0.5">自动创建出口节点、绑定接入网关、分配 RouteID 并下发订阅</p>
           </div>
-          <button @click="showWizardModal = false" class="text-gray-400 hover:text-white text-lg">✕</button>
+          <button @click="showWizardModal = false" class="text-muted-foreground hover:text-foreground text-base">✕</button>
         </div>
 
         <form @submit.prevent="submitWizard" class="space-y-4 text-xs">

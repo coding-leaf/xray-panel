@@ -1,216 +1,223 @@
 <template>
-  <div class="space-y-6">
+  <div class="space-y-4">
     <!-- Header banner -->
-    <div class="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+    <div class="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 pb-2 border-b border-border/60">
       <div>
-        <h1 class="text-2xl font-extrabold text-white tracking-tight">运行监控与仪表盘</h1>
-        <p class="text-xs text-gray-400 mt-0.5">实时系统负载、网络带宽与 Xray 核心运行状态</p>
+        <div class="flex items-center gap-2">
+          <h1 class="text-lg font-semibold text-foreground tracking-tight">运行监控与仪表盘</h1>
+          <Badge
+            :variant="dashboard?.metrics?.xrayRunning ? 'default' : 'destructive'"
+            class="text-[10px] font-mono flex items-center gap-1"
+          >
+            <span class="w-1.5 h-1.5 rounded-full" :class="dashboard?.metrics?.xrayRunning ? 'bg-emerald-400 animate-pulse' : 'bg-rose-400'"></span>
+            <span>Xray {{ dashboard?.metrics?.xrayRunning ? '运行中' : '已停止' }}</span>
+          </Badge>
+        </div>
+        <p class="text-xs text-muted-foreground mt-0.5">
+          实时系统资源负载、网络实时吞吐与 Xray 核心运行指标
+        </p>
       </div>
-      <div class="flex items-center gap-3">
-        <span
-          class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold"
-          :class="dashboard?.metrics?.xrayRunning ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' : 'bg-rose-500/10 text-rose-400 border border-rose-500/20'"
-        >
-          <span class="w-2 h-2 rounded-full" :class="dashboard?.metrics?.xrayRunning ? 'bg-emerald-400 animate-pulse' : 'bg-rose-400'"></span>
-          <span>Xray {{ dashboard?.metrics?.xrayRunning ? '运行中' : '已停止' }}</span>
-        </span>
-        <button
+
+      <div class="flex items-center gap-2">
+        <Button
+          variant="secondary"
+          size="sm"
+          :loading="refreshing"
           @click="fetchData"
-          class="px-3 py-1.5 rounded-xl text-xs bg-gray-800/80 hover:bg-gray-700/80 text-gray-200 border border-gray-700/60 transition-colors flex items-center gap-1.5"
+          title="刷新最新运行状态"
         >
-          <RefreshCw class="w-3.5 h-3.5" :class="{ 'animate-spin': refreshing }" />
+          <RefreshCw class="w-3.5 h-3.5 mr-1" />
           <span>刷新</span>
-        </button>
+        </Button>
       </div>
     </div>
 
     <!-- Reality 域名异常/临期告警横幅 -->
     <div
       v-if="realityAlertCount > 0"
-      class="p-4 rounded-2xl border text-xs flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 shadow-lg transition-all"
-      :class="realitySummary?.errorCount ? 'bg-rose-500/10 border-rose-500/30 text-rose-300 shadow-rose-500/5' : 'bg-amber-500/10 border-amber-500/30 text-amber-300 shadow-amber-500/5'"
+      class="p-3 rounded-lg border text-xs flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3"
+      :class="realitySummary?.errorCount ? 'bg-rose-950/20 border-rose-800/40 text-rose-300' : 'bg-amber-950/20 border-amber-800/40 text-amber-300'"
     >
-      <div class="flex items-center gap-3">
-        <component :is="realitySummary?.errorCount ? AlertCircle : AlertTriangle" class="w-5 h-5 shrink-0" :class="realitySummary?.errorCount ? 'text-rose-400' : 'text-amber-400'" />
+      <div class="flex items-center gap-2.5">
+        <component :is="realitySummary?.errorCount ? AlertCircle : AlertTriangle" class="w-4 h-4 shrink-0" :class="realitySummary?.errorCount ? 'text-rose-400' : 'text-amber-400'" />
         <div>
-          <p class="font-bold text-sm">
+          <p class="font-semibold text-xs">
             {{ realitySummary?.errorCount ? 'Reality 伪装域名存在异常风险' : 'Reality 伪装域名临期或配置预警' }}
           </p>
-          <p class="text-xs opacity-90 mt-0.5">
-            ⚠️ 检测到 {{ realityAlertCount }} 个 Reality 入站伪装域名异常或临期，请及时检查与更换，避免节点服务中断。
+          <p class="text-[11px] opacity-90 mt-0.5 font-mono">
+            检测到 {{ realityAlertCount }} 个 Reality 入站目标需关注，请及时检查与更换以确保护航。
           </p>
         </div>
       </div>
       <router-link
         to="/inbounds"
-        class="shrink-0 px-3.5 py-1.5 rounded-xl font-semibold text-xs transition-all flex items-center gap-1 border"
-        :class="realitySummary?.errorCount ? 'bg-rose-600/30 hover:bg-rose-600/50 text-white border-rose-500/40' : 'bg-amber-600/30 hover:bg-amber-600/50 text-white border-amber-500/40'"
+        class="shrink-0 px-2.5 py-1 rounded-md font-mono text-xs transition-colors flex items-center gap-1 border"
+        :class="realitySummary?.errorCount ? 'bg-rose-900/40 hover:bg-rose-900/60 text-rose-200 border-rose-700/50' : 'bg-amber-900/40 hover:bg-amber-900/60 text-amber-200 border-amber-700/50'"
       >
-        <span>立即前往处理</span>
+        <span>前往处理</span>
         <span>➔</span>
       </router-link>
     </div>
 
     <!-- Quick Stats 4 Grid Cards -->
-    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
       <!-- CPU -->
-      <div class="glass-card p-5 rounded-2xl relative overflow-hidden">
+      <div class="p-4 rounded-lg bg-card border border-border">
         <div class="flex items-center justify-between">
-          <span class="text-xs font-medium text-gray-400">CPU 使用率</span>
-          <div class="p-2 rounded-xl bg-blue-500/10 text-blue-400">
-            <Cpu class="w-4 h-4" />
-          </div>
+          <span class="text-xs font-medium text-muted-foreground">CPU 使用率</span>
+          <Cpu class="w-4 h-4 text-cyan-400" />
         </div>
-        <div class="mt-3 flex items-baseline gap-2">
-          <span class="text-2xl font-extrabold text-white">{{ dashboard?.metrics?.cpuUsagePercent?.toFixed(1) || 0 }}%</span>
+        <div class="mt-2.5 flex items-baseline gap-2">
+          <span class="text-2xl font-mono font-bold text-foreground">{{ dashboard?.metrics?.cpuUsagePercent?.toFixed(1) || 0 }}%</span>
         </div>
-        <div class="mt-3 w-full bg-gray-800 rounded-full h-1.5 overflow-hidden">
+        <div class="mt-3 w-full bg-neutral-900 rounded-full h-1 overflow-hidden">
           <div
-            class="bg-blue-500 h-1.5 rounded-full transition-all duration-500"
+            class="bg-cyan-500 h-1 rounded-full transition-all duration-500"
             :style="{ width: `${Math.min(dashboard?.metrics?.cpuUsagePercent || 0, 100)}%` }"
           ></div>
         </div>
       </div>
 
       <!-- RAM -->
-      <div class="glass-card p-5 rounded-2xl relative overflow-hidden">
+      <div class="p-4 rounded-lg bg-card border border-border">
         <div class="flex items-center justify-between">
-          <span class="text-xs font-medium text-gray-400">内存占用</span>
-          <div class="p-2 rounded-xl bg-purple-500/10 text-purple-400">
-            <Activity class="w-4 h-4" />
-          </div>
+          <span class="text-xs font-medium text-muted-foreground">内存占用</span>
+          <Activity class="w-4 h-4 text-indigo-400" />
         </div>
-        <div class="mt-3 flex items-baseline gap-2">
-          <span class="text-2xl font-extrabold text-white">{{ dashboard?.metrics?.memoryUsagePercent?.toFixed(1) || 0 }}%</span>
-          <span class="text-xs text-gray-400 font-mono">
+        <div class="mt-2.5 flex items-baseline gap-2">
+          <span class="text-2xl font-mono font-bold text-foreground">{{ dashboard?.metrics?.memoryUsagePercent?.toFixed(1) || 0 }}%</span>
+          <span class="text-[11px] text-muted-foreground font-mono truncate">
             {{ formatBytes(dashboard?.metrics?.memoryUsedBytes || 0) }} / {{ formatBytes(dashboard?.metrics?.memoryTotalBytes || 0) }}
           </span>
         </div>
-        <div class="mt-3 w-full bg-gray-800 rounded-full h-1.5 overflow-hidden">
+        <div class="mt-3 w-full bg-neutral-900 rounded-full h-1 overflow-hidden">
           <div
-            class="bg-purple-500 h-1.5 rounded-full transition-all duration-500"
+            class="bg-indigo-500 h-1 rounded-full transition-all duration-500"
             :style="{ width: `${Math.min(dashboard?.metrics?.memoryUsagePercent || 0, 100)}%` }"
           ></div>
         </div>
       </div>
 
       <!-- Disk -->
-      <div class="glass-card p-5 rounded-2xl relative overflow-hidden">
+      <div class="p-4 rounded-lg bg-card border border-border">
         <div class="flex items-center justify-between">
-          <span class="text-xs font-medium text-gray-400">磁盘空间</span>
-          <div class="p-2 rounded-xl bg-amber-500/10 text-amber-400">
-            <HardDrive class="w-4 h-4" />
-          </div>
+          <span class="text-xs font-medium text-muted-foreground">磁盘空间</span>
+          <HardDrive class="w-4 h-4 text-amber-400" />
         </div>
-        <div class="mt-3 flex items-baseline gap-2">
-          <span class="text-2xl font-extrabold text-white">{{ dashboard?.metrics?.diskUsagePercent?.toFixed(1) || 0 }}%</span>
-          <span class="text-xs text-gray-400 font-mono">
+        <div class="mt-2.5 flex items-baseline gap-2">
+          <span class="text-2xl font-mono font-bold text-foreground">{{ dashboard?.metrics?.diskUsagePercent?.toFixed(1) || 0 }}%</span>
+          <span class="text-[11px] text-muted-foreground font-mono truncate">
             {{ formatBytes(dashboard?.metrics?.diskUsedBytes || 0) }} / {{ formatBytes(dashboard?.metrics?.diskTotalBytes || 0) }}
           </span>
         </div>
-        <div class="mt-3 w-full bg-gray-800 rounded-full h-1.5 overflow-hidden">
+        <div class="mt-3 w-full bg-neutral-900 rounded-full h-1 overflow-hidden">
           <div
-            class="bg-amber-500 h-1.5 rounded-full transition-all duration-500"
+            class="bg-amber-500 h-1 rounded-full transition-all duration-500"
             :style="{ width: `${Math.min(dashboard?.metrics?.diskUsagePercent || 0, 100)}%` }"
           ></div>
         </div>
       </div>
 
       <!-- Active Users -->
-      <div class="glass-card p-5 rounded-2xl relative overflow-hidden">
+      <div class="p-4 rounded-lg bg-card border border-border">
         <div class="flex items-center justify-between">
-          <span class="text-xs font-medium text-gray-400">用户统计</span>
-          <div class="p-2 rounded-xl bg-emerald-500/10 text-emerald-400">
-            <Users class="w-4 h-4" />
-          </div>
+          <span class="text-xs font-medium text-muted-foreground">用户统计</span>
+          <Users class="w-4 h-4 text-emerald-400" />
         </div>
-        <div class="mt-3 flex items-baseline gap-2">
-          <span class="text-2xl font-extrabold text-white">{{ dashboard?.activeUsers || 0 }}</span>
-          <span class="text-xs text-gray-400 font-mono">/ {{ dashboard?.userCount || 0 }} 活跃中</span>
+        <div class="mt-2.5 flex items-baseline gap-2">
+          <span class="text-2xl font-mono font-bold text-foreground">{{ dashboard?.activeUsers || 0 }}</span>
+          <span class="text-[11px] text-muted-foreground font-mono">/ {{ dashboard?.userCount || 0 }} 活跃中</span>
         </div>
-        <div class="mt-3 text-xs text-gray-400">
-          已配置节点: <span class="text-white font-semibold">{{ dashboard?.inbounds?.length || 0 }}</span> 个
+        <div class="mt-3 text-[11px] text-muted-foreground font-mono">
+          已配置节点: <span class="text-foreground font-semibold">{{ dashboard?.inbounds?.length || 0 }}</span> 个
         </div>
       </div>
     </div>
 
     <!-- Network Bandwidth & Traffic Section -->
-    <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+    <div class="grid grid-cols-1 lg:grid-cols-3 gap-4">
       <!-- Real-time Speed Card -->
-      <div class="glass-panel p-6 rounded-2xl border border-gray-800/80 lg:col-span-2 space-y-6">
-        <h2 class="text-base font-bold text-white flex items-center gap-2">
-          <Zap class="w-4 h-4 text-cyan-400" />
-          <span>实时网络速率与总吞吐量</span>
-        </h2>
+      <div class="p-4 rounded-lg bg-card border border-border lg:col-span-2 space-y-4">
+        <div class="flex items-center justify-between">
+          <h2 class="text-xs font-semibold text-foreground uppercase tracking-wider flex items-center gap-1.5">
+            <Zap class="w-3.5 h-3.5 text-cyan-400" />
+            <span>实时网络速率与总吞吐量</span>
+          </h2>
+        </div>
 
-        <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          <div class="bg-gray-900/60 border border-gray-800/80 p-4 rounded-xl flex items-center justify-between">
-            <div class="flex items-center gap-3">
-              <div class="p-2.5 rounded-xl bg-cyan-500/10 text-cyan-400">
-                <ArrowUpRight class="w-5 h-5" />
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <div class="bg-neutral-900/60 border border-border/70 p-3 rounded-md flex items-center justify-between">
+            <div class="flex items-center gap-2.5">
+              <div class="p-2 rounded bg-cyan-950/60 border border-cyan-800/40 text-cyan-400">
+                <ArrowUpRight class="w-4 h-4" />
               </div>
               <div>
-                <p class="text-xs text-gray-400 font-medium">实时上行速率</p>
-                <p class="text-xl font-mono font-bold text-white mt-0.5">
+                <p class="text-[11px] text-muted-foreground font-medium">实时上行速率</p>
+                <p class="text-lg font-mono font-bold text-foreground">
                   {{ formatSpeed(dashboard?.metrics?.netUpSpeedBps || 0) }}
                 </p>
               </div>
             </div>
             <div class="text-right">
-              <p class="text-[11px] text-gray-500">累计上行</p>
-              <p class="text-xs font-mono text-gray-300">{{ formatBytes(dashboard?.metrics?.netTotalSent || dashboard?.totalUp || 0) }}</p>
+              <p class="text-[10px] text-muted-foreground">累计上行</p>
+              <p class="text-xs font-mono text-foreground">{{ formatBytes(dashboard?.metrics?.netTotalSent || dashboard?.totalUp || 0) }}</p>
             </div>
           </div>
 
-          <div class="bg-gray-900/60 border border-gray-800/80 p-4 rounded-xl flex items-center justify-between">
-            <div class="flex items-center gap-3">
-              <div class="p-2.5 rounded-xl bg-indigo-500/10 text-indigo-400">
-                <ArrowDownRight class="w-5 h-5" />
+          <div class="bg-neutral-900/60 border border-border/70 p-3 rounded-md flex items-center justify-between">
+            <div class="flex items-center gap-2.5">
+              <div class="p-2 rounded bg-indigo-950/60 border border-indigo-800/40 text-indigo-400">
+                <ArrowDownRight class="w-4 h-4" />
               </div>
               <div>
-                <p class="text-xs text-gray-400 font-medium">实时下行速率</p>
-                <p class="text-xl font-mono font-bold text-white mt-0.5">
+                <p class="text-[11px] text-muted-foreground font-medium">实时下行速率</p>
+                <p class="text-lg font-mono font-bold text-foreground">
                   {{ formatSpeed(dashboard?.metrics?.netDownSpeedBps || 0) }}
                 </p>
               </div>
             </div>
             <div class="text-right">
-              <p class="text-[11px] text-gray-500">累计下行</p>
-              <p class="text-xs font-mono text-gray-300">{{ formatBytes(dashboard?.metrics?.netTotalRecv || dashboard?.totalDown || 0) }}</p>
+              <p class="text-[10px] text-muted-foreground">累计下行</p>
+              <p class="text-xs font-mono text-foreground">{{ formatBytes(dashboard?.metrics?.netTotalRecv || dashboard?.totalDown || 0) }}</p>
             </div>
           </div>
         </div>
 
         <!-- Inbound status table preview -->
-        <div>
-          <h3 class="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3">入站节点概要</h3>
-          <div class="overflow-x-auto">
-            <table class="w-full text-left text-xs">
-              <thead class="text-gray-400 bg-gray-900/40 border-y border-gray-800">
+        <div class="pt-2">
+          <div class="flex items-center justify-between mb-2">
+            <h3 class="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider font-mono">入站节点概要</h3>
+            <router-link to="/inbounds" class="text-[11px] text-brand-400 hover:text-brand-300 font-mono">
+              查看全部入站 ➔
+            </router-link>
+          </div>
+          <div class="overflow-hidden rounded-md border border-border bg-neutral-950">
+            <table class="w-full text-left text-xs border-collapse">
+              <thead class="text-muted-foreground bg-neutral-900 border-b border-border font-mono text-[11px]">
                 <tr>
-                  <th class="py-2.5 px-3">标签</th>
-                  <th class="py-2.5 px-3">端口</th>
-                  <th class="py-2.5 px-3">协议</th>
-                  <th class="py-2.5 px-3">状态</th>
-                  <th class="py-2.5 px-3 text-right">总流量</th>
+                  <th class="py-2 px-3">标签 (Tag)</th>
+                  <th class="py-2 px-3">端口</th>
+                  <th class="py-2 px-3">协议</th>
+                  <th class="py-2 px-3">状态</th>
+                  <th class="py-2 px-3 text-right">总流量</th>
                 </tr>
               </thead>
-              <tbody class="divide-y divide-gray-800/60">
-                <tr v-for="inb in dashboard?.inbounds || []" :key="inb.id" class="hover:bg-gray-800/30">
-                  <td class="py-2.5 px-3 font-medium text-white">{{ inb.tag }}</td>
-                  <td class="py-2.5 px-3 font-mono text-brand-400">{{ inb.port }}</td>
-                  <td class="py-2.5 px-3 uppercase font-mono">{{ inb.protocol }}</td>
-                  <td class="py-2.5 px-3">
-                    <span class="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+              <tbody class="divide-y divide-border/40 font-mono">
+                <tr v-for="inb in dashboard?.inbounds || []" :key="inb.id" class="hover:bg-muted/20 transition-colors">
+                  <td class="py-2 px-3 font-medium text-foreground">{{ inb.tag }}</td>
+                  <td class="py-2 px-3 text-cyan-400">{{ inb.port }}</td>
+                  <td class="py-2 px-3 uppercase text-muted-foreground">{{ inb.protocol }}</td>
+                  <td class="py-2 px-3">
+                    <span class="px-1.5 py-0.5 rounded text-[10px] font-semibold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
                       正常
                     </span>
                   </td>
-                  <td class="py-2.5 px-3 text-right font-mono text-gray-300">
+                  <td class="py-2 px-3 text-right text-foreground">
                     {{ formatBytes(inb.upBytes + inb.downBytes) }}
                   </td>
                 </tr>
                 <tr v-if="!dashboard?.inbounds?.length">
-                  <td colspan="5" class="py-4 text-center text-gray-500">暂无入站节点</td>
+                  <td colspan="5" class="py-4 text-center text-muted-foreground text-xs font-sans">暂无入站节点</td>
                 </tr>
               </tbody>
             </table>
@@ -219,37 +226,39 @@
       </div>
 
       <!-- Service Info & Quick Ops -->
-      <div class="glass-panel p-6 rounded-2xl border border-gray-800/80 space-y-5">
-        <h2 class="text-base font-bold text-white flex items-center gap-2">
-          <Server class="w-4 h-4 text-brand-400" />
+      <div class="p-4 rounded-lg bg-card border border-border space-y-4">
+        <h2 class="text-xs font-semibold text-foreground uppercase tracking-wider flex items-center gap-1.5">
+          <Server class="w-3.5 h-3.5 text-brand-400" />
           <span>服务与系统信息</span>
         </h2>
 
-        <div class="space-y-3 text-xs">
-          <div class="flex justify-between py-2 border-b border-gray-800/60">
-            <span class="text-gray-400">Xray 核心版本</span>
-            <span class="text-white font-mono font-medium">{{ dashboard?.metrics?.xrayVersion || '未知' }}</span>
+        <div class="space-y-2.5 text-xs font-mono">
+          <div class="flex justify-between py-1.5 border-b border-border/50">
+            <span class="text-muted-foreground">Xray 核心版本</span>
+            <span class="text-foreground font-semibold">{{ dashboard?.metrics?.xrayVersion || '未知' }}</span>
           </div>
-          <div class="flex justify-between py-2 border-b border-gray-800/60">
-            <span class="text-gray-400">系统开机时长</span>
-            <span class="text-white font-mono">{{ formatUptime(dashboard?.metrics?.uptimeSeconds || 0) }}</span>
+          <div class="flex justify-between py-1.5 border-b border-border/50">
+            <span class="text-muted-foreground">系统开机时长</span>
+            <span class="text-foreground">{{ formatUptime(dashboard?.metrics?.uptimeSeconds || 0) }}</span>
           </div>
-          <div class="flex justify-between py-2 border-b border-gray-800/60">
-            <span class="text-gray-400">服务子状态</span>
-            <span class="text-gray-300 font-mono">{{ dashboard?.service?.subState || 'running' }}</span>
+          <div class="flex justify-between py-1.5 border-b border-border/50">
+            <span class="text-muted-foreground">服务子状态</span>
+            <span class="text-foreground">{{ dashboard?.service?.subState || 'running' }}</span>
           </div>
         </div>
 
         <div class="pt-2">
-          <h3 class="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2.5">快捷运维指令</h3>
-          <button
+          <h3 class="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider mb-2 font-mono">快捷运维指令</h3>
+          <Button
+            variant="secondary"
+            size="sm"
+            class="w-full justify-center"
+            :loading="restarting"
             @click="restartXray"
-            :disabled="restarting"
-            class="w-full bg-gray-800 hover:bg-gray-700 text-white font-medium py-2.5 rounded-xl text-xs transition-colors border border-gray-700 flex items-center justify-center gap-2 disabled:opacity-50"
           >
-            <RefreshCw class="w-3.5 h-3.5" :class="{ 'animate-spin': restarting }" />
+            <RefreshCw v-if="!restarting" class="w-3.5 h-3.5 mr-1.5" />
             <span>{{ restarting ? '正在平滑重启...' : '平滑重启 Xray 核心' }}</span>
-          </button>
+          </Button>
         </div>
       </div>
     </div>
@@ -271,6 +280,8 @@ import {
   AlertTriangle,
   AlertCircle,
 } from 'lucide-vue-next'
+import Button from '../components/ui/Button.vue'
+import Badge from '../components/ui/Badge.vue'
 import { toast } from '../utils/toast'
 import api from '../api'
 import { getRealityStatus, type RealitySummaryStatus } from '../api/reality'

@@ -1,0 +1,7 @@
+{"file": ".trellis/tasks/00-bootstrap-guidelines/research/backend-logging.md", "reason": "对照真实日志代码事实核验 logging-guidelines.md 准确性"}
+{"file": ".trellis/tasks/00-bootstrap-guidelines/research/frontend-conventions.md", "reason": "对照真实前端代码事实核验前端 spec 准确性"}
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "校验无过度设计与安全红线违背"}
+{"file": ".trellis/spec/backend/index.md", "reason": "校验 before/after 描述与分层拓扑一致"}
+{"file": ".trellis/spec/frontend/index.md", "reason": "校验前端索引与子文档一致、无矛盾描述"}
+{"file": ".trellis/spec/guides/review-3pass-guide.md", "reason": "三遍审查方法"}
+{"file": ".trellis/spec/guides/index.md", "reason": "AI 审查假阳性核验规则与 pre-modification 搜索习惯"}

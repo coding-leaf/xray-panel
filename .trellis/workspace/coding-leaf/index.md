@@ -8,7 +8,7 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 3
+- **Total Sessions**: 4
 - **Last Active**: 2026-09-29
 <!-- @@@/auto:current-status -->
 
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~73 | Active |
+| `journal-1.md` | ~95 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 4 | 2026-09-29 | 全站剩余页面控制台化批量收敛归档 | `ba9f936` | `master` |
 | 3 | 2026-09-29 | UsersView 用户管理控制台重构落地与归档 | `7aea01d` | `master` |
 | 2 | 2026-09-29 | 前端控制台底座重构与 Inbounds 标杆落地 | `d2de9a7` | `master` |
 | 1 | 2026-09-29 | 按真实代码整理 Trellis spec 文档 | `ccdaa1c` | `master` |

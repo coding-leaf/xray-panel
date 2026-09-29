@@ -71,3 +71,25 @@
 ### Status
 
 [OK] **Completed**
+
+
+## Session 4: 全站剩余页面控制台化批量收敛归档
+<!-- trellis-session: v=2 fp=44d9701bb86412e3 -->
+
+**Date**: 2026-09-29
+**Task**: 全站剩余页面控制台化批量收敛归档
+**Branch**: `master`
+
+### Summary
+
+全面重构 OutboundsView、DashboardView、RoutingView 及辅助视图为 Neutral 控制台风格，彻底消灭全站 glass-panel 与毛玻璃渐变
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `ba9f936` | feat(web): 全面完成全站视图控制台化改造与中性语义令牌收敛 |
+
+### Status
+
+[OK] **Completed**

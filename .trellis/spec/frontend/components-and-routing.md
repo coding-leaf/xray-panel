@@ -36,3 +36,13 @@
   以 `<component :is="item.icon">` 动态渲染（`App.vue:304-320,47-51`、`ToastContainer.vue:38`）。
 - 二维码使用 `qrcode.vue`（`UsersView.vue:909`、`SettingsView.vue:380`）。
 - 引入新 UI 依赖前需确认现有 Tailwind + lucide 能力不足，避免权重膨胀。
+
+---
+
+## 核心视图交互范式 (Table-First, Double Drawers & Batch Bar)
+
+- **Table-First 布局**：主视图默认通过紧凑高密度数据表格呈现资源列表，支持多选、关键字检索与状态过滤。
+- **双抽屉架构 (Double Drawers)**：
+  - **Inspector Drawer**：行点击唤起右侧巡检面板（只读状态诊断、凭据复制、快捷开关与关联拓扑矩阵）；
+  - **Form Drawer**：新建或编辑资源时滑出右侧结构化表单（分组收拢，告别传统几十个字段的居中弹窗墙）。
+- **批量操作条 (Batch Action Bar)**：当选择项数量 `> 0` 时以中性卡片浮动呈现，提供高频批量变更与一键清空选择，操作后即时刷新列表状态。

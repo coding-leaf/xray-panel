@@ -49,3 +49,25 @@
 ### Status
 
 [OK] **Completed**
+
+
+## Session 3: UsersView 用户管理控制台重构落地与归档
+<!-- trellis-session: v=2 fp=419faa8d3f4faa53 -->
+
+**Date**: 2026-09-29
+**Task**: UsersView 用户管理控制台重构落地与归档
+**Branch**: `master`
+
+### Summary
+
+将 UsersView 重构为基础设施控制台风格，落地 Table-First、双抽屉架构 (Inspector + Form) 与中性批量操作栏
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `7aea01d` | feat(web): 重构 UsersView 为基础设施控制台风格 (Table-First + 双抽屉) |
+
+### Status
+
+[OK] **Completed**

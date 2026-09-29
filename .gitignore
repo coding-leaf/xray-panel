@@ -62,6 +62,9 @@ nginx.conf
 deploy.sh
 deploy-*.sh
 deploy_*.sh
+deploy.ps1
+deploy-*.ps1
+deploy_*.ps1
 
 # Local / Private IDE & Domain Notes (Do Not Track)
 .serena/

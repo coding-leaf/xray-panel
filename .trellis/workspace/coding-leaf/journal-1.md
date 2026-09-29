@@ -115,3 +115,25 @@
 ### Status
 
 [OK] **Completed**
+
+
+## Session 6: 前端包体结构优化与 InboundsView 巨石分层重构
+<!-- trellis-session: v=2 fp=033321e74bb7de3b -->
+
+**Date**: 2026-09-29
+**Task**: 前端包体结构优化与 InboundsView 巨石分层重构
+**Branch**: `master`
+
+### Summary
+
+前端包体结构优化：沉淀通用 UI 容器 FormField/SectionCard，提取通用领域工具 utils/format 和 utils/clipboard，拆分 InboundsView 表格、详情抽屉与异步懒加载表单抽屉，优化 Vite manualChunks 消除碎片，通过全套测试与构建门禁
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `b594a36` | chore(task): archive 09-29-web-bundle-structure-refactor |
+
+### Status
+
+[OK] **Completed**

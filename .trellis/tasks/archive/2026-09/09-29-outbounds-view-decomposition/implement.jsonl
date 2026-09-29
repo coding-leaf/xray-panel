@@ -1,0 +1,2 @@
+{"file": ".trellis/spec/frontend/quality-guidelines.md", "reason": "前端组件化拆分、UI原语使用及严格TS门禁规范"}
+{"file": ".trellis/spec/frontend/components-and-routing.md", "reason": "前端组件设计、视图分层与异步按需加载约定"}

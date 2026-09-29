@@ -203,3 +203,44 @@
 ### Status
 
 [OK] **Completed**
+
+
+## Session 10: 文档刷新与归档：README / 架构总览 / SDLC 封存
+<!-- trellis-session: v=2 fp=330f476c475b78df -->
+
+**Date**: 2026-09-30
+**Task**: 文档刷新与归档：README / 架构总览 / SDLC 封存
+**Branch**: `master`
+
+### Summary
+
+统一版本事实源到 v2.6.0-beta.1，校正 README 参数与分层树，按 v2.6 重写架构总览，封存旧架构文档与 SDLC 机制到 docs/archive/
+
+### Main Changes
+
+- main.go Version 与 web/package.json 同步至 v2.6.0-beta.1，消除四处版本分叉
+- README 补齐 12 个启动 flag、Go 1.26 徽章与 23 目录分层树
+- 按 v2.6 重写 docs/ARCHITECTURE_AND_LOGIC.md，旧 v2.0.0 版封存为 docs/archive/ARCHITECTURE_AND_LOGIC.v2.0.0.md
+- docs/sdlc/ 整体封存至 docs/archive/sdlc/ 并新增 docs/archive/README.md 封存惯例
+- 沉淀版本事实源规则到 .trellis/spec/backend/index.md
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `f253b8f` | docs: 刷新 README 与架构总览至 v2.6.0-beta.1 并封存旧文档与 SDLC |
+
+### Testing
+
+- [OK] mise x -- go build . 退出 0
+- [OK] mise x -- go vet ./... 0 warning
+- [OK] mise x -- go test ./... 全绿
+- [OK] web: npm run build 成功，banner 显示 xray-panel-web@2.6.0-beta.1
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- 无（任务已归档）

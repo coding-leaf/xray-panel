@@ -159,3 +159,25 @@
 ### Status
 
 [OK] **Completed**
+
+
+## Session 8: 沉淀 Modal 原语并彻底拆解 UsersView 巨石视图
+<!-- trellis-session: v=2 fp=fa411d82ae216008 -->
+
+**Date**: 2026-09-29
+**Task**: 沉淀 Modal 原语并彻底拆解 UsersView 巨石视图
+**Branch**: `master`
+
+### Summary
+
+沉淀通用组件 Modal.vue，将 1935 行的 UsersView 巨石拆分为 Table、DetailDrawer 与异步懒加载的 FormDrawer/ShareModal/TrafficModal，提取 UserSubscriptionService 服务类与 sanitizeUserPayload，全量门禁 100% 通过
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `1160447` | chore(task): archive 09-29-users-view-decomposition-and-modal |
+
+### Status
+
+[OK] **Completed**

@@ -8,8 +8,8 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 12
-- **Last Active**: 2026-09-30
+- **Total Sessions**: 13
+- **Last Active**: 2026-10-01
 <!-- @@@/auto:current-status -->
 
 ---
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~299 | Active |
+| `journal-1.md` | ~321 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 13 | 2026-10-01 | 规范入站出站协议匹配与表单清洗 | `1837318` | `master` |
 | 12 | 2026-09-30 | 解耦 domain 泄露与统一 Xray 协议适配层并落地真实验证 SS2022 | `3d7b496` | `master` |
 | 10 | 2026-09-30 | 文档刷新与归档：README / 架构总览 / SDLC 封存 | `f253b8f` | `master` |
 | 9 | 2026-09-29 | 拆解 OutboundsView 巨石视图与组件化重构 | `8700c5f` | `master` |

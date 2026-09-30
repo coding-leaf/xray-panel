@@ -297,3 +297,25 @@
 ### Status
 
 [OK] **Completed**
+
+
+## Session 13: 规范入站出站协议匹配与表单清洗
+<!-- trellis-session: v=2 fp=c9bcdbeae4f0c3db -->
+
+**Date**: 2026-10-01
+**Task**: 规范入站出站协议匹配与表单清洗
+**Branch**: `master`
+
+### Summary
+
+修复并补全前端入站和出站节点在添加/编辑时的协议专属表单配置与数据清洗
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `1837318` | fix(web): 规范入站与出站全协议表单匹配与传输安全层数据清洗 |
+
+### Status
+
+[OK] **Completed**

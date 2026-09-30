@@ -275,3 +275,25 @@
 ### Status
 
 [OK] **Completed**
+
+
+## Session 12: 解耦 domain 泄露与统一 Xray 协议适配层并落地真实验证 SS2022
+<!-- trellis-session: v=2 fp=9834989eec4696fd -->
+
+**Date**: 2026-09-30
+**Task**: 解耦 domain 泄露与统一 Xray 协议适配层并落地真实验证 SS2022
+**Branch**: `master`
+
+### Summary
+
+解耦 domain 泄露、统一 Xray 协议适配层，引入本地临时不可追踪的 pre 版本 Xray-core 真实语法检验，彻底清除假装补全兜底，完整落地 SS2022
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `3d7b496` | chore(task): archive 09-30-decouple-xray-adapter-and-ss2022 |
+
+### Status
+
+[OK] **Completed**

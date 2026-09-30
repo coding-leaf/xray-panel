@@ -319,3 +319,25 @@
 ### Status
 
 [OK] **Completed**
+
+
+## Session 14: 修复协议契约准确性与配置语义
+<!-- trellis-session: v=2 fp=0a732c8515f806f6 -->
+
+**Date**: 2026-10-01
+**Task**: 修复协议契约准确性与配置语义
+**Branch**: `master`
+
+### Summary
+
+修复协议契约准确性与配置语义：纠正前端策略定性文案、移除废弃allowInsecure、收敛SS2022多用户至AES白名单、彻底根除REALITY假兜底与互推并推行严格校验
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `baa52bc` | fix(protocol): 纠正策略定性文案、清理废弃allowInsecure、收敛SS2022并根除REALITY假兜底 |
+
+### Status
+
+[OK] **Completed**

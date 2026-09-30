@@ -12,6 +12,7 @@ import (
 // XrayCompiler 强类型 Xray 配置单向编译器
 type XrayCompiler struct {
 	grpcPort int
+	registry *ProtocolRegistry
 }
 
 func NewXrayCompiler(grpcPort ...int) *XrayCompiler {
@@ -21,7 +22,21 @@ func NewXrayCompiler(grpcPort ...int) *XrayCompiler {
 	}
 	return &XrayCompiler{
 		grpcPort: port,
+		registry: DefaultProtocolRegistry(),
 	}
+}
+
+// WithProtocolRegistry 配置自定义协议适配器注册中心
+func (c *XrayCompiler) WithProtocolRegistry(reg *ProtocolRegistry) *XrayCompiler {
+	c.registry = reg
+	return c
+}
+
+func (c *XrayCompiler) getRegistry() *ProtocolRegistry {
+	if c != nil && c.registry != nil {
+		return c.registry
+	}
+	return DefaultProtocolRegistry()
 }
 
 // Compile 将系统业务数据编译为合法的 Xray 官方根配置对象
@@ -231,47 +246,7 @@ func (c *XrayCompiler) compileInbound(inb *domain.Inbound, users []domain.User) 
 	if inb.SniffingJSON != "" {
 		_ = json.Unmarshal([]byte(inb.SniffingJSON), &sniffing)
 	}
-
-	accessor := inb.GetStreamAccessor()
-	protocolLower := strings.ToLower(inb.Protocol)
-	inboundFlow := accessor.ResolveVisionFlow(inb.Protocol)
-	ssMethod := accessor.ResolveShadowsocksMethod()
-
-	// 收集并投影授权到该 Inbound 的用户 Clients (仅针对需要 clients 认证的代理协议)
-	isClientProto := protocolLower == "vless" || protocolLower == "vmess" || protocolLower == "trojan" || protocolLower == "shadowsocks"
-	var clients []XrayClient
-	if isClientProto {
-		for _, u := range users {
-			if !u.IsActive() {
-				continue
-			}
-			if !u.HasInbound(inb.Tag) {
-				continue
-			}
-
-			client := XrayClient{
-				Email: u.Email,
-				Level: 0,
-			}
-
-			switch protocolLower {
-			case "vless":
-				client.ID = u.UUID
-				client.Flow = inboundFlow
-			case "vmess":
-				client.ID = u.UUID
-			case "trojan":
-				client.Password = u.UUID
-			case "shadowsocks":
-				client.Password = u.UUID
-				client.Method = ssMethod
-			default:
-				client.ID = u.UUID
-			}
-
-			clients = append(clients, client)
-		}
-	}
+	accessor := NewInboundStreamAccessorFromInbound(inb)
 
 	// 服务端 Inbound REALITY 字段规范化清洗 (杜绝 Xray 内核 non-empty serverName 报错)
 	if streamSettings != nil && streamSettings.RealitySettings != nil {
@@ -322,41 +297,21 @@ func (c *XrayCompiler) compileInbound(inb *domain.Inbound, users []domain.User) 
 		settingsMap = make(map[string]interface{})
 	}
 
-	// 若为客户端代理协议 (vless, vmess, trojan, shadowsocks)，组装 clients
-	if isClientProto {
-		if len(clients) == 0 {
-			if rawClients, ok := settingsMap["clients"].([]interface{}); ok && len(rawClients) > 0 {
+	adapter, hasAdapter := c.getRegistry().ResolveAdapter(inb)
+	if hasAdapter {
+		clients, err := adapter.CompileClients(inb, users, accessor)
+		if err != nil {
+			return nil, err
+		}
+		if clients != nil {
+			rawClients, hasRaw := settingsMap["clients"].([]interface{})
+			if hasRaw && len(rawClients) > 0 && len(filterActiveUsersForInbound(inb, users)) == 0 {
 				// 保留原本存在于 settingsJson 的 clients
 			} else {
-				placeholderID := "00000000-0000-0000-0000-000000000001"
-				placeholderClient := XrayClient{
-					ID:       placeholderID,
-					Password: placeholderID,
-					Email:    "default@panel.local",
-					Flow:     inboundFlow,
-					Level:    0,
-				}
-				if protocolLower == "shadowsocks" {
-					placeholderClient.Method = ssMethod
-				}
-				clients = append(clients, placeholderClient)
 				settingsMap["clients"] = clients
 			}
-		} else {
-			settingsMap["clients"] = clients
 		}
-	} else if protocolLower == "socks" {
-		// socks 协议特殊默认值：支持 udp
-		if _, ok := settingsMap["udp"]; !ok {
-			settingsMap["udp"] = true
-		}
-		if _, ok := settingsMap["auth"]; !ok {
-			settingsMap["auth"] = "noauth"
-		}
-	}
-
-	if protocolLower == "vless" && settingsMap["decryption"] == nil {
-		settingsMap["decryption"] = "none"
+		adapter.DecorateSettings(inb, settingsMap)
 	}
 
 	settingsBytes, err := json.Marshal(settingsMap)

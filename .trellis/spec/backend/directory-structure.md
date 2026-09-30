@@ -8,7 +8,7 @@
 
 1. **`internal/domain` (纯领域模型与规则)**
    - 包含核心数据结构（如 `User`, `Inbound`, `Outbound`, `Ticket`）与纯函数规则；
-   - **绝对禁止包含任何网络 I/O、数据库操作或外部框架依赖**；
+   - **绝对禁止包含任何网络 I/O、数据库操作或外部框架/适配器依赖**（严禁将外部协议或核心特有 DTO，例如 Xray RealitySettings、XHTTPSettings、Vision 流控等泄漏进 domain；外部专用流解析器如 `InboundStreamAccessor` 必须收敛在 `internal/adapter/xray`）；
    - 必须保持 100% 单元测试可测性。
 
 2. **`internal/service` (业务用例编排)**
@@ -18,7 +18,8 @@
 
 3. **`internal/adapter` (技术适配器)**
    - 具体实现存储（GORM SQLite）、Xray 通信（gRPC）、Telegram Bot 轮询；
-   - 负责网络协议转换与外部错误隔离。
+   - 负责网络协议转换与外部错误隔离；
+   - **Xray 协议适配中心**：所有协议配置编译（`compiler.go`）与动态 gRPC 下发（`account_builder.go`）必须通过统一的 `ProtocolAdapter` 策略中心派发，杜绝在各处硬编码协议 switch 分支；Shadowsocks 协议支持区分传统 AEAD 与 SS2022 Multi-user (Sub-Key) 模式。
 
 4. **`internal/delivery/http` & `cron` (接入交付)**
    - HTTP Handler 负责反序列化、入参校验（Validator）并调用 Service；

@@ -311,6 +311,50 @@ func (x *ShadowsocksAccount) GetIvCheck() bool {
 	return false
 }
 
+type Shadowsocks2022Account struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Key           string                 `protobuf:"bytes,1,opt,name=key,proto3" json:"key,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *Shadowsocks2022Account) Reset() {
+	*x = Shadowsocks2022Account{}
+	mi := &file_proxy_proto_msgTypes[4]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *Shadowsocks2022Account) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*Shadowsocks2022Account) ProtoMessage() {}
+
+func (x *Shadowsocks2022Account) ProtoReflect() protoreflect.Message {
+	mi := &file_proxy_proto_msgTypes[4]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use Shadowsocks2022Account.ProtoReflect.Descriptor instead.
+func (*Shadowsocks2022Account) Descriptor() ([]byte, []int) {
+	return file_proxy_proto_rawDescGZIP(), []int{4}
+}
+
+func (x *Shadowsocks2022Account) GetKey() string {
+	if x != nil {
+		return x.Key
+	}
+	return ""
+}
+
 var File_proxy_proto protoreflect.FileDescriptor
 
 const file_proxy_proto_rawDesc = "" +
@@ -333,7 +377,9 @@ const file_proxy_proto_rawDesc = "" +
 	"\bpassword\x18\x01 \x01(\tR\bpassword\x12=\n" +
 	"\vcipher_type\x18\x02 \x01(\x0e2\x1c.xray.panel.proxy.CipherTypeR\n" +
 	"cipherType\x12\x19\n" +
-	"\biv_check\x18\x03 \x01(\bR\aivCheck*t\n" +
+	"\biv_check\x18\x03 \x01(\bR\aivCheck\"*\n" +
+	"\x16Shadowsocks2022Account\x12\x10\n" +
+	"\x03key\x18\x01 \x01(\tR\x03key*t\n" +
 	"\n" +
 	"CipherType\x12\v\n" +
 	"\aUNKNOWN\x10\x00\x12\x0f\n" +
@@ -356,17 +402,18 @@ func file_proxy_proto_rawDescGZIP() []byte {
 }
 
 var file_proxy_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
-var file_proxy_proto_msgTypes = make([]protoimpl.MessageInfo, 4)
+var file_proxy_proto_msgTypes = make([]protoimpl.MessageInfo, 5)
 var file_proxy_proto_goTypes = []any{
-	(CipherType)(0),            // 0: xray.panel.proxy.CipherType
-	(*VLESSAccount)(nil),       // 1: xray.panel.proxy.VLESSAccount
-	(*VMessAccount)(nil),       // 2: xray.panel.proxy.VMessAccount
-	(*TrojanAccount)(nil),      // 3: xray.panel.proxy.TrojanAccount
-	(*ShadowsocksAccount)(nil), // 4: xray.panel.proxy.ShadowsocksAccount
-	(*SecurityConfig)(nil),     // 5: xray.panel.protocol.SecurityConfig
+	(CipherType)(0),                // 0: xray.panel.proxy.CipherType
+	(*VLESSAccount)(nil),           // 1: xray.panel.proxy.VLESSAccount
+	(*VMessAccount)(nil),           // 2: xray.panel.proxy.VMessAccount
+	(*TrojanAccount)(nil),          // 3: xray.panel.proxy.TrojanAccount
+	(*ShadowsocksAccount)(nil),     // 4: xray.panel.proxy.ShadowsocksAccount
+	(*Shadowsocks2022Account)(nil), // 5: xray.panel.proxy.Shadowsocks2022Account
+	(*SecurityConfig)(nil),         // 6: xray.panel.protocol.SecurityConfig
 }
 var file_proxy_proto_depIdxs = []int32{
-	5, // 0: xray.panel.proxy.VMessAccount.security_settings:type_name -> xray.panel.protocol.SecurityConfig
+	6, // 0: xray.panel.proxy.VMessAccount.security_settings:type_name -> xray.panel.protocol.SecurityConfig
 	0, // 1: xray.panel.proxy.ShadowsocksAccount.cipher_type:type_name -> xray.panel.proxy.CipherType
 	2, // [2:2] is the sub-list for method output_type
 	2, // [2:2] is the sub-list for method input_type
@@ -387,7 +434,7 @@ func file_proxy_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_proxy_proto_rawDesc), len(file_proxy_proto_rawDesc)),
 			NumEnums:      1,
-			NumMessages:   4,
+			NumMessages:   5,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

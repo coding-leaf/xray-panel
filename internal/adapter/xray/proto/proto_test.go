@@ -147,6 +147,31 @@ func TestProtoSerializationAndRoundTrip(t *testing.T) {
 		}
 	})
 
+	t.Run("Shadowsocks2022 Account", func(t *testing.T) {
+		acc := &myproto.Shadowsocks2022Account{
+			Key: "subkey-secret-key-1234567890123456",
+		}
+		tm, err := myproto.ToTypedMessage(acc)
+		if err != nil {
+			t.Fatalf("ToTypedMessage failed: %v", err)
+		}
+		if tm.Type != myproto.TypeShadowsocks2022Account {
+			t.Fatalf("expected type %s, got %s", myproto.TypeShadowsocks2022Account, tm.Type)
+		}
+
+		raw, err := tm.GetInstance()
+		if err != nil {
+			t.Fatalf("GetInstance failed: %v", err)
+		}
+		got, ok := raw.(*myproto.Shadowsocks2022Account)
+		if !ok {
+			t.Fatalf("expected *Shadowsocks2022Account, got %T", raw)
+		}
+		if got.Key != acc.Key {
+			t.Fatalf("mismatch: got %+v, want %+v", got, acc)
+		}
+	})
+
 	t.Run("AddUserOperation and RemoveUserOperation", func(t *testing.T) {
 		addOp := &myproto.AddUserOperation{
 			User: &myproto.User{

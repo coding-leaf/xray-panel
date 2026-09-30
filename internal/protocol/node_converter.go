@@ -1,6 +1,7 @@
 package protocol
 
 import (
+	"encoding/json"
 	"net"
 	"strings"
 
@@ -46,6 +47,41 @@ func cleanHost(raw string) string {
 	return s
 }
 
+type inboundRawStream struct {
+	Network         string `json:"network"`
+	Security        string `json:"security"`
+	RealitySettings *struct {
+		Dest        string   `json:"dest"`
+		ServerNames []string `json:"serverNames"`
+		ServerName  string   `json:"serverName"`
+		PrivateKey  string   `json:"privateKey"`
+		PublicKey   string   `json:"publicKey"`
+		ShortIds    []string `json:"shortIds"`
+		ShortId     string   `json:"shortId"`
+		Fingerprint string   `json:"fingerprint"`
+		SpiderX     string   `json:"spiderX"`
+	} `json:"realitySettings"`
+	TLSSettings *struct {
+		ServerName string   `json:"serverName"`
+		ALPN       []string `json:"alpn"`
+	} `json:"tlsSettings"`
+	XHTTPSettings *struct {
+		Path    string            `json:"path"`
+		Mode    string            `json:"mode"`
+		Host    string            `json:"host"`
+		Headers map[string]string `json:"headers"`
+	} `json:"xhttpSettings"`
+	WSSettings *struct {
+		Path    string            `json:"path"`
+		Headers map[string]string `json:"headers"`
+		Host    string            `json:"host"`
+	} `json:"wsSettings"`
+	GRPCSettings *struct {
+		ServiceName string `json:"serviceName"`
+		MultiMode   bool   `json:"multiMode"`
+	} `json:"grpcSettings"`
+}
+
 // InboundToNodeConfig 将 domain.Inbound 与 domain.User 转换为通用的 protocol.NodeConfig
 func InboundToNodeConfig(inbound *domain.Inbound, user *domain.User, hostDomain string, defaultPort int) *NodeConfig {
 	if inbound == nil || user == nil {
@@ -70,9 +106,23 @@ func InboundToNodeConfig(inbound *domain.Inbound, user *domain.User, hostDomain 
 		targetPort = defaultPort
 	}
 
-	accessor := inbound.GetStreamAccessor()
-	network := accessor.Network()
-	security := accessor.Security()
+	var rawStream inboundRawStream
+	if s := strings.TrimSpace(inbound.StreamSettings); s != "" && s != "null" && s != "{}" {
+		_ = json.Unmarshal([]byte(s), &rawStream)
+	}
+	var settingsMap map[string]interface{}
+	if s := strings.TrimSpace(inbound.SettingsJSON); s != "" && s != "null" && s != "{}" {
+		_ = json.Unmarshal([]byte(s), &settingsMap)
+	}
+
+	network := strings.ToLower(strings.TrimSpace(rawStream.Network))
+	if network == "" {
+		network = "tcp"
+	}
+	security := strings.ToLower(strings.TrimSpace(rawStream.Security))
+	if security == "" {
+		security = "none"
+	}
 
 	effectiveUUID := user.UUID
 	if inbound.RouteID > 0 && (inbound.Protocol == "" || strings.EqualFold(inbound.Protocol, "vless")) {
@@ -89,31 +139,44 @@ func InboundToNodeConfig(inbound *domain.Inbound, user *domain.User, hostDomain 
 	node.SetParam("security", security)
 
 	// 1. TLS 配置
-	if security == "tls" {
-		if sni := accessor.GetTLSServerName(); sni != "" {
-			node.SetParam("sni", sni)
+	if security == "tls" && rawStream.TLSSettings != nil {
+		if rawStream.TLSSettings.ServerName != "" {
+			node.SetParam("sni", rawStream.TLSSettings.ServerName)
 		}
-		if alpns := accessor.GetTLSALPN(); len(alpns) > 0 {
-			node.SetParam("alpn", strings.Join(alpns, ","))
+		if len(rawStream.TLSSettings.ALPN) > 0 {
+			node.SetParam("alpn", strings.Join(rawStream.TLSSettings.ALPN, ","))
 		}
 	}
 
 	// 2. REALITY 配置
-	if security == "reality" {
-		if pbk := accessor.GetRealityPublicKey(); pbk != "" {
+	if security == "reality" && rawStream.RealitySettings != nil {
+		r := rawStream.RealitySettings
+		pbk := r.PublicKey
+		if pbk == "" && r.PrivateKey != "" {
+			pbk = crypto.DerivePublicKeyFromPrivate(r.PrivateKey)
+		}
+		if pbk != "" {
 			node.SetParam("pbk", pbk)
 		}
-		if sni := accessor.GetRealityServerName(); sni != "" {
+		sni := r.ServerName
+		if sni == "" && len(r.ServerNames) > 0 {
+			sni = r.ServerNames[0]
+		}
+		if sni != "" {
 			node.SetParam("sni", sni)
 		}
-		if sid := accessor.GetRealityShortID(); sid != "" {
+		sid := r.ShortId
+		if sid == "" && len(r.ShortIds) > 0 {
+			sid = r.ShortIds[0]
+		}
+		if sid != "" {
 			node.SetParam("sid", sid)
 		}
-		if spx := accessor.GetRealitySpiderX(); spx != "" {
-			node.SetParam("spx", spx)
+		if r.SpiderX != "" {
+			node.SetParam("spx", r.SpiderX)
 		}
-		if fp := accessor.GetRealityFingerprint(); fp != "" {
-			node.SetParam("fp", fp)
+		if r.Fingerprint != "" {
+			node.SetParam("fp", r.Fingerprint)
 		} else {
 			node.SetParam("fp", "chrome")
 		}
@@ -122,25 +185,48 @@ func InboundToNodeConfig(inbound *domain.Inbound, user *domain.User, hostDomain 
 	// 3. 传输层参数
 	switch network {
 	case "ws":
-		if path := accessor.GetWSPath(); path != "" {
-			node.SetParam("path", path)
-		}
-		if host := accessor.GetWSHost(); host != "" {
-			node.SetParam("host", host)
+		if rawStream.WSSettings != nil {
+			if rawStream.WSSettings.Path != "" {
+				node.SetParam("path", rawStream.WSSettings.Path)
+			}
+			host := ""
+			if rawStream.WSSettings.Headers != nil {
+				if h, ok := rawStream.WSSettings.Headers["Host"]; ok && h != "" {
+					host = h
+				} else if h, ok := rawStream.WSSettings.Headers["host"]; ok && h != "" {
+					host = h
+				}
+			}
+			if host == "" && rawStream.WSSettings.Host != "" {
+				host = rawStream.WSSettings.Host
+			}
+			if host != "" {
+				node.SetParam("host", host)
+			}
 		}
 	case "grpc":
-		if sn := accessor.GetGRPCServiceName(); sn != "" {
-			node.SetParam("serviceName", sn)
+		if rawStream.GRPCSettings != nil && rawStream.GRPCSettings.ServiceName != "" {
+			node.SetParam("serviceName", rawStream.GRPCSettings.ServiceName)
 		}
 	case "xhttp", "splithttp":
-		if path := accessor.GetXHTTPPath(); path != "" {
-			node.SetParam("path", path)
-		}
-		if mode := accessor.GetXHTTPMode(); mode != "" {
-			node.SetParam("mode", mode)
-		}
-		if host := accessor.GetXHTTPHost(); host != "" {
-			node.SetParam("host", host)
+		if rawStream.XHTTPSettings != nil {
+			if rawStream.XHTTPSettings.Path != "" {
+				node.SetParam("path", rawStream.XHTTPSettings.Path)
+			}
+			if rawStream.XHTTPSettings.Mode != "" {
+				node.SetParam("mode", rawStream.XHTTPSettings.Mode)
+			}
+			host := rawStream.XHTTPSettings.Host
+			if host == "" && rawStream.XHTTPSettings.Headers != nil {
+				if h, ok := rawStream.XHTTPSettings.Headers["Host"]; ok && h != "" {
+					host = h
+				} else if h, ok := rawStream.XHTTPSettings.Headers["host"]; ok && h != "" {
+					host = h
+				}
+			}
+			if host != "" {
+				node.SetParam("host", host)
+			}
 		}
 	}
 
@@ -148,10 +234,23 @@ func InboundToNodeConfig(inbound *domain.Inbound, user *domain.User, hostDomain 
 	// 协议与传输层强约束：flow (XTLS Vision) 仅限 VLESS 协议且传输为 TCP + (REALITY 或 TLS)。
 	// 对于非 TCP 传输（如 xhttp, splithttp, ws, grpc）或非 TLS/REALITY，强制剔除 flow 参数杜绝污染。
 	if strings.EqualFold(node.Protocol, "vless") {
-		flow := accessor.ResolveVisionFlow(inbound.Protocol)
-		if flow == "" && user.Flow != "" {
-			// 若流配置未显式指定，且用户实体配有流控，再次严格验证传输层约束
-			if (network == "" || network == "tcp") && (security == "reality" || security == "tls") {
+		flow := ""
+		if (network == "" || network == "tcp") && (security == "reality" || security == "tls") {
+			customFlow := ""
+			if settingsMap != nil {
+				if f, ok := settingsMap["flow"].(string); ok {
+					customFlow = strings.TrimSpace(f)
+				}
+			}
+			if strings.EqualFold(customFlow, "none") {
+				flow = ""
+			} else if customFlow != "" {
+				flow = customFlow
+			} else {
+				flow = "xtls-rprx-vision"
+			}
+
+			if flow == "" && user.Flow != "" {
 				flow = user.Flow
 			}
 		}
@@ -161,20 +260,33 @@ func InboundToNodeConfig(inbound *domain.Inbound, user *domain.User, hostDomain 
 	}
 
 	// 5. Shadowsocks 加密方式
-	if strings.EqualFold(node.Protocol, "shadowsocks") {
-		node.SetParam("method", accessor.ResolveShadowsocksMethod())
+	switch strings.ToLower(strings.TrimSpace(node.Protocol)) {
+	case "shadowsocks", "ss", "shadowsocks-2022", "ss-2022", "ss2022":
+		method := "aes-128-gcm"
+		if strings.Contains(strings.ToLower(node.Protocol), "2022") {
+			method = "2022-blake3-aes-128-gcm"
+		}
+		if settingsMap != nil {
+			if m, ok := settingsMap["method"].(string); ok && strings.TrimSpace(m) != "" {
+				method = strings.TrimSpace(m)
+			} else if c, ok := settingsMap["cipher"].(string); ok && strings.TrimSpace(c) != "" {
+				method = strings.TrimSpace(c)
+			}
+		}
+		node.SetParam("method", method)
 	}
 
 	// 6. Socks / HTTP 认证
 	if strings.EqualFold(node.Protocol, "socks") || strings.EqualFold(node.Protocol, "http") {
-		sm := accessor.GetSettingsMap()
-		if accounts, ok := sm["accounts"].([]interface{}); ok && len(accounts) > 0 {
-			if acc, ok := accounts[0].(map[string]interface{}); ok {
-				if u, ok := acc["user"].(string); ok && u != "" {
-					node.SetParam("user", u)
-				}
-				if p, ok := acc["pass"].(string); ok && p != "" {
-					node.SetParam("pass", p)
+		if settingsMap != nil {
+			if accounts, ok := settingsMap["accounts"].([]interface{}); ok && len(accounts) > 0 {
+				if acc, ok := accounts[0].(map[string]interface{}); ok {
+					if u, ok := acc["user"].(string); ok && u != "" {
+						node.SetParam("user", u)
+					}
+					if p, ok := acc["pass"].(string); ok && p != "" {
+						node.SetParam("pass", p)
+					}
 				}
 			}
 		}

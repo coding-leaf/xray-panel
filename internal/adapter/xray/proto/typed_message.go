@@ -7,12 +7,13 @@ import (
 )
 
 const (
-	TypeVLESSAccount        = "xray.proxy.vless.Account"
-	TypeVMessAccount        = "xray.proxy.vmess.Account"
-	TypeTrojanAccount       = "xray.proxy.trojan.Account"
-	TypeShadowsocksAccount  = "xray.proxy.shadowsocks.Account"
-	TypeAddUserOperation    = "xray.app.proxyman.command.AddUserOperation"
-	TypeRemoveUserOperation = "xray.app.proxyman.command.RemoveUserOperation"
+	TypeVLESSAccount           = "xray.proxy.vless.Account"
+	TypeVMessAccount           = "xray.proxy.vmess.Account"
+	TypeTrojanAccount          = "xray.proxy.trojan.Account"
+	TypeShadowsocksAccount     = "xray.proxy.shadowsocks.Account"
+	TypeShadowsocks2022Account = "xray.proxy.shadowsocks_2022.Account"
+	TypeAddUserOperation       = "xray.app.proxyman.command.AddUserOperation"
+	TypeRemoveUserOperation    = "xray.app.proxyman.command.RemoveUserOperation"
 )
 
 type VlessAccount = VLESSAccount
@@ -33,6 +34,8 @@ func ToTypedMessage(msg proto.Message) (*TypedMessage, error) {
 		typeName = TypeTrojanAccount
 	case *ShadowsocksAccount:
 		typeName = TypeShadowsocksAccount
+	case *Shadowsocks2022Account:
+		typeName = TypeShadowsocks2022Account
 	case *AddUserOperation:
 		typeName = TypeAddUserOperation
 	case *RemoveUserOperation:
@@ -75,6 +78,8 @@ func (m *TypedMessage) GetInstance() (proto.Message, error) {
 		target = new(TrojanAccount)
 	case TypeShadowsocksAccount:
 		target = new(ShadowsocksAccount)
+	case TypeShadowsocks2022Account:
+		target = new(Shadowsocks2022Account)
 	case TypeAddUserOperation:
 		target = new(AddUserOperation)
 	case TypeRemoveUserOperation:

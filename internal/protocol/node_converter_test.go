@@ -199,6 +199,82 @@ func TestBuildShareLink_FullParameterParity(t *testing.T) {
 			t.Errorf("unexpected node 1 UUID: %s", nodes[1].UUID)
 		}
 	})
+
+	t.Run("Shadowsocks 2022 link generation and cipher parity", func(t *testing.T) {
+		inbound := &domain.Inbound{
+			Tag:          "ss2022-node",
+			Protocol:     "shadowsocks",
+			Port:         8388,
+			Listen:       "1.2.3.4",
+			Remark:       "SS2022-Blake3",
+			SettingsJSON: `{"method":"2022-blake3-aes-128-gcm"}`,
+		}
+		userSS := &domain.User{
+			UUID:  "WmdGZzNuWk1QVGJIdkJyV1hKdlhRQUFBQUFBQUFBQUE=",
+			Email: "ss2022@example.com",
+		}
+		link := protocol.BuildShareLink(inbound, userSS, "", 0)
+		if !strings.HasPrefix(link, "ss://") {
+			t.Fatalf("expected ss:// prefix, got %s", link)
+		}
+		node := protocol.InboundToNodeConfig(inbound, userSS, "", 0)
+		if node.GetParam("method", "") != "2022-blake3-aes-128-gcm" {
+			t.Errorf("expected method 2022-blake3-aes-128-gcm, got %s", node.GetParam("method", ""))
+		}
+		clash, err := protocol.ToClash(node)
+		if err != nil {
+			t.Fatalf("ToClash failed: %v", err)
+		}
+		if clash["cipher"] != "2022-blake3-aes-128-gcm" {
+			t.Errorf("expected clash cipher 2022-blake3-aes-128-gcm, got %v", clash["cipher"])
+		}
+		singbox, err := protocol.ToSingBox(node)
+		if err != nil {
+			t.Fatalf("ToSingBox failed: %v", err)
+		}
+		if singbox["method"] != "2022-blake3-aes-128-gcm" {
+			t.Errorf("expected singbox method 2022-blake3-aes-128-gcm, got %v", singbox["method"])
+		}
+
+		link, linkErr := protocol.FormatLink(node)
+		if linkErr != nil {
+			t.Fatalf("FormatLink failed: %v", linkErr)
+		}
+		if !strings.HasPrefix(link, "ss://") {
+			t.Fatalf("expected ss:// prefix, got %s", link)
+		}
+	})
+
+	t.Run("Shadowsocks 2022 protocol tag alias ss2022", func(t *testing.T) {
+		inbound := &domain.Inbound{
+			Tag:            "ss2022-tag",
+			Protocol:       "ss2022",
+			Listen:         "0.0.0.0",
+			Port:           8388,
+			ExternalHost:   "ss.example.com",
+			SettingsJSON:   `{"method":"2022-blake3-aes-256-gcm"}`,
+			StreamSettings: `{"network":"tcp","security":"none"}`,
+			Remark:         "SS2022 Node",
+			Enabled:        true,
+		}
+		userSS := &domain.User{
+			Email:       "ss-user@example.com",
+			UUID:        "mypassword123",
+			InboundTags: "ss2022-tag",
+			Enabled:     true,
+		}
+		node := protocol.InboundToNodeConfig(inbound, userSS, "", 0)
+		if node.GetParam("method", "") != "2022-blake3-aes-256-gcm" {
+			t.Errorf("expected method 2022-blake3-aes-256-gcm, got %s", node.GetParam("method", ""))
+		}
+		link, err := protocol.FormatLink(node)
+		if err != nil {
+			t.Fatalf("FormatLink failed: %v", err)
+		}
+		if !strings.HasPrefix(link, "ss://") {
+			t.Fatalf("expected ss:// prefix, got %s", link)
+		}
+	})
 }
 
 func TestInboundsToNodeConfigs_UserIsolation(t *testing.T) {

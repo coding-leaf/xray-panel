@@ -36,3 +36,8 @@ message ShadowsocksAccount {
   CipherType cipher_type = 2;
   bool iv_check = 3;
 }
+
+message Shadowsocks2022Account {
+  string key = 1;
+}
+

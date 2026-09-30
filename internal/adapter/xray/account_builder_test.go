@@ -69,6 +69,45 @@ func TestAccountRegistry_BuildAccountMessage(t *testing.T) {
 		}
 	})
 
+	t.Run("Shadowsocks 2022 blake3-aes-128-gcm", func(t *testing.T) {
+		inb := &domain.Inbound{
+			Protocol:     "shadowsocks",
+			SettingsJSON: `{"method":"2022-blake3-aes-128-gcm"}`,
+		}
+		msg, err := BuildAccountMessage(inb, user)
+		if err != nil {
+			t.Fatalf("BuildAccountMessage failed: %v", err)
+		}
+		if msg.Type != proto.TypeShadowsocks2022Account {
+			t.Errorf("expected type %s, got %s", proto.TypeShadowsocks2022Account, msg.Type)
+		}
+		raw, err := msg.GetInstance()
+		if err != nil {
+			t.Fatalf("failed to get instance: %v", err)
+		}
+		acc, ok := raw.(*proto.Shadowsocks2022Account)
+		if !ok {
+			t.Fatalf("expected *proto.Shadowsocks2022Account, got %T", raw)
+		}
+		if acc.Key != testUUID {
+			t.Errorf("expected key %s, got %s", testUUID, acc.Key)
+		}
+	})
+
+	t.Run("Shadowsocks 2022 protocol tag ss2022", func(t *testing.T) {
+		inb := &domain.Inbound{
+			Protocol:     "ss2022",
+			SettingsJSON: `{"method":"2022-blake3-aes-256-gcm"}`,
+		}
+		msg, err := BuildAccountMessage(inb, user)
+		if err != nil {
+			t.Fatalf("BuildAccountMessage failed: %v", err)
+		}
+		if msg.Type != proto.TypeShadowsocks2022Account {
+			t.Errorf("expected type %s, got %s", proto.TypeShadowsocks2022Account, msg.Type)
+		}
+	})
+
 	t.Run("Unsupported protocol", func(t *testing.T) {
 		inb := &domain.Inbound{
 			Protocol: "unknown-proto",
@@ -109,5 +148,33 @@ func TestAccountRegistry_DynamicRegistration(t *testing.T) {
 	}
 	if msg.Type != "custom.mock.Account" {
 		t.Errorf("expected custom.mock.Account, got %s", msg.Type)
+	}
+}
+
+func TestProtocolRegistry_DirectAndResolve(t *testing.T) {
+	reg := NewProtocolRegistry()
+
+	// 1. Verify standard resolution
+	adVless, ok := reg.ResolveAdapter(&domain.Inbound{Protocol: "vless"})
+	if !ok || adVless.Protocol() != "vless" {
+		t.Fatalf("expected vless adapter, got %v", adVless)
+	}
+
+	// 2. Verify SS AEAD resolution
+	adSS, ok := reg.ResolveAdapter(&domain.Inbound{
+		Protocol:     "shadowsocks",
+		SettingsJSON: `{"method":"aes-128-gcm"}`,
+	})
+	if !ok || adSS.Protocol() != "shadowsocks" {
+		t.Fatalf("expected shadowsocks adapter, got %v", adSS)
+	}
+
+	// 3. Verify SS2022 auto-resolution via method 2022-blake3-*
+	adSS2022, ok := reg.ResolveAdapter(&domain.Inbound{
+		Protocol:     "shadowsocks",
+		SettingsJSON: `{"method":"2022-blake3-chacha20-poly1305"}`,
+	})
+	if !ok || adSS2022.Protocol() != "shadowsocks-2022" {
+		t.Fatalf("expected shadowsocks-2022 adapter, got %v", adSS2022)
 	}
 }

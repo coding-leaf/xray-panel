@@ -71,7 +71,7 @@
 
 ### v2.6.0 (2026-09) - 架构整理、通用类抽取与 Xray-core 特性扩展性升级
 - **统一流配置强类型访问器 (InboundStreamAccessor)**：
-  - 抽取 `domain.InboundStreamAccessor`，统一消除配置编译（`compiler`）、gRPC 动态下发、客户端订阅转换中的重复手写解包；
+  - 抽取 `xray.InboundStreamAccessor`，统一消除配置编译（`compiler`）与 gRPC 动态下发中的重复手写解包；
   - 强类型收敛 Vision Flow 与 Shadowsocks Cipher 提取逻辑，防止非 TCP 传输产生 flow 参数污染；
 - **gRPC 账户构建策略中心 (AccountBuilder Registry)**：
   - 抽象策略模式与并发安全注册中心，彻底剥离 `grpc_client.go` 单体大 switch；

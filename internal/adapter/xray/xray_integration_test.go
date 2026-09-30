@@ -10,6 +10,8 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
+	"strings"
 	"testing"
 	"time"
 
@@ -19,19 +21,53 @@ import (
 	"google.golang.org/grpc/credentials/insecure"
 )
 
-func findXrayBinary() (string, error) {
-	// 1. Check common relative paths
+// FindXrayBinary locates the Xray binary on the system or temp directory
+func FindXrayBinary() (string, error) {
+	// 0. Check explicit environment variables
+	for _, envKey := range []string{"XRAY_BIN", "XRAY_BIN_PATH"} {
+		if val := strings.TrimSpace(os.Getenv(envKey)); val != "" {
+			if fi, err := os.Stat(val); err == nil && !fi.IsDir() {
+				if abs, err := filepath.Abs(val); err == nil {
+					return abs, nil
+				}
+				return val, nil
+			}
+		}
+	}
+
+	// 1. Check temp directory pre-release cache
+	tempCandidates := []string{
+		filepath.Join(os.TempDir(), "opencode", "xray_pre", "xray.exe"),
+		filepath.Join(os.TempDir(), "opencode", "xray_pre", "xray"),
+	}
+	for _, p := range tempCandidates {
+		if fi, err := os.Stat(p); err == nil && !fi.IsDir() {
+			return p, nil
+		}
+	}
+
+	// 2. Check common relative paths
 	candidates := []string{
 		"../../../bin/xray",
 		"../../bin/xray",
 		"./bin/xray",
 	}
+	if runtime.GOOS == "windows" {
+		candidates = append(candidates,
+			"../../../bin/xray.exe",
+			"../../bin/xray.exe",
+			"./bin/xray.exe",
+		)
+	}
 
-	// 2. Search upwards from current directory to repository root
+	// 3. Search upwards from current directory to repository root
 	if wd, err := os.Getwd(); err == nil {
 		dir := wd
 		for {
 			candidates = append(candidates, filepath.Join(dir, "bin", "xray"))
+			if runtime.GOOS == "windows" {
+				candidates = append(candidates, filepath.Join(dir, "bin", "xray.exe"))
+			}
 			if _, err := os.Stat(filepath.Join(dir, "go.mod")); err == nil {
 				break
 			}
@@ -44,7 +80,10 @@ func findXrayBinary() (string, error) {
 	}
 
 	for _, p := range candidates {
-		if fi, err := os.Stat(p); err == nil && !fi.IsDir() && (fi.Mode()&0111 != 0) {
+		if fi, err := os.Stat(p); err == nil && !fi.IsDir() {
+			if runtime.GOOS != "windows" && fi.Mode()&0111 == 0 {
+				continue
+			}
 			abs, err := filepath.Abs(p)
 			if err == nil {
 				return abs, nil
@@ -53,9 +92,11 @@ func findXrayBinary() (string, error) {
 		}
 	}
 
-	// 3. Check system PATH
-	if p, err := exec.LookPath("xray"); err == nil {
-		return p, nil
+	// 4. Check system PATH
+	for _, binName := range []string{"xray", "xray.exe"} {
+		if p, err := exec.LookPath(binName); err == nil {
+			return p, nil
+		}
 	}
 
 	return "", errors.New("xray binary not found")
@@ -71,7 +112,7 @@ func getFreePort(t *testing.T) int {
 }
 
 func TestXrayCore_GRPC_RealBinary(t *testing.T) {
-	xrayBin, err := findXrayBinary()
+	xrayBin, err := FindXrayBinary()
 	if err != nil {
 		t.Skip("xray binary not found, skipping integration test")
 	}

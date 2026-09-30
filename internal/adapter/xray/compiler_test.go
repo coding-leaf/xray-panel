@@ -2,6 +2,8 @@ package xray_test
 
 import (
 	"encoding/json"
+	"os"
+	"os/exec"
 	"testing"
 	"time"
 
@@ -9,6 +11,45 @@ import (
 	xproto "panel/internal/adapter/xray/proto"
 	"panel/internal/domain"
 )
+
+func validateWithXrayCore(t *testing.T, jsonBytes []byte) {
+	t.Helper()
+	xrayBin, err := xray.FindXrayBinary()
+	if err != nil {
+		return
+	}
+
+	// For test validation, strip Unix /var/log paths if running on Windows so logger doesn't fail on nonexistent dirs
+	var cfgMap map[string]interface{}
+	if err := json.Unmarshal(jsonBytes, &cfgMap); err == nil {
+		if logObj, ok := cfgMap["log"].(map[string]interface{}); ok {
+			logObj["access"] = "none"
+			logObj["error"] = "none"
+		}
+		if modified, err := json.Marshal(cfgMap); err == nil {
+			jsonBytes = modified
+		}
+	}
+
+	tmpFile, err := os.CreateTemp("", "xray_compile_test_*.json")
+	if err != nil {
+		t.Fatalf("failed to create temp file for xray test: %v", err)
+	}
+	tmpPath := tmpFile.Name()
+	defer os.Remove(tmpPath)
+
+	if _, err := tmpFile.Write(jsonBytes); err != nil {
+		_ = tmpFile.Close()
+		t.Fatalf("failed to write config to temp file: %v", err)
+	}
+	_ = tmpFile.Close()
+
+	cmd := exec.Command(xrayBin, "run", "-test", "-c", tmpPath)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("Xray-core validation failed on compiled config: %v\nOutput: %s\nConfig:\n%s", err, string(output), string(jsonBytes))
+	}
+}
 
 func TestXrayCompiler_Compile(t *testing.T) {
 	compiler := xray.NewXrayCompiler()
@@ -499,7 +540,7 @@ func TestCompiler_ShadowsocksMethodBuild(t *testing.T) {
 		}
 	})
 
-	t.Run("Shadowsocks placeholder client generates method and builds in Xray-core", func(t *testing.T) {
+	t.Run("Shadowsocks with no active users compiles with empty clients without placeholder", func(t *testing.T) {
 		inbounds := []domain.Inbound{
 			{
 				Tag:          "ss-empty-in",
@@ -519,11 +560,92 @@ func TestCompiler_ShadowsocksMethodBuild(t *testing.T) {
 
 		var rawConfig2 map[string]interface{}
 		if err := json.Unmarshal(jsonBytes, &rawConfig2); err != nil {
-			t.Fatalf("DecodeJSON failed for Shadowsocks placeholder: %v", err)
+			t.Fatalf("DecodeJSON failed for Shadowsocks: %v", err)
 		}
 		if rawConfig2["inbounds"] == nil {
 			t.Fatal("Expected non-nil inbounds")
 		}
+		inb0 := rawConfig2["inbounds"].([]interface{})[0].(map[string]interface{})
+		settings := inb0["settings"].(map[string]interface{})
+		clients := settings["clients"].([]interface{})
+		if len(clients) != 0 {
+			t.Fatalf("expected 0 clients without placeholder, got %d", len(clients))
+		}
+		validateWithXrayCore(t, jsonBytes)
+	})
+
+	t.Run("Shadowsocks 2022 multi-user compilation with user", func(t *testing.T) {
+		inbounds := []domain.Inbound{
+			{
+				Tag:          "ss2022-in",
+				Listen:       "0.0.0.0",
+				Port:         8390,
+				Protocol:     "shadowsocks",
+				SettingsJSON: `{"method":"2022-blake3-aes-128-gcm","password":"MTIzNDU2Nzg5MDEyMzQ1Ng=="}`,
+				Enabled:      true,
+			},
+		}
+		users := []domain.User{
+			{
+				Email:       "ss2022-user@test.com",
+				UUID:        "YWJjZGVmZ2hpamtsbW5vcA==", // 16 bytes base64 for sub-key
+				Enabled:     true,
+				InboundTags: "ss2022-in",
+			},
+		}
+		jsonBytes, err := c.CompileToJSON(inbounds, []domain.Outbound{{Tag: "direct", Protocol: "freedom"}}, nil, nil, users)
+		if err != nil {
+			t.Fatalf("CompileToJSON failed: %v", err)
+		}
+		var rawConfig map[string]interface{}
+		_ = json.Unmarshal(jsonBytes, &rawConfig)
+		inb0 := rawConfig["inbounds"].([]interface{})[0].(map[string]interface{})
+		sm := inb0["settings"].(map[string]interface{})
+		if sm["method"] != "2022-blake3-aes-128-gcm" {
+			t.Errorf("expected settings method 2022-blake3-aes-128-gcm, got %v", sm["method"])
+		}
+		clients := sm["clients"].([]interface{})
+		if len(clients) != 1 {
+			t.Fatalf("expected 1 client, got %d", len(clients))
+		}
+		c0 := clients[0].(map[string]interface{})
+		if c0["password"] != "YWJjZGVmZ2hpamtsbW5vcA==" {
+			t.Errorf("expected password YWJjZGVmZ2hpamtsbW5vcA==, got %v", c0["password"])
+		}
+		// In SS2022 multi-user, client.method must be empty or omitted
+		if c0["method"] != nil && c0["method"] != "" {
+			t.Errorf("expected empty method for SS2022 client, got %v", c0["method"])
+		}
+		validateWithXrayCore(t, jsonBytes)
+	})
+
+	t.Run("Shadowsocks 2022 compiles without placeholder when no active users", func(t *testing.T) {
+		inbounds := []domain.Inbound{
+			{
+				Tag:          "ss2022-empty-in",
+				Listen:       "0.0.0.0",
+				Port:         8391,
+				Protocol:     "shadowsocks",
+				SettingsJSON: `{"method":"2022-blake3-aes-256-gcm","password":"MTIzNDU2Nzg5MDEyMzQ1Njc4OTAxMjM0NTY3ODkwMTI="}`,
+				Enabled:      true,
+			},
+		}
+		jsonBytes, err := c.CompileToJSON(inbounds, []domain.Outbound{{Tag: "direct", Protocol: "freedom"}}, nil, nil, nil)
+		if err != nil {
+			t.Fatalf("CompileToJSON failed: %v", err)
+		}
+		var rawConfig map[string]interface{}
+		_ = json.Unmarshal(jsonBytes, &rawConfig)
+		inb0 := rawConfig["inbounds"].([]interface{})[0].(map[string]interface{})
+		sm := inb0["settings"].(map[string]interface{})
+		if sm["method"] != "2022-blake3-aes-256-gcm" {
+			t.Errorf("expected settings method 2022-blake3-aes-256-gcm, got %v", sm["method"])
+		}
+		clients := sm["clients"].([]interface{})
+		if len(clients) != 0 {
+			t.Fatalf("expected 0 clients without placeholder, got %d", len(clients))
+		}
+		validateWithXrayCore(t, jsonBytes)
 	})
 
 	t.Run("VLESS TCP Reality allows flow none without forcing vision", func(t *testing.T) {
@@ -667,4 +789,3 @@ func TestCompiler_SubRoute_UserIsolation(t *testing.T) {
 		}
 	}
 }
-

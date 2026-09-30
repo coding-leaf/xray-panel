@@ -13,14 +13,21 @@ type ShadowsocksFormatter struct{}
 func init() {
 	ss := &ShadowsocksFormatter{}
 	Register(ss)
-	Register(&shadowsocksAlias{ss})
+	Register(&shadowsocksAlias{ShadowsocksFormatter: ss, alias: "ss"})
+	Register(&shadowsocksAlias{ShadowsocksFormatter: ss, alias: "shadowsocks-2022"})
+	Register(&shadowsocksAlias{ShadowsocksFormatter: ss, alias: "ss-2022"})
+	Register(&shadowsocksAlias{ShadowsocksFormatter: ss, alias: "ss2022"})
 }
 
 type shadowsocksAlias struct {
 	*ShadowsocksFormatter
+	alias string
 }
 
 func (a *shadowsocksAlias) Protocol() string {
+	if a.alias != "" {
+		return a.alias
+	}
 	return "ss"
 }
 

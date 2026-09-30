@@ -69,7 +69,7 @@
 
       <!-- 2. 入站协议与传输层 -->
       <SectionCard title="② 协议与传输层 (定义节点级流控)">
-        <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
+        <div class="grid grid-cols-1 gap-3" :class="['socks', 'http', 'dokodemo-door'].includes(form.protocol) ? 'sm:grid-cols-1' : 'sm:grid-cols-3'">
           <FormField label="入站协议 (Protocol)">
             <select
               v-model="form.protocol"
@@ -86,52 +86,63 @@
             </select>
           </FormField>
 
-          <FormField label="传输协议 (Network)">
-            <select
-              v-model="form.network"
-              @change="onNetworkChange"
-              class="w-full bg-neutral-950 border border-border rounded-md px-3 h-9 text-foreground font-mono focus:outline-none focus:ring-1 focus:ring-ring"
-            >
-              <option value="tcp">TCP (RAW 推荐)</option>
-              <option value="xhttp">XHTTP (SplitHTTP)</option>
-              <option value="grpc">gRPC</option>
-              <option value="ws">WebSocket</option>
-              <option value="httpupgrade">HTTPUpgrade</option>
-              <option value="mkcp">mKCP (UDP)</option>
-            </select>
-          </FormField>
+          <template v-if="!['socks', 'http', 'dokodemo-door'].includes(form.protocol)">
+            <FormField label="传输协议 (Network)">
+              <select
+                v-model="form.network"
+                @change="onNetworkChange"
+                class="w-full bg-neutral-950 border border-border rounded-md px-3 h-9 text-foreground font-mono focus:outline-none focus:ring-1 focus:ring-ring"
+              >
+                <option value="tcp">TCP (RAW 推荐)</option>
+                <option value="xhttp">XHTTP (SplitHTTP)</option>
+                <option value="grpc">gRPC</option>
+                <option value="ws">WebSocket</option>
+                <option value="httpupgrade">HTTPUpgrade</option>
+                <option value="mkcp">mKCP (UDP)</option>
+              </select>
+            </FormField>
 
-          <FormField label="安全协议 (Security)">
-            <select
-              v-model="form.security"
-              class="w-full bg-neutral-950 border border-border rounded-md px-3 h-9 text-foreground font-mono focus:outline-none focus:ring-1 focus:ring-ring"
-            >
-              <option v-if="isRealitySupported" value="reality">REALITY (推荐)</option>
-              <option value="tls">TLS</option>
-              <option value="none">None (无加密)</option>
-            </select>
-          </FormField>
+            <FormField label="安全协议 (Security)">
+              <select
+                v-model="form.security"
+                @change="onSecurityChange"
+                class="w-full bg-neutral-950 border border-border rounded-md px-3 h-9 text-foreground font-mono focus:outline-none focus:ring-1 focus:ring-ring"
+              >
+                <option v-if="isRealitySupported && !['vmess', 'shadowsocks'].includes(form.protocol)" value="reality">REALITY (推荐)</option>
+                <option value="tls">TLS</option>
+                <option value="none">None (无加密)</option>
+              </select>
+            </FormField>
+          </template>
+        </div>
+
+        <!-- 应用层原生协议提示 -->
+        <div
+          v-if="['socks', 'http', 'dokodemo-door'].includes(form.protocol)"
+          class="p-2.5 rounded bg-neutral-950 border border-border text-muted-foreground text-xs font-mono"
+        >
+          该协议为应用层原生代理/端口转发协议，直接通过原生网络监听，无额外传输层封装与 TLS/REALITY 安全加密。
         </div>
 
         <!-- Flow Policy -->
         <div v-if="form.protocol === 'vless'" class="pt-2 border-t border-border/40">
           <div class="flex items-center justify-between mb-1">
             <label class="text-muted-foreground font-mono text-[11px]">默认流控模式 (Flow Policy)</label>
-            <span class="text-[10px] text-muted-foreground">分配给该节点的用户将继承此策略</span>
+            <span class="text-[10px] text-muted-foreground">分配给该节点的用户将继承此策略 (仅适用于 TCP + TLS/REALITY)</span>
           </div>
           <select
             v-model="form.vlessFlow"
-            :disabled="form.network !== 'tcp'"
+            :disabled="form.network !== 'tcp' || !['reality', 'tls'].includes(form.security)"
             class="w-full bg-neutral-950 border border-border rounded-md px-3 h-9 text-foreground font-mono focus:outline-none focus:ring-1 focus:ring-ring disabled:opacity-40"
           >
-            <option v-if="form.network === 'tcp'" value="xtls-rprx-vision">xtls-rprx-vision (XTLS Vision 极速流控 - 推荐)</option>
-            <option v-if="form.network === 'tcp'" value="xtls-rprx-vision-udp443">xtls-rprx-vision-udp443</option>
+            <option v-if="form.network === 'tcp' && ['reality', 'tls'].includes(form.security)" value="xtls-rprx-vision">xtls-rprx-vision (XTLS Vision 极速流控 - 推荐)</option>
+            <option v-if="form.network === 'tcp' && ['reality', 'tls'].includes(form.security)" value="xtls-rprx-vision-udp443">xtls-rprx-vision-udp443</option>
             <option value="">none (无流控 - 适用 XHTTP / gRPC / WS 等)</option>
           </select>
         </div>
 
         <!-- XHTTP options -->
-        <div v-if="form.network === 'xhttp'" class="pt-2 border-t border-border/40 grid grid-cols-1 sm:grid-cols-2 gap-3">
+        <div v-if="!['socks', 'http', 'dokodemo-door'].includes(form.protocol) && form.network === 'xhttp'" class="pt-2 border-t border-border/40 grid grid-cols-1 sm:grid-cols-2 gap-3">
           <FormField label="XHTTP 路径 (Path)">
             <Input v-model="form.xhttpPath" placeholder="/split" />
           </FormField>
@@ -145,23 +156,112 @@
         </div>
 
         <!-- WS options -->
-        <div v-if="form.network === 'ws'" class="pt-2 border-t border-border/40">
+        <div v-if="!['socks', 'http', 'dokodemo-door'].includes(form.protocol) && form.network === 'ws'" class="pt-2 border-t border-border/40">
           <FormField label="WebSocket 路径">
             <Input v-model="form.wsPath" placeholder="/ws" />
           </FormField>
         </div>
 
         <!-- gRPC options -->
-        <div v-if="form.network === 'grpc'" class="pt-2 border-t border-border/40">
+        <div v-if="!['socks', 'http', 'dokodemo-door'].includes(form.protocol) && form.network === 'grpc'" class="pt-2 border-t border-border/40">
           <FormField label="gRPC 服务名">
             <Input v-model="form.grpcService" placeholder="xray-grpc" />
           </FormField>
         </div>
       </SectionCard>
 
+      <!-- Socks 专属参数 -->
+      <SectionCard v-if="form.protocol === 'socks'" title="Socks 专属参数">
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <FormField label="认证方式 (Auth)">
+            <select
+              v-model="form.socksAuth"
+              class="w-full bg-neutral-950 border border-border rounded-md px-3 h-9 text-foreground font-mono focus:outline-none focus:ring-1 focus:ring-ring"
+            >
+              <option value="noauth">noauth (无需认证)</option>
+              <option value="password">password (用户名密码认证)</option>
+            </select>
+          </FormField>
+
+          <div class="flex items-center pt-6">
+            <label class="flex items-center gap-2 cursor-pointer text-muted-foreground hover:text-foreground">
+              <input type="checkbox" v-model="form.socksUdp" class="rounded bg-neutral-950 border-border text-neutral-200" />
+              <span>开启 UDP 转发支持 (UDP Support)</span>
+            </label>
+          </div>
+        </div>
+
+        <div v-if="form.socksAuth === 'password'" class="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2 border-t border-border/40">
+          <FormField label="Socks 认证用户名">
+            <Input v-model="form.socksUsername" placeholder="用户名" />
+          </FormField>
+          <FormField label="Socks 认证密码">
+            <Input v-model="form.socksPassword" type="password" placeholder="密码" />
+          </FormField>
+        </div>
+      </SectionCard>
+
+      <!-- HTTP 专属参数 -->
+      <SectionCard v-if="form.protocol === 'http'" title="HTTP 代理专属参数">
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <FormField label="HTTP 认证用户名 (选填)">
+            <Input v-model="form.httpUsername" placeholder="留空为无认证" />
+          </FormField>
+          <FormField label="HTTP 认证密码 (选填)">
+            <Input v-model="form.httpPassword" type="password" placeholder="留空为无认证" />
+          </FormField>
+        </div>
+      </SectionCard>
+
+      <!-- dokodemo-door 专属参数 -->
+      <SectionCard v-if="form.protocol === 'dokodemo-door'" title="dokodemo-door 任意门透明代理">
+        <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
+          <FormField label="目标转发地址 (address)" required>
+            <Input v-model="form.dokoAddress" placeholder="127.0.0.1 或 目标IP" />
+          </FormField>
+          <FormField label="目标转发端口 (port)" required>
+            <Input v-model.number="form.dokoPort" type="number" placeholder="53" />
+          </FormField>
+          <FormField label="转发网络 (network)">
+            <select
+              v-model="form.dokoNetwork"
+              class="w-full bg-neutral-950 border border-border rounded-md px-3 h-9 text-foreground font-mono focus:outline-none focus:ring-1 focus:ring-ring"
+            >
+              <option value="tcp,udp">tcp,udp</option>
+              <option value="tcp">tcp</option>
+              <option value="udp">udp</option>
+            </select>
+          </FormField>
+        </div>
+      </SectionCard>
+
+      <!-- Shadowsocks 专属参数 -->
+      <SectionCard v-if="form.protocol === 'shadowsocks'" title="Shadowsocks 服务参数">
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <FormField label="加密算法 (Method)" required>
+            <select
+              v-model="form.ssMethod"
+              class="w-full bg-neutral-950 border border-border rounded-md px-3 h-9 text-foreground font-mono focus:outline-none focus:ring-1 focus:ring-ring"
+            >
+              <option value="2022-blake3-aes-128-gcm">2022-blake3-aes-128-gcm (SS2022 推荐)</option>
+              <option value="2022-blake3-aes-256-gcm">2022-blake3-aes-256-gcm (SS2022)</option>
+              <option value="2022-blake3-chacha20-poly1305">2022-blake3-chacha20-poly1305</option>
+              <option value="aes-128-gcm">aes-128-gcm</option>
+              <option value="aes-256-gcm">aes-256-gcm</option>
+              <option value="chacha20-poly1305">chacha20-poly1305</option>
+              <option value="none">none</option>
+            </select>
+          </FormField>
+
+          <FormField label="服务密码 (Password / 单用户模式)" hint="若留空且关联下方授权用户，则由用户 Sub-Key 派生">
+            <Input v-model="form.ssPassword" placeholder="留空则使用下方关联用户的密钥" />
+          </FormField>
+        </div>
+      </SectionCard>
+
       <!-- 3. REALITY 伪装与安全配置 -->
       <SectionCard
-        v-if="!['socks', 'http', 'dokodemo-door'].includes(form.protocol) && form.security === 'reality'"
+        v-if="!['socks', 'http', 'dokodemo-door', 'shadowsocks', 'vmess'].includes(form.protocol) && form.security === 'reality'"
         title="③ REALITY 伪装与密钥"
       >
         <template #actions>
@@ -204,7 +304,7 @@
 
       <!-- TLS 配置 -->
       <SectionCard
-        v-else-if="!['socks', 'http', 'dokodemo-door'].includes(form.protocol) && form.security === 'tls'"
+        v-else-if="!['socks', 'http', 'dokodemo-door', 'shadowsocks'].includes(form.protocol) && form.security === 'tls'"
         title="③ TLS 证书配置"
       >
         <FormField label="SNI 域名 (ServerName)">
@@ -223,7 +323,10 @@
       <!-- 4. 回落与嗅探设置 -->
       <SectionCard title="④ 回落伪装与流量探测 (Fallbacks & Sniffing)">
         <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-1">
-          <label class="flex items-center gap-2 cursor-pointer text-muted-foreground hover:text-foreground">
+          <label
+            v-if="['vless', 'trojan'].includes(form.protocol)"
+            class="flex items-center gap-2 cursor-pointer text-muted-foreground hover:text-foreground"
+          >
             <input type="checkbox" v-model="form.fallbacksEnabled" class="rounded bg-neutral-950 border-border text-neutral-200" />
             <span>启用网站回落 (Fallbacks)</span>
           </label>
@@ -233,7 +336,7 @@
           </label>
         </div>
 
-        <div v-if="form.fallbacksEnabled" class="pt-2 border-t border-border/40 grid grid-cols-1 sm:grid-cols-2 gap-3">
+        <div v-if="['vless', 'trojan'].includes(form.protocol) && form.fallbacksEnabled" class="pt-2 border-t border-border/40 grid grid-cols-1 sm:grid-cols-2 gap-3">
           <FormField label="回落目标地址/端口">
             <Input v-model="form.fallbackDest" placeholder="80 或 127.0.0.1:80" />
           </FormField>
@@ -630,16 +733,50 @@ const onNetworkChange = () => {
   if (!isRealitySupported.value && form.value.security === 'reality') {
     form.value.security = 'tls'
   }
+  if (['vmess', 'shadowsocks'].includes(form.value.protocol) && form.value.security === 'reality') {
+    form.value.security = 'tls'
+  }
   if (form.value.network !== 'tcp') {
     form.value.vlessFlow = ''
-  } else if (form.value.protocol === 'vless' && !form.value.vlessFlow) {
+  } else if (form.value.protocol === 'vless' && ['reality', 'tls'].includes(form.value.security) && !form.value.vlessFlow) {
     form.value.vlessFlow = 'xtls-rprx-vision'
   }
 }
 
+const onSecurityChange = () => {
+  if (form.value.protocol === 'vless') {
+    if (form.value.network === 'tcp' && ['reality', 'tls'].includes(form.value.security)) {
+      if (!form.value.vlessFlow) form.value.vlessFlow = 'xtls-rprx-vision'
+    } else {
+      form.value.vlessFlow = ''
+    }
+  }
+}
+
 const onProtocolChange = () => {
-  if (form.value.protocol === 'vless' && form.value.network === 'tcp') {
-    form.value.vlessFlow = 'xtls-rprx-vision'
+  if (['socks', 'http', 'dokodemo-door'].includes(form.value.protocol)) {
+    form.value.network = 'tcp'
+    form.value.security = 'none'
+    form.value.vlessFlow = ''
+    form.value.fallbacksEnabled = false
+  } else if (form.value.protocol === 'shadowsocks') {
+    form.value.security = 'none'
+    form.value.vlessFlow = ''
+    form.value.fallbacksEnabled = false
+  } else if (form.value.protocol === 'vmess') {
+    form.value.vlessFlow = ''
+    form.value.fallbacksEnabled = false
+    if (form.value.security === 'reality') {
+      form.value.security = 'tls'
+    }
+  } else if (form.value.protocol === 'trojan') {
+    form.value.vlessFlow = ''
+  } else if (form.value.protocol === 'vless') {
+    if (form.value.network === 'tcp' && ['reality', 'tls'].includes(form.value.security)) {
+      form.value.vlessFlow = 'xtls-rprx-vision'
+    } else {
+      form.value.vlessFlow = ''
+    }
   } else {
     form.value.vlessFlow = ''
   }
@@ -806,22 +943,42 @@ const initFormData = () => {
       form.value.fallbacksEnabled = false
     }
 
-    form.value.socksAuth = settings.auth || 'noauth'
-    form.value.socksUdp = settings.udp !== false
-    if (settings.accounts?.length > 0) {
-      form.value.socksUsername = settings.accounts[0].user || ''
-      form.value.socksPassword = settings.accounts[0].pass || ''
+    if (inb.protocol === 'socks') {
+      form.value.socksAuth = settings.auth || 'noauth'
+      form.value.socksUdp = settings.udp !== false
+      if (settings.accounts?.length > 0) {
+        form.value.socksUsername = settings.accounts[0].user || ''
+        form.value.socksPassword = settings.accounts[0].pass || ''
+      } else {
+        form.value.socksUsername = ''
+        form.value.socksPassword = ''
+      }
     } else {
+      form.value.socksAuth = 'noauth'
+      form.value.socksUdp = true
       form.value.socksUsername = ''
       form.value.socksPassword = ''
     }
 
-    if (settings.accounts?.length > 0) {
-      form.value.httpUsername = settings.accounts[0].user || ''
-      form.value.httpPassword = settings.accounts[0].pass || ''
+    if (inb.protocol === 'http') {
+      if (settings.accounts?.length > 0) {
+        form.value.httpUsername = settings.accounts[0].user || ''
+        form.value.httpPassword = settings.accounts[0].pass || ''
+      } else {
+        form.value.httpUsername = ''
+        form.value.httpPassword = ''
+      }
     } else {
       form.value.httpUsername = ''
       form.value.httpPassword = ''
+    }
+
+    if (inb.protocol === 'shadowsocks') {
+      form.value.ssMethod = settings.method || '2022-blake3-aes-128-gcm'
+      form.value.ssPassword = settings.password || ''
+    } else {
+      form.value.ssMethod = '2022-blake3-aes-128-gcm'
+      form.value.ssPassword = ''
     }
 
     form.value.dokoAddress = settings.address || '127.0.0.1'
@@ -830,6 +987,17 @@ const initFormData = () => {
 
     form.value.network = stream.network || 'tcp'
     form.value.security = stream.security || 'none'
+    if (['socks', 'http', 'dokodemo-door'].includes(inb.protocol)) {
+      form.value.network = 'tcp'
+      form.value.security = 'none'
+      form.value.vlessFlow = ''
+    } else if (inb.protocol === 'shadowsocks') {
+      form.value.security = 'none'
+      form.value.vlessFlow = ''
+    } else if (inb.protocol === 'vmess' && form.value.security === 'reality') {
+      form.value.security = 'tls'
+      form.value.vlessFlow = ''
+    }
     if (stream.xhttpSettings) {
       form.value.xhttpPath = stream.xhttpSettings.path || ''
       form.value.xhttpMode = stream.xhttpSettings.mode || 'auto'

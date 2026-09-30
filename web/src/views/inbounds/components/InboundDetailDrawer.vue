@@ -54,6 +54,78 @@
         </div>
       </div>
 
+      <!-- Socks 专属参数 -->
+      <div v-if="inbound.protocol === 'socks'" class="rounded-lg border border-border bg-card p-4 space-y-3 font-mono text-xs">
+        <div class="flex items-center justify-between border-b border-border/60 pb-2">
+          <span class="font-semibold text-foreground uppercase tracking-wider">Socks 代理配置</span>
+        </div>
+        <div class="grid grid-cols-2 gap-2 text-[11px]">
+          <div>
+            <span class="block text-[10px] text-muted-foreground">认证方式</span>
+            <span class="text-foreground">{{ parsedSettings.auth === 'password' ? '账号密码认证' : '无认证 (noauth)' }}</span>
+          </div>
+          <div>
+            <span class="block text-[10px] text-muted-foreground">UDP 支持</span>
+            <span class="text-foreground">{{ parsedSettings.udp !== false ? '已启用' : '已关闭' }}</span>
+          </div>
+          <div v-if="parsedSettings.accounts?.length > 0" class="col-span-2">
+            <span class="block text-[10px] text-muted-foreground">认证账号</span>
+            <span class="text-foreground">{{ parsedSettings.accounts[0].user }}</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- HTTP 专属参数 -->
+      <div v-if="inbound.protocol === 'http'" class="rounded-lg border border-border bg-card p-4 space-y-3 font-mono text-xs">
+        <div class="flex items-center justify-between border-b border-border/60 pb-2">
+          <span class="font-semibold text-foreground uppercase tracking-wider">HTTP 代理配置</span>
+        </div>
+        <div class="text-[11px]">
+          <span class="block text-[10px] text-muted-foreground">认证配置</span>
+          <span class="text-foreground">
+            {{ parsedSettings.accounts?.length > 0 ? `用户名: ${parsedSettings.accounts[0].user}` : '无认证 (匿名代理)' }}
+          </span>
+        </div>
+      </div>
+
+      <!-- dokodemo-door 专属参数 -->
+      <div v-if="inbound.protocol === 'dokodemo-door'" class="rounded-lg border border-border bg-card p-4 space-y-3 font-mono text-xs">
+        <div class="flex items-center justify-between border-b border-border/60 pb-2">
+          <span class="font-semibold text-foreground uppercase tracking-wider">dokodemo-door 转发目标</span>
+        </div>
+        <div class="grid grid-cols-3 gap-2 text-[11px]">
+          <div>
+            <span class="block text-[10px] text-muted-foreground">目标地址</span>
+            <span class="text-foreground font-semibold">{{ parsedSettings.address || '127.0.0.1' }}</span>
+          </div>
+          <div>
+            <span class="block text-[10px] text-muted-foreground">目标端口</span>
+            <span class="text-foreground font-semibold">:{{ parsedSettings.port || 53 }}</span>
+          </div>
+          <div>
+            <span class="block text-[10px] text-muted-foreground">转发协议</span>
+            <span class="text-foreground uppercase">{{ parsedSettings.network || 'TCP,UDP' }}</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Shadowsocks 专属参数 -->
+      <div v-if="inbound.protocol === 'shadowsocks'" class="rounded-lg border border-border bg-card p-4 space-y-3 font-mono text-xs">
+        <div class="flex items-center justify-between border-b border-border/60 pb-2">
+          <span class="font-semibold text-foreground uppercase tracking-wider">Shadowsocks 节点参数</span>
+        </div>
+        <div class="grid grid-cols-2 gap-2 text-[11px]">
+          <div>
+            <span class="block text-[10px] text-muted-foreground">加密算法 (Method)</span>
+            <span class="text-cyan-400 font-semibold">{{ parsedSettings.method || '2022-blake3-aes-128-gcm' }}</span>
+          </div>
+          <div>
+            <span class="block text-[10px] text-muted-foreground">运行模式</span>
+            <span class="text-foreground">{{ parsedSettings.password ? '单用户密码模式' : '多用户 Sub-Key 派生模式' }}</span>
+          </div>
+        </div>
+      </div>
+
       <!-- 2. Reality / TLS Inspection Card -->
       <div v-if="isReality(inbound)" class="rounded-lg border border-border bg-card p-4 space-y-3">
         <div class="flex items-center justify-between border-b border-border/60 pb-2">
@@ -256,5 +328,14 @@ const emit = defineEmits<{
 const inboundRealityStatus = computed(() => {
   if (!props.inbound) return null
   return getInboundRealityOverallStatus(props.inbound.tag, props.realitySummary || null)
+})
+
+const parsedSettings = computed(() => {
+  if (!props.inbound?.settingsJson) return {}
+  try {
+    return JSON.parse(props.inbound.settingsJson)
+  } catch {
+    return {}
+  }
 })
 </script>

@@ -22,11 +22,13 @@
           <FormField label="出站协议 (Protocol)" required>
             <select
               v-model="form.protocol"
+              @change="onOutboundProtocolChange"
               class="w-full bg-neutral-950 border border-border rounded-md px-3 py-2 text-foreground focus:outline-none focus:ring-1 focus:ring-ring font-mono"
             >
               <option value="freedom">freedom (直连访问)</option>
               <option value="blackhole">blackhole (黑洞丢弃/拦截)</option>
               <option value="wireguard">wireguard (Cloudflare WARP 出站)</option>
+              <option value="dns">dns (内置 DNS 路由分流)</option>
               <option value="vless">vless (上游链式代理)</option>
               <option value="vmess">vmess (上游链式代理)</option>
               <option value="trojan">trojan (上游链式代理)</option>
@@ -104,6 +106,13 @@
               class="w-full bg-neutral-950 border border-border rounded-md px-3 py-2 text-foreground font-mono focus:outline-none focus:ring-1 focus:ring-ring"
             />
           </FormField>
+        </div>
+      </SectionCard>
+
+      <!-- DNS 专属配置 -->
+      <SectionCard v-else-if="form.protocol === 'dns'" title="DNS 路由出站">
+        <div class="p-3 rounded bg-neutral-950 border border-border text-muted-foreground text-xs leading-relaxed">
+          由 Xray 内置 DNS 模块发起查询出站，无需额外参数。通常与路由规则 (Routing) 配合，将 DNS 流量定向路由至此 Tag (例如 <code class="text-cyan-400 font-mono">dns-out</code>)。
         </div>
       </SectionCard>
 
@@ -230,9 +239,10 @@
           <FormField label="安全协议 (Security)">
             <select
               v-model="form.streamSecurity"
+              @change="onOutboundSecurityChange"
               class="w-full bg-neutral-950 border border-border rounded-md px-3 py-2 text-foreground focus:outline-none focus:ring-1 focus:ring-ring font-mono"
             >
-              <option v-if="['tcp', 'xhttp', 'grpc'].includes(form.streamNetwork)" value="reality">REALITY</option>
+              <option v-if="['tcp', 'xhttp', 'grpc'].includes(form.streamNetwork) && !['vmess', 'shadowsocks'].includes(form.protocol)" value="reality">REALITY</option>
               <option value="tls">TLS</option>
               <option value="none">None</option>
             </select>
@@ -261,7 +271,7 @@
         </div>
 
         <!-- XHTTP 专用参数 -->
-        <div v-if="form.streamNetwork === 'xhttp'" class="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2 border-t border-border/60">
+        <div v-if="['vless', 'vmess', 'trojan', 'shadowsocks'].includes(form.protocol) && form.streamNetwork === 'xhttp'" class="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2 border-t border-border/60">
           <FormField label="XHTTP 路径 (Path)">
             <input
               v-model="form.xhttpPath"
@@ -283,7 +293,7 @@
         </div>
 
         <!-- WS 专用参数 -->
-        <div v-if="form.streamNetwork === 'ws'" class="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2 border-t border-border/60">
+        <div v-if="['vless', 'vmess', 'trojan', 'shadowsocks'].includes(form.protocol) && form.streamNetwork === 'ws'" class="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2 border-t border-border/60">
           <FormField label="WebSocket 路径 (Path)">
             <input
               v-model="form.wsPath"
@@ -303,7 +313,7 @@
         </div>
 
         <!-- REALITY 专属连接参数 -->
-        <div v-if="form.streamSecurity === 'reality'" class="space-y-3 pt-2 border-t border-border/60 bg-neutral-950/60 p-3 rounded-md">
+        <div v-if="['vless', 'trojan'].includes(form.protocol) && form.streamSecurity === 'reality'" class="space-y-3 pt-2 border-t border-border/60 bg-neutral-950/60 p-3 rounded-md">
           <h4 class="text-xs font-bold text-cyan-400 font-mono">REALITY 握手伪装参数</h4>
           <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <FormField label="SNI 伪装域名 (ServerName)">
@@ -346,7 +356,7 @@
         </div>
 
         <!-- TLS 专属连接参数 -->
-        <div v-if="form.streamSecurity === 'tls'" class="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2 border-t border-border/60 bg-neutral-950/60 p-3 rounded-md">
+        <div v-if="['vless', 'vmess', 'trojan', 'shadowsocks'].includes(form.protocol) && form.streamSecurity === 'tls'" class="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2 border-t border-border/60 bg-neutral-950/60 p-3 rounded-md">
           <FormField label="TLS SNI (ServerName)">
             <input
               v-model="form.tlsServerName"
@@ -415,7 +425,44 @@ const isOpen = computed({
 
 const isEditing = computed(() => !!props.editingOutbound)
 
+const onOutboundProtocolChange = () => {
+  if (['freedom', 'blackhole', 'wireguard', 'socks', 'http', 'dns'].includes(form.value.protocol)) {
+    form.value.streamNetwork = 'tcp'
+    form.value.streamSecurity = 'none'
+    form.value.vlessFlow = ''
+  } else if (['vmess', 'shadowsocks'].includes(form.value.protocol)) {
+    if (form.value.streamSecurity === 'reality') {
+      form.value.streamSecurity = 'none'
+    }
+    form.value.vlessFlow = ''
+  } else if (form.value.protocol === 'trojan') {
+    form.value.vlessFlow = ''
+  } else if (form.value.protocol === 'vless') {
+    if (form.value.streamNetwork === 'tcp' && ['reality', 'tls'].includes(form.value.streamSecurity)) {
+      form.value.vlessFlow = 'xtls-rprx-vision'
+    } else {
+      form.value.vlessFlow = ''
+    }
+  }
+}
+
+const onOutboundSecurityChange = () => {
+  if (form.value.protocol === 'vless') {
+    if (form.value.streamNetwork === 'tcp' && ['reality', 'tls'].includes(form.value.streamSecurity)) {
+      if (!form.value.vlessFlow) form.value.vlessFlow = 'xtls-rprx-vision'
+    } else {
+      form.value.vlessFlow = ''
+    }
+  }
+}
+
 const onOutboundNetworkChange = () => {
+  if (['vmess', 'shadowsocks'].includes(form.value.protocol)) {
+    if (form.value.streamSecurity === 'reality') {
+      form.value.streamSecurity = 'none'
+    }
+    return
+  }
   if (!['tcp', 'xhttp', 'grpc'].includes(form.value.streamNetwork) && form.value.streamSecurity === 'reality') {
     form.value.streamSecurity = 'tls'
   }

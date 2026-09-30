@@ -58,6 +58,7 @@
           <option value="shadowsocks">shadowsocks</option>
           <option value="socks">socks</option>
           <option value="http">http</option>
+          <option value="dns">dns</option>
           <option value="blackhole">blackhole (黑洞)</option>
         </select>
       </div>

@@ -66,3 +66,22 @@ View  ──►  web/src/api/index.ts (axios 单例)  ──┬──►  /api/*
 - 用户可见提示统一走 `toast` 单例：`import { toast } from '../utils/toast'`，
   由 `ToastContainer.vue` 渲染 —— 不要在页面内自建弹窗提示。
 - 全局 `401` 已由拦截器强制跳登录，页面无需重复处理鉴权失效。
+
+---
+
+## 入站与出站协议规范与参数清洗 (Inbound & Outbound Protocol Contracts)
+
+为杜绝非法配置导致 Xray-core 启动异常或静默崩溃，前端在提交前必须通过纯函数严格执行协议级参数清洗 (`sanitizeInboundPayload` / `sanitizeOutboundPayload`)：
+
+1. **入站协议 (Inbounds)**:
+   - **Socks / HTTP / dokodemo-door**: 属于无传输安全层封装的本地/原生应用协议，`streamSettings` 必须清洗为空字符串 `""`，锁定 `network = 'tcp', security = 'none'`；
+   - **Trojan**: 客户端认证凭据必须为 `{ password, email, level: 0 }`，严禁输出 `id`；
+   - **Shadowsocks / SS2022**: 必须提供合法加密算法 (`method`)，单用户填密码或结合关联用户生成 Sub-Key clients；
+   - **VMess / Socks / HTTP**: 严禁选择 `REALITY` 伪装；
+   - **Flow 流控 (xtls-rprx-vision)**: 严格限定仅在 `vless` + `tcp` + (`reality` 或 `tls`) 下有效并允许输出，其他所有协议一律清洗为空。
+
+2. **出站协议 (Outbounds)**:
+   - **freedom / blackhole / wireguard / socks / http / dns**: 均为无传输安全层出站，`streamSettings` 必须清空为 `""`，禁止附带任何 Reality / TLS / XHTTP 参数；
+   - **vmess / shadowsocks**: 安全协议仅允许选择 `tls` 或 `none`，禁止选择 `reality`；
+   - **dns**: 作为系统出站协议，输出空的 settings `{}`，用于 DNS 分流路由规则。
+

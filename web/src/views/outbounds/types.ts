@@ -1,6 +1,6 @@
 export interface OutboundItem {
   tag: string
-  protocol: string // freedom, blackhole, wireguard, vless, vmess, trojan, shadowsocks, socks, http
+  protocol: string // freedom, blackhole, wireguard, vless, vmess, trojan, shadowsocks, socks, http, dns
   settingsJson?: string
   streamSettings?: string
 }
@@ -103,6 +103,14 @@ export function populateOutboundForm(ob: OutboundItem): OutboundFormState {
   form.streamSecurity = str.security || 'none'
   form.freedomDomainStrategy = s.domainStrategy || 'UseIPv4'
   form.blackholeResponse = s.response?.type || 'none'
+
+  if (['freedom', 'blackhole', 'wireguard', 'socks', 'http', 'dns'].includes(ob.protocol)) {
+    form.streamNetwork = 'tcp'
+    form.streamSecurity = 'none'
+    form.vlessFlow = ''
+  } else if (['vmess', 'shadowsocks'].includes(ob.protocol) && form.streamSecurity === 'reality') {
+    form.streamSecurity = 'none'
+  }
 
   if (str.xhttpSettings) {
     form.xhttpPath = str.xhttpSettings.path || '/mbqyfa4grswh5ntz'
@@ -272,17 +280,24 @@ export function buildSettingsJSON(form: OutboundFormState): string {
     return JSON.stringify({
       servers: [srv],
     })
+  } else if (form.protocol === 'dns') {
+    return '{}'
   }
   return '{}'
 }
 
 export function buildStreamSettingsJSON(form: OutboundFormState): string {
-  if (['freedom', 'blackhole', 'wireguard'].includes(form.protocol)) {
+  if (['freedom', 'blackhole', 'wireguard', 'socks', 'http', 'dns'].includes(form.protocol)) {
     return ''
   }
   const stream: Record<string, any> = {
     network: form.streamNetwork,
     security: form.streamSecurity,
+  }
+
+  // vmess 与 shadowsocks 禁止 REALITY
+  if (['vmess', 'shadowsocks'].includes(form.protocol) && stream.security === 'reality') {
+    stream.security = 'none'
   }
 
   if (form.streamNetwork === 'xhttp') {
@@ -335,6 +350,7 @@ export function getProtocolBadgeVariant(proto?: string): 'default' | 'secondary'
     case 'blackhole':
       return 'destructive'
     case 'wireguard':
+    case 'dns':
       return 'secondary'
     default:
       return 'outline'
@@ -349,6 +365,8 @@ export function getUsageDesc(ob: OutboundItem): string {
       return '静默丢弃或拦截阻断连接'
     case 'wireguard':
       return 'Cloudflare WARP 清洁 IP 出站'
+    case 'dns':
+      return '内置 DNS 路由分流出站'
     default:
       return '转发至上游代理'
   }
@@ -363,7 +381,7 @@ export function getTargetEndpoint(ob: OutboundItem): string {
       return '-'
     }
   }
-  if (['freedom', 'blackhole'].includes(ob.protocol)) {
+  if (['freedom', 'blackhole', 'dns'].includes(ob.protocol)) {
     return '内置策略'
   }
   try {
@@ -393,6 +411,7 @@ export function getParsedSettings(ob: OutboundItem): Record<string, any> {
 }
 
 export function formatSettingsSummary(ob: OutboundItem): string {
+  if (ob.protocol === 'dns') return '内置 DNS 路由解析'
   if (!ob.settingsJson || ob.settingsJson === '{}') return '默认系统策略'
   try {
     const s = JSON.parse(ob.settingsJson)

@@ -70,6 +70,8 @@ export interface InboundFormData {
   dokoAddress: string
   dokoPort: number
   dokoNetwork: string
+  ssMethod: string
+  ssPassword: string
   sniffingEnabled: boolean
   sniffingRouteOnly: boolean
 }
@@ -131,6 +133,8 @@ export function getDefaultInboundFormData(usersList: any[] = []): InboundFormDat
     dokoAddress: '127.0.0.1',
     dokoPort: 53,
     dokoNetwork: 'tcp,udp',
+    ssMethod: '2022-blake3-aes-128-gcm',
+    ssPassword: '',
     sniffingEnabled: true,
     sniffingRouteOnly: true,
   }
@@ -180,49 +184,77 @@ export function sanitizeInboundPayload(raw: InboundFormData): InboundFormData {
     dokoAddress: '127.0.0.1',
     dokoPort: 53,
     dokoNetwork: 'tcp,udp',
+    ssMethod: '2022-blake3-aes-128-gcm',
+    ssPassword: '',
   }
 
-  // 1. 协议特定清洗
+  // 1. 协议特定清洗与安全/传输约束
   if (clean.protocol === 'vless') {
     clean.subRoutes = Array.isArray(raw.subRoutes) ? [...raw.subRoutes] : []
     clean.selectedUserEmails = Array.isArray(raw.selectedUserEmails) ? [...raw.selectedUserEmails] : []
     clean.fallbacksEnabled = Boolean(raw.fallbacksEnabled)
     clean.fallbackDest = raw.fallbackDest || '80'
     clean.fallbackXver = raw.fallbackXver || 0
-    if (clean.network === 'tcp') {
+    if (clean.network === 'tcp' && ['reality', 'tls'].includes(clean.security)) {
       clean.vlessFlow = raw.vlessFlow || 'xtls-rprx-vision'
+    } else {
+      clean.vlessFlow = ''
     }
-  } else if (['vmess', 'trojan', 'shadowsocks'].includes(clean.protocol)) {
+  } else if (clean.protocol === 'vmess') {
+    clean.selectedUserEmails = Array.isArray(raw.selectedUserEmails) ? [...raw.selectedUserEmails] : []
+    clean.vlessFlow = ''
+    if (clean.security === 'reality') {
+      clean.security = 'tls'
+    }
+  } else if (clean.protocol === 'trojan') {
     clean.selectedUserEmails = Array.isArray(raw.selectedUserEmails) ? [...raw.selectedUserEmails] : []
     clean.fallbacksEnabled = Boolean(raw.fallbacksEnabled)
     clean.fallbackDest = raw.fallbackDest || '80'
     clean.fallbackXver = raw.fallbackXver || 0
+    clean.vlessFlow = ''
+  } else if (clean.protocol === 'shadowsocks') {
+    clean.ssMethod = raw.ssMethod || '2022-blake3-aes-128-gcm'
+    clean.ssPassword = raw.ssPassword || ''
+    clean.selectedUserEmails = Array.isArray(raw.selectedUserEmails) ? [...raw.selectedUserEmails] : []
+    clean.security = 'none'
+    clean.vlessFlow = ''
   } else if (clean.protocol === 'socks') {
     clean.socksAuth = raw.socksAuth || 'noauth'
     clean.socksUdp = raw.socksUdp !== false
     clean.socksUsername = raw.socksUsername || ''
     clean.socksPassword = raw.socksPassword || ''
+    clean.network = 'tcp'
+    clean.security = 'none'
+    clean.vlessFlow = ''
   } else if (clean.protocol === 'http') {
     clean.httpUsername = raw.httpUsername || ''
     clean.httpPassword = raw.httpPassword || ''
+    clean.network = 'tcp'
+    clean.security = 'none'
+    clean.vlessFlow = ''
   } else if (clean.protocol === 'dokodemo-door') {
     clean.dokoAddress = raw.dokoAddress || '127.0.0.1'
     clean.dokoPort = raw.dokoPort || 53
     clean.dokoNetwork = raw.dokoNetwork || 'tcp,udp'
+    clean.network = 'tcp'
+    clean.security = 'none'
+    clean.vlessFlow = ''
   }
 
-  // 2. 传输层网络清洗
-  if (clean.network === 'xhttp') {
-    clean.xhttpPath = raw.xhttpPath || '/split'
-    clean.xhttpMode = raw.xhttpMode || 'auto'
-  } else if (clean.network === 'ws') {
-    clean.wsPath = raw.wsPath || '/ws'
-  } else if (clean.network === 'grpc') {
-    clean.grpcService = raw.grpcService || 'xray-grpc'
+  // 2. 传输层网络清洗 (仅在支持流传输的协议下生效)
+  if (!['socks', 'http', 'dokodemo-door', 'shadowsocks'].includes(clean.protocol)) {
+    if (clean.network === 'xhttp') {
+      clean.xhttpPath = raw.xhttpPath || '/split'
+      clean.xhttpMode = raw.xhttpMode || 'auto'
+    } else if (clean.network === 'ws') {
+      clean.wsPath = raw.wsPath || '/ws'
+    } else if (clean.network === 'grpc') {
+      clean.grpcService = raw.grpcService || 'xray-grpc'
+    }
   }
 
-  // 3. 安全协议清洗 (代理协议有效时)
-  if (!['socks', 'http', 'dokodemo-door'].includes(clean.protocol)) {
+  // 3. 安全协议清洗 (仅在支持安全层的协议下生效)
+  if (!['socks', 'http', 'dokodemo-door', 'shadowsocks'].includes(clean.protocol)) {
     if (clean.security === 'reality') {
       clean.realityTarget = raw.realityTarget || 'www.example.com:443'
       clean.realityServerNames = raw.realityServerNames || 'www.example.com'
@@ -275,24 +307,96 @@ export function buildSettingsJSON(clean: InboundFormData, usersList: any[] = [])
     return JSON.stringify(settings, null, 2)
   }
 
+  if (clean.protocol === 'shadowsocks') {
+    settings.method = clean.ssMethod || '2022-blake3-aes-128-gcm'
+    settings.network = 'tcp,udp'
+    if (clean.ssPassword) {
+      settings.password = clean.ssPassword
+    }
+    const is2022 = (clean.ssMethod || '').includes('2022-blake3')
+    const clients: any[] = []
+    for (const email of clean.selectedUserEmails) {
+      const userObj = usersList.find((u: any) => u.email === email)
+      if (userObj) {
+        const c: any = {
+          password: userObj.uuid,
+          email: userObj.email,
+          level: 0,
+        }
+        if (!is2022) {
+          c.method = clean.ssMethod || 'aes-128-gcm'
+        }
+        clients.push(c)
+      }
+    }
+    if (clients.length > 0) {
+      settings.clients = clients
+    }
+    return JSON.stringify(settings, null, 2)
+  }
+
+  if (clean.protocol === 'trojan') {
+    const clients: any[] = []
+    for (const email of clean.selectedUserEmails) {
+      const userObj = usersList.find((u: any) => u.email === email)
+      if (userObj) {
+        clients.push({
+          password: userObj.uuid,
+          email: userObj.email,
+          level: 0,
+        })
+      }
+    }
+    settings.clients = clients
+    if (clean.fallbacksEnabled && clean.fallbackDest) {
+      settings.fallbacks = [
+        {
+          dest: clean.fallbackDest,
+          xver: clean.fallbackXver || 0,
+        },
+      ]
+    }
+    return JSON.stringify(settings, null, 2)
+  }
+
+  if (clean.protocol === 'vmess') {
+    const clients: any[] = []
+    for (const email of clean.selectedUserEmails) {
+      const userObj = usersList.find((u: any) => u.email === email)
+      if (userObj) {
+        clients.push({
+          id: userObj.uuid,
+          email: userObj.email,
+          level: 0,
+        })
+      }
+    }
+    settings.clients = clients
+    return JSON.stringify(settings, null, 2)
+  }
+
+  // VLESS
   const isTcp = clean.network === 'tcp'
   const isTlsOrReality = clean.security === 'reality' || clean.security === 'tls'
   const flowVal = (isTcp && isTlsOrReality) ? (clean.vlessFlow || '') : ''
-  settings.flow = flowVal
-  if (clean.protocol === 'vless') {
-    settings.decryption = 'none'
+  settings.decryption = 'none'
+  if (flowVal) {
+    settings.flow = flowVal
   }
 
   const clients: any[] = []
   for (const email of clean.selectedUserEmails) {
     const userObj = usersList.find((u: any) => u.email === email)
     if (userObj) {
-      clients.push({
+      const c: any = {
         id: userObj.uuid,
         email: userObj.email,
-        flow: flowVal,
         level: 0,
-      })
+      }
+      if (flowVal) {
+        c.flow = flowVal
+      }
+      clients.push(c)
     }
   }
   settings.clients = clients
@@ -310,6 +414,10 @@ export function buildSettingsJSON(clean: InboundFormData, usersList: any[] = [])
 }
 
 export function buildStreamSettingsJSON(clean: InboundFormData): string {
+  if (['socks', 'http', 'dokodemo-door'].includes(clean.protocol)) {
+    return ''
+  }
+
   const stream: any = {
     network: clean.network,
     security: clean.security,

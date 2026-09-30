@@ -192,7 +192,6 @@
             >
               <option value="2022-blake3-aes-128-gcm">2022-blake3-aes-128-gcm</option>
               <option value="2022-blake3-aes-256-gcm">2022-blake3-aes-256-gcm</option>
-              <option value="2022-blake3-chacha20-poly1305">2022-blake3-chacha20-poly1305</option>
               <option value="aes-256-gcm">aes-256-gcm</option>
               <option value="aes-128-gcm">aes-128-gcm</option>
               <option value="chacha20-ietf-poly1305">chacha20-ietf-poly1305</option>
@@ -236,7 +235,10 @@
               <option value="httpupgrade">HTTPUpgrade</option>
             </select>
           </FormField>
-          <FormField label="安全协议 (Security)">
+          <FormField
+            label="安全协议 (Security)"
+            :hint="['vmess', 'shadowsocks'].includes(form.protocol) ? '面板策略当前仅开放 VLESS / Trojan 协议搭配 REALITY 伪装出站' : undefined"
+          >
             <select
               v-model="form.streamSecurity"
               @change="onOutboundSecurityChange"
@@ -320,7 +322,7 @@
               <input
                 v-model="form.realityServerName"
                 type="text"
-                placeholder="www.example.com"
+                placeholder="例如: apple.com"
                 class="w-full bg-neutral-950 border border-border rounded-md px-3 py-2 text-foreground font-mono focus:outline-none focus:ring-1 focus:ring-ring"
               />
             </FormField>
@@ -356,7 +358,7 @@
         </div>
 
         <!-- TLS 专属连接参数 -->
-        <div v-if="['vless', 'vmess', 'trojan', 'shadowsocks'].includes(form.protocol) && form.streamSecurity === 'tls'" class="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2 border-t border-border/60 bg-neutral-950/60 p-3 rounded-md">
+        <div v-if="['vless', 'vmess', 'trojan', 'shadowsocks'].includes(form.protocol) && form.streamSecurity === 'tls'" class="pt-2 border-t border-border/60 bg-neutral-950/60 p-3 rounded-md">
           <FormField label="TLS SNI (ServerName)">
             <input
               v-model="form.tlsServerName"
@@ -365,12 +367,6 @@
               class="w-full bg-neutral-950 border border-border rounded-md px-3 py-2 text-foreground font-mono focus:outline-none focus:ring-1 focus:ring-ring"
             />
           </FormField>
-          <div class="flex items-center pt-6">
-            <label class="flex items-center gap-2 text-xs text-foreground cursor-pointer">
-              <input v-model="form.tlsAllowInsecure" type="checkbox" class="w-4 h-4 rounded text-brand-500 bg-neutral-950 border-border focus:ring-0" />
-              <span>允许不安全证书 (allowInsecure)</span>
-            </label>
-          </div>
         </div>
       </SectionCard>
     </form>
@@ -394,6 +390,7 @@
 
 <script setup lang="ts">
 import { ref, computed, watch } from 'vue'
+import { toast } from '../../../utils/toast'
 import Drawer from '../../../components/ui/Drawer.vue'
 import Button from '../../../components/ui/Button.vue'
 import FormField from '../../../components/ui/FormField.vue'
@@ -483,6 +480,12 @@ watch(
 )
 
 const handleSubmit = () => {
+  if (['vless', 'trojan'].includes(form.value.protocol) && form.value.streamSecurity === 'reality') {
+    if (!form.value.realityServerName?.trim()) {
+      toast.error('请填写 REALITY SNI 伪装域名 (ServerName)')
+      return
+    }
+  }
   const payload = sanitizeOutboundPayload(form.value)
   emit('save', payload)
 }

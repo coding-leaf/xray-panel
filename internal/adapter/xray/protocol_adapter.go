@@ -282,6 +282,17 @@ func (a *Shadowsocks2022Adapter) Protocol() string {
 }
 
 func (a *Shadowsocks2022Adapter) CompileClients(inbound *domain.Inbound, users []domain.User, accessor *InboundStreamAccessor) ([]XrayClient, error) {
+	if accessor == nil {
+		accessor = NewInboundStreamAccessorFromInbound(inbound)
+	}
+	method := accessor.ResolveShadowsocksMethod()
+	switch strings.ToLower(strings.TrimSpace(method)) {
+	case "2022-blake3-aes-128-gcm", "2022-blake3-aes-256-gcm":
+		// 合法 multi-user 套件
+	default:
+		return nil, fmt.Errorf("%w: shadowsocks-2022 multi-user mode only supports 2022-blake3-aes-128-gcm and 2022-blake3-aes-256-gcm, got %q", domain.ErrInvalidInput, method)
+	}
+
 	activeUsers := filterActiveUsersForInbound(inbound, users)
 	clients := make([]XrayClient, 0, len(activeUsers))
 	for _, u := range activeUsers {

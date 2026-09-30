@@ -178,3 +178,55 @@ func TestProtocolRegistry_DirectAndResolve(t *testing.T) {
 		t.Fatalf("expected shadowsocks-2022 adapter, got %v", adSS2022)
 	}
 }
+
+func TestShadowsocks2022Adapter_CompileClients(t *testing.T) {
+	adapter := &Shadowsocks2022Adapter{}
+	users := []domain.User{
+		{Email: "user@test.com", UUID: "7117295b-4362-0000-a133-b969344dfcd5", Enabled: true, InboundTags: "ss-in"},
+	}
+
+	t.Run("valid aes-128-gcm", func(t *testing.T) {
+		inb := &domain.Inbound{
+			Tag:          "ss-in",
+			Protocol:     "shadowsocks",
+			SettingsJSON: `{"method":"2022-blake3-aes-128-gcm"}`,
+		}
+		clients, err := adapter.CompileClients(inb, users, nil)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if len(clients) != 1 {
+			t.Fatalf("expected 1 client, got %d", len(clients))
+		}
+	})
+
+	t.Run("valid aes-256-gcm", func(t *testing.T) {
+		inb := &domain.Inbound{
+			Tag:          "ss-in",
+			Protocol:     "shadowsocks",
+			SettingsJSON: `{"method":"2022-blake3-aes-256-gcm"}`,
+		}
+		clients, err := adapter.CompileClients(inb, users, nil)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if len(clients) != 1 {
+			t.Fatalf("expected 1 client, got %d", len(clients))
+		}
+	})
+
+	t.Run("invalid chacha20 in 2022 multi-user", func(t *testing.T) {
+		inb := &domain.Inbound{
+			Tag:          "ss-in",
+			Protocol:     "shadowsocks",
+			SettingsJSON: `{"method":"2022-blake3-chacha20-poly1305"}`,
+		}
+		_, err := adapter.CompileClients(inb, users, nil)
+		if err == nil {
+			t.Fatalf("expected error for chacha20 in ss2022 multi-user, got nil")
+		}
+		if !errors.Is(err, domain.ErrInvalidInput) {
+			t.Errorf("expected ErrInvalidInput, got %v", err)
+		}
+	})
+}

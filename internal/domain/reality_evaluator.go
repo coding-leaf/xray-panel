@@ -92,10 +92,6 @@ func ExtractRealityTargets(inbound *Inbound) (dest string, port int, serverNames
 		}
 	}
 
-	if dest == "" && len(snList) > 0 {
-		dest = snList[0]
-	}
-
 	return dest, port, snList, true
 }
 
@@ -246,20 +242,20 @@ func BuildRealityCheckItem(
 	}
 
 	item := RealityCheckItem{
-		InboundID:   inboundID,
-		InboundTag:  inboundTag,
-		Dest:        fullDest,
-		ServerName:  serverName,
-		Port:        port,
-		Status:      status,
-		ErrorType:   errorType,
-		ErrorMsg:    details,
-		Details:     details,
-		TLSVersion:  FormatTLSVersion(tlsVer),
-		ALPN:        alpn,
-		IsCDN:       isCDN,
-		LatencyMs:   latencyMs,
-		CheckedAt:   checkedAt,
+		InboundID:  inboundID,
+		InboundTag: inboundTag,
+		Dest:       fullDest,
+		ServerName: serverName,
+		Port:       port,
+		Status:     status,
+		ErrorType:  errorType,
+		ErrorMsg:   details,
+		Details:    details,
+		TLSVersion: FormatTLSVersion(tlsVer),
+		ALPN:       alpn,
+		IsCDN:      isCDN,
+		LatencyMs:  latencyMs,
+		CheckedAt:  checkedAt,
 	}
 
 	if cert != nil {

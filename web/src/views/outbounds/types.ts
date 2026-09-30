@@ -34,7 +34,6 @@ export interface OutboundFormState {
   realityPublicKey: string
   realityShortId: string
   tlsServerName: string
-  tlsAllowInsecure: boolean
   tlsFingerprint: string
 }
 
@@ -70,12 +69,11 @@ export function createDefaultOutboundForm(): OutboundFormState {
     wsPath: '/ws',
     wsHost: '',
     grpcServiceName: 'xray-grpc',
-    realityServerName: 'www.example.com',
+    realityServerName: '',
     realityFingerprint: 'chrome',
     realityPublicKey: '',
     realityShortId: '0123456789abcdef',
     tlsServerName: '',
-    tlsAllowInsecure: false,
     tlsFingerprint: 'chrome',
   }
 }
@@ -124,14 +122,13 @@ export function populateOutboundForm(ob: OutboundItem): OutboundFormState {
     form.grpcServiceName = str.grpcSettings.serviceName || 'xray-grpc'
   }
   if (str.realitySettings) {
-    form.realityServerName = str.realitySettings.serverName || 'www.example.com'
+    form.realityServerName = str.realitySettings.serverName || ''
     form.realityPublicKey = str.realitySettings.publicKey || ''
     form.realityShortId = str.realitySettings.shortId || ''
     form.realityFingerprint = str.realitySettings.fingerprint || 'chrome'
   }
   if (str.tlsSettings) {
     form.tlsServerName = str.tlsSettings.serverName || ''
-    form.tlsAllowInsecure = str.tlsSettings.allowInsecure === true
     form.tlsFingerprint = str.tlsSettings.fingerprint || 'chrome'
   }
 
@@ -318,7 +315,7 @@ export function buildStreamSettingsJSON(form: OutboundFormState): string {
 
   if (form.streamSecurity === 'reality') {
     stream.realitySettings = {
-      serverName: form.realityServerName || 'www.example.com',
+      serverName: form.realityServerName || '',
       publicKey: form.realityPublicKey || '',
       shortId: form.realityShortId || '',
       fingerprint: form.realityFingerprint || 'chrome',
@@ -326,7 +323,6 @@ export function buildStreamSettingsJSON(form: OutboundFormState): string {
   } else if (form.streamSecurity === 'tls') {
     stream.tlsSettings = {
       serverName: form.tlsServerName || '',
-      allowInsecure: form.tlsAllowInsecure === true,
       fingerprint: form.tlsFingerprint || 'chrome',
     }
   }

@@ -148,11 +148,11 @@
         <div class="grid grid-cols-1 sm:grid-cols-2 gap-2 font-mono text-[11px]">
           <div class="p-2 rounded bg-neutral-900/80 border border-border/40">
             <span class="block text-[10px] text-muted-foreground">回落伪装目标 (Dest)</span>
-            <span class="text-foreground">{{ getInboundRealityField(inbound, 'dest') || 'www.example.com:443' }}</span>
+            <span class="text-foreground">{{ getInboundRealityField(inbound, 'dest') || '-' }}</span>
           </div>
           <div class="p-2 rounded bg-neutral-900/80 border border-border/40">
             <span class="block text-[10px] text-muted-foreground">SNI 域名列表</span>
-            <span class="text-foreground">{{ getInboundRealityField(inbound, 'serverNames') || 'www.example.com' }}</span>
+            <span class="text-foreground">{{ getInboundRealityField(inbound, 'serverNames') || '-' }}</span>
           </div>
         </div>
 

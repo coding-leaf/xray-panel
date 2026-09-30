@@ -2,6 +2,7 @@ package xray_test
 
 import (
 	"encoding/json"
+	"errors"
 	"os"
 	"os/exec"
 	"testing"
@@ -61,7 +62,7 @@ func TestXrayCompiler_Compile(t *testing.T) {
 			Port:           4434,
 			Listen:         "0.0.0.0",
 			Protocol:       "vless",
-			StreamSettings: `{"network":"tcp","security":"reality","realitySettings":{"serverNames":["apple.com"]}}`,
+			StreamSettings: `{"network":"tcp","security":"reality","realitySettings":{"dest":"apple.com:443","serverNames":["apple.com"],"privateKey":"OCiaG7JluOeRDE9IIuqPleHWArqqmnKJ_rKTxtjo7mc"}}`,
 			SubRoutesJson: `[
 				{"id":"sr-1","name":"🇯🇵 日本原生","routeId":1,"outboundTag":"jp-direct","enabled":true},
 				{"id":"sr-2","name":"🇺🇸 美国落地","routeId":2,"outboundTag":"us-relay","enabled":true}
@@ -74,7 +75,7 @@ func TestXrayCompiler_Compile(t *testing.T) {
 			Port:           4435,
 			Listen:         "0.0.0.0",
 			Protocol:       "vless",
-			StreamSettings: `{"network":"xhttp","security":"reality","xhttpSettings":{"path":"/xh","mode":"auto"}}`,
+			StreamSettings: `{"network":"xhttp","security":"reality","realitySettings":{"dest":"apple.com:443","serverNames":["apple.com"],"privateKey":"OCiaG7JluOeRDE9IIuqPleHWArqqmnKJ_rKTxtjo7mc"},"xhttpSettings":{"path":"/xh","mode":"auto"}}`,
 			Enabled:        true,
 		},
 		{
@@ -233,7 +234,7 @@ func TestXrayRealityValidation(t *testing.T) {
 			Tag:            "vless-reality",
 			Port:           443,
 			Protocol:       "vless",
-			StreamSettings: `{"network":"tcp","security":"reality","realitySettings":{"dest":"www.example.com:443","serverName":"www.example.com","publicKey":"some_pbk","privateKey":"OCiaG7JluOeRDE9IIuqPleHWArqqmnKJ_rKTxtjo7mc","shortIds":["0123456789abcdef"]}}`,
+			StreamSettings: `{"network":"tcp","security":"reality","realitySettings":{"dest":"gateway.icloud.com:443","serverName":"gateway.icloud.com","publicKey":"some_pbk","privateKey":"OCiaG7JluOeRDE9IIuqPleHWArqqmnKJ_rKTxtjo7mc","shortIds":["0123456789abcdef"]}}`,
 			Enabled:        true,
 		},
 	}
@@ -656,7 +657,7 @@ func TestCompiler_ShadowsocksMethodBuild(t *testing.T) {
 				Port:           4435,
 				Protocol:       "vless",
 				SettingsJSON:   `{"flow":"none"}`,
-				StreamSettings: `{"network":"tcp","security":"reality","realitySettings":{"dest":"www.example.com:443","serverNames":["www.example.com"],"privateKey":"OCiaG7JluOeRDE9IIuqPleHWArqqmnKJ_rKTxtjo7mc","shortIds":["0123456789abcdef"]}}`,
+				StreamSettings: `{"network":"tcp","security":"reality","realitySettings":{"dest":"gateway.icloud.com:443","serverNames":["gateway.icloud.com"],"privateKey":"OCiaG7JluOeRDE9IIuqPleHWArqqmnKJ_rKTxtjo7mc","shortIds":["0123456789abcdef"]}}`,
 				Enabled:        true,
 			},
 		}
@@ -788,4 +789,104 @@ func TestCompiler_SubRoute_UserIsolation(t *testing.T) {
 			}
 		}
 	}
+}
+
+func TestXrayCompiler_RealityStrictValidation(t *testing.T) {
+	compiler := xray.NewXrayCompiler()
+	outbounds := []domain.Outbound{{Tag: "direct", Protocol: "freedom"}}
+
+	t.Run("missing realitySettings", func(t *testing.T) {
+		inbounds := []domain.Inbound{
+			{
+				Tag:            "vless-reality",
+				Protocol:       "vless",
+				Port:           443,
+				Enabled:        true,
+				StreamSettings: `{"network":"tcp","security":"reality"}`,
+			},
+		}
+		_, err := compiler.Compile(inbounds, outbounds, nil, nil, nil)
+		if err == nil {
+			t.Fatalf("expected error for missing realitySettings, got nil")
+		}
+		if !errors.Is(err, domain.ErrInvalidInput) {
+			t.Errorf("expected ErrInvalidInput, got %v", err)
+		}
+	})
+
+	t.Run("missing dest", func(t *testing.T) {
+		inbounds := []domain.Inbound{
+			{
+				Tag:            "vless-reality",
+				Protocol:       "vless",
+				Port:           443,
+				Enabled:        true,
+				StreamSettings: `{"network":"tcp","security":"reality","realitySettings":{"serverNames":["apple.com"],"privateKey":"privkey"}}`,
+			},
+		}
+		_, err := compiler.Compile(inbounds, outbounds, nil, nil, nil)
+		if err == nil {
+			t.Fatalf("expected error for missing dest, got nil")
+		}
+		if !errors.Is(err, domain.ErrInvalidInput) {
+			t.Errorf("expected ErrInvalidInput, got %v", err)
+		}
+	})
+
+	t.Run("dest missing port", func(t *testing.T) {
+		inbounds := []domain.Inbound{
+			{
+				Tag:            "vless-reality",
+				Protocol:       "vless",
+				Port:           443,
+				Enabled:        true,
+				StreamSettings: `{"network":"tcp","security":"reality","realitySettings":{"dest":"apple.com","serverNames":["apple.com"],"privateKey":"privkey"}}`,
+			},
+		}
+		_, err := compiler.Compile(inbounds, outbounds, nil, nil, nil)
+		if err == nil {
+			t.Fatalf("expected error for dest missing port, got nil")
+		}
+		if !errors.Is(err, domain.ErrInvalidInput) {
+			t.Errorf("expected ErrInvalidInput, got %v", err)
+		}
+	})
+
+	t.Run("missing serverNames", func(t *testing.T) {
+		inbounds := []domain.Inbound{
+			{
+				Tag:            "vless-reality",
+				Protocol:       "vless",
+				Port:           443,
+				Enabled:        true,
+				StreamSettings: `{"network":"tcp","security":"reality","realitySettings":{"dest":"apple.com:443","serverNames":[],"privateKey":"privkey"}}`,
+			},
+		}
+		_, err := compiler.Compile(inbounds, outbounds, nil, nil, nil)
+		if err == nil {
+			t.Fatalf("expected error for missing serverNames, got nil")
+		}
+		if !errors.Is(err, domain.ErrInvalidInput) {
+			t.Errorf("expected ErrInvalidInput, got %v", err)
+		}
+	})
+
+	t.Run("missing privateKey", func(t *testing.T) {
+		inbounds := []domain.Inbound{
+			{
+				Tag:            "vless-reality",
+				Protocol:       "vless",
+				Port:           443,
+				Enabled:        true,
+				StreamSettings: `{"network":"tcp","security":"reality","realitySettings":{"dest":"apple.com:443","serverNames":["apple.com"]}}`,
+			},
+		}
+		_, err := compiler.Compile(inbounds, outbounds, nil, nil, nil)
+		if err == nil {
+			t.Fatalf("expected error for missing privateKey, got nil")
+		}
+		if !errors.Is(err, domain.ErrInvalidInput) {
+			t.Errorf("expected ErrInvalidInput, got %v", err)
+		}
+	})
 }

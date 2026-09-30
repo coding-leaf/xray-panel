@@ -121,7 +121,7 @@
           v-if="['socks', 'http', 'dokodemo-door'].includes(form.protocol)"
           class="p-2.5 rounded bg-neutral-950 border border-border text-muted-foreground text-xs font-mono"
         >
-          该协议为应用层原生代理/端口转发协议，直接通过原生网络监听，无额外传输层封装与 TLS/REALITY 安全加密。
+          该协议在面板中作为应用层原生代理/端口转发管理，目前面板策略暂未开放传输层流控与 TLS/REALITY 包装。
         </div>
 
         <!-- Flow Policy -->
@@ -245,7 +245,6 @@
             >
               <option value="2022-blake3-aes-128-gcm">2022-blake3-aes-128-gcm (SS2022 推荐)</option>
               <option value="2022-blake3-aes-256-gcm">2022-blake3-aes-256-gcm (SS2022)</option>
-              <option value="2022-blake3-chacha20-poly1305">2022-blake3-chacha20-poly1305</option>
               <option value="aes-128-gcm">aes-128-gcm</option>
               <option value="aes-256-gcm">aes-256-gcm</option>
               <option value="chacha20-poly1305">chacha20-poly1305</option>
@@ -278,15 +277,15 @@
         </template>
 
         <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
-          <FormField label="目标伪装网站 (Target)">
-            <Input v-model="form.realityTarget" placeholder="www.example.com:443" />
+          <FormField label="目标伪装网站 (Target)" required>
+            <Input v-model="form.realityTarget" placeholder="gateway.icloud.com:443" />
           </FormField>
-          <FormField label="SNI 域名列表 (逗号隔开)">
-            <Input v-model="form.realityServerNames" placeholder="www.example.com" />
+          <FormField label="SNI 域名列表 (逗号隔开)" required>
+            <Input v-model="form.realityServerNames" placeholder="gateway.icloud.com" />
           </FormField>
         </div>
 
-        <FormField label="Private Key (私钥)">
+        <FormField label="Private Key (私钥)" required>
           <Input v-model="form.realityPrivateKey" placeholder="base64 私钥" />
         </FormField>
 
@@ -1054,6 +1053,21 @@ watch(
 )
 
 const saveInbound = async () => {
+  if (!['socks', 'http', 'dokodemo-door', 'shadowsocks', 'vmess'].includes(form.value.protocol) && form.value.security === 'reality') {
+    if (!form.value.realityTarget?.trim()) {
+      toast.error('请填写 REALITY 目标伪装网站 (Target)')
+      return
+    }
+    if (!form.value.realityServerNames?.trim()) {
+      toast.error('请填写 REALITY SNI 域名列表 (ServerNames)')
+      return
+    }
+    if (!form.value.realityPrivateKey?.trim()) {
+      toast.error('请填写或生成 REALITY 私钥 (Private Key)')
+      return
+    }
+  }
+
   saving.value = true
   try {
     const payload = buildInboundPayload(form.value, props.usersList)

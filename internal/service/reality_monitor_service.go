@@ -78,11 +78,8 @@ func (s *RealityMonitorService) CheckAll(ctx context.Context) (domain.RealitySum
 	var tasks []realityTask
 	for _, in := range inbounds {
 		dest, port, serverNames, isReality := domain.ExtractRealityTargets(&in)
-		if !isReality {
+		if !isReality || dest == "" || len(serverNames) == 0 {
 			continue
-		}
-		if len(serverNames) == 0 && dest != "" {
-			serverNames = []string{dest}
 		}
 		for _, sn := range serverNames {
 			tasks = append(tasks, realityTask{

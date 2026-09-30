@@ -127,6 +127,30 @@ func TestExtractRealityTargets(t *testing.T) {
 			t.Errorf("expected serverNames %v, got %v", expectedSN, serverNames)
 		}
 	})
+
+	t.Run("reality without dest does not infer from serverNames", func(t *testing.T) {
+		inbound := &domain.Inbound{
+			Tag:      "vless-no-dest",
+			Protocol: "vless",
+			StreamSettings: `{
+				"security":"reality",
+				"realitySettings":{
+					"serverNames":["www.apple.com"]
+				}
+			}`,
+		}
+		dest, _, serverNames, isReality := domain.ExtractRealityTargets(inbound)
+		if !isReality {
+			t.Fatalf("expected isReality=true, got false")
+		}
+		if dest != "" {
+			t.Errorf("expected empty dest, got %q", dest)
+		}
+		expectedSN := []string{"www.apple.com"}
+		if !reflect.DeepEqual(serverNames, expectedSN) {
+			t.Errorf("expected serverNames %v, got %v", expectedSN, serverNames)
+		}
+	})
 }
 
 func TestEvaluateRealityProbe(t *testing.T) {
@@ -316,4 +340,3 @@ func TestBuildRealityCheckItem(t *testing.T) {
 		t.Errorf("expected 10 days left, got %d", item.DaysLeft)
 	}
 }
-

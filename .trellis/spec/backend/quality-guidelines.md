@@ -30,3 +30,18 @@
 
 - **凭证零泄漏**：严禁在代码、测试、配置或日志中出现真实公网 IP、生产域名、JWT 密钥、Telegram Token；
 - **测试环境安全**：单元测试统一使用模拟数据与本地环回地址（`127.0.0.1`）。
+
+---
+
+## 4. 协议契约与配置真实性准则 (Protocol Invariants & Configuration Truth)
+
+- **杜绝猜测与假兜底**：
+  - 严禁在 REALITY 等安全协议中静默填补假域名占位符（如 `www.example.com`）；
+  - 严禁在 `dest ↔ serverNames` 间自动跨字段猜测互推；
+  - 缺少必填参数（如 `dest`、`serverNames`、`privateKey`）时必须显式返回校验错误（`domain.ErrInvalidInput`），严禁生成语义错误的“合法”假配置。
+- **协议密码学套件白名单收敛**：
+  - Shadowsocks 2022 多用户（sub-keys/clients 绑定）模式下，根据规范仅允许 `2022-blake3-aes-128-gcm` 与 `2022-blake3-aes-256-gcm`，禁止配置 `2022-blake3-chacha20-poly1305`。
+- **废弃字段防线**：
+  - 严禁向 Xray-core 生成已废弃的配置项（如 `tlsSettings.allowInsecure`），避免核心启动时触发硬校验报错。
+- **策略定性边界**：
+  - 明确区分“面板当前管理策略暂未开放/暂仅支持原生网络监听”与“Xray-core 原生不支持”，严禁在提示和文档中混淆归因。

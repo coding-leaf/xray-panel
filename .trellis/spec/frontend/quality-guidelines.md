@@ -58,6 +58,17 @@ cd web && mise x -- npm run build       # vite build
   Portal 等敏感页面必须支持超时锁屏物理自毁（见 `frontend/index.md`）。
 - **Token 处理**：认证 token 存于 `localStorage.token`，由 axios 拦截器注入请求头，
   401 时由拦截器统一清除并跳登录 —— 页面不要自行重复实现该逻辑。
+
+---
+
+## 协议配置表单与交互契约
+
+- **表单强校验阻断**：
+  - 开启 REALITY 时，`Target (dest)`、`SNI 域名 (serverNames)`、`私钥 (privateKey)` 为必填项，未填写时必须在提交前通过 Toast 拦截，禁止生成空配置或回退默认占位符；
+- **废弃字段彻底绝迹**：
+  - TLS 证书与 streamSettings 表单中严禁出现 `allowInsecure` 选项与对应模型字段；
+- **文案语义真实性**：
+  - 遇到面板未实现/未开放组合（如 Socks/HTTP streamSettings、VMess+REALITY），文案必须注明为“面板当前管理策略暂未开放/暂仅支持原生监听”，禁止表述为“Xray 不支持”。
 - **不引入明文敏感信息**：禁止在源码、配置或 demo 数据中写入真实公网 IP、生产域名、
   Token 或私钥；mock 数据使用模拟值。
 

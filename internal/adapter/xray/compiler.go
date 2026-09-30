@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net"
+	"strconv"
 	"strings"
 
 	"panel/internal/domain"
@@ -248,43 +249,60 @@ func (c *XrayCompiler) compileInbound(inb *domain.Inbound, users []domain.User) 
 	}
 	accessor := NewInboundStreamAccessorFromInbound(inb)
 
-	// 服务端 Inbound REALITY 字段规范化清洗 (杜绝 Xray 内核 non-empty serverName 报错)
-	if streamSettings != nil && streamSettings.RealitySettings != nil {
-		r := streamSettings.RealitySettings
-		if len(r.ServerNames) == 0 && r.ServerName != "" {
-			r.ServerNames = []string{r.ServerName}
-		}
-		r.ServerName = ""  // 服务端严禁包含单数 serverName
-		r.PublicKey = ""   // 服务端严禁包含 publicKey
-		r.Fingerprint = "" // 服务端严禁包含 fingerprint
-		r.SpiderX = ""     // 服务端严禁包含 spiderX
-		if len(r.ShortIds) == 0 && r.ShortId != "" {
-			r.ShortIds = []string{r.ShortId}
-		}
-		r.ShortId = "" // 服务端严禁包含单数 shortId
-		if r.Dest == "" && r.Target != "" {
-			r.Dest = r.Target
-		}
-		r.Target = "" // 服务端严禁包含 target 兼容字段
-
-		// 智能互推：优先从已有字段推导，避免硬编码偏好域名
-		if r.Dest != "" && len(r.ServerNames) == 0 {
-			host, _, err := net.SplitHostPort(r.Dest)
-			if err == nil && host != "" {
-				r.ServerNames = []string{host}
-			} else {
-				r.ServerNames = []string{r.Dest}
+	// 服务端 Inbound REALITY 字段规范化清洗与严格校验 (杜绝 Xray 内核 non-empty serverName 报错及假兜底)
+	if streamSettings != nil {
+		if strings.EqualFold(streamSettings.Security, "reality") {
+			if streamSettings.RealitySettings == nil {
+				return nil, fmt.Errorf("%w: realitySettings is required when security is reality", domain.ErrInvalidInput)
 			}
-		} else if r.Dest == "" && len(r.ServerNames) > 0 && r.ServerNames[0] != "" {
-			r.Dest = net.JoinHostPort(r.ServerNames[0], "443")
-		}
+			r := streamSettings.RealitySettings
+			if len(r.ServerNames) == 0 && r.ServerName != "" {
+				r.ServerNames = []string{r.ServerName}
+			}
+			r.ServerName = ""  // 服务端严禁包含单数 serverName
+			r.PublicKey = ""   // 服务端严禁包含 publicKey
+			r.Fingerprint = "" // 服务端严禁包含 fingerprint
+			r.SpiderX = ""     // 服务端严禁包含 spiderX
+			if len(r.ShortIds) == 0 && r.ShortId != "" {
+				r.ShortIds = []string{r.ShortId}
+			}
+			r.ShortId = "" // 服务端严禁包含单数 shortId
+			if r.Dest == "" && r.Target != "" {
+				r.Dest = r.Target
+			}
+			r.Target = "" // 服务端严禁包含 target 兼容字段
 
-		// 极端兜底：仅在 Dest 与 ServerNames 均未填写时提供 RFC 标准示例占位符
-		if r.Dest == "" {
-			r.Dest = "www.example.com:443"
-		}
-		if len(r.ServerNames) == 0 {
-			r.ServerNames = []string{"www.example.com"}
+			r.Dest = strings.TrimSpace(r.Dest)
+			if r.Dest == "" {
+				return nil, fmt.Errorf("%w: reality dest is required", domain.ErrInvalidInput)
+			}
+			host, portStr, err := net.SplitHostPort(r.Dest)
+			if err != nil || host == "" || portStr == "" {
+				return nil, fmt.Errorf("%w: reality dest must be in host:port format, got %q", domain.ErrInvalidInput, r.Dest)
+			}
+			portNum, err := strconv.Atoi(portStr)
+			if err != nil || portNum <= 0 || portNum > 65535 {
+				return nil, fmt.Errorf("%w: reality dest has invalid port %q", domain.ErrInvalidInput, portStr)
+			}
+
+			var validSN []string
+			for _, sn := range r.ServerNames {
+				sn = strings.TrimSpace(sn)
+				if sn != "" {
+					validSN = append(validSN, sn)
+				}
+			}
+			r.ServerNames = validSN
+			if len(r.ServerNames) == 0 {
+				return nil, fmt.Errorf("%w: reality serverNames is required and must contain at least one non-empty server name", domain.ErrInvalidInput)
+			}
+
+			r.PrivateKey = strings.TrimSpace(r.PrivateKey)
+			if r.PrivateKey == "" {
+				return nil, fmt.Errorf("%w: reality privateKey is required", domain.ErrInvalidInput)
+			}
+		} else {
+			streamSettings.RealitySettings = nil
 		}
 	}
 

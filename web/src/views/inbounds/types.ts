@@ -113,8 +113,8 @@ export function getDefaultInboundFormData(usersList: any[] = []): InboundFormDat
     xhttpMode: 'auto',
     wsPath: '/ws',
     grpcService: 'xray-grpc',
-    realityTarget: 'www.example.com:443',
-    realityServerNames: 'www.example.com',
+    realityTarget: '',
+    realityServerNames: '',
     realityPrivateKey: '',
     realityPublicKey: '',
     realityShortIds: '0123456789abcdef',
@@ -256,8 +256,8 @@ export function sanitizeInboundPayload(raw: InboundFormData): InboundFormData {
   // 3. 安全协议清洗 (仅在支持安全层的协议下生效)
   if (!['socks', 'http', 'dokodemo-door', 'shadowsocks'].includes(clean.protocol)) {
     if (clean.security === 'reality') {
-      clean.realityTarget = raw.realityTarget || 'www.example.com:443'
-      clean.realityServerNames = raw.realityServerNames || 'www.example.com'
+      clean.realityTarget = raw.realityTarget || ''
+      clean.realityServerNames = raw.realityServerNames || ''
       clean.realityPrivateKey = raw.realityPrivateKey || ''
       clean.realityPublicKey = raw.realityPublicKey || ''
       clean.realityShortIds = raw.realityShortIds || '0123456789abcdef'
@@ -453,8 +453,8 @@ export function buildStreamSettingsJSON(clean: InboundFormData): string {
       .map((s: string) => s.trim())
 
     stream.realitySettings = {
-      dest: clean.realityTarget || 'www.example.com:443',
-      serverNames: sNames.length > 0 ? sNames : ['www.example.com'],
+      dest: clean.realityTarget || '',
+      serverNames: sNames,
       privateKey: clean.realityPrivateKey,
       shortIds: sIds,
     }

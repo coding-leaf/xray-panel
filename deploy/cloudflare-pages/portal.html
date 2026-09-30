@@ -1,27 +1,31 @@
 <!DOCTYPE html>
-<html lang="zh-CN">
+<html lang="zh-CN" class="dark">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>分布式网管接入点</title>
   <style>
     :root {
-      --bg-color: #07090e;
-      --card-bg: rgba(12, 16, 27, 0.95);
-      --border-color: rgba(255, 255, 255, 0.08);
-      --primary: #6366f1;
-      --primary-hover: #4f46e5;
-      --primary-glow: rgba(99, 102, 241, 0.25);
-      --accent: #06b6d4;
-      --text-main: #f8fafc;
-      --text-muted: #94a3b8;
-      --text-dark: #64748b;
+      --bg: #000000;
+      --card: #0a0a0a;
+      --card-inner: #121212;
+      --border: #262626;
+      --border-light: #404040;
+      --text: #ededed;
+      --text-muted: #a1a1a1;
+      --text-dark: #737373;
+      --accent: #ffffff;
+      --accent-bg: #171717;
       --danger: #f43f5e;
       --danger-bg: rgba(244, 63, 94, 0.1);
-      --success: #10b981;
-      --success-bg: rgba(16, 185, 129, 0.1);
-      --warning: #f59e0b;
-      --warning-bg: rgba(245, 158, 11, 0.1);
+      --danger-border: rgba(244, 63, 94, 0.2);
+      --success: #34d399;
+      --success-bg: rgba(52, 211, 153, 0.1);
+      --success-border: rgba(52, 211, 153, 0.2);
+      --warning: #fbbf24;
+      --warning-bg: rgba(251, 191, 36, 0.1);
+      --warning-border: rgba(251, 191, 36, 0.2);
+      --font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
     }
 
     * {
@@ -31,53 +35,25 @@
     }
 
     body {
-      background-color: var(--bg-color);
-      color: var(--text-main);
+      background-color: var(--bg);
+      color: var(--text);
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
       min-height: 100vh;
       display: flex;
       align-items: center;
       justify-content: center;
-      padding: 20px;
-      position: relative;
-      overflow-x: hidden;
+      padding: 24px 16px;
+      line-height: 1.5;
+      -webkit-font-smoothing: antialiased;
     }
 
-    /* 背景炫彩光晕 */
-    .glow-top {
-      position: absolute;
-      top: -120px;
-      left: 50%;
-      transform: translateX(-50%);
-      width: 550px;
-      height: 350px;
-      background: radial-gradient(circle, rgba(99, 102, 241, 0.15) 0%, rgba(6, 182, 212, 0.08) 50%, transparent 80%);
-      border-radius: 50%;
-      filter: blur(80px);
-      pointer-events: none;
-    }
-
-    .glow-bottom {
-      position: absolute;
-      bottom: -100px;
-      right: -50px;
-      width: 380px;
-      height: 380px;
-      background: radial-gradient(circle, rgba(168, 85, 247, 0.12) 0%, transparent 70%);
-      border-radius: 50%;
-      filter: blur(90px);
-      pointer-events: none;
-    }
-
-    /* 容器卡片 */
     .container {
       width: 100%;
       max-width: 540px;
-      position: relative;
-      z-index: 10;
       margin: auto;
     }
 
+    /* 顶部状态标签 */
     .status-badge {
       display: flex;
       justify-content: center;
@@ -88,93 +64,77 @@
       display: inline-flex;
       align-items: center;
       gap: 8px;
-      padding: 6px 14px;
+      padding: 4px 12px;
       border-radius: 9999px;
-      background: rgba(99, 102, 241, 0.1);
-      border: 1px solid rgba(99, 102, 241, 0.25);
-      color: #a5b4fc;
+      background: var(--accent-bg);
+      border: 1px solid var(--border);
+      color: #d4d4d4;
+      font-family: var(--font-mono);
       font-size: 12px;
-      font-weight: 500;
-      letter-spacing: 0.02em;
     }
 
+    .badge-pill svg {
+      color: #a3a3a3;
+    }
+
+    /* 主卡片：Neutral 极简微弱投影与线框 */
     .card {
-      background: var(--card-bg);
-      backdrop-filter: blur(20px);
-      border: 1px solid var(--border-color);
-      border-radius: 24px;
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 12px;
       padding: 32px 28px;
-      box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.85);
-      position: relative;
-    }
-
-    .card::before {
-      content: "";
-      position: absolute;
-      top: 0;
-      left: 50%;
-      transform: translateX(-50%);
-      width: 180px;
-      height: 2px;
-      background: linear-gradient(90deg, transparent, var(--primary), transparent);
+      box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.5), 0 8px 10px -6px rgba(0, 0, 0, 0.5);
     }
 
     .header {
       text-align: center;
-      margin-bottom: 28px;
+      margin-bottom: 24px;
     }
 
     .logo-icon {
-      width: 52px;
-      height: 52px;
+      width: 48px;
+      height: 48px;
       margin: 0 auto 14px;
-      border-radius: 16px;
-      background: linear-gradient(135deg, #6366f1, #06b6d4);
-      padding: 1px;
+      border-radius: 8px;
+      background: var(--accent-bg);
+      border: 1px solid var(--border);
       display: flex;
       align-items: center;
       justify-content: center;
-      box-shadow: 0 8px 20px -4px var(--primary-glow);
     }
 
-    .logo-inner {
-      width: 100%;
-      height: 100%;
-      background: #0b0f19;
-      border-radius: 15px;
-      display: flex;
-      align-items: center;
-      justify-content: center;
+    .logo-icon svg {
+      color: var(--text);
     }
 
     .header h1 {
-      font-size: 22px;
-      font-weight: 700;
-      color: #fff;
+      font-size: 18px;
+      font-weight: 600;
+      color: var(--text);
+      font-family: var(--font-mono);
       letter-spacing: -0.01em;
     }
 
     .header p {
       font-size: 12px;
       color: var(--text-dark);
-      font-family: monospace;
-      margin-top: 6px;
+      font-family: var(--font-mono);
+      margin-top: 4px;
     }
 
     /* 表单组件 */
     .form-group {
-      margin-bottom: 20px;
+      margin-bottom: 16px;
     }
 
     .form-label {
       display: block;
       text-align: center;
       font-size: 12px;
-      font-weight: 600;
-      text-transform: uppercase;
-      letter-spacing: 0.05em;
+      font-weight: 500;
+      font-family: var(--font-mono);
       color: var(--text-muted);
-      margin-bottom: 12px;
+      margin-bottom: 10px;
     }
 
     .input-wrapper {
@@ -184,54 +144,56 @@
 
     .code-input {
       width: 100%;
-      background: rgba(17, 22, 36, 0.9);
-      border: 1px solid rgba(255, 255, 255, 0.15);
-      border-radius: 14px;
-      padding: 14px 16px;
-      font-family: monospace;
-      font-size: 26px;
-      font-weight: 800;
+      background: #000000;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 12px 16px;
+      font-family: var(--font-mono);
+      font-size: 24px;
+      font-weight: 700;
       letter-spacing: 0.35em;
       text-align: center;
-      color: #a5b4fc;
+      color: #ffffff;
       text-transform: uppercase;
       outline: none;
-      transition: all 0.2s ease;
+      transition: border-color 0.15s ease;
     }
 
     .code-input:focus {
-      border-color: var(--primary);
-      box-shadow: 0 0 0 3px var(--primary-glow);
+      border-color: var(--border-light);
+    }
+
+    .code-input::placeholder {
+      color: #525252;
     }
 
     .input-hint {
       text-align: center;
       font-size: 11px;
+      font-family: var(--font-mono);
       color: var(--text-dark);
       margin-top: 8px;
     }
 
     .btn-submit {
       width: 100%;
-      padding: 13px;
-      border-radius: 14px;
-      border: none;
-      background: linear-gradient(135deg, var(--primary), var(--accent));
-      color: white;
-      font-size: 14px;
-      font-weight: 600;
+      height: 40px;
+      border-radius: 6px;
+      border: 1px solid #ffffff;
+      background: #ffffff;
+      color: #000000;
+      font-size: 13px;
+      font-weight: 500;
       cursor: pointer;
       display: flex;
       align-items: center;
       justify-content: center;
-      gap: 8px;
-      box-shadow: 0 10px 25px -5px var(--primary-glow);
-      transition: all 0.2s ease;
+      gap: 6px;
+      transition: background-color 0.15s ease, opacity 0.15s ease;
     }
 
     .btn-submit:hover:not(:disabled) {
-      opacity: 0.95;
-      transform: translateY(-1px);
+      background: #e5e5e5;
     }
 
     .btn-submit:disabled {
@@ -241,25 +203,28 @@
 
     .error-banner {
       background: var(--danger-bg);
-      border: 1px solid rgba(244, 63, 94, 0.25);
-      color: #fda4af;
-      padding: 12px 14px;
-      border-radius: 12px;
+      border: 1px solid var(--danger-border);
+      color: var(--danger);
+      padding: 10px 12px;
+      border-radius: 6px;
       font-size: 12px;
+      font-family: var(--font-mono);
       margin-bottom: 16px;
       display: none;
       align-items: center;
       gap: 8px;
+      line-height: 1.4;
     }
 
     /* 兑换成果轨道卡片 */
     .countdown-bar {
       background: var(--warning-bg);
-      border: 1px solid rgba(245, 158, 11, 0.25);
-      color: #fcd34d;
+      border: 1px solid var(--warning-border);
+      color: var(--warning);
       padding: 10px 14px;
-      border-radius: 12px;
+      border-radius: 6px;
       font-size: 12px;
+      font-family: var(--font-mono);
       display: flex;
       justify-content: space-between;
       align-items: center;
@@ -267,16 +232,16 @@
     }
 
     .countdown-timer {
-      font-family: monospace;
+      font-family: var(--font-mono);
       font-weight: 700;
     }
 
     .track-section {
-      background: rgba(17, 22, 36, 0.7);
-      border: 1px solid var(--border-color);
-      border-radius: 16px;
+      background: #000000;
+      border: 1px solid var(--border);
+      border-radius: 8px;
       padding: 16px;
-      margin-bottom: 16px;
+      margin-bottom: 14px;
     }
 
     .track-header {
@@ -287,206 +252,274 @@
     }
 
     .track-title {
-      font-size: 13px;
-      font-weight: 700;
-      color: #fff;
+      font-size: 12px;
+      font-weight: 600;
+      font-family: var(--font-mono);
+      color: var(--text);
       display: flex;
       align-items: center;
-      gap: 6px;
+      gap: 8px;
     }
 
     .track-dot {
-      width: 7px;
-      height: 7px;
+      width: 8px;
+      height: 8px;
       border-radius: 50%;
     }
 
-    .dot-green { background: var(--success); }
-    .dot-blue { background: var(--accent); }
+    .track-dot.emerald {
+      background: var(--success);
+    }
 
-    .track-tag {
-      font-size: 10px;
-      font-family: monospace;
+    .track-dot.blue {
+      background: #60a5fa;
+    }
+
+    .track-badge {
+      font-size: 11px;
+      font-family: var(--font-mono);
       padding: 2px 8px;
-      border-radius: 6px;
-      background: rgba(255, 255, 255, 0.05);
-      color: var(--text-muted);
+      border-radius: 4px;
+      background: var(--success-bg);
+      color: var(--success);
+      border: 1px solid var(--success-border);
+    }
+
+    .track-badge.neutral {
+      background: var(--accent-bg);
+      color: #d4d4d4;
+      border: 1px solid var(--border);
     }
 
     .track-desc {
-      font-size: 11px;
-      color: var(--text-dark);
+      font-size: 12px;
+      color: var(--text-muted);
       line-height: 1.5;
       margin-bottom: 12px;
     }
 
-    .btn-action {
+    .btn-copy-nodes {
       width: 100%;
-      padding: 10px 14px;
-      border-radius: 10px;
-      border: none;
-      background: var(--primary);
-      color: white;
+      height: 36px;
+      border-radius: 6px;
+      border: 1px solid #ffffff;
+      background: #ffffff;
+      color: #000000;
       font-size: 12px;
-      font-weight: 600;
+      font-weight: 500;
       cursor: pointer;
       display: flex;
       align-items: center;
       justify-content: center;
       gap: 6px;
-      transition: all 0.2s ease;
+      margin-bottom: 10px;
+      transition: background-color 0.15s ease;
     }
 
-    .btn-action:hover {
-      background: var(--primary-hover);
+    .btn-copy-nodes:hover {
+      background: #e5e5e5;
     }
 
-    .fallback-box {
+    .textarea-hint {
+      font-size: 11px;
+      font-family: var(--font-mono);
+      color: var(--text-dark);
+      margin-bottom: 6px;
+    }
+
+    .nodes-textarea {
+      width: 100%;
+      height: 72px;
+      background: var(--card-inner);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 8px 10px;
+      font-family: var(--font-mono);
+      font-size: 11px;
+      color: #d4d4d4;
+      outline: none;
+      resize: none;
+      line-height: 1.4;
+    }
+
+    .nodes-textarea:focus {
+      border-color: var(--border-light);
+    }
+
+    /* 导入客户端指引折叠区 */
+    .guide-toggle {
+      border-top: 1px solid var(--border);
+      padding-top: 10px;
       margin-top: 10px;
     }
 
-    .fallback-label {
-      font-size: 10px;
-      color: var(--text-dark);
-      margin-bottom: 4px;
-    }
-
-    .fallback-textarea {
+    .guide-toggle-btn {
       width: 100%;
-      background: rgba(0, 0, 0, 0.4);
-      border: 1px solid var(--border-color);
-      border-radius: 8px;
-      padding: 8px;
-      font-family: monospace;
-      font-size: 10px;
+      background: none;
+      border: none;
       color: var(--text-muted);
-      outline: none;
-      resize: vertical;
+      font-size: 12px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 4px 0;
+      transition: color 0.15s ease;
     }
 
+    .guide-toggle-btn:hover {
+      color: var(--text);
+    }
+
+    .guide-content {
+      margin-top: 8px;
+      background: var(--card-inner);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 12px;
+      font-size: 11px;
+      color: var(--text-muted);
+      line-height: 1.6;
+    }
+
+    .guide-content strong {
+      color: #e5e5e5;
+    }
+
+    /* 轨道 2 输入框与按钮 */
     .sub-input-group {
       display: flex;
       gap: 8px;
+      margin-bottom: 10px;
     }
 
     .sub-input {
       flex: 1;
-      background: rgba(0, 0, 0, 0.4);
-      border: 1px solid var(--border-color);
-      border-radius: 10px;
-      padding: 8px 12px;
-      font-family: monospace;
-      font-size: 11px;
-      color: var(--text-muted);
+      height: 36px;
+      background: var(--card-inner);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 0 12px;
+      font-family: var(--font-mono);
+      font-size: 12px;
+      color: #d4d4d4;
       outline: none;
     }
 
+    .sub-input:focus {
+      border-color: var(--border-light);
+    }
+
     .btn-copy-sub {
-      padding: 8px 14px;
-      border-radius: 10px;
-      border: 1px solid rgba(255, 255, 255, 0.1);
-      background: rgba(255, 255, 255, 0.06);
-      color: #fff;
-      font-size: 11px;
-      font-weight: 600;
+      height: 36px;
+      padding: 0 14px;
+      border-radius: 6px;
+      border: 1px solid var(--border);
+      background: var(--accent-bg);
+      color: var(--text);
+      font-size: 12px;
+      font-weight: 500;
       cursor: pointer;
       display: flex;
       align-items: center;
-      gap: 4px;
-      transition: all 0.2s ease;
+      gap: 6px;
+      white-space: nowrap;
+      transition: background-color 0.15s ease, border-color 0.15s ease;
     }
 
     .btn-copy-sub:hover {
-      background: rgba(255, 255, 255, 0.12);
+      background: #262626;
+      border-color: var(--border-light);
+    }
+
+    .sub-tip {
+      background: var(--card-inner);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 10px 12px;
+      font-size: 11px;
+      color: var(--text-muted);
+      line-height: 1.5;
+    }
+
+    .sub-tip strong {
+      color: #e5e5e5;
     }
 
     .btn-burn {
-      display: inline-flex;
-      align-items: center;
-      gap: 4px;
       background: none;
       border: none;
       color: var(--text-dark);
-      font-size: 11px;
+      font-family: var(--font-mono);
+      font-size: 12px;
       cursor: pointer;
-      margin-top: 10px;
-      transition: color 0.2s;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 6px 12px;
+      transition: color 0.15s ease;
     }
 
     .btn-burn:hover {
       color: var(--danger);
     }
 
+    /* 页脚 */
     .footer {
       text-align: center;
       margin-top: 24px;
-      font-size: 11px;
+      font-size: 12px;
+      font-family: var(--font-mono);
       color: var(--text-dark);
       line-height: 1.6;
     }
 
-    .footer p.ver {
+    .footer .ver {
       font-size: 10px;
-      font-family: monospace;
-      color: #475569;
-      margin-top: 4px;
-    }
-
-    /* 简单的旋转动画 */
-    .spin {
-      animation: spin 1s linear infinite;
-    }
-
-    @keyframes spin {
-      100% { transform: rotate(360deg); }
+      color: #525252;
     }
   </style>
 </head>
 <body>
-  <!-- 背景氛围光 -->
-  <div class="glow-top"></div>
-  <div class="glow-bottom"></div>
-
   <div class="container">
-    <!-- 顶部中立标签 -->
+    <!-- 顶部状态胶囊 -->
     <div class="status-badge">
       <div class="badge-pill">
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z"/></svg>
         <span>分布式网管接入点 · 节点运维受保护</span>
       </div>
     </div>
 
+    <!-- 主卡片 -->
     <div class="card">
-      <!-- 头部 -->
       <div class="header">
         <div class="logo-icon">
-          <div class="logo-inner">
-            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#6366f1" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m21 2-2 2m-1.5 1.5L10 13m-2-2-4 4a2 2 0 1 0 2.83 2.83l4-4m1.17-5.17L19 4m0 0 2 2"/></svg>
-          </div>
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m15.5 7.5 2.3 2.3a1 1 0 0 0 1.4 0l2.1-2.1a1 1 0 0 0 0-1.4L19 4"/><path d="m21 2-9.6 9.6"/><circle cx="7.5" cy="15.5" r="5.5"/></svg>
         </div>
         <h1>分布式网管接入点</h1>
         <p>Distributed Network Operations Point</p>
       </div>
 
-      <!-- 错误提示框 -->
-      <div id="errorBanner" class="error-banner">
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
-        <span id="errorMsgText">凭据无效或已失效</span>
-      </div>
-
       <!-- 阶段 1：凭据输入表单 -->
       <div id="formSection">
+        <div id="errorBanner" class="error-banner">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+          <span id="errorMsgText">凭据无效或已失效</span>
+        </div>
+
         <div class="form-group">
-          <label class="form-label" for="ticketCodeInput">请输入 6 位提取凭据 (一次性安全码)</label>
+          <label class="form-label">请输入 6 位提取凭据 (一次性安全码)</label>
           <div class="input-wrapper">
             <input
               type="text"
               id="ticketCodeInput"
               class="code-input"
               maxlength="8"
-              placeholder="如: 7K9X2P"
+              placeholder="7K9X2P"
               autocomplete="off"
-              autofocus
+              autocorrect="off"
+              autocapitalize="characters"
+              spellcheck="false"
             />
           </div>
           <p class="input-hint">不区分大小写，自动忽略混淆字符与分隔符</p>
@@ -494,17 +527,18 @@
 
         <button id="submitBtn" class="btn-submit">
           <span id="btnText">立即提取配置</span>
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg>
         </button>
       </div>
 
-      <!-- 阶段 2：双轨结果展示 -->
+      <!-- 阶段 2：双轨配置交付 -->
       <div id="resultSection" style="display: none;">
-        <!-- 内存自毁倒计时 -->
+        <!-- 自毁倒计时 -->
         <div class="countdown-bar">
-          <div style="display: flex; align-items: center; gap: 6px;">
+          <span style="display: flex; align-items: center; gap: 6px;">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M8.5 14.5A2.5 2.5 0 0 0 11 12c0-1.38-.5-2-1-3-1.072-2.143-.224-4.054 2-6 .5 2.5 2 4.9 4 6.5 2 1.6 3 3.5 3 5.5a7 7 0 1 1-14 0c0-1.153.433-2.294 1-3a2.5 2.5 0 0 0 2.5 2.5z"/></svg>
             <span>内存安全自毁倒计时</span>
-          </div>
+          </span>
           <span id="countdownLabel" class="countdown-timer">120 秒后清除</span>
         </div>
 
@@ -512,19 +546,34 @@
         <div class="track-section">
           <div class="track-header">
             <div class="track-title">
-              <span class="track-dot dot-green"></span>
+              <span class="track-dot emerald"></span>
               <span>轨道 1：急救连接节点</span>
             </div>
-            <span id="nodeCountBadge" class="track-tag">0 个节点</span>
+            <span id="nodeCountBadge" class="track-badge">0 个节点</span>
           </div>
           <p class="track-desc">用于首次配网或建立高可用专属加密通道。</p>
-          <button id="copyNodesBtn" class="btn-action">
+          <button id="copyNodesBtn" class="btn-copy-nodes">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
             <span id="copyNodesBtnText">一键复制全部急救节点</span>
           </button>
-          <div class="fallback-box">
-            <div class="fallback-label">长按下方区域手动全选复制（手机端兜底）：</div>
-            <textarea id="nodesTextarea" class="fallback-textarea" rows="3" readonly></textarea>
+          
+          <div class="textarea-hint">长按下方区域手动全选复制（手机端兜底）：</div>
+          <textarea id="nodesTextarea" class="nodes-textarea" readonly></textarea>
+
+          <!-- 折叠指引 -->
+          <div class="guide-toggle">
+            <button id="guideToggleBtn" class="guide-toggle-btn" type="button">
+              <span style="display: flex; align-items: center; gap: 6px;">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+                <span>各客户端一键导入指引</span>
+              </span>
+              <svg id="guideArrow" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="transition: transform 0.2s;"><polyline points="6 9 12 15 18 9"/></svg>
+            </button>
+            <div id="guideContent" class="guide-content" style="display: none;">
+              <div style="margin-bottom: 6px;"><strong>Android 客户端：</strong>点击右上角「+」号 ➔ 选择「从剪贴板导入」➔ 启动连接。</div>
+              <div style="margin-bottom: 6px;"><strong>iOS 客户端：</strong>打开客户端即会弹出提示「从剪贴板添加」➔ 点击允许并启动连接。</div>
+              <div><strong>PC / Mac 客户端：</strong>在节点配置中选择从剪贴板粘贴节点 ➔ 选中后开启系统代理。</div>
+            </div>
           </div>
         </div>
 
@@ -532,10 +581,10 @@
         <div class="track-section">
           <div class="track-header">
             <div class="track-title">
-              <span class="track-dot dot-blue"></span>
+              <span class="track-dot blue"></span>
               <span>轨道 2：长效自动更新订阅</span>
             </div>
-            <span class="track-tag">长效保障</span>
+            <span class="track-badge neutral">长效保障</span>
           </div>
           <p class="track-desc">连接急救节点成功后，将订阅链接填入客户端以实现持续同步。</p>
           <div class="sub-input-group">
@@ -545,12 +594,15 @@
               <span id="copySubBtnText">复制</span>
             </button>
           </div>
+          <div class="sub-tip">
+            💡 <strong>使用建议：</strong>添加订阅后，建议在客户端配置中开启<strong>「通过代理更新订阅」</strong>以保证在复杂网络下持续稳定同步。
+          </div>
         </div>
 
         <!-- 手动立即销毁 -->
-        <div style="text-align: center;">
+        <div style="text-align: center; margin-top: 12px;">
           <button id="burnBtn" class="btn-burn">
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
             <span>立即销毁当前数据并返回</span>
           </button>
         </div>
@@ -597,10 +649,15 @@
     const copySubBtnText = document.getElementById("copySubBtnText");
     const burnBtn = document.getElementById("burnBtn");
 
+    const guideToggleBtn = document.getElementById("guideToggleBtn");
+    const guideContent = document.getElementById("guideContent");
+    const guideArrow = document.getElementById("guideArrow");
+
     // 状态管理
     let currentPayload = null;
     let countdownInterval = null;
     let expireAtTimestamp = 0;
+    let isGuideOpen = false;
 
     // 输入格式化 (Crockford 规范化：全角转半角、去空白、转大写)
     codeInput.addEventListener("input", () => {
@@ -619,9 +676,16 @@
     });
 
     submitBtn.addEventListener("click", handleClaim);
+    burnBtn.addEventListener("click", resetPortal);
+
+    guideToggleBtn.addEventListener("click", () => {
+      isGuideOpen = !isGuideOpen;
+      guideContent.style.display = isGuideOpen ? "block" : "none";
+      guideArrow.style.transform = isGuideOpen ? "rotate(180deg)" : "rotate(0deg)";
+    });
 
     function showError(msg) {
-      errorMsgText.textContent = msg;
+      errorMsgText.textContent = msg || "凭据无效、已过期或已被销毁";
       errorBanner.style.display = "flex";
     }
 
@@ -630,51 +694,52 @@
     }
 
     async function handleClaim() {
-      const code = codeInput.value.trim();
+      const code = (codeInput.value || "").trim();
       if (!code) {
-        showError("请输入提取凭据码");
+        showError("请输入 6 位提取凭据安全码");
         codeInput.focus();
         return;
       }
 
       hideError();
       submitBtn.disabled = true;
-      btnText.textContent = "正在安全校验凭据...";
-
-      const targetEndpoint = `${BACKEND_API_BASE.replace(/\/+$/, "")}/api/portal/claim`;
+      btnText.textContent = "正在验证凭据...";
 
       try {
-        const response = await fetch(targetEndpoint, {
+        const targetUrl = (BACKEND_API_BASE ? BACKEND_API_BASE.replace(/\/+$/, "") : "") + "/api/portal/claim";
+        const res = await fetch(targetUrl, {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
+            "Accept": "application/json"
           },
-          body: JSON.stringify({ code }),
+          body: JSON.stringify({ code })
         });
 
-        const data = await response.json();
-
-        if (!response.ok) {
-          throw new Error(data.error || "凭据无效、已过期或已被销毁");
+        if (!res.ok) {
+          const errData = await res.json().catch(() => ({}));
+          throw new Error(errData.error || `凭据无效或网络异常 (状态码: ${res.status})`);
         }
 
-        renderPayload(data);
+        const data = await res.json();
+        currentPayload = data;
+        renderResult(data);
       } catch (err) {
-        showError(err.message || "请求服务器失败，请检查网络");
+        showError(err.message || "请求失败，请检查网络或核对凭据");
       } finally {
         submitBtn.disabled = false;
         btnText.textContent = "立即提取配置";
       }
     }
 
-    function renderPayload(payload) {
-      currentPayload = payload;
+    function renderResult(payload) {
       formSection.style.display = "none";
       resultSection.style.display = "block";
 
       const nodes = payload.emergency_nodes || [];
       nodeCountBadge.textContent = `${nodes.length} 个节点`;
       nodesTextarea.value = nodes.join("\n");
+
       subUrlInput.value = payload.subscription_url || "";
 
       startCountdown(120);
@@ -682,52 +747,53 @@
 
     function startCountdown(seconds) {
       expireAtTimestamp = Date.now() + seconds * 1000;
-      updateTimerUI();
+      updateCountdownDisplay(seconds);
 
       if (countdownInterval) clearInterval(countdownInterval);
       countdownInterval = setInterval(() => {
-        const remaining = Math.ceil((expireAtTimestamp - Date.now()) / 1000);
+        const remaining = Math.max(0, Math.ceil((expireAtTimestamp - Date.now()) / 1000));
+        updateCountdownDisplay(remaining);
         if (remaining <= 0) {
+          clearInterval(countdownInterval);
           resetPortal();
-        } else {
-          countdownLabel.textContent = `${remaining} 秒后清除`;
         }
       }, 1000);
     }
 
-    function updateTimerUI() {
-      const remaining = Math.max(0, Math.ceil((expireAtTimestamp - Date.now()) / 1000));
-      countdownLabel.textContent = `${remaining} 秒后清除`;
+    function updateCountdownDisplay(sec) {
+      countdownLabel.textContent = `${sec} 秒后清除`;
     }
 
-    // 手机切后台或锁屏休眠唤醒事件监听 (防止 timer 挂起)
+    function resetPortal() {
+      if (countdownInterval) {
+        clearInterval(countdownInterval);
+        countdownInterval = null;
+      }
+      currentPayload = null;
+      expireAtTimestamp = 0;
+
+      codeInput.value = "";
+      nodesTextarea.value = "";
+      subUrlInput.value = "";
+      hideError();
+
+      resultSection.style.display = "none";
+      formSection.style.display = "block";
+      codeInput.focus();
+    }
+
     document.addEventListener("visibilitychange", () => {
-      if (currentPayload && expireAtTimestamp > 0) {
-        if (Date.now() >= expireAtTimestamp) {
+      if (document.hidden) return;
+      if (expireAtTimestamp > 0) {
+        const remaining = Math.ceil((expireAtTimestamp - Date.now()) / 1000);
+        if (remaining <= 0) {
           resetPortal();
         } else {
-          updateTimerUI();
+          updateCountdownDisplay(remaining);
         }
       }
     });
 
-    function resetPortal() {
-      if (countdownInterval) clearInterval(countdownInterval);
-      currentPayload = null;
-      expireAtTimestamp = 0;
-      nodesTextarea.value = "";
-      subUrlInput.value = "";
-      codeInput.value = "";
-
-      resultSection.style.display = "none";
-      formSection.style.display = "block";
-      hideError();
-      codeInput.focus();
-    }
-
-    burnBtn.addEventListener("click", resetPortal);
-
-    // 复制工具函数
     async function copyToClipboard(text) {
       try {
         if (navigator.clipboard && window.isSecureContext) {

@@ -64,3 +64,9 @@ func (in *Inbound) GetSubRoutes() []SubRoute {
 	}
 	return routes
 }
+
+// GetStreamAccessor 获取强类型流与协议配置访问器
+func (in *Inbound) GetStreamAccessor() *InboundStreamAccessor {
+	return NewInboundStreamAccessorFromInbound(in)
+}
+

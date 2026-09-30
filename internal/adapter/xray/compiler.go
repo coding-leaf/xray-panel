@@ -232,45 +232,10 @@ func (c *XrayCompiler) compileInbound(inb *domain.Inbound, users []domain.User) 
 		_ = json.Unmarshal([]byte(inb.SniffingJSON), &sniffing)
 	}
 
-	// 推导 Vision Flow (仅限 TCP + REALITY/TLS)
-	inboundFlow := ""
+	accessor := inb.GetStreamAccessor()
 	protocolLower := strings.ToLower(inb.Protocol)
-	if protocolLower == "vless" && streamSettings != nil {
-		net := streamSettings.Network
-		sec := streamSettings.Security
-		if (net == "" || net == "tcp") && (sec == "reality" || sec == "tls") {
-			// 优先读取 settingsJson 中的显式 flow 配置，允许用户显式关闭或自定义
-			customFlow := ""
-			if inb.SettingsJSON != "" {
-				var sm map[string]interface{}
-				if err := json.Unmarshal([]byte(inb.SettingsJSON), &sm); err == nil {
-					if f, ok := sm["flow"].(string); ok {
-						customFlow = strings.TrimSpace(f)
-					}
-				}
-			}
-			if customFlow == "none" {
-				inboundFlow = ""
-			} else if customFlow != "" {
-				inboundFlow = customFlow
-			} else {
-				inboundFlow = "xtls-rprx-vision"
-			}
-		}
-	}
-
-	// 提取 Shadowsocks 加密方法
-	ssMethod := "aes-128-gcm"
-	if protocolLower == "shadowsocks" && inb.SettingsJSON != "" {
-		var ssSettings map[string]interface{}
-		if err := json.Unmarshal([]byte(inb.SettingsJSON), &ssSettings); err == nil {
-			if m, ok := ssSettings["method"].(string); ok && m != "" {
-				ssMethod = m
-			} else if c, ok := ssSettings["cipher"].(string); ok && c != "" {
-				ssMethod = c
-			}
-		}
-	}
+	inboundFlow := accessor.ResolveVisionFlow(inb.Protocol)
+	ssMethod := accessor.ResolveShadowsocksMethod()
 
 	// 收集并投影授权到该 Inbound 的用户 Clients (仅针对需要 clients 认证的代理协议)
 	isClientProto := protocolLower == "vless" || protocolLower == "vmess" || protocolLower == "trojan" || protocolLower == "shadowsocks"

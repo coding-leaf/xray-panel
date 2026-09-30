@@ -1,52 +1,28 @@
 package protocol
 
 import (
-	"crypto/rand"
-	"encoding/base64"
-	"encoding/hex"
-	"encoding/json"
-	"fmt"
 	"net"
 	"strings"
 
 	"panel/internal/domain"
-
-	"golang.org/x/crypto/curve25519"
+	"panel/internal/pkg/crypto"
 )
 
-type RealityKeyPair struct {
-	PrivateKey string `json:"privateKey"`
-	PublicKey  string `json:"publicKey"`
-	ShortID    string `json:"shortId"`
-}
+type RealityKeyPair = crypto.RealityKeyPair
 
 // GenerateRealityKeyPair 生成符合 Xray/VLESS 规范的 x25519 Reality 密钥对与 ShortId
 func GenerateRealityKeyPair() (*RealityKeyPair, error) {
-	var privKey [32]byte
-	if _, err := rand.Read(privKey[:]); err != nil {
-		return nil, fmt.Errorf("read random bytes failed: %w", err)
-	}
+	return crypto.GenerateRealityKeyPair()
+}
 
-	// 限制私钥位以符合 Curve25519 规范
-	privKey[0] &= 248
-	privKey[31] &= 127
-	privKey[31] |= 64
+// DerivePublicKeyFromPrivate 从 Reality base64 私钥自动推导 x25519 对应公钥
+func DerivePublicKeyFromPrivate(privStr string) string {
+	return crypto.DerivePublicKeyFromPrivate(privStr)
+}
 
-	var pubKey [32]byte
-	curve25519.ScalarBaseMult(&pubKey, &privKey)
-
-	privStr := base64.RawURLEncoding.EncodeToString(privKey[:])
-	pubStr := base64.RawURLEncoding.EncodeToString(pubKey[:])
-
-	var shortBytes [8]byte
-	_, _ = rand.Read(shortBytes[:])
-	shortID := hex.EncodeToString(shortBytes[:])
-
-	return &RealityKeyPair{
-		PrivateKey: privStr,
-		PublicKey:  pubStr,
-		ShortID:    shortID,
-	}, nil
+// ApplyVlessRouteToUUID 将 routeID 编码进 UUID 的第 3 组字段
+func ApplyVlessRouteToUUID(rawUUID string, routeID uint16) string {
+	return crypto.ApplyVlessRouteToUUID(rawUUID, routeID)
 }
 
 func cleanHost(raw string) string {
@@ -68,40 +44,6 @@ func cleanHost(raw string) string {
 		return s[:idx]
 	}
 	return s
-}
-
-// ApplyVlessRouteToUUID 将 routeID 编码进 UUID 的第 3 组字段 (例如 7117295b-4362-0001-a133-b969344dfcd5)
-func ApplyVlessRouteToUUID(rawUUID string, routeID uint16) string {
-	if routeID == 0 || rawUUID == "" {
-		return rawUUID
-	}
-	parts := strings.Split(rawUUID, "-")
-	if len(parts) != 5 {
-		return rawUUID
-	}
-	parts[2] = fmt.Sprintf("%04x", routeID)
-	return strings.Join(parts, "-")
-}
-
-// DerivePublicKeyFromPrivate 从 Reality base64 私钥自动推导 x25519 对应公钥
-func DerivePublicKeyFromPrivate(privStr string) string {
-	if privStr == "" {
-		return ""
-	}
-	privBytes, err := base64.RawURLEncoding.DecodeString(strings.TrimRight(privStr, "="))
-	if err != nil {
-		privBytes, err = base64.StdEncoding.DecodeString(privStr)
-	}
-	if err != nil || len(privBytes) != 32 {
-		return ""
-	}
-	var privKey, pubKey [32]byte
-	copy(privKey[:], privBytes)
-	privKey[0] &= 248
-	privKey[31] &= 127
-	privKey[31] |= 64
-	curve25519.ScalarBaseMult(&pubKey, &privKey)
-	return base64.RawURLEncoding.EncodeToString(pubKey[:])
 }
 
 // InboundToNodeConfig 将 domain.Inbound 与 domain.User 转换为通用的 protocol.NodeConfig
@@ -128,18 +70,9 @@ func InboundToNodeConfig(inbound *domain.Inbound, user *domain.User, hostDomain 
 		targetPort = defaultPort
 	}
 
-	var streamMap map[string]interface{}
-	_ = json.Unmarshal([]byte(inbound.StreamSettings), &streamMap)
-
-	network := "tcp"
-	if netVal, ok := streamMap["network"].(string); ok && netVal != "" {
-		network = netVal
-	}
-
-	security := "none"
-	if secVal, ok := streamMap["security"].(string); ok && secVal != "" {
-		security = secVal
-	}
+	accessor := inbound.GetStreamAccessor()
+	network := accessor.Network()
+	security := accessor.Security()
 
 	effectiveUUID := user.UUID
 	if inbound.RouteID > 0 && (inbound.Protocol == "" || strings.EqualFold(inbound.Protocol, "vless")) {
@@ -155,133 +88,87 @@ func InboundToNodeConfig(inbound *domain.Inbound, user *domain.User, hostDomain 
 	node.SetParam("type", network)
 	node.SetParam("security", security)
 
-	// 提取 TLS / REALITY 关键配置
-	if tlsSettings, ok := streamMap["tlsSettings"].(map[string]interface{}); ok {
-		if serverName, ok := tlsSettings["serverName"].(string); ok && serverName != "" {
-			node.SetParam("sni", serverName)
+	// 1. TLS 配置
+	if security == "tls" {
+		if sni := accessor.GetTLSServerName(); sni != "" {
+			node.SetParam("sni", sni)
 		}
-		if alpnArr, ok := tlsSettings["alpn"].([]interface{}); ok && len(alpnArr) > 0 {
-			var alpns []string
-			for _, a := range alpnArr {
-				alpns = append(alpns, fmt.Sprintf("%v", a))
-			}
+		if alpns := accessor.GetTLSALPN(); len(alpns) > 0 {
 			node.SetParam("alpn", strings.Join(alpns, ","))
 		}
 	}
 
-	if realitySettings, ok := streamMap["realitySettings"].(map[string]interface{}); ok {
-		if pbk, ok := realitySettings["publicKey"].(string); ok && pbk != "" {
+	// 2. REALITY 配置
+	if security == "reality" {
+		if pbk := accessor.GetRealityPublicKey(); pbk != "" {
 			node.SetParam("pbk", pbk)
-		} else if privKey, ok := realitySettings["privateKey"].(string); ok && privKey != "" {
-			node.SetParam("pbk", DerivePublicKeyFromPrivate(privKey))
 		}
-
-		if sn, ok := realitySettings["serverName"].(string); ok && sn != "" {
-			node.SetParam("sni", sn)
-		} else if serverNames, ok := realitySettings["serverNames"].([]interface{}); ok && len(serverNames) > 0 {
-			node.SetParam("sni", fmt.Sprintf("%v", serverNames[0]))
+		if sni := accessor.GetRealityServerName(); sni != "" {
+			node.SetParam("sni", sni)
 		}
-
-		if sid, ok := realitySettings["shortId"].(string); ok && sid != "" {
+		if sid := accessor.GetRealityShortID(); sid != "" {
 			node.SetParam("sid", sid)
-		} else if shortIds, ok := realitySettings["shortIds"].([]interface{}); ok && len(shortIds) > 0 {
-			for _, sidRaw := range shortIds {
-				sidStr := fmt.Sprintf("%v", sidRaw)
-				if sidStr != "" {
-					node.SetParam("sid", sidStr)
-					break
-				}
-			}
 		}
-
-		if spx, ok := realitySettings["spiderX"].(string); ok && spx != "" {
+		if spx := accessor.GetRealitySpiderX(); spx != "" {
 			node.SetParam("spx", spx)
 		}
-		if fp, ok := realitySettings["fingerprint"].(string); ok && fp != "" {
+		if fp := accessor.GetRealityFingerprint(); fp != "" {
 			node.SetParam("fp", fp)
 		} else {
 			node.SetParam("fp", "chrome")
 		}
 	}
 
-	// 提取 WebSocket / gRPC / xHTTP 传输层参数
-	if wsSettings, ok := streamMap["wsSettings"].(map[string]interface{}); ok {
-		if path, ok := wsSettings["path"].(string); ok && path != "" {
+	// 3. 传输层参数
+	switch network {
+	case "ws":
+		if path := accessor.GetWSPath(); path != "" {
 			node.SetParam("path", path)
 		}
-		if headers, ok := wsSettings["headers"].(map[string]interface{}); ok {
-			if h, ok := headers["Host"].(string); ok && h != "" {
-				node.SetParam("host", h)
-			} else if h, ok := headers["host"].(string); ok && h != "" {
-				node.SetParam("host", h)
-			}
+		if host := accessor.GetWSHost(); host != "" {
+			node.SetParam("host", host)
 		}
-		if node.GetParam("host") == "" {
-			if h, ok := wsSettings["host"].(string); ok && h != "" {
-				node.SetParam("host", h)
-			}
+	case "grpc":
+		if sn := accessor.GetGRPCServiceName(); sn != "" {
+			node.SetParam("serviceName", sn)
 		}
-	}
-
-	if grpcSettings, ok := streamMap["grpcSettings"].(map[string]interface{}); ok {
-		if serviceName, ok := grpcSettings["serviceName"].(string); ok && serviceName != "" {
-			node.SetParam("serviceName", serviceName)
+	case "xhttp", "splithttp":
+		if path := accessor.GetXHTTPPath(); path != "" {
+			node.SetParam("path", path)
 		}
-	}
-
-	if xhttpSettings, ok := streamMap["xhttpSettings"].(map[string]interface{}); ok {
-		if p, ok := xhttpSettings["path"].(string); ok && p != "" {
-			node.SetParam("path", p)
+		if mode := accessor.GetXHTTPMode(); mode != "" {
+			node.SetParam("mode", mode)
 		}
-		if m, ok := xhttpSettings["mode"].(string); ok && m != "" {
-			node.SetParam("mode", m)
-		}
-		if h, ok := xhttpSettings["host"].(string); ok && h != "" {
-			node.SetParam("host", h)
-		} else if headers, ok := xhttpSettings["headers"].(map[string]interface{}); ok {
-			if h, ok := headers["Host"].(string); ok && h != "" {
-				node.SetParam("host", h)
-			} else if h, ok := headers["host"].(string); ok && h != "" {
-				node.SetParam("host", h)
-			}
+		if host := accessor.GetXHTTPHost(); host != "" {
+			node.SetParam("host", host)
 		}
 	}
 
-	// 提取 SettingsJSON (flow / method)
-	var settingsMap map[string]interface{}
-	_ = json.Unmarshal([]byte(inbound.SettingsJSON), &settingsMap)
-	if f, ok := settingsMap["flow"].(string); ok {
-		node.SetParam("flow", f)
-	} else if clients, ok := settingsMap["clients"].([]interface{}); ok && len(clients) > 0 {
-		if cMap, ok := clients[0].(map[string]interface{}); ok {
-			if f, ok := cMap["flow"].(string); ok {
-				node.SetParam("flow", f)
-			}
-		}
-	}
-	if node.GetParam("flow") == "" && user.Flow != "" {
-		node.SetParam("flow", user.Flow)
-	}
-
+	// 4. 流控参数 (XTLS Vision)
 	// 协议与传输层强约束：flow (XTLS Vision) 仅限 VLESS 协议且传输为 TCP + (REALITY 或 TLS)。
 	// 对于非 TCP 传输（如 xhttp, splithttp, ws, grpc）或非 TLS/REALITY，强制剔除 flow 参数杜绝污染。
-	netLower := strings.ToLower(node.GetParam("type"))
-	secLower := strings.ToLower(node.GetParam("security"))
-	if strings.ToLower(node.Protocol) == "vless" {
-		if (netLower != "tcp" && netLower != "") || (secLower != "reality" && secLower != "tls") {
-			delete(node.Params, "flow")
+	if strings.EqualFold(node.Protocol, "vless") {
+		flow := accessor.ResolveVisionFlow(inbound.Protocol)
+		if flow == "" && user.Flow != "" {
+			// 若流配置未显式指定，且用户实体配有流控，再次严格验证传输层约束
+			if (network == "" || network == "tcp") && (security == "reality" || security == "tls") {
+				flow = user.Flow
+			}
 		}
-	} else {
-		delete(node.Params, "flow")
+		if flow != "" {
+			node.SetParam("flow", flow)
+		}
 	}
 
-	if method, ok := settingsMap["method"].(string); ok && method != "" {
-		node.SetParam("method", method)
+	// 5. Shadowsocks 加密方式
+	if strings.EqualFold(node.Protocol, "shadowsocks") {
+		node.SetParam("method", accessor.ResolveShadowsocksMethod())
 	}
 
-	// 提取 Socks / HTTP 认证信息
-	if strings.ToLower(node.Protocol) == "socks" || strings.ToLower(node.Protocol) == "http" {
-		if accounts, ok := settingsMap["accounts"].([]interface{}); ok && len(accounts) > 0 {
+	// 6. Socks / HTTP 认证
+	if strings.EqualFold(node.Protocol, "socks") || strings.EqualFold(node.Protocol, "http") {
+		sm := accessor.GetSettingsMap()
+		if accounts, ok := sm["accounts"].([]interface{}); ok && len(accounts) > 0 {
 			if acc, ok := accounts[0].(map[string]interface{}); ok {
 				if u, ok := acc["user"].(string); ok && u != "" {
 					node.SetParam("user", u)

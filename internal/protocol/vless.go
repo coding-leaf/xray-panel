@@ -3,7 +3,6 @@ package protocol
 import (
 	"fmt"
 	"net/url"
-	"strings"
 )
 
 // VlessFormatter VLESS 协议订阅链接格式化器
@@ -20,17 +19,8 @@ func (f *VlessFormatter) Protocol() string {
 
 // FormatLink 将 NodeConfig 转换为标准 vless:// 分享链接
 func (f *VlessFormatter) FormatLink(node *NodeConfig) (string, error) {
-	if node == nil {
-		return "", ErrNilNode
-	}
-	if strings.TrimSpace(node.Address) == "" {
-		return "", ErrMissingAddress
-	}
-	if node.Port <= 0 || node.Port > 65535 {
-		return "", ErrInvalidPort
-	}
-	if strings.TrimSpace(node.UUID) == "" {
-		return "", ErrMissingUUID
+	if err := ValidateBaseNode(node); err != nil {
+		return "", err
 	}
 
 	v := url.Values{}
@@ -134,20 +124,12 @@ func (f *VlessFormatter) FormatLink(node *NodeConfig) (string, error) {
 	}
 
 	// 5. 动态扩展参数透出 (非保留控制键安全加入 query)
-	reservedKeys := map[string]bool{
-		"type": true, "security": true, "encryption": true,
-		"fp": true, "pbk": true, "sni": true, "sid": true, "spx": true,
-		"alpn": true, "allowInsecure": true, "insecure": true,
-		"flow": true, "path": true, "mode": true, "host": true,
-		"extra": true, "serviceName": true, "ed": true,
-	}
-	for k, val := range node.Params {
-		kClean := strings.TrimSpace(k)
-		if kClean == "" || val == "" {
-			continue
-		}
-		if !reservedKeys[kClean] && v.Get(kClean) == "" {
-			v.Set(kClean, val)
+	dynamicQuery := BuildNodeQueryParams(node)
+	for k, vals := range dynamicQuery {
+		for _, val := range vals {
+			if v.Get(k) == "" {
+				v.Set(k, val)
+			}
 		}
 	}
 
@@ -158,17 +140,8 @@ func (f *VlessFormatter) FormatLink(node *NodeConfig) (string, error) {
 
 // ToClash 将 VLESS 节点转为 Clash / Mihomo proxy map
 func (f *VlessFormatter) ToClash(node *NodeConfig) (map[string]interface{}, error) {
-	if node == nil {
-		return nil, ErrNilNode
-	}
-	if strings.TrimSpace(node.Address) == "" {
-		return nil, ErrMissingAddress
-	}
-	if node.Port <= 0 || node.Port > 65535 {
-		return nil, ErrInvalidPort
-	}
-	if strings.TrimSpace(node.UUID) == "" {
-		return nil, ErrMissingUUID
+	if err := ValidateBaseNode(node); err != nil {
+		return nil, err
 	}
 
 	network := node.GetParam("type", "tcp")
@@ -184,38 +157,13 @@ func (f *VlessFormatter) ToClash(node *NodeConfig) (map[string]interface{}, erro
 		"network": network,
 	}
 
+	AttachClashTLS(proxy, node)
+
 	isTLS := security == "tls" || security == "reality"
-	proxy["tls"] = isTLS
-	if sni := node.GetParam("sni"); sni != "" {
-		proxy["servername"] = sni
-	}
-	if alpn := node.GetParam("alpn"); alpn != "" {
-		proxy["alpn"] = SplitAndTrim(alpn, ",")
-	}
-	if allowInsecure := node.GetParam("allowInsecure", node.GetParam("insecure")); allowInsecure == "1" || allowInsecure == "true" {
-		proxy["skip-cert-verify"] = true
-	}
 	if (network == "tcp" || network == "") && isTLS {
 		if flow := node.GetParam("flow"); flow != "" && flow != "none" {
 			proxy["flow"] = flow
 		}
-	}
-	if fp := node.GetParam("fp"); fp != "" {
-		proxy["client-fingerprint"] = fp
-	}
-
-	if security == "reality" {
-		realityOpts := map[string]interface{}{}
-		if pbk := node.GetParam("pbk"); pbk != "" {
-			realityOpts["public-key"] = pbk
-		}
-		if sid := node.GetParam("sid"); sid != "" {
-			realityOpts["short-id"] = sid
-		}
-		if spx := node.GetParam("spx"); spx != "" {
-			realityOpts["spider-x"] = spx
-		}
-		proxy["reality-opts"] = realityOpts
 	}
 
 	AttachClashTransport(proxy, network, node)
@@ -224,17 +172,8 @@ func (f *VlessFormatter) ToClash(node *NodeConfig) (map[string]interface{}, erro
 
 // ToSingBox 将 VLESS 节点转为 Sing-box outbound map
 func (f *VlessFormatter) ToSingBox(node *NodeConfig) (map[string]interface{}, error) {
-	if node == nil {
-		return nil, ErrNilNode
-	}
-	if strings.TrimSpace(node.Address) == "" {
-		return nil, ErrMissingAddress
-	}
-	if node.Port <= 0 || node.Port > 65535 {
-		return nil, ErrInvalidPort
-	}
-	if strings.TrimSpace(node.UUID) == "" {
-		return nil, ErrMissingUUID
+	if err := ValidateBaseNode(node); err != nil {
+		return nil, err
 	}
 
 	network := node.GetParam("type", "tcp")
@@ -255,40 +194,7 @@ func (f *VlessFormatter) ToSingBox(node *NodeConfig) (map[string]interface{}, er
 		}
 	}
 
-	if isTLS {
-		tlsMap := map[string]interface{}{
-			"enabled": true,
-		}
-		if sni := node.GetParam("sni"); sni != "" {
-			tlsMap["server_name"] = sni
-		}
-		if alpn := node.GetParam("alpn"); alpn != "" {
-			tlsMap["alpn"] = SplitAndTrim(alpn, ",")
-		}
-		if allowInsecure := node.GetParam("allowInsecure", node.GetParam("insecure")); allowInsecure == "1" || allowInsecure == "true" {
-			tlsMap["insecure"] = true
-		}
-		if fp := node.GetParam("fp", "chrome"); fp != "" {
-			tlsMap["utls"] = map[string]interface{}{
-				"enabled":     true,
-				"fingerprint": fp,
-			}
-		}
-		if security == "reality" {
-			realityMap := map[string]interface{}{
-				"enabled": true,
-			}
-			if pbk := node.GetParam("pbk"); pbk != "" {
-				realityMap["public_key"] = pbk
-			}
-			if sid := node.GetParam("sid"); sid != "" {
-				realityMap["short_id"] = sid
-			}
-			tlsMap["reality"] = realityMap
-		}
-		outbound["tls"] = tlsMap
-	}
-
+	AttachSingBoxTLS(outbound, node)
 	AttachSingBoxTransport(outbound, network, node)
 	return outbound, nil
 }

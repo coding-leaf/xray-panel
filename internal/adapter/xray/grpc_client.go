@@ -2,7 +2,6 @@ package xray
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"strings"
 	"sync"
@@ -198,81 +197,3 @@ func (c *GRPCClient) QueryTrafficStats(ctx context.Context, reset bool) ([]domai
 	return results, nil
 }
 
-func BuildAccountMessage(inbound *domain.Inbound, u *domain.User) (*proto.TypedMessage, error) {
-	protocolName := inbound.Protocol
-	switch strings.ToLower(protocolName) {
-	case "vless":
-		flow := ""
-		var streamMap map[string]interface{}
-		_ = json.Unmarshal([]byte(inbound.StreamSettings), &streamMap)
-		net, _ := streamMap["network"].(string)
-		sec, _ := streamMap["security"].(string)
-		if (net == "" || net == "tcp") && (sec == "reality" || sec == "tls") {
-			customFlow := ""
-			if inbound.SettingsJSON != "" {
-				var sm map[string]interface{}
-				if err := json.Unmarshal([]byte(inbound.SettingsJSON), &sm); err == nil {
-					if f, ok := sm["flow"].(string); ok {
-						customFlow = strings.TrimSpace(f)
-					}
-				}
-			}
-			if customFlow == "none" {
-				flow = ""
-			} else if customFlow != "" {
-				flow = customFlow
-			} else {
-				flow = "xtls-rprx-vision"
-			}
-		}
-
-		return proto.ToTypedMessage(&proto.VLESSAccount{
-			Id:   u.UUID,
-			Flow: flow,
-		})
-	case "vmess":
-		return proto.ToTypedMessage(&proto.VMessAccount{
-			Id: u.UUID,
-			SecuritySettings: &proto.SecurityConfig{
-				Type: proto.SecurityType_AUTO,
-			},
-		})
-	case "trojan":
-		return proto.ToTypedMessage(&proto.TrojanAccount{
-			Password: u.UUID,
-		})
-	case "shadowsocks":
-		cipherType := proto.CipherType_AES_128_GCM
-		if inbound.SettingsJSON != "" {
-			var settings map[string]interface{}
-			if err := json.Unmarshal([]byte(inbound.SettingsJSON), &settings); err == nil {
-				var method string
-				if m, ok := settings["method"].(string); ok && m != "" {
-					method = m
-				} else if c, ok := settings["cipher"].(string); ok && c != "" {
-					method = c
-				}
-				switch strings.ToLower(strings.TrimSpace(method)) {
-				case "aes-256-gcm":
-					cipherType = proto.CipherType_AES_256_GCM
-				case "chacha20-poly1305", "chacha20-ietf-poly1305":
-					cipherType = proto.CipherType_CHACHA20_POLY1305
-				case "xchacha20-poly1305", "xchacha20-ietf-poly1305":
-					cipherType = proto.CipherType_XCHACHA20_POLY1305
-				case "none":
-					cipherType = proto.CipherType_NONE
-				case "aes-128-gcm":
-					cipherType = proto.CipherType_AES_128_GCM
-				default:
-					cipherType = proto.CipherType_AES_128_GCM
-				}
-			}
-		}
-		return proto.ToTypedMessage(&proto.ShadowsocksAccount{
-			Password:   u.UUID,
-			CipherType: cipherType,
-		})
-	default:
-		return nil, fmt.Errorf("%w: unsupported protocol %s", domain.ErrInvalidInput, protocolName)
-	}
-}

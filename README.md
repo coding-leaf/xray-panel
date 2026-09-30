@@ -1,7 +1,7 @@
 # Xray Decoupled Panel (解耦运维监控与分流管理面板)
 
 <p align="center">
-  <img src="https://img.shields.io/badge/Version-v2.6.0--beta.1-indigo?style=flat-square" alt="Version">
+  <img src="https://img.shields.io/badge/Version-v2.6.0-indigo?style=flat-square" alt="Version">
   <img src="https://img.shields.io/badge/Go-1.26+-00ADD8?style=flat-square&logo=go" alt="Go Version">
   <img src="https://img.shields.io/badge/Vue-3.4+-4FC08D?style=flat-square&logo=vue.js" alt="Vue Version">
   <img src="https://img.shields.io/badge/Architecture-Clean%20Architecture-blue?style=flat-square" alt="Clean Architecture">
@@ -68,6 +68,20 @@
 ---
 
 ## 更新日志
+
+### v2.6.0 (2026-09) - 架构整理、通用类抽取与 Xray-core 特性扩展性升级
+- **统一流配置强类型访问器 (InboundStreamAccessor)**：
+  - 抽取 `domain.InboundStreamAccessor`，统一消除配置编译（`compiler`）、gRPC 动态下发、客户端订阅转换中的重复手写解包；
+  - 强类型收敛 Vision Flow 与 Shadowsocks Cipher 提取逻辑，防止非 TCP 传输产生 flow 参数污染；
+- **gRPC 账户构建策略中心 (AccountBuilder Registry)**：
+  - 抽象策略模式与并发安全注册中心，彻底剥离 `grpc_client.go` 单体大 switch；
+  - 支持多协议零侵入注册与独立隔离单测，无缝应对未来 Xray 协议扩展；
+- **底层通用密码学基础设施下沉 (internal/pkg/crypto)**：
+  - 下沉 Curve25519 密钥生成、公钥推导与 VLESS UUID 路由掩码替换至通用基础设施包，理顺 clean architecture 依赖层级；
+- **订阅协议通用原语抽取与瘦身**：
+  - 抽取 `ValidateBaseNode`、`AttachClashTLS`、`AttachSingBoxTLS`、`BuildNodeQueryParams` 等通用原语，各协议实现代码量精简 50%+；
+- **前端冗余死代码清洗**：
+  - 移除前端 `subscription.ts` 中脱节的 `generateNodeLink` 代码，统一以后端分享契约为唯一事实源。
 
 ### v2.6.0-beta.1 (2026-09) - 控制台现代化重塑、巨石视图解耦与 TypeScript 质量加固
 - **前端控制台体系升级与视觉重塑 (Console Redesign)**：

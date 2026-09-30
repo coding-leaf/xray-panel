@@ -244,3 +244,34 @@
 ### Next Steps
 
 - 无（任务已归档）
+
+## Session 11: 架构整理与通用类抽取以应对未来 Xray 特性追新 (v2.6.0 发布)
+<!-- trellis-session: v=2 fp=09-30-xray-extensibility-refactor -->
+
+**Date**: 2026-09-30
+**Task**: 架构整理与通用类抽取以应对未来 Xray 特性追新
+**Branch**: `master`
+
+### Summary
+
+抽取强类型 InboundStreamAccessor 消除三重重复手写解析，策略化 gRPC 账户构建器（AccountBuilder Registry），下沉 Curve25519/UUID 路由掩码至 internal/pkg/crypto，抽取四大订阅协议通用原语并瘦身，清洗前端死逻辑，统一版本至 v2.6.0 并通过全套门禁。
+
+### Main Changes
+
+- **强类型 InboundStreamAccessor**：在 `internal/domain/stream_accessor.go` 抽取通用流配置访问器，收敛 Vision Flow 与 Shadowsocks Cipher 规则，`compiler.go`、gRPC 下发与 `node_converter.go` 共享。
+- **gRPC 账户构建策略中心**：在 `internal/adapter/xray/account_builder.go` 建立 `AccountBuilder Registry`，解耦 `grpc_client.go` 单体大 switch，支持未来新协议零侵入注册。
+- **密码学与路由基础设施下沉**：新建 `internal/pkg/crypto/reality.go`，集中收敛 Curve25519 密钥生成、公钥推导与 VLESS 路由 UUID 掩码替换，消除 cross-layer 反向依赖。
+- **协议通用原语与瘦身**：在 `internal/protocol/helpers.go` 抽取 `ValidateBaseNode`、`AttachClashTLS`、`AttachSingBoxTLS`、`BuildNodeQueryParams`，各协议实现精简 50%+。
+- **前端死代码清洗**：移除 `web/src/views/users/services/subscription.ts` 中未使用的 `generateNodeLink`。
+- **版本对齐**：统一 `main.go`、`web/package.json`、`README.md` 至 `v2.6.0` 正式版。
+
+### Testing
+
+- [OK] `mise x -- go test ./...` 100% PASS
+- [OK] `mise x -- go vet ./...` 0 warning
+- [OK] `mise x -- go build .` 成功产出单二进制
+- [OK] 前端 `npm run build` & `npm run typecheck` 0 错误通过
+
+### Status
+
+[OK] **Completed**

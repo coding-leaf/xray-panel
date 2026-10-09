@@ -8,8 +8,8 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 14
-- **Last Active**: 2026-10-01
+- **Total Sessions**: 16
+- **Last Active**: 2026-10-10
 <!-- @@@/auto:current-status -->
 
 ---
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~343 | Active |
+| `journal-1.md` | ~388 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 16 | 2026-10-10 | Inbound traffic user binding | `bec74df` | `master` |
 | 14 | 2026-10-01 | 修复协议契约准确性与配置语义 | `baa52bc` | `master` |
 | 13 | 2026-10-01 | 规范入站出站协议匹配与表单清洗 | `1837318` | `master` |
 | 12 | 2026-09-30 | 解耦 domain 泄露与统一 Xray 协议适配层并落地真实验证 SS2022 | `3d7b496` | `master` |

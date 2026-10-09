@@ -364,3 +364,25 @@
 ### Status
 
 [OK] **Completed**
+
+
+## Session 16: Inbound traffic user binding
+<!-- trellis-session: v=2 fp=f2dc782dfeefc67a -->
+
+**Date**: 2026-10-10
+**Task**: Inbound traffic user binding
+**Branch**: `master`
+
+### Summary
+
+实现了将免密/本地入站节点（如 SOCKS local）流量绑定归属至指定用户的功能，自动累加用户流量增量与日日志
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `bec74df` | feat(inbounds): 支持入站流量单租户绑定归属用户及同步核算 |
+
+### Status
+
+[OK] **Completed**

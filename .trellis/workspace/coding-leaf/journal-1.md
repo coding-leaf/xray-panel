@@ -341,3 +341,26 @@
 ### Status
 
 [OK] **Completed**
+
+
+## Session 15: 修复UsersView后台轮询防空转缺陷
+<!-- trellis-session: v=2 fp=auto -->
+
+**Date**: 2026-10-09
+**Task**: 修复UsersView后台轮询防空转缺陷
+**Branch**: `master`
+
+### Summary
+
+修复 UsersView 在标签页切入后台时未清除速度轮询定时器的缺陷，对齐 App 与 DashboardView 的 visibilitychange 暂停行为，防止无意义网络轮询消耗 VPS 资源
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `98355e5` | fix(web): 修复UsersView后台轮询防空转缺陷并同步前端产物 |
+| `e8c9867` | chore(task): archive 10-09-fix-users-speed-polling |
+
+### Status
+
+[OK] **Completed**

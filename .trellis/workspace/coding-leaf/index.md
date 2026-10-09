@@ -8,7 +8,7 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 16
+- **Total Sessions**: 17
 - **Last Active**: 2026-10-10
 <!-- @@@/auto:current-status -->
 
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~388 | Active |
+| `journal-1.md` | ~410 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 17 | 2026-10-10 | 本机免认证代理可观测性重构、日志解析协议升级与时序修复 (v2.6.1 发布) | `f9af2b9` | `master` |
 | 16 | 2026-10-10 | Inbound traffic user binding | `bec74df` | `master` |
 | 14 | 2026-10-01 | 修复协议契约准确性与配置语义 | `baa52bc` | `master` |
 | 13 | 2026-10-01 | 规范入站出站协议匹配与表单清洗 | `1837318` | `master` |

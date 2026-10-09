@@ -386,3 +386,25 @@
 ### Status
 
 [OK] **Completed**
+
+
+## Session 17: 本机免认证代理可观测性重构、日志解析协议升级与时序修复 (v2.6.1 发布)
+<!-- trellis-session: v=2 fp=c2f057e75bd68b67 -->
+
+**Date**: 2026-10-10
+**Task**: 本机免认证代理可观测性重构、日志解析协议升级与时序修复 (v2.6.1 发布)
+**Branch**: `master`
+
+### Summary
+
+解耦入站流量与用户归属，修复日志解析协议前缀与兜底分流兼容，修复前端挂载异常与时序，升级事实源至 v2.6.1 并归档
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `f9af2b9` | feat(observability): 发布 v2.6.1 本机免认证代理可观测性重构、日志解析协议升级与时序修复 |
+
+### Status
+
+[OK] **Completed**

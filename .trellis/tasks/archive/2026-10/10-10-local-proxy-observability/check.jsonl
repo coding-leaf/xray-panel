@@ -1,0 +1,9 @@
+{"file":".trellis/spec/backend/index.md","reason":"后端边界与接口兼容复核"}
+{"file":".trellis/spec/backend/database-guidelines.md","reason":"批量核算与历史数据保护；不得按旧条款恢复人工绑定"}
+{"file":".trellis/spec/backend/error-handling.md","reason":"防止查询错误伪装为零用量或空日志"}
+{"file":".trellis/spec/backend/quality-guidelines.md","reason":"安全/并发/极简规范及全量Go门禁"}
+{"file":".trellis/spec/frontend/components-and-routing.md","reason":"query同步、匿名可见性与生命周期清理"}
+{"file":".trellis/spec/frontend/api-and-dataflow.md","reason":"mock与真实API口径保持一致"}
+{"file":".trellis/spec/frontend/quality-guidelines.md","reason":"typecheck/build独立通过与浏览器关键流程验证"}
+{"file":".trellis/spec/guides/cross-layer-thinking-guide.md","reason":"核算、累计展示、导航和日志过滤跨层复核"}
+{"file":".trellis/tasks/10-10-local-proxy-observability/research/findings.md","reason":"AC证据与当前已知限制，不得虚报现网验证"}

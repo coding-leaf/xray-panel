@@ -1,0 +1,9 @@
+{"file":".trellis/spec/backend/index.md","reason":"后端分层与现有模型/仓储/cron边界"}
+{"file":".trellis/spec/backend/database-guidelines.md","reason":"原子批量落盘及流量字段保护；旧绑定条款由本任务批准后的设计替代"}
+{"file":".trellis/spec/backend/error-handling.md","reason":"Dashboard与日志查询必须显式报告错误"}
+{"file":".trellis/spec/backend/quality-guidelines.md","reason":"KISS、并发安全及模拟凭据要求"}
+{"file":".trellis/spec/frontend/components-and-routing.md","reason":"复用表格/详情组件、路由query与生命周期清理"}
+{"file":".trellis/spec/frontend/api-and-dataflow.md","reason":"axios解包、错误toast与mock一致性"}
+{"file":".trellis/spec/frontend/quality-guidelines.md","reason":"独立typecheck与构建、浏览器验证和嵌入产物"}
+{"file":".trellis/spec/guides/cross-layer-thinking-guide.md","reason":"核算到Dashboard、入站到日志及mock的一致数据流"}
+{"file":".trellis/tasks/10-10-local-proxy-observability/research/findings.md","reason":"源码/VPS证据、兼容约束与旧spec冲突的具体处理"}

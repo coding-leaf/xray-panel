@@ -82,11 +82,17 @@
 
           <!-- 5. Users & SubRoutes -->
           <td class="p-3.5 align-middle font-mono text-xs">
-            <div class="flex items-center gap-2">
-              <span class="text-foreground">{{ getClientCount(inb, usersList) }} 用户</span>
-              <span v-if="inb.subRoutes?.length" class="text-[10px] px-1.5 py-0.5 rounded bg-muted/60 text-muted-foreground border border-border/40">
-                {{ inb.subRoutes.length }} 线路
-              </span>
+            <div class="flex flex-col gap-1">
+              <div class="flex items-center gap-2">
+                <span class="text-foreground">{{ getClientCount(inb, usersList) }} 用户</span>
+                <span v-if="inb.subRoutes?.length" class="text-[10px] px-1.5 py-0.5 rounded bg-muted/60 text-muted-foreground border border-border/40">
+                  {{ inb.subRoutes.length }} 线路
+                </span>
+              </div>
+              <div v-if="inb.boundUserEmail" class="flex items-center gap-1 text-[10px] text-emerald-400">
+                <span class="text-neutral-500">归属:</span>
+                <span class="truncate max-w-[120px]" :title="`流量归属于 ${inb.boundUserEmail}`">{{ inb.boundUserEmail }}</span>
+              </div>
             </div>
           </td>
 

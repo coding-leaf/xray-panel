@@ -23,6 +23,7 @@ export interface InboundItem {
   routeId?: number
   subRoutesJson?: string
   subRoutes?: SubRouteItem[]
+  boundUserEmail?: string
   upBytes?: number
   downBytes?: number
   enabled?: boolean
@@ -41,6 +42,7 @@ export interface InboundFormData {
   externalHost: string
   routeId: number
   subRoutes: SubRouteItem[]
+  boundUserEmail: string
   protocol: string
   vlessFlow: string
   network: string
@@ -84,6 +86,7 @@ export interface InboundPayload {
   externalHost: string
   routeId: number
   subRoutesJson: string
+  boundUserEmail: string
   listen: string
   protocol: string
   settingsJson: string
@@ -104,6 +107,7 @@ export function getDefaultInboundFormData(usersList: any[] = []): InboundFormDat
     subRoutes: [
       { id: '1', name: '🇯🇵 日本原生直连', routeId: 1, outboundTag: 'direct', enabled: true, allowedUsers: [] },
     ],
+    boundUserEmail: '',
     protocol: 'vless',
     vlessFlow: 'xtls-rprx-vision',
     network: 'tcp',
@@ -152,6 +156,7 @@ export function sanitizeInboundPayload(raw: InboundFormData): InboundFormData {
     externalPort: raw.externalPort || 0,
     externalHost: (raw.externalHost || '').trim(),
     routeId: raw.routeId || 0,
+    boundUserEmail: (raw.boundUserEmail || '').trim(),
     protocol: raw.protocol || 'vless',
     network: raw.network || 'tcp',
     security: raw.security || 'none',
@@ -506,6 +511,7 @@ export function buildInboundPayload(raw: InboundFormData, usersList: any[] = [])
         allowedUsers: Array.isArray(sr.allowedUsers) && sr.allowedUsers.length > 0 ? sr.allowedUsers : undefined,
       }))
     ),
+    boundUserEmail: clean.boundUserEmail || '',
     listen: clean.listen || '0.0.0.0',
     protocol: clean.protocol,
     settingsJson: buildSettingsJSON(clean, usersList),

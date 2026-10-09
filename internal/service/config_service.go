@@ -344,9 +344,32 @@ func probeInboundPort(listen string, port int) (int64, bool) {
 	return elapsed, true
 }
 
+func (s *ConfigService) validateBoundUser(ctx context.Context, boundUserEmail string) error {
+	if boundUserEmail == "" {
+		return nil
+	}
+	if s.userRepo != nil {
+		user, err := s.userRepo.GetByEmail(ctx, boundUserEmail)
+		if err != nil {
+			if errors.Is(err, domain.ErrNotFound) {
+				return fmt.Errorf("%w: bound user '%s' does not exist", domain.ErrInvalidInput, boundUserEmail)
+			}
+			return fmt.Errorf("failed to verify bound user: %w", err)
+		}
+		if user == nil {
+			return fmt.Errorf("%w: bound user '%s' does not exist", domain.ErrInvalidInput, boundUserEmail)
+		}
+	}
+	return nil
+}
+
 func (s *ConfigService) CreateInbound(ctx context.Context, inbound *domain.Inbound) error {
 	if inbound.Tag == "" {
 		return fmt.Errorf("%w: tag is required", domain.ErrInvalidInput)
+	}
+
+	if err := s.validateBoundUser(ctx, inbound.BoundUserEmail); err != nil {
+		return err
 	}
 
 	if err := s.inboundRepo.Create(ctx, inbound); err != nil {
@@ -357,6 +380,10 @@ func (s *ConfigService) CreateInbound(ctx context.Context, inbound *domain.Inbou
 }
 
 func (s *ConfigService) UpdateInbound(ctx context.Context, inbound *domain.Inbound) error {
+	if err := s.validateBoundUser(ctx, inbound.BoundUserEmail); err != nil {
+		return err
+	}
+
 	if err := s.inboundRepo.Update(ctx, inbound); err != nil {
 		return err
 	}

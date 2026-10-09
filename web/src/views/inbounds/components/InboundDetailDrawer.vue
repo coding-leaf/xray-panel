@@ -52,6 +52,11 @@
           <span class="text-muted-foreground">自定义外部域名: </span>
           <span class="text-neutral-300">{{ inbound.externalHost }}</span>
         </div>
+
+        <div v-if="inbound.boundUserEmail" class="pt-2 border-t border-border/40 font-mono text-[11px]">
+          <span class="text-muted-foreground">流量归属用户 (Bound User): </span>
+          <span class="text-emerald-400 font-semibold">{{ inbound.boundUserEmail }}</span>
+        </div>
       </div>
 
       <!-- Socks 专属参数 -->

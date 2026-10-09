@@ -265,3 +265,104 @@ func TestTrafficSyncJob_BatchSync(t *testing.T) {
 		}
 	}
 }
+
+type mockInboundRepoForCron struct {
+	domain.InboundRepository
+	inbounds []domain.Inbound
+}
+
+func (m *mockInboundRepoForCron) ListAll(ctx context.Context) ([]domain.Inbound, error) {
+	return m.inbounds, nil
+}
+
+func TestTrafficSyncJob_BoundUserInboundTrafficAccounting(t *testing.T) {
+	mockXray := &mockXrayManager{
+		statsToReturn: []domain.TrafficStat{
+			{
+				Tag:      "local-socks",
+				Value:    1048576, // 1MB uplink
+				IsUplink: true,
+				Type:     domain.TrafficStatTypeInbound,
+			},
+			{
+				Tag:      "local-socks",
+				Value:    2097152, // 2MB downlink
+				IsUplink: false,
+				Type:     domain.TrafficStatTypeInbound,
+			},
+			{
+				Tag:      "unbound-inbound",
+				Value:    500000,
+				IsUplink: true,
+				Type:     domain.TrafficStatTypeInbound,
+			},
+		},
+	}
+
+	mockInboundRepo := &mockInboundRepoForCron{
+		inbounds: []domain.Inbound{
+			{
+				Tag:            "local-socks",
+				Port:           10808,
+				Protocol:       "socks",
+				BoundUserEmail: "local@yezineko.top",
+			},
+			{
+				Tag:            "unbound-inbound",
+				Port:           10809,
+				Protocol:       "socks",
+				BoundUserEmail: "",
+			},
+		},
+	}
+
+	mockBatchRepo := &mockBatchUserRepo{
+		usersToReturn: []domain.User{
+			{
+				Email:   "local@yezineko.top",
+				Enabled: true,
+			},
+		},
+	}
+
+	job := deliveryCron.NewTrafficSyncJob(mockXray, mockBatchRepo, mockInboundRepo, nil, nil, nil, nil, 3*time.Second)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel() // Trigger immediate final flush
+
+	err := job.Start(ctx)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if mockBatchRepo.batchCalls != 1 {
+		t.Fatalf("expected 1 BatchSyncTraffic call, got %d", mockBatchRepo.batchCalls)
+	}
+
+	// 1. Inbound deltas check: local-socks should have up=1048576, down=2097152; unbound-inbound up=500000
+	if len(mockBatchRepo.lastInDeltas) != 2 {
+		t.Fatalf("expected 2 inbound deltas, got %d", len(mockBatchRepo.lastInDeltas))
+	}
+	inMap := make(map[string]domain.InboundTrafficDelta)
+	for _, inD := range mockBatchRepo.lastInDeltas {
+		inMap[inD.Tag] = inD
+	}
+	if inMap["local-socks"].Up != 1048576 || inMap["local-socks"].Down != 2097152 {
+		t.Errorf("unexpected local-socks delta: %+v", inMap["local-socks"])
+	}
+	if inMap["unbound-inbound"].Up != 500000 || inMap["unbound-inbound"].Down != 0 {
+		t.Errorf("unexpected unbound-inbound delta: %+v", inMap["unbound-inbound"])
+	}
+
+	// 2. User deltas check: local@yezineko.top should have received the bound inbound traffic!
+	if len(mockBatchRepo.lastUserDeltas) != 1 {
+		t.Fatalf("expected 1 user delta for bound user, got %d", len(mockBatchRepo.lastUserDeltas))
+	}
+	userDelta := mockBatchRepo.lastUserDeltas[0]
+	if userDelta.Email != "local@yezineko.top" {
+		t.Errorf("expected user delta email local@yezineko.top, got %s", userDelta.Email)
+	}
+	if userDelta.Up != 1048576 || userDelta.Down != 2097152 {
+		t.Errorf("expected user delta up=1048576 down=2097152, got up=%d down=%d", userDelta.Up, userDelta.Down)
+	}
+}

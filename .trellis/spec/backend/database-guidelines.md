@@ -42,8 +42,10 @@
    ```
    参考 `internal/adapter/repository/ticket_repo.go:38-39`。
 
-3. **批量数据同步**：
+3. **批量数据同步与单租户入站流量映射**：
    定时任务同步多用户流量时，必须走仓储的 `BatchSyncTraffic`
    （`internal/adapter/repository/user_repo.go:118-119`），
    在**单一原子事务**中批量累加用户与入站增量并写每日流量日志；
    禁止单次循环单条开启独立事务。接口定义见 `internal/domain/repository.go:55`。
+   若 Inbound 配置了 `BoundUserEmail`（单租户/本地无认证代理绑定），同步引擎应在入站统计周期的同时，
+   自动将该入站的增量流量累加至该绑定用户的增量池，保持原子落盘与每日日志一致性。

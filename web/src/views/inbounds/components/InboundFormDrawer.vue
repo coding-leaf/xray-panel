@@ -632,6 +632,24 @@
           </div>
         </div>
       </SectionCard>
+
+      <!-- 7. 单租户流量归属用户 (专供 SOCKS5/HTTP/免密或独立入站计费) -->
+      <SectionCard title="流量归属用户 (可选单租户绑定)">
+        <FormField
+          label="计费归属用户 (Bound User)"
+          hint="为此入站指定流量归属用户。该入站产生的出入站流量将自动累计到该用户名下（用于配额与日志核算）"
+        >
+          <select
+            v-model="form.boundUserEmail"
+            class="w-full bg-neutral-950 border border-border rounded-md px-3 h-9 text-foreground font-mono focus:outline-none focus:ring-1 focus:ring-ring text-xs"
+          >
+            <option value="">-- 不绑定 (默认无单租户归属) --</option>
+            <option v-for="u in usersList" :key="u.email" :value="u.email">
+              {{ u.email }}
+            </option>
+          </select>
+        </FormField>
+      </SectionCard>
     </form>
 
     <template #footer>
@@ -895,6 +913,7 @@ const initFormData = () => {
     form.value.externalPort = inb.externalPort || 0
     form.value.externalHost = inb.externalHost || ''
     form.value.routeId = inb.routeId || 0
+    form.value.boundUserEmail = inb.boundUserEmail || ''
     form.value.protocol = inb.protocol
 
     let srs: SubRouteItem[] = []

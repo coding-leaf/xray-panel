@@ -2,13 +2,129 @@ package service_test
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
 
 	"panel/internal/adapter/xray"
+	"panel/internal/domain"
 	"panel/internal/service"
 )
+
+type mockUserRepoForConfig struct {
+	domain.UserRepository
+	users map[string]*domain.User
+}
+
+func (m *mockUserRepoForConfig) GetByEmail(ctx context.Context, email string) (*domain.User, error) {
+	if u, ok := m.users[email]; ok {
+		return u, nil
+	}
+	return nil, domain.ErrNotFound
+}
+
+func (m *mockUserRepoForConfig) ListAll(ctx context.Context) ([]domain.User, error) {
+	var list []domain.User
+	for _, u := range m.users {
+		list = append(list, *u)
+	}
+	return list, nil
+}
+
+type mockInboundRepoForConfig struct {
+	domain.InboundRepository
+	created []*domain.Inbound
+	updated []*domain.Inbound
+}
+
+func (m *mockInboundRepoForConfig) Create(ctx context.Context, inbound *domain.Inbound) error {
+	m.created = append(m.created, inbound)
+	return nil
+}
+
+func (m *mockInboundRepoForConfig) Update(ctx context.Context, inbound *domain.Inbound) error {
+	m.updated = append(m.updated, inbound)
+	return nil
+}
+
+func (m *mockInboundRepoForConfig) ListAll(ctx context.Context) ([]domain.Inbound, error) {
+	return nil, nil
+}
+
+type mockConfigStorage struct {
+	service.ConfigStorage
+}
+
+func (m *mockConfigStorage) ReadRawConfig() ([]byte, error) {
+	return []byte(`{"inbounds":[],"outbounds":[]}`), nil
+}
+
+func (m *mockConfigStorage) ValidateConfig(ctx context.Context, raw []byte) error {
+	return nil
+}
+
+func (m *mockConfigStorage) WriteConfig(ctx context.Context, raw []byte) error {
+	return nil
+}
+
+type mockCompiler struct {
+	service.ConfigCompiler
+}
+
+func (m *mockCompiler) CompileToJSON(inbounds []domain.Inbound, outbounds []domain.Outbound, routing *domain.RoutingConfig, dns *domain.DNSConfig, users []domain.User) ([]byte, error) {
+	return []byte(`{}`), nil
+}
+
+func TestConfigService_BoundUserEmail_Validation(t *testing.T) {
+	userRepo := &mockUserRepoForConfig{
+		users: map[string]*domain.User{
+			"valid@example.com": {ID: 1, Email: "valid@example.com"},
+		},
+	}
+	inboundRepo := &mockInboundRepoForConfig{}
+	cfgStorage := &mockConfigStorage{}
+	compiler := &mockCompiler{}
+	svc := service.NewConfigService(cfgStorage, nil, inboundRepo, userRepo, nil, compiler)
+
+	ctx := context.Background()
+
+	// 1. Create with empty BoundUserEmail should succeed
+	err := svc.CreateInbound(ctx, &domain.Inbound{Tag: "socks-noauth"})
+	if err != nil {
+		t.Fatalf("expected nil error for empty bound user, got %v", err)
+	}
+
+	// 2. Create with existing BoundUserEmail should succeed
+	err = svc.CreateInbound(ctx, &domain.Inbound{Tag: "socks-bound", BoundUserEmail: "valid@example.com"})
+	if err != nil {
+		t.Fatalf("expected nil error for valid bound user, got %v", err)
+	}
+
+	// 3. Create with non-existing BoundUserEmail should fail with ErrInvalidInput
+	err = svc.CreateInbound(ctx, &domain.Inbound{Tag: "socks-invalid", BoundUserEmail: "nonexistent@example.com"})
+	if err == nil {
+		t.Fatalf("expected error for nonexistent bound user, got nil")
+	}
+	if !errors.Is(err, domain.ErrInvalidInput) {
+		t.Fatalf("expected ErrInvalidInput, got %v", err)
+	}
+
+	// 4. Update with nonexistent BoundUserEmail should fail
+	err = svc.UpdateInbound(ctx, &domain.Inbound{Tag: "socks-bound", BoundUserEmail: "ghost@example.com"})
+	if err == nil {
+		t.Fatalf("expected error on update for nonexistent bound user, got nil")
+	}
+	if !errors.Is(err, domain.ErrInvalidInput) {
+		t.Fatalf("expected ErrInvalidInput, got %v", err)
+	}
+
+	// 5. Update with valid BoundUserEmail should succeed
+	err = svc.UpdateInbound(ctx, &domain.Inbound{Tag: "socks-bound", BoundUserEmail: "valid@example.com"})
+	if err != nil {
+		t.Fatalf("expected nil error on update for valid bound user, got %v", err)
+	}
+}
 
 func TestConfigService_SaveConfigQuietly_GuardsAgainstSilentWipe(t *testing.T) {
 	tmpDir, err := os.MkdirTemp("", "xray_cfg_test_*")

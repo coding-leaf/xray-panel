@@ -142,7 +142,17 @@ const handleResetToken = async (userId: number) => {
 let speedTimer: ReturnType<typeof setInterval> | null = null
 
 const handleVisibilityChange = () => {
-  if (!document.hidden) fetchSpeeds()
+  if (document.hidden) {
+    if (speedTimer) {
+      clearInterval(speedTimer)
+      speedTimer = null
+    }
+  } else {
+    fetchSpeeds()
+    if (!speedTimer) {
+      speedTimer = setInterval(fetchSpeeds, 3000)
+    }
+  }
 }
 
 onMounted(async () => {

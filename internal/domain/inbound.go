@@ -19,7 +19,7 @@ type Inbound struct {
 	ExternalHost   string    `gorm:"column:external_host;type:varchar(255);default:''" json:"externalHost"`      // 外部连接域名/IP，留空使用全局域名
 	RouteID        uint16    `gorm:"column:route_id;default:0" json:"routeId"`                                   // VLESS 协议级 16 位路由编号 (0 为默认不替换)
 	SubRoutesJson  string    `gorm:"column:sub_routes_json;type:text" json:"subRoutesJson"`                      // 分流订阅线路 JSON 列表
-	BoundUserEmail string    `gorm:"column:bound_user_email;type:varchar(128);default:''" json:"boundUserEmail"` // 流量归属用户 Email (留空表示不绑定单租户)
+	BoundUserEmail string    `gorm:"column:bound_user_email;type:varchar(128);default:''" json:"boundUserEmail"` // 废弃兼容字段 (Deprecated, 仅供旧配置/API往返兼容，不参与流量核算或归属)
 	UpBytes        int64     `gorm:"default:0" json:"upBytes"`
 	DownBytes      int64     `gorm:"default:0" json:"downBytes"`
 	Enabled        bool      `gorm:"default:true" json:"enabled"`

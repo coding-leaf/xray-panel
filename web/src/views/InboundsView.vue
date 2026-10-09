@@ -83,6 +83,7 @@
       @inspect="inspectInbound"
       @edit="editInbound"
       @delete="handleDelete"
+      @logs="viewLogs"
     />
 
     <!-- Inspector Drawer -->
@@ -95,6 +96,7 @@
       @edit="editInbound"
       @delete="handleDelete"
       @check-reality="triggerRealityCheck"
+      @logs="viewLogs"
     />
 
     <!-- Create / Edit Inbound Drawer (Lazy Loaded) -->
@@ -112,7 +114,7 @@
 
 <script setup lang="ts">
 import { ref, onMounted, watch, defineAsyncComponent } from 'vue'
-import { useRoute } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { Plus, AlertTriangle, ShieldCheck, Search } from 'lucide-vue-next'
 import Button from '../components/ui/Button.vue'
 import Badge from '../components/ui/Badge.vue'
@@ -127,6 +129,7 @@ const InboundFormDrawer = defineAsyncComponent(
 )
 
 const route = useRoute()
+const router = useRouter()
 const showInspectorDrawer = ref(false)
 const showFormDrawer = ref(false)
 const selectedInbound = ref<InboundItem | null>(null)
@@ -150,6 +153,16 @@ const {
 const inspectInbound = (inb: InboundItem) => {
   selectedInbound.value = inb
   showInspectorDrawer.value = true
+}
+
+const viewLogs = (inb: InboundItem) => {
+  router.push({
+    path: '/logs',
+    query: {
+      type: 'access',
+      inbound: inb.tag,
+    },
+  })
 }
 
 const openCreateDrawer = () => {

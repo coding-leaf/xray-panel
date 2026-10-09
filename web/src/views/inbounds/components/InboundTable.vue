@@ -1,5 +1,5 @@
 <template>
-  <div class="relative w-full overflow-hidden rounded-lg border border-border bg-neutral-950">
+  <div class="relative w-full overflow-x-auto rounded-lg border border-border bg-neutral-950">
     <table class="w-full caption-bottom text-xs border-collapse">
       <thead class="border-b border-border bg-neutral-900">
         <tr>
@@ -8,6 +8,7 @@
           <th class="h-9 px-3.5 text-left align-middle font-mono text-[11px] font-medium text-muted-foreground uppercase tracking-wider">端口映射与网络</th>
           <th class="h-9 px-3.5 text-left align-middle font-mono text-[11px] font-medium text-muted-foreground uppercase tracking-wider">传输安全 / 伪装</th>
           <th class="h-9 px-3.5 text-left align-middle font-mono text-[11px] font-medium text-muted-foreground uppercase tracking-wider">用户与线路</th>
+          <th class="h-9 px-3.5 text-left align-middle font-mono text-[11px] font-medium text-muted-foreground uppercase tracking-wider">累计流量</th>
           <th class="h-9 px-3.5 text-left align-middle font-mono text-[11px] font-medium text-muted-foreground uppercase tracking-wider">端口状态</th>
           <th class="h-9 px-3.5 text-right align-middle font-mono text-[11px] font-medium text-muted-foreground uppercase tracking-wider">操作</th>
         </tr>
@@ -89,14 +90,18 @@
                   {{ inb.subRoutes.length }} 线路
                 </span>
               </div>
-              <div v-if="inb.boundUserEmail" class="flex items-center gap-1 text-[10px] text-emerald-400">
-                <span class="text-neutral-500">归属:</span>
-                <span class="truncate max-w-[120px]" :title="`流量归属于 ${inb.boundUserEmail}`">{{ inb.boundUserEmail }}</span>
-              </div>
             </div>
           </td>
 
-          <!-- 6. Alive & Latency -->
+          <!-- 6. Traffic Stats (Up/Down) -->
+          <td class="p-3.5 align-middle font-mono text-xs">
+            <div class="flex flex-col gap-0.5">
+              <span class="text-neutral-300">↑ {{ formatBytes(inb.upBytes || 0) }}</span>
+              <span class="text-neutral-400 text-[11px]">↓ {{ formatBytes(inb.downBytes || 0) }}</span>
+            </div>
+          </td>
+
+          <!-- 7. Alive & Latency -->
           <td class="p-3.5 align-middle font-mono text-xs">
             <div class="flex items-center gap-1.5">
               <span
@@ -109,9 +114,17 @@
             </div>
           </td>
 
-          <!-- 7. Actions -->
+          <!-- 8. Actions -->
           <td class="p-3.5 align-middle text-right" @click.stop>
             <div class="flex items-center justify-end gap-1.5">
+              <Button
+                variant="ghost"
+                size="sm"
+                class="h-7 px-2 text-[11px] text-cyan-400 hover:text-cyan-300 hover:bg-cyan-500/10"
+                @click="emit('logs', inb)"
+              >
+                访问日志
+              </Button>
               <Button
                 variant="ghost"
                 size="sm"
@@ -142,7 +155,7 @@
 
         <!-- Empty State -->
         <tr v-if="!inbounds.length">
-          <td colspan="7" class="p-10 text-center text-muted-foreground">
+          <td colspan="8" class="p-10 text-center text-muted-foreground">
             <div class="flex flex-col items-center justify-center gap-2">
               <Radio class="w-8 h-8 text-neutral-600 mb-1" />
               <p class="text-xs font-medium text-neutral-300">没有匹配的入站节点</p>
@@ -159,6 +172,7 @@
 import { Radio } from 'lucide-vue-next'
 import Badge from '../../../components/ui/Badge.vue'
 import Button from '../../../components/ui/Button.vue'
+import { formatBytes } from '../../../utils/format'
 import type { RealitySummaryStatus } from '../../../api/reality'
 import type { InboundItem } from '../types'
 import {
@@ -185,6 +199,7 @@ const emit = defineEmits<{
   (e: 'inspect', inb: InboundItem): void
   (e: 'edit', inb: InboundItem): void
   (e: 'delete', id: number): void
+  (e: 'logs', inb: InboundItem): void
 }>()
 
 const getInboundRealityStatus = (tag: string) => {

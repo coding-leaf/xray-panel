@@ -158,9 +158,15 @@
                 </p>
               </div>
             </div>
-            <div class="text-right">
-              <p class="text-[10px] text-muted-foreground">累计上行</p>
-              <p class="text-xs font-mono text-foreground">{{ formatBytes(dashboard?.metrics?.netTotalSent || dashboard?.totalUp || 0) }}</p>
+            <div class="text-right font-mono space-y-0.5">
+              <div>
+                <span class="text-[10px] text-muted-foreground">主机网卡累计: </span>
+                <span class="text-xs text-foreground">{{ formatBytes(dashboard?.metrics?.netTotalSent ?? 0) }}</span>
+              </div>
+              <div>
+                <span class="text-[10px] text-muted-foreground">现存入站累计: </span>
+                <span class="text-xs text-cyan-400 font-semibold">{{ formatBytes(dashboard?.totalUp ?? 0) }}</span>
+              </div>
             </div>
           </div>
 
@@ -176,9 +182,15 @@
                 </p>
               </div>
             </div>
-            <div class="text-right">
-              <p class="text-[10px] text-muted-foreground">累计下行</p>
-              <p class="text-xs font-mono text-foreground">{{ formatBytes(dashboard?.metrics?.netTotalRecv || dashboard?.totalDown || 0) }}</p>
+            <div class="text-right font-mono space-y-0.5">
+              <div>
+                <span class="text-[10px] text-muted-foreground">主机网卡累计: </span>
+                <span class="text-xs text-foreground">{{ formatBytes(dashboard?.metrics?.netTotalRecv ?? 0) }}</span>
+              </div>
+              <div>
+                <span class="text-[10px] text-muted-foreground">现存入站累计: </span>
+                <span class="text-xs text-indigo-400 font-semibold">{{ formatBytes(dashboard?.totalDown ?? 0) }}</span>
+              </div>
             </div>
           </div>
         </div>

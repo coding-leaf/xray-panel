@@ -1,7 +1,7 @@
 # Xray Decoupled Panel (解耦运维监控与分流管理面板)
 
 <p align="center">
-  <img src="https://img.shields.io/badge/Version-v2.6.0-indigo?style=flat-square" alt="Version">
+  <img src="https://img.shields.io/badge/Version-v2.6.1-indigo?style=flat-square" alt="Version">
   <img src="https://img.shields.io/badge/Go-1.26+-00ADD8?style=flat-square&logo=go" alt="Go Version">
   <img src="https://img.shields.io/badge/Vue-3.4+-4FC08D?style=flat-square&logo=vue.js" alt="Vue Version">
   <img src="https://img.shields.io/badge/Architecture-Clean%20Architecture-blue?style=flat-square" alt="Clean Architecture">
@@ -68,6 +68,21 @@
 ---
 
 ## 更新日志
+
+### v2.6.1 (2026-10) - 本机免认证代理可观测性重构、日志解析协议升级与时序修复
+- **本机免认证代理流量核算与双计防御**：
+  - 彻底解耦入站流量与用户归属，移除 `traffic_sync.go` 中单租户入站流量强制复制到用户的旧机制，实现原生用户与入站各自独立原子核算，杜绝同轮次双重计算；
+  - 遗留 `BoundUserEmail` 标记为 deprecated 仅作向后兼容，移除绑定用户存在性硬校验，避免历史绑定阻塞入站维护；
+  - 仪表盘 `totalUp/totalDown` 修正为现存业务入站（含禁用入站，排除管理 `api`）累计总和，彻底拆分主机物理网卡流量与代理流量展示。
+- **Xray-core 原生日志解析与分流兼容性增强**：
+  - 支持 Xray-core 规则命中（`->`）与默认出口兜底（`>>` Fallback）双重路由标记识别；
+  - 兼容现网 Xray-core v26+ 输出的 `from tcp:` / `from udp:` 客户端协议前缀，解决结构化访问记录解析为 0 的严重缺陷；
+  - 支持单标签路由（`[tag]`）与未注册动态 Tag 回显候选。
+  - *(注：后续版本计划重构流式日志解析器，优化底层硬编码正则表达式，进一步提升解析吞吐与鲁棒性)*。
+- **前端控制台时序与状态治理**：
+  - 修复 `LogsView.vue` 路由参数 `immediate: true` 监听器在挂载期解构未定义旧状态导致的运行时崩溃；
+  - 为 `UserTrafficModal` 补齐即时加载时序与 `Loader2` 骨架状态，彻底解决首次打开弹窗显示空白、需手动切换天数 Tab 的问题；
+  - 入站管理视图新增累计上下行流量直观展示，支持一键带参跳转至日志溯源。
 
 ### v2.6.0 (2026-09) - 架构整理、通用类抽取与 Xray-core 特性扩展性升级
 - **统一流配置强类型访问器 (InboundStreamAccessor)**：

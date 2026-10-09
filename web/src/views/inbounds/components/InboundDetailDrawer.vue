@@ -46,16 +46,19 @@
             <span class="block text-[10px] text-muted-foreground">节点流控 (Flow)</span>
             <span class="text-neutral-300">{{ getNodeFlow(inbound) }}</span>
           </div>
+          <div>
+            <span class="block text-[10px] text-muted-foreground">累计上传 (Up)</span>
+            <span class="text-neutral-300 font-semibold">↑ {{ formatBytes(inbound.upBytes || 0) }}</span>
+          </div>
+          <div>
+            <span class="block text-[10px] text-muted-foreground">累计下载 (Down)</span>
+            <span class="text-neutral-300 font-semibold">↓ {{ formatBytes(inbound.downBytes || 0) }}</span>
+          </div>
         </div>
 
         <div v-if="inbound.externalHost" class="pt-2 border-t border-border/40 font-mono text-[11px]">
           <span class="text-muted-foreground">自定义外部域名: </span>
           <span class="text-neutral-300">{{ inbound.externalHost }}</span>
-        </div>
-
-        <div v-if="inbound.boundUserEmail" class="pt-2 border-t border-border/40 font-mono text-[11px]">
-          <span class="text-muted-foreground">流量归属用户 (Bound User): </span>
-          <span class="text-emerald-400 font-semibold">{{ inbound.boundUserEmail }}</span>
         </div>
       </div>
 
@@ -276,6 +279,15 @@
       </Button>
       <Button
         v-if="inbound"
+        variant="secondary"
+        size="sm"
+        class="text-cyan-400 hover:text-cyan-300"
+        @click="emit('logs', inbound)"
+      >
+        访问日志
+      </Button>
+      <Button
+        v-if="inbound"
         variant="destructive"
         size="sm"
         @click="emit('delete', inbound.id)"
@@ -301,6 +313,7 @@ import Drawer from '../../../components/ui/Drawer.vue'
 import Badge from '../../../components/ui/Badge.vue'
 import Button from '../../../components/ui/Button.vue'
 import { copyText } from '../../../utils/clipboard'
+import { formatBytes } from '../../../utils/format'
 import type { RealitySummaryStatus } from '../../../api/reality'
 import type { InboundItem } from '../types'
 import {
@@ -328,6 +341,7 @@ const emit = defineEmits<{
   (e: 'edit', inb: InboundItem): void
   (e: 'delete', id: number): void
   (e: 'checkReality'): void
+  (e: 'logs', inb: InboundItem): void
 }>()
 
 const inboundRealityStatus = computed(() => {

@@ -137,18 +137,6 @@ func (j *TrafficSyncJob) syncOnce(ctx context.Context) {
 	writeCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
 	defer cancel()
 
-	// 构建入站 Tag 到 BoundUserEmail 的映射表
-	inboundTagToUser := make(map[string]string)
-	if j.inboundRepo != nil {
-		if inbounds, inErr := j.inboundRepo.ListAll(writeCtx); inErr == nil {
-			for _, in := range inbounds {
-				if in.BoundUserEmail != "" {
-					inboundTagToUser[in.Tag] = in.BoundUserEmail
-				}
-			}
-		}
-	}
-
 	type trafficDelta struct {
 		up   int64
 		down int64
@@ -189,24 +177,6 @@ func (j *TrafficSyncJob) syncOnce(ctx context.Context) {
 				d.up += s.Value
 			} else {
 				d.down += s.Value
-			}
-
-			// 若该入站绑定了单租户用户，额外累加至对应用户的用量与瞬时速率中
-			if boundEmail, ok := inboundTagToUser[s.Tag]; ok && boundEmail != "" {
-				if !domain.IsUserRecentlyReset(boundEmail, 6000) {
-					ud, ok := userDeltas[boundEmail]
-					if !ok {
-						ud = &trafficDelta{}
-						userDeltas[boundEmail] = ud
-					}
-					if s.IsUplink {
-						ud.up += s.Value
-						userDeltaUp[boundEmail] += s.Value
-					} else {
-						ud.down += s.Value
-						userDeltaDown[boundEmail] += s.Value
-					}
-				}
 			}
 		}
 	}

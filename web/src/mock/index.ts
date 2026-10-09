@@ -52,9 +52,13 @@ export async function handleMockRequest(url: string, method: string, data?: any)
 
   // 2. Dashboard 仪表盘
   if (cleanUrl.endsWith('/dashboard') && method === 'GET') {
-    const totalTraffic = state.users.reduce((acc, u) => acc + (u.upBytes || 0) + (u.downBytes || 0), 0)
-    const totalUp = state.users.reduce((acc, u) => acc + (u.upBytes || 0), 0)
-    const totalDown = state.users.reduce((acc, u) => acc + (u.downBytes || 0), 0)
+    const inboundTotalUp = state.inbounds
+      .filter((i) => i.tag !== 'api')
+      .reduce((acc, i) => acc + (i.upBytes || 0), 0)
+    const inboundTotalDown = state.inbounds
+      .filter((i) => i.tag !== 'api')
+      .reduce((acc, i) => acc + (i.downBytes || 0), 0)
+    const totalTraffic = inboundTotalUp + inboundTotalDown
     const activeUsers = state.users.filter((u) => u.isOnline).length
     const netUpSpeed = Math.round(1024 * (1200 + Math.random() * 300))
     const netDownSpeed = Math.round(1024 * (8450 + Math.random() * 1200))
@@ -70,8 +74,8 @@ export async function handleMockRequest(url: string, method: string, data?: any)
         diskTotalBytes: 40 * 1024 * 1024 * 1024,
         netUpSpeedBps: netUpSpeed,
         netDownSpeedBps: netDownSpeed,
-        netTotalSent: totalUp,
-        netTotalRecv: totalDown,
+        netTotalSent: 107374182400, // 100 GB (主机网卡累计，与入站独立)
+        netTotalRecv: 322122547200, // 300 GB (主机网卡累计，与入站独立)
         uptimeSeconds: 48600,
         xrayRunning: true,
         xrayVersion: 'Xray 26.3.27 (gRPC Runtime) Linux/amd64',
@@ -83,8 +87,8 @@ export async function handleMockRequest(url: string, method: string, data?: any)
       userCount: state.users.length,
       activeUsers,
       inbounds: state.inbounds,
-      totalUp,
-      totalDown,
+      totalUp: inboundTotalUp,
+      totalDown: inboundTotalDown,
       xrayStatus: {
         running: true,
         version: 'Xray 26.3.27 (gRPC Runtime) Linux/amd64',
@@ -653,6 +657,42 @@ export async function handleMockRequest(url: string, method: string, data?: any)
         action: 'accepted',
         raw: `${nowStr} 192.168.1.103:54324 accepted tcp:hk-node.example.com:443 [vless-reality -> hk-landing] email: master@example.com`,
       },
+      {
+        time: nowStr,
+        from_ip: '127.0.0.1:51234',
+        protocol: 'tcp',
+        target: '1.1.1.1:53',
+        route: 'local -> direct',
+        inbound_tag: 'local',
+        outbound_tag: 'direct',
+        email: '',
+        action: 'accepted',
+        raw: `${nowStr} 127.0.0.1:51234 accepted tcp:1.1.1.1:53 [local -> direct]`,
+      },
+      {
+        time: nowStr,
+        from_ip: '127.0.0.1:51235',
+        protocol: 'udp',
+        target: '8.8.8.8:53',
+        route: 'local -> block',
+        inbound_tag: 'local',
+        outbound_tag: 'block',
+        email: '',
+        action: 'rejected',
+        raw: `${nowStr} 127.0.0.1:51235 rejected udp:8.8.8.8:53 [local -> block]`,
+      },
+      {
+        time: nowStr,
+        from_ip: '127.0.0.1:51236',
+        protocol: 'tcp',
+        target: 'example.com:443',
+        route: 'local-other -> direct',
+        inbound_tag: 'local-other',
+        outbound_tag: 'direct',
+        email: '',
+        action: 'accepted',
+        raw: `${nowStr} 127.0.0.1:51236 accepted tcp:example.com:443 [local-other -> direct]`,
+      },
     ]
 
     if (inbound) {
@@ -704,12 +744,19 @@ export async function handleMockRequest(url: string, method: string, data?: any)
       )
     }
 
+    let extraLogs = (state.logs || []).slice()
+    if (inbound) {
+      const tag1 = `[${inbound} ->`
+      const tag2 = `[${inbound}]`
+      extraLogs = extraLogs.filter((l: string) => l.includes(tag1) || l.includes(tag2))
+    }
+
     const lines = logType === 'access' ? access.map((a) => a.raw) : errors.map((e) => e.raw)
 
     return delay({
       access,
       errors,
-      lines: [...lines, ...state.logs],
+      lines: [...lines, ...extraLogs],
     })
   }
 

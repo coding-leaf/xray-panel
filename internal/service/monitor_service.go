@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"fmt"
 	"sync"
 	"time"
 
@@ -98,17 +99,30 @@ func (s *MonitorService) GetDashboardData(ctx context.Context) (*DashboardData, 
 	metrics.XrayRunning = serviceStatus.Active
 	metrics.XrayVersion = xrayVer
 
-	users, _ := s.userRepo.ListAll(ctx)
-	inbounds, _ := s.inboundRepo.ListAll(ctx)
+	users, err := s.userRepo.ListAll(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("list users for dashboard failed: %w", err)
+	}
 
-	var totalUp, totalDown int64
+	inbounds, err := s.inboundRepo.ListAll(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("list inbounds for dashboard failed: %w", err)
+	}
+
 	var activeCount int
 	for _, u := range users {
-		totalUp += u.UpBytes
-		totalDown += u.DownBytes
 		if u.IsActive() {
 			activeCount++
 		}
+	}
+
+	var totalUp, totalDown int64
+	for _, in := range inbounds {
+		if in.Tag == "api" {
+			continue
+		}
+		totalUp += in.UpBytes
+		totalDown += in.DownBytes
 	}
 
 	data := &DashboardData{
@@ -131,7 +145,6 @@ func (s *MonitorService) GetDashboardData(ctx context.Context) (*DashboardData, 
 	ret := *data
 	return &ret, nil
 }
-
 
 func (s *MonitorService) GetServiceStatus(ctx context.Context) (domain.ServiceStatus, string, error) {
 	serviceStatus, err := s.xrayStatus.GetServiceStatus(ctx)

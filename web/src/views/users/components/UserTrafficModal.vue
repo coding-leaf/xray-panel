@@ -74,7 +74,12 @@
         </div>
 
         <!-- Bar visualizer -->
-        <div v-if="sortedHistoryLogs.length" class="bg-card rounded-md border border-border p-3 overflow-x-auto pb-2">
+        <div v-if="loadingHistory" class="flex flex-col items-center justify-center py-10 bg-card rounded-md border border-border text-muted-foreground text-xs font-mono space-y-2">
+          <Loader2 class="w-5 h-5 animate-spin text-cyan-400" />
+          <span>正在加载用量走势...</span>
+        </div>
+
+        <div v-else-if="sortedHistoryLogs.length" class="bg-card rounded-md border border-border p-3 overflow-x-auto pb-2">
           <div class="h-36 flex items-end gap-2 pt-2 min-w-full w-max">
             <div
               v-for="log in sortedHistoryLogs"
@@ -134,15 +139,25 @@
               </tr>
             </thead>
             <tbody class="divide-y divide-border/40 font-mono text-[11px]">
-              <tr v-for="log in historyLogs" :key="log.id" class="hover:bg-muted/30">
-                <td class="py-2 px-3 text-foreground font-medium">{{ log.date }}</td>
-                <td class="py-2 px-3 text-emerald-400">{{ formatBytes(log.upBytes) }}</td>
-                <td class="py-2 px-3 text-cyan-400">{{ formatBytes(log.downBytes) }}</td>
-                <td class="py-2 px-3 text-foreground font-bold">{{ formatBytes(log.upBytes + log.downBytes) }}</td>
+              <tr v-if="loadingHistory">
+                <td colspan="4" class="text-center py-6 text-muted-foreground">
+                  <div class="flex items-center justify-center gap-2">
+                    <Loader2 class="w-4 h-4 animate-spin text-cyan-400" />
+                    <span>数据加载中...</span>
+                  </div>
+                </td>
               </tr>
-              <tr v-if="!historyLogs.length">
-                <td colspan="4" class="text-center py-4 text-muted-foreground">暂无记录</td>
-              </tr>
+              <template v-else>
+                <tr v-for="log in historyLogs" :key="log.id" class="hover:bg-muted/30">
+                  <td class="py-2 px-3 text-foreground font-medium">{{ log.date }}</td>
+                  <td class="py-2 px-3 text-emerald-400">{{ formatBytes(log.upBytes) }}</td>
+                  <td class="py-2 px-3 text-cyan-400">{{ formatBytes(log.downBytes) }}</td>
+                  <td class="py-2 px-3 text-foreground font-bold">{{ formatBytes(log.upBytes + log.downBytes) }}</td>
+                </tr>
+                <tr v-if="!historyLogs.length">
+                  <td colspan="4" class="text-center py-4 text-muted-foreground">暂无记录</td>
+                </tr>
+              </template>
             </tbody>
           </table>
         </div>
@@ -158,8 +173,8 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, watch } from 'vue'
-import { BarChart2 } from 'lucide-vue-next'
+import { ref, computed, watch, onMounted } from 'vue'
+import { BarChart2, Loader2 } from 'lucide-vue-next'
 import api from '../../../api'
 import { formatBytes } from '../../../utils/format'
 import type { UserItem, TrafficRecord } from '../types'
@@ -180,6 +195,7 @@ const emit = defineEmits<{
 
 const historyLogs = ref<TrafficRecord[]>([])
 const historyDays = ref(14)
+const loadingHistory = ref(false)
 const hoveredLog = ref<TrafficRecord | null>(null)
 const selectedLog = ref<TrafficRecord | null>(null)
 const activeLog = computed(() => hoveredLog.value || selectedLog.value)
@@ -193,12 +209,15 @@ const toggleSelectLog = (log: TrafficRecord) => {
 }
 
 const fetchUserHistory = async (userId: number, days: number) => {
+  loadingHistory.value = true
   try {
     const res: any = await api.get(`/users/${userId}/traffic-history?days=${days}`)
     historyLogs.value = res || []
   } catch (err) {
     console.error(err)
     historyLogs.value = []
+  } finally {
+    loadingHistory.value = false
   }
 }
 
@@ -220,8 +239,17 @@ watch(
       historyDays.value = 14
       await fetchUserHistory(userId as number, 14)
     }
-  }
+  },
+  { immediate: true }
 )
+
+onMounted(() => {
+  if (props.modelValue && props.user?.id && !historyLogs.value.length && !loadingHistory.value) {
+    hoveredLog.value = null
+    selectedLog.value = null
+    fetchUserHistory(props.user.id, historyDays.value)
+  }
+})
 
 const sortedHistoryLogs = computed(() => {
   return [...historyLogs.value].reverse()

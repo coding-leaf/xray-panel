@@ -2,7 +2,6 @@ package service_test
 
 import (
 	"context"
-	"errors"
 	"os"
 	"path/filepath"
 	"testing"
@@ -76,7 +75,7 @@ func (m *mockCompiler) CompileToJSON(inbounds []domain.Inbound, outbounds []doma
 	return []byte(`{}`), nil
 }
 
-func TestConfigService_BoundUserEmail_Validation(t *testing.T) {
+func TestConfigService_LegacyBoundUser_DoesNotBlockEditOrCreation(t *testing.T) {
 	userRepo := &mockUserRepoForConfig{
 		users: map[string]*domain.User{
 			"valid@example.com": {ID: 1, Email: "valid@example.com"},
@@ -101,28 +100,16 @@ func TestConfigService_BoundUserEmail_Validation(t *testing.T) {
 		t.Fatalf("expected nil error for valid bound user, got %v", err)
 	}
 
-	// 3. Create with non-existing BoundUserEmail should fail with ErrInvalidInput
-	err = svc.CreateInbound(ctx, &domain.Inbound{Tag: "socks-invalid", BoundUserEmail: "nonexistent@example.com"})
-	if err == nil {
-		t.Fatalf("expected error for nonexistent bound user, got nil")
-	}
-	if !errors.Is(err, domain.ErrInvalidInput) {
-		t.Fatalf("expected ErrInvalidInput, got %v", err)
-	}
-
-	// 4. Update with nonexistent BoundUserEmail should fail
-	err = svc.UpdateInbound(ctx, &domain.Inbound{Tag: "socks-bound", BoundUserEmail: "ghost@example.com"})
-	if err == nil {
-		t.Fatalf("expected error on update for nonexistent bound user, got nil")
-	}
-	if !errors.Is(err, domain.ErrInvalidInput) {
-		t.Fatalf("expected ErrInvalidInput, got %v", err)
-	}
-
-	// 5. Update with valid BoundUserEmail should succeed
-	err = svc.UpdateInbound(ctx, &domain.Inbound{Tag: "socks-bound", BoundUserEmail: "valid@example.com"})
+	// 3. Create with deleted/non-existing legacy BoundUserEmail should ALSO succeed (does not block creation)
+	err = svc.CreateInbound(ctx, &domain.Inbound{Tag: "socks-legacy", BoundUserEmail: "deleted-user@example.com"})
 	if err != nil {
-		t.Fatalf("expected nil error on update for valid bound user, got %v", err)
+		t.Fatalf("expected nil error for legacy nonexistent bound user on create, got %v", err)
+	}
+
+	// 4. Update with deleted/nonexistent BoundUserEmail should ALSO succeed (does not block edit)
+	err = svc.UpdateInbound(ctx, &domain.Inbound{Tag: "socks-legacy", BoundUserEmail: "deleted-user@example.com"})
+	if err != nil {
+		t.Fatalf("expected nil error for legacy nonexistent bound user on update, got %v", err)
 	}
 }
 

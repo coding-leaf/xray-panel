@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"errors"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -155,5 +156,90 @@ func TestMonitorService_DashboardCache(t *testing.T) {
 	}
 	if uCountExpired := atomic.LoadInt64(&uRepo.listAllCount); uCountExpired != 3 {
 		t.Fatalf("expected 3 calls after TTL expired, got %d", uCountExpired)
+	}
+}
+
+type mockConfigurableInboundRepo struct {
+	domain.InboundRepository
+	inbounds  []domain.Inbound
+	returnErr error
+}
+
+func (m *mockConfigurableInboundRepo) ListAll(ctx context.Context) ([]domain.Inbound, error) {
+	if m.returnErr != nil {
+		return nil, m.returnErr
+	}
+	return m.inbounds, nil
+}
+
+type mockConfigurableUserRepo struct {
+	domain.UserRepository
+	users     []domain.User
+	returnErr error
+}
+
+func (m *mockConfigurableUserRepo) ListAll(ctx context.Context) ([]domain.User, error) {
+	if m.returnErr != nil {
+		return nil, m.returnErr
+	}
+	return m.users, nil
+}
+
+func TestMonitorService_DashboardTraffic_InboundAccounting(t *testing.T) {
+	ctx := context.Background()
+
+	// 1. 测试常规与本机入口、禁用入站计入，管理 api 排除，且用户累计不等于入站累计
+	uRepo := &mockConfigurableUserRepo{
+		users: []domain.User{
+			{ID: 1, Email: "user1@example.com", UpBytes: 50, DownBytes: 100, Enabled: true},
+		},
+	}
+	inbRepo := &mockConfigurableInboundRepo{
+		inbounds: []domain.Inbound{
+			{ID: 1, Tag: "local", Protocol: "socks", UpBytes: 5000, DownBytes: 10000, Enabled: true},
+			{ID: 2, Tag: "vless-in", Protocol: "vless", UpBytes: 2000, DownBytes: 4000, Enabled: true},
+			{ID: 3, Tag: "disabled-in", Protocol: "trojan", UpBytes: 1000, DownBytes: 2000, Enabled: false},
+			{ID: 4, Tag: "api", Protocol: "dokodemo-door", UpBytes: 9999, DownBytes: 9999, Enabled: true},
+		},
+	}
+
+	svc := NewMonitorService(&mockDashHostMonitor{}, &mockXrayStatusProvider{}, uRepo, inbRepo)
+	data, err := svc.GetDashboardData(ctx)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// 用户人数与活跃用户仍由用户仓储统计
+	if data.UserCount != 1 || data.ActiveUsers != 1 {
+		t.Errorf("expected UserCount 1, ActiveUsers 1; got UserCount %d, ActiveUsers %d", data.UserCount, data.ActiveUsers)
+	}
+
+	// TotalUp / TotalDown 必须为现存业务入站累计 (5000+2000+1000 = 8000, 10000+4000+2000 = 16000), 排除 api (9999) 且不等于用户统计 (50, 100)
+	if data.TotalUp != 8000 {
+		t.Errorf("expected TotalUp 8000 (inbounds only), got %d", data.TotalUp)
+	}
+	if data.TotalDown != 16000 {
+		t.Errorf("expected TotalDown 16000 (inbounds only), got %d", data.TotalDown)
+	}
+
+	// 2. 无业务入站时必须为 0，严禁回退到用户累计
+	svc.InvalidateCache()
+	inbRepo.inbounds = []domain.Inbound{
+		{ID: 4, Tag: "api", UpBytes: 9999, DownBytes: 9999, Enabled: true},
+	}
+	dataEmptyInb, err := svc.GetDashboardData(ctx)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if dataEmptyInb.TotalUp != 0 || dataEmptyInb.TotalDown != 0 {
+		t.Errorf("expected 0 for empty business inbounds without falling back to users, got up=%d, down=%d", dataEmptyInb.TotalUp, dataEmptyInb.TotalDown)
+	}
+
+	// 3. 入站仓储读取失败时必须显式返回错误，禁止返回看似正常的虚假零值
+	svc.InvalidateCache()
+	inbRepo.returnErr = errors.New("sqlite disk i/o error")
+	_, err = svc.GetDashboardData(ctx)
+	if err == nil {
+		t.Fatalf("expected error when inbound ListAll fails, got nil")
 	}
 }

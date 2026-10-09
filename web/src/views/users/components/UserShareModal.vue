@@ -279,7 +279,8 @@ watch(
       activeShareTab.value = 'link'
       generatedTicket.value = null
     }
-  }
+  },
+  { immediate: true }
 )
 
 const userId = computed(() => {

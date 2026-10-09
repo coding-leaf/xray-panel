@@ -115,7 +115,7 @@
           <span class="text-gray-400 shrink-0">入站:</span>
           <select
             v-model="selectedInbound"
-            @change="fetchLogs"
+            @change="onInboundSelectChange"
             class="bg-transparent text-white font-mono font-medium focus:outline-none cursor-pointer pr-2 text-xs"
           >
             <option value="" class="bg-gray-900 text-gray-300">全部入站</option>
@@ -274,7 +274,7 @@
                   <div v-if="row.inbound_tag || row.outbound_tag" class="flex items-center gap-1.5">
                     <span
                       v-if="row.inbound_tag"
-                      @click="selectedInbound = row.inbound_tag; fetchLogs()"
+                      @click="syncRouteQuery('access', row.inbound_tag)"
                       class="px-2 py-0.5 rounded text-[11px] font-bold font-mono bg-cyan-500/10 text-cyan-300 border border-cyan-500/30 hover:bg-cyan-500/20 cursor-pointer transition-all"
                       :title="'点击以此入站过滤: ' + row.inbound_tag"
                     >
@@ -345,7 +345,12 @@
           <div class="flex items-center justify-between text-[11px] font-mono pt-1.5 border-t border-border/50">
             <span class="text-indigo-300 font-medium truncate max-w-[140px]">{{ row.email || '匿名' }}</span>
             <div v-if="row.inbound_tag || row.outbound_tag" class="flex items-center gap-1 shrink-0">
-              <span v-if="row.inbound_tag" class="px-1.5 py-0.5 rounded text-[10px] font-bold bg-neutral-900 text-cyan-300 border border-border">
+              <span
+                v-if="row.inbound_tag"
+                @click="syncRouteQuery('access', row.inbound_tag)"
+                class="px-1.5 py-0.5 rounded text-[10px] font-bold bg-neutral-900 text-cyan-300 border border-border cursor-pointer hover:bg-neutral-800 transition-all"
+                :title="'点击以此入站过滤: ' + row.inbound_tag"
+              >
                 {{ row.inbound_tag }}
               </span>
               <span class="text-muted-foreground text-[10px]">→</span>
@@ -841,7 +846,8 @@
 </template>
 
 <script setup lang="ts">
-import { ref, shallowRef, computed, onMounted, onUnmounted } from 'vue'
+import { ref, shallowRef, computed, watch, onMounted, onUnmounted } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import {
   RefreshCw,
   Search,
@@ -862,6 +868,9 @@ import {
 import api from '../api'
 import { toast } from '../utils/toast'
 
+const route = useRoute()
+const router = useRouter()
+
 const viewMode = ref<'table' | 'terminal'>('table')
 const logType = ref<'access' | 'error' | 'audit'>('access')
 const autoRefresh = ref(false)
@@ -874,6 +883,9 @@ const selectedInbound = ref('')
 const selectedLevel = ref('')
 const selectedAction = ref('')
 const maxLines = ref(200)
+
+let currentRequestId = 0
+let isUnmounted = false
 
 // 审计分页状态
 const auditPage = ref(1)
@@ -943,7 +955,38 @@ const handleKeywordSearch = () => {
   }
 }
 
+const syncRouteQuery = (type: 'access' | 'error' | 'audit', inbound?: string) => {
+  const currentType = (route.query.type as string) || 'access'
+  const currentInbound = (route.query.inbound as string) || ''
+  const targetType = type
+  const targetInbound = type === 'access' ? (inbound || '') : ''
+
+  if (currentType === targetType && currentInbound === targetInbound) {
+    fetchLogs()
+    return
+  }
+
+  const nextQuery: Record<string, string> = {}
+  if (targetType !== 'access') {
+    nextQuery.type = targetType
+  }
+  if (targetType === 'access' && targetInbound) {
+    nextQuery.inbound = targetInbound
+  }
+  router.push({ query: nextQuery })
+}
+
+const onInboundSelectChange = () => {
+  syncRouteQuery('access', selectedInbound.value)
+}
+
+const switchType = (type: 'access' | 'error' | 'audit') => {
+  if (logType.value === type) return
+  syncRouteQuery(type)
+}
+
 const fetchLogs = async () => {
+  const requestId = ++currentRequestId
   loading.value = true
   try {
     if (logType.value === 'audit') {
@@ -958,6 +1001,7 @@ const fetchLogs = async () => {
       }
 
       const res: any = await api.get(`/audit-logs?${params.toString()}`)
+      if (isUnmounted || requestId !== currentRequestId) return
       if (res) {
         auditEntries.value = res.items || []
         auditTotal.value = res.total || 0
@@ -974,24 +1018,59 @@ const fetchLogs = async () => {
       }
 
       const res: any = await api.get(`/logs?${params.toString()}`)
+      if (isUnmounted || requestId !== currentRequestId) return
       if (res) {
-        if (res.access) {
-          rawAccessEntries.value = res.access
-        }
-        if (res.errors) {
-          rawErrorEntries.value = res.errors
-        }
-        if (res.lines) {
-          rawLines.value = res.lines
-        }
+        rawAccessEntries.value = res.access || []
+        rawErrorEntries.value = res.errors || []
+        rawLines.value = res.lines || []
       }
     }
-  } catch (err) {
+  } catch (err: any) {
+    if (isUnmounted || requestId !== currentRequestId) return
     console.error('Failed to fetch logs', err)
+    toast.error('获取日志失败: ' + (err?.message || err))
   } finally {
-    loading.value = false
+    if (!isUnmounted && requestId === currentRequestId) {
+      loading.value = false
+    }
   }
 }
+
+watch(
+  () => [route.query.type, route.query.inbound],
+  ([rawType, rawInbound], oldVal) => {
+    const oldType = oldVal ? oldVal[0] : undefined
+    const strType = typeof rawType === 'string' ? rawType : ''
+    const validType: 'access' | 'error' | 'audit' =
+      strType === 'error' || strType === 'audit' ? strType : 'access'
+
+    logType.value = validType
+
+    if (validType === 'access') {
+      const tag = typeof rawInbound === 'string' ? rawInbound : ''
+      const tagChanged = tag !== selectedInbound.value
+      selectedInbound.value = tag
+      if (tag && (tagChanged || oldType !== validType)) {
+        selectedUserEmail.value = ''
+        searchKeyword.value = ''
+      }
+    } else {
+      selectedInbound.value = ''
+    }
+
+    rawAccessEntries.value = []
+    rawErrorEntries.value = []
+    rawLines.value = []
+    if (validType === 'audit') {
+      auditEntries.value = []
+      auditPage.value = 1
+      viewMode.value = 'table'
+    }
+
+    fetchLogs()
+  },
+  { immediate: true }
+)
 
 const fetchUsers = async () => {
   try {
@@ -1009,16 +1088,6 @@ const fetchInbounds = async () => {
   } catch (e) {
     console.error(e)
   }
-}
-
-const switchType = (type: 'access' | 'error' | 'audit') => {
-  if (logType.value === type) return
-  logType.value = type
-  if (type === 'audit') {
-    viewMode.value = 'table'
-    auditPage.value = 1
-  }
-  fetchLogs()
 }
 
 const changeAuditPage = (page: number) => {
@@ -1071,6 +1140,9 @@ const userOptions = computed(() => {
 // 收集所有入站 Tag (已知入站 + 访问日志解析)
 const inboundOptions = computed(() => {
   const tagSet = new Set<string>()
+  if (selectedInbound.value) {
+    tagSet.add(selectedInbound.value)
+  }
   for (const inb of knownInbounds.value) {
     if (inb.tag) tagSet.add(inb.tag)
   }
@@ -1086,14 +1158,16 @@ const filteredAccessLogs = computed(() => {
 
   const kw = searchKeyword.value.toLowerCase()
   const filterEmail = selectedUserEmail.value.toLowerCase()
-  const filterInbound = selectedInbound.value.toLowerCase()
+  const targetInbound = selectedInbound.value
 
   const list = rawAccessEntries.value.filter((item) => {
     if (filterEmail && (!item.email || !item.email.toLowerCase().includes(filterEmail))) {
       return false
     }
-    if (filterInbound && item.inbound_tag && !item.inbound_tag.toLowerCase().includes(filterInbound)) {
-      return false
+    if (targetInbound) {
+      if (!item.inbound_tag || item.inbound_tag !== targetInbound) {
+        return false
+      }
     }
     if (kw) {
       const match =
@@ -1147,14 +1221,21 @@ const filteredRawLines = computed(() => {
   if (!rawLines.value) return []
   const kw = searchKeyword.value.toLowerCase()
   const filterEmail = selectedUserEmail.value.toLowerCase()
-  const filterInbound = selectedInbound.value.toLowerCase()
+  const targetInbound = selectedInbound.value
   const filterLvl = selectedLevel.value.toLowerCase()
 
   const list = rawLines.value.filter((line: string) => {
     const l = line.toLowerCase()
     if (kw && !l.includes(kw)) return false
-    if (logType.value === 'access' && filterEmail && !l.includes(filterEmail)) return false
-    if (logType.value === 'access' && filterInbound && !l.includes(filterInbound)) return false
+    if (logType.value === 'access') {
+      if (filterEmail && !l.includes(filterEmail)) return false
+      if (targetInbound) {
+        const tag1 = `[${targetInbound} ->`
+        const tag2 = `[${targetInbound}]`
+        const tag3 = `[${targetInbound} >>`
+        if (!line.includes(tag1) && !line.includes(tag2) && !line.includes(tag3)) return false
+      }
+    }
     if (logType.value === 'error' && filterLvl && !l.includes(filterLvl)) return false
     return true
   })
@@ -1235,13 +1316,13 @@ const handleVisibilityChange = () => {
 }
 
 onMounted(() => {
-  fetchLogs()
   fetchUsers()
   fetchInbounds()
   document.addEventListener('visibilitychange', handleVisibilityChange)
 })
 
 onUnmounted(() => {
+  isUnmounted = true
   if (timer) {
     clearInterval(timer)
     timer = null

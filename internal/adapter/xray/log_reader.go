@@ -13,7 +13,7 @@ import (
 )
 
 var (
-	accessLogRe = regexp.MustCompile(`^(\d{4}/\d{2}/\d{2} \d{2}:\d{2}:\d{2})(?:\.\d+)? (?:from )?([\d\.:]+) (?:accepted|rejected) (.*?) \[(.*?)\](?: email: (.*?))?$`)
+	accessLogRe = regexp.MustCompile(`^(\d{4}/\d{2}/\d{2} \d{2}:\d{2}:\d{2})(?:\.\d+)? (?:from )?(?:tcp:|udp:)?([\d\.:]+) (?:accepted|rejected) (.*?) \[(.*?)\](?: email: (.*?))?$`)
 	errorLogRe  = regexp.MustCompile(`^(\d{4}/\d{2}/\d{2} \d{2}:\d{2}:\d{2})(?:\.\d+)? \[(.*?)\] (?:\[\d+\] )?(.*?):\s*(.*)$`)
 
 	logBufferPool = sync.Pool{
@@ -38,7 +38,8 @@ func ParseLogLineFast(raw []byte, filter LogFilter) (matched bool, timeStr, from
 	if filter.InboundTag != "" {
 		tag1 := []byte("[" + filter.InboundTag + " ->")
 		tag2 := []byte("[" + filter.InboundTag + "]")
-		if !bytes.Contains(trimmed, tag1) && !bytes.Contains(trimmed, tag2) {
+		tag3 := []byte("[" + filter.InboundTag + " >>")
+		if !bytes.Contains(trimmed, tag1) && !bytes.Contains(trimmed, tag2) && !bytes.Contains(trimmed, tag3) {
 			return false, "", "", ""
 		}
 	}
@@ -98,16 +99,17 @@ func ReadLastLinesFiltered(filePath string, maxLines int, filter LogFilter) ([]s
 	scannedLines := 0
 	scannedBytes := int64(0)
 
-	var inbTag1, inbTag2 []byte
+	var inbTag1, inbTag2, inbTag3 []byte
 	if filter.InboundTag != "" {
 		inbTag1 = []byte("[" + filter.InboundTag + " ->")
 		inbTag2 = []byte("[" + filter.InboundTag + "]")
+		inbTag3 = []byte("[" + filter.InboundTag + " >>")
 	}
 	lowerKw := []byte(strings.ToLower(filter.Keyword))
 
 	matchLine := func(line []byte) bool {
 		if inbTag1 != nil {
-			if !bytes.Contains(line, inbTag1) && !bytes.Contains(line, inbTag2) {
+			if !bytes.Contains(line, inbTag1) && !bytes.Contains(line, inbTag2) && !bytes.Contains(line, inbTag3) {
 				return false
 			}
 		}
@@ -225,6 +227,10 @@ func ParseAccessLogLine(line string) *AccessLogEntry {
 		outboundTag := ""
 		if strings.Contains(route, "->") {
 			parts := strings.SplitN(route, "->", 2)
+			inboundTag = strings.TrimSpace(parts[0])
+			outboundTag = strings.TrimSpace(parts[1])
+		} else if strings.Contains(route, ">>") {
+			parts := strings.SplitN(route, ">>", 2)
 			inboundTag = strings.TrimSpace(parts[0])
 			outboundTag = strings.TrimSpace(parts[1])
 		}

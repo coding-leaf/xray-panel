@@ -47,3 +47,14 @@
   - **Inspector Drawer**：行点击唤起右侧巡检面板（只读状态诊断、凭据复制、快捷开关与关联拓扑矩阵）；
   - **Form Drawer**：新建或编辑资源时滑出右侧结构化表单（分组收拢，告别传统几十个字段的居中弹窗墙）。
 - **批量操作条 (Batch Action Bar)**：当选择项数量 `> 0` 时以中性卡片浮动呈现，提供高频批量变更与一键清空选择，操作后即时刷新列表状态。
+
+---
+
+## 跨模块上下文导航规范 (Cross-Module Context Navigation)
+
+- **入站至日志溯源导航**：
+  - 入站表格操作区与详情抽屉均提供「访问日志」直达跳转，统一定位到 `/logs?type=access&inbound={tag}`；
+  - `LogsView` 必须将 URL `route.query`（`type` 与 `inbound`）作为驱动上下文切换的单一事实源，通过 immediate watcher 统一响应，杜绝 `onMounted` 重复请求或状态撕裂；
+  - 通过入站上下文切入时，默认重置用户与关键字过滤以保证匿名请求可见，同时保留用户后续手动二次过滤的能力；
+  - 结构化访问日志过滤必须按 `item.inbound_tag === targetInbound` 精确匹配；Raw 日志按 `[tag ->` 与 `[tag]` 边界匹配，严禁通过宽松子串误匹配相似标签（如 `local` 误匹配 `local-other`）；
+  - 异步请求须使用递增序号或状态保护，杜绝慢网络下的响应乱序覆盖。

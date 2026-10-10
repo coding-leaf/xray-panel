@@ -408,3 +408,25 @@
 ### Status
 
 [OK] **Completed**
+
+
+## Session 18: 优化 Xray 日志解析模块为零分配 Scanner
+<!-- trellis-session: v=2 fp=0be5616d3c625770 -->
+
+**Date**: 2026-10-11
+**Task**: 优化 Xray 日志解析模块为零分配 Scanner
+**Branch**: `master`
+
+### Summary
+
+移除 accessLogRe 和 errorLogRe，实现确定性状态扫描器与 []byte 零分配过滤，吞吐量提升 5~18 倍
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `bfe0793` | perf(log): 优化日志解析为零堆分配 Scanner 并补充基准测试 |
+
+### Status
+
+[OK] **Completed**

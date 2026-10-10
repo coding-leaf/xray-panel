@@ -1,7 +1,7 @@
 # Xray Decoupled Panel (解耦运维监控与分流管理面板)
 
 <p align="center">
-  <img src="https://img.shields.io/badge/Version-v2.6.1-indigo?style=flat-square" alt="Version">
+  <img src="https://img.shields.io/badge/Version-v2.6.2-indigo?style=flat-square" alt="Version">
   <img src="https://img.shields.io/badge/Go-1.26+-00ADD8?style=flat-square&logo=go" alt="Go Version">
   <img src="https://img.shields.io/badge/Vue-3.4+-4FC08D?style=flat-square&logo=vue.js" alt="Vue Version">
   <img src="https://img.shields.io/badge/Architecture-Clean%20Architecture-blue?style=flat-square" alt="Clean Architecture">
@@ -68,6 +68,19 @@
 ---
 
 ## 更新日志
+
+### v2.6.2 (2026-10) - 日志解析引擎重构：淘汰全局硬正则与实现零堆分配扫描器
+- **淘汰全局硬编码正则表达式**：
+  - 彻底移除 `internal/adapter/xray/log_reader.go` 中的重量级 `accessLogRe` 与 `errorLogRe` 正则引擎，彻底消除正则状态机回溯与中间切片分配；
+- **高性能纯字节零拷贝解析 (Zero-Allocation Tokenizer / Scanner)**：
+  - 重构 `ParseLogLineFast`，直接在 `[]byte` 切片上定位时间戳、来源 IP 与目标地址，消除此前 `string(trimmed)` 完整行拷贝，大幅提升日志逆向检索与过滤吞吐量；
+  - 实现基于确定性状态机与游标定位的 `ParseAccessLogLine` 与 `ParseErrorLogLine`，访问日志解析吞吐提升 13.2x，错误日志解析吞吐提升 5.6x；
+- **全边缘场景 100% 契约向下兼容**：
+  - 完整兼容带/不带毫秒时间戳（`YYYY/MM/DD HH:MM:SS.ms`）、`from ` 客户端前缀、IPv6 方括号端口（`[::1]:port`）、`tcp:` / `udp:` 协议剥离；
+  - 完整支持 `[inbound -> outbound]`、`[inbound >> outbound]`（Fallback 兜底）及单 Tag 路由；
+  - 错误日志完整支持日志级别规范化映射（`WARNING` -> `WARN`）、进程 `[PID]` 过滤、SmartTip 智能诊断规则以及特殊 DNS 日志回退。
+- **基准测试与性能门禁**：
+  - 新增 `BenchmarkParseAccessLogLine`、`BenchmarkParseErrorLogLine` 与 `BenchmarkParseLogLineFast` 基准测试，单次访问日志解析堆分配降至仅保留目标结构体单一对象（1 allocs/op）。
 
 ### v2.6.1 (2026-10) - 本机免认证代理可观测性重构、日志解析协议升级与时序修复
 - **本机免认证代理流量核算与双计防御**：

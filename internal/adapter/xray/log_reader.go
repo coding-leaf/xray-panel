@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"regexp"
 	"strings"
 	"sync"
 
@@ -13,9 +12,6 @@ import (
 )
 
 var (
-	accessLogRe = regexp.MustCompile(`^(\d{4}/\d{2}/\d{2} \d{2}:\d{2}:\d{2})(?:\.\d+)? (?:from )?(?:tcp:|udp:)?([\d\.:]+) (?:accepted|rejected) (.*?) \[(.*?)\](?: email: (.*?))?$`)
-	errorLogRe  = regexp.MustCompile(`^(\d{4}/\d{2}/\d{2} \d{2}:\d{2}:\d{2})(?:\.\d+)? \[(.*?)\] (?:\[\d+\] )?(.*?):\s*(.*)$`)
-
 	logBufferPool = sync.Pool{
 		New: func() any {
 			b := make([]byte, 64*1024)
@@ -28,6 +24,197 @@ type AccessLogEntry = domain.AccessLogEntry
 type ErrorLogEntry = domain.ErrorLogEntry
 type LogFilter = domain.LogFilter
 
+func isDigit(b byte) bool {
+	return b >= '0' && b <= '9'
+}
+
+func isTimestamp(s string) bool {
+	if len(s) < 19 {
+		return false
+	}
+	return isDigit(s[0]) && isDigit(s[1]) && isDigit(s[2]) && isDigit(s[3]) &&
+		s[4] == '/' &&
+		isDigit(s[5]) && isDigit(s[6]) &&
+		s[7] == '/' &&
+		isDigit(s[8]) && isDigit(s[9]) &&
+		s[10] == ' ' &&
+		isDigit(s[11]) && isDigit(s[12]) &&
+		s[13] == ':' &&
+		isDigit(s[14]) && isDigit(s[15]) &&
+		s[16] == ':' &&
+		isDigit(s[17]) && isDigit(s[18])
+}
+
+func isTimestampBytes(s []byte) bool {
+	if len(s) < 19 {
+		return false
+	}
+	return isDigit(s[0]) && isDigit(s[1]) && isDigit(s[2]) && isDigit(s[3]) &&
+		s[4] == '/' &&
+		isDigit(s[5]) && isDigit(s[6]) &&
+		s[7] == '/' &&
+		isDigit(s[8]) && isDigit(s[9]) &&
+		s[10] == ' ' &&
+		isDigit(s[11]) && isDigit(s[12]) &&
+		s[13] == ':' &&
+		isDigit(s[14]) && isDigit(s[15]) &&
+		s[16] == ':' &&
+		isDigit(s[17]) && isDigit(s[18])
+}
+
+// containsFoldASCII 高性能零分配 ASCII 大小写无关子串匹配
+func containsFoldASCII(s []byte, sub string) bool {
+	if len(sub) == 0 {
+		return true
+	}
+	if len(s) < len(sub) {
+		return false
+	}
+
+	for i := 0; i < len(sub); i++ {
+		if sub[i] >= 128 {
+			return bytes.Contains(bytes.ToLower(s), []byte(strings.ToLower(sub)))
+		}
+	}
+
+	sub0Lower := sub[0]
+	if sub0Lower >= 'A' && sub0Lower <= 'Z' {
+		sub0Lower += 'a' - 'A'
+	}
+	sub0Upper := sub[0]
+	if sub0Upper >= 'a' && sub0Upper <= 'z' {
+		sub0Upper -= 'a' - 'A'
+	}
+
+	max := len(s) - len(sub)
+	for i := 0; i <= max; i++ {
+		c := s[i]
+		if c != sub0Lower && c != sub0Upper {
+			continue
+		}
+		matched := true
+		for j := 1; j < len(sub); j++ {
+			sc := s[i+j]
+			tc := sub[j]
+			if sc >= 'A' && sc <= 'Z' {
+				sc += 'a' - 'A'
+			}
+			if tc >= 'A' && tc <= 'Z' {
+				tc += 'a' - 'A'
+			}
+			if sc != tc {
+				matched = false
+				break
+			}
+		}
+		if matched {
+			return true
+		}
+	}
+	return false
+}
+
+// matchInboundTagBytes 高性能零分配入站标签匹配，支持 [tag]、[tag -> ...] 与 [tag >> ...]
+func matchInboundTagBytes(line []byte, tag string) bool {
+	if tag == "" {
+		return true
+	}
+	offset := 0
+	for {
+		idx := bytes.IndexByte(line[offset:], '[')
+		if idx == -1 {
+			return false
+		}
+		start := offset + idx + 1
+		rem := line[start:]
+		if len(rem) >= len(tag) && string(rem[:len(tag)]) == tag {
+			after := rem[len(tag):]
+			if len(after) > 0 && after[0] == ']' {
+				return true
+			}
+			if len(after) >= 3 && after[0] == ' ' && after[1] == '-' && after[2] == '>' {
+				return true
+			}
+			if len(after) >= 3 && after[0] == ' ' && after[1] == '>' && after[2] == '>' {
+				return true
+			}
+		}
+		offset = start
+	}
+}
+
+// scanAccessLogMetaBytes 基于字节切片的高速元信息提取，零堆分配
+func scanAccessLogMetaBytes(b []byte) (timeStr, fromIP, target string) {
+	if !isTimestampBytes(b) {
+		return "", "", ""
+	}
+	timeBytes := b[:19]
+	pos := 19
+	if pos < len(b) && b[pos] == '.' {
+		pos++
+		for pos < len(b) && isDigit(b[pos]) {
+			pos++
+		}
+	}
+	if pos >= len(b) || b[pos] != ' ' {
+		return "", "", ""
+	}
+	for pos < len(b) && b[pos] == ' ' {
+		pos++
+	}
+
+	// [from ][tcp:|udp:]
+	if bytes.HasPrefix(b[pos:], []byte("from ")) {
+		pos += 5
+		for pos < len(b) && b[pos] == ' ' {
+			pos++
+		}
+	}
+	if bytes.HasPrefix(b[pos:], []byte("tcp:")) || bytes.HasPrefix(b[pos:], []byte("udp:")) {
+		pos += 4
+	}
+
+	// FromIP
+	spaceIdx := bytes.IndexByte(b[pos:], ' ')
+	if spaceIdx == -1 {
+		return "", "", ""
+	}
+	ipBytes := b[pos : pos+spaceIdx]
+	pos += spaceIdx + 1
+	for pos < len(b) && b[pos] == ' ' {
+		pos++
+	}
+
+	// Action: accepted / rejected
+	if bytes.HasPrefix(b[pos:], []byte("accepted")) {
+		pos += 8
+	} else if bytes.HasPrefix(b[pos:], []byte("rejected")) {
+		pos += 8
+	} else {
+		return "", "", ""
+	}
+	if pos >= len(b) || b[pos] != ' ' {
+		return "", "", ""
+	}
+	for pos < len(b) && b[pos] == ' ' {
+		pos++
+	}
+
+	// Target: followed by " ["
+	bracketIdx := bytes.Index(b[pos:], []byte(" ["))
+	if bracketIdx == -1 {
+		return "", "", ""
+	}
+	targetBytes := b[pos : pos+bracketIdx]
+
+	closeBracket := bytes.IndexByte(b[pos+bracketIdx+2:], ']')
+	if closeBracket == -1 {
+		return "", "", ""
+	}
+
+	return string(timeBytes), string(ipBytes), string(targetBytes)
+}
+
 // ParseLogLineFast 基于字节数组的高速过滤与元信息提取，零堆分配
 func ParseLogLineFast(raw []byte, filter LogFilter) (matched bool, timeStr, fromIP, target string) {
 	trimmed := bytes.TrimSpace(raw)
@@ -35,27 +222,16 @@ func ParseLogLineFast(raw []byte, filter LogFilter) (matched bool, timeStr, from
 		return false, "", "", ""
 	}
 
-	if filter.InboundTag != "" {
-		tag1 := []byte("[" + filter.InboundTag + " ->")
-		tag2 := []byte("[" + filter.InboundTag + "]")
-		tag3 := []byte("[" + filter.InboundTag + " >>")
-		if !bytes.Contains(trimmed, tag1) && !bytes.Contains(trimmed, tag2) && !bytes.Contains(trimmed, tag3) {
-			return false, "", "", ""
-		}
+	if filter.InboundTag != "" && !matchInboundTagBytes(trimmed, filter.InboundTag) {
+		return false, "", "", ""
 	}
 
-	if filter.Keyword != "" {
-		if !bytes.Contains(bytes.ToLower(trimmed), []byte(strings.ToLower(filter.Keyword))) {
-			return false, "", "", ""
-		}
+	if filter.Keyword != "" && !containsFoldASCII(trimmed, filter.Keyword) {
+		return false, "", "", ""
 	}
 
-	str := string(trimmed)
-	if m := accessLogRe.FindStringSubmatch(str); len(m) >= 5 {
-		return true, m[1], m[2], m[3]
-	}
-
-	return true, "", "", ""
+	timeStr, fromIP, target = scanAccessLogMetaBytes(trimmed)
+	return true, timeStr, fromIP, target
 }
 
 // ReadLastLinesFiltered 从文件末尾反向高效分块读取（64KB Chunk Buffer，带 10MB/30,000 行安全预算与 sync.Pool 缓冲复用）
@@ -99,24 +275,12 @@ func ReadLastLinesFiltered(filePath string, maxLines int, filter LogFilter) ([]s
 	scannedLines := 0
 	scannedBytes := int64(0)
 
-	var inbTag1, inbTag2, inbTag3 []byte
-	if filter.InboundTag != "" {
-		inbTag1 = []byte("[" + filter.InboundTag + " ->")
-		inbTag2 = []byte("[" + filter.InboundTag + "]")
-		inbTag3 = []byte("[" + filter.InboundTag + " >>")
-	}
-	lowerKw := []byte(strings.ToLower(filter.Keyword))
-
 	matchLine := func(line []byte) bool {
-		if inbTag1 != nil {
-			if !bytes.Contains(line, inbTag1) && !bytes.Contains(line, inbTag2) && !bytes.Contains(line, inbTag3) {
-				return false
-			}
+		if filter.InboundTag != "" && !matchInboundTagBytes(line, filter.InboundTag) {
+			return false
 		}
-		if len(lowerKw) > 0 {
-			if !bytes.Contains(bytes.ToLower(line), lowerKw) {
-				return false
-			}
+		if filter.Keyword != "" && !containsFoldASCII(line, filter.Keyword) {
+			return false
 		}
 		return true
 	}
@@ -199,53 +363,110 @@ func ParseAccessLogLine(line string) *AccessLogEntry {
 		return nil
 	}
 
-	m := accessLogRe.FindStringSubmatch(trimmed)
-	if len(m) >= 5 {
-		fullTarget := m[3]
-		proto := "TCP"
-		targetHost := fullTarget
-		if strings.HasPrefix(fullTarget, "tcp:") {
-			proto = "TCP"
-			targetHost = strings.TrimPrefix(fullTarget, "tcp:")
-		} else if strings.HasPrefix(fullTarget, "udp:") {
-			proto = "UDP"
-			targetHost = strings.TrimPrefix(fullTarget, "udp:")
+	if isTimestamp(trimmed) {
+		timeStr := trimmed[:19]
+		pos := 19
+		if pos < len(trimmed) && trimmed[pos] == '.' {
+			pos++
+			for pos < len(trimmed) && isDigit(trimmed[pos]) {
+				pos++
+			}
 		}
+		if pos < len(trimmed) && trimmed[pos] == ' ' {
+			for pos < len(trimmed) && trimmed[pos] == ' ' {
+				pos++
+			}
 
-		action := "accepted"
-		if strings.Contains(trimmed, "rejected") {
-			action = "rejected"
-		}
+			// Check optional "from "
+			if strings.HasPrefix(trimmed[pos:], "from ") {
+				pos += 5
+				for pos < len(trimmed) && trimmed[pos] == ' ' {
+					pos++
+				}
+			}
 
-		email := ""
-		if len(m) >= 6 {
-			email = m[5]
-		}
+			// Check optional "tcp:" or "udp:"
+			if strings.HasPrefix(trimmed[pos:], "tcp:") || strings.HasPrefix(trimmed[pos:], "udp:") {
+				pos += 4
+			}
 
-		route := m[4]
-		inboundTag := route
-		outboundTag := ""
-		if strings.Contains(route, "->") {
-			parts := strings.SplitN(route, "->", 2)
-			inboundTag = strings.TrimSpace(parts[0])
-			outboundTag = strings.TrimSpace(parts[1])
-		} else if strings.Contains(route, ">>") {
-			parts := strings.SplitN(route, ">>", 2)
-			inboundTag = strings.TrimSpace(parts[0])
-			outboundTag = strings.TrimSpace(parts[1])
-		}
+			// FromIP
+			spaceIdx := strings.IndexByte(trimmed[pos:], ' ')
+			if spaceIdx != -1 {
+				fromIP := trimmed[pos : pos+spaceIdx]
+				pos += spaceIdx + 1
+				for pos < len(trimmed) && trimmed[pos] == ' ' {
+					pos++
+				}
 
-		return &AccessLogEntry{
-			Time:        m[1],
-			FromIP:      m[2],
-			Protocol:    proto,
-			Target:      targetHost,
-			Route:       route,
-			InboundTag:  inboundTag,
-			OutboundTag: outboundTag,
-			Email:       email,
-			Action:      action,
-			Raw:         trimmed,
+				// Action
+				action := ""
+				if strings.HasPrefix(trimmed[pos:], "accepted") {
+					action = "accepted"
+					pos += 8
+				} else if strings.HasPrefix(trimmed[pos:], "rejected") {
+					action = "rejected"
+					pos += 8
+				}
+
+				if action != "" && pos < len(trimmed) && trimmed[pos] == ' ' {
+					for pos < len(trimmed) && trimmed[pos] == ' ' {
+						pos++
+					}
+
+					bracketIdx := strings.Index(trimmed[pos:], " [")
+					if bracketIdx != -1 {
+						fullTarget := trimmed[pos : pos+bracketIdx]
+						pos += bracketIdx + 2 // skip " ["
+
+						closeBracket := strings.IndexByte(trimmed[pos:], ']')
+						if closeBracket != -1 {
+							route := trimmed[pos : pos+closeBracket]
+							rem := trimmed[pos+closeBracket+1:]
+
+							proto := "TCP"
+							targetHost := fullTarget
+							if strings.HasPrefix(fullTarget, "tcp:") {
+								proto = "TCP"
+								targetHost = fullTarget[4:]
+							} else if strings.HasPrefix(fullTarget, "udp:") {
+								proto = "UDP"
+								targetHost = fullTarget[4:]
+							}
+
+							email := ""
+							remTrimmed := strings.TrimSpace(rem)
+							const emailPrefix = "email:"
+							if strings.HasPrefix(remTrimmed, emailPrefix) {
+								email = strings.TrimSpace(remTrimmed[len(emailPrefix):])
+							}
+
+							inboundTag := route
+							outboundTag := ""
+							if idx := strings.Index(route, "->"); idx != -1 {
+								inboundTag = strings.TrimSpace(route[:idx])
+								outboundTag = strings.TrimSpace(route[idx+2:])
+							} else if idx := strings.Index(route, ">>"); idx != -1 {
+								inboundTag = strings.TrimSpace(route[:idx])
+								outboundTag = strings.TrimSpace(route[idx+2:])
+							}
+
+							return &AccessLogEntry{
+								Time:        timeStr,
+								FromIP:      fromIP,
+								Protocol:    proto,
+								Target:      targetHost,
+								Route:       route,
+								InboundTag:  inboundTag,
+								OutboundTag: outboundTag,
+								Email:       email,
+								Action:      action,
+								Raw:         trimmed,
+							}
+						}
+					}
+				}
+			}
 		}
 	}
 
@@ -275,39 +496,102 @@ func ParseAccessLogLine(line string) *AccessLogEntry {
 
 func ParseErrorLogLine(line string) *ErrorLogEntry {
 	trimmed := strings.TrimSpace(line)
-	if trimmed == "" {
+	if len(trimmed) < 19 || !isTimestamp(trimmed) {
 		return nil
 	}
 
-	m := errorLogRe.FindStringSubmatch(trimmed)
-	if len(m) >= 5 {
-		lvl := strings.ToUpper(m[2])
-		if lvl == "WARNING" {
-			lvl = "WARN"
+	timeStr := trimmed[:19]
+	pos := 19
+	if pos < len(trimmed) && trimmed[pos] == '.' {
+		pos++
+		for pos < len(trimmed) && isDigit(trimmed[pos]) {
+			pos++
 		}
-		msg := m[4]
+	}
+	if pos >= len(trimmed) || trimmed[pos] != ' ' {
+		return nil
+	}
+	for pos < len(trimmed) && trimmed[pos] == ' ' {
+		pos++
+	}
 
-		smartTip := ""
-		msgLower := strings.ToLower(msg)
-		if strings.Contains(msgLower, "client flow is empty") {
-			smartTip = "客户端未配置 Vision 流控，或当前入站协议不为 TCP"
-		} else if strings.Contains(msgLower, "dns-query") && (strings.Contains(msgLower, "context canceled") || strings.Contains(msgLower, "timeout")) {
-			smartTip = "DoH 远端解析握手超时，建议优先使用 8.8.8.8 UDP DNS"
-		} else if strings.Contains(msgLower, "nokerneltun") {
-			smartTip = "WireGuard WARP 采用用户态 gVisor TUN 启动成功"
-		} else if strings.Contains(msgLower, "started") {
-			smartTip = "Xray 核心服务已成功初始化并加载配置"
-		}
+	// Expect level in brackets [Level]
+	if pos >= len(trimmed) || trimmed[pos] != '[' {
+		return nil
+	}
+	levelClose := strings.IndexByte(trimmed[pos+1:], ']')
+	if levelClose == -1 {
+		return nil
+	}
+	levelRaw := trimmed[pos+1 : pos+1+levelClose]
+	pos = pos + 1 + levelClose + 1
 
-		return &ErrorLogEntry{
-			Time:     m[1],
-			Level:    lvl,
-			Module:   m[3],
-			Message:  msg,
-			SmartTip: smartTip,
-			Raw:      trimmed,
+	if pos >= len(trimmed) || trimmed[pos] != ' ' {
+		return nil
+	}
+	for pos < len(trimmed) && trimmed[pos] == ' ' {
+		pos++
+	}
+
+	// Optional PID: [12345]
+	if pos < len(trimmed) && trimmed[pos] == '[' {
+		pidClose := strings.IndexByte(trimmed[pos+1:], ']')
+		if pidClose != -1 {
+			pidCandidate := trimmed[pos+1 : pos+1+pidClose]
+			isPID := len(pidCandidate) > 0
+			for i := 0; i < len(pidCandidate); i++ {
+				if !isDigit(pidCandidate[i]) {
+					isPID = false
+					break
+				}
+			}
+			if isPID {
+				pos = pos + 1 + pidClose + 1
+				if pos >= len(trimmed) || trimmed[pos] != ' ' {
+					return nil
+				}
+				for pos < len(trimmed) && trimmed[pos] == ' ' {
+					pos++
+				}
+			}
 		}
 	}
 
-	return nil
+	// Module: Message
+	colonIdx := strings.IndexByte(trimmed[pos:], ':')
+	if colonIdx == -1 {
+		return nil
+	}
+	module := trimmed[pos : pos+colonIdx]
+	pos += colonIdx + 1
+	for pos < len(trimmed) && (trimmed[pos] == ' ' || trimmed[pos] == '\t') {
+		pos++
+	}
+	message := trimmed[pos:]
+
+	lvl := strings.ToUpper(levelRaw)
+	if lvl == "WARNING" {
+		lvl = "WARN"
+	}
+
+	smartTip := ""
+	msgLower := strings.ToLower(message)
+	if strings.Contains(msgLower, "client flow is empty") {
+		smartTip = "客户端未配置 Vision 流控，或当前入站协议不为 TCP"
+	} else if strings.Contains(msgLower, "dns-query") && (strings.Contains(msgLower, "context canceled") || strings.Contains(msgLower, "timeout")) {
+		smartTip = "DoH 远端解析握手超时，建议优先使用 8.8.8.8 UDP DNS"
+	} else if strings.Contains(msgLower, "nokerneltun") {
+		smartTip = "WireGuard WARP 采用用户态 gVisor TUN 启动成功"
+	} else if strings.Contains(msgLower, "started") {
+		smartTip = "Xray 核心服务已成功初始化并加载配置"
+	}
+
+	return &ErrorLogEntry{
+		Time:     timeStr,
+		Level:    lvl,
+		Module:   module,
+		Message:  message,
+		SmartTip: smartTip,
+		Raw:      trimmed,
+	}
 }

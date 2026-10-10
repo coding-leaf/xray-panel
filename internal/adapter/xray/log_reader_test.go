@@ -224,3 +224,388 @@ func TestReadLastLinesFiltered_AnonymousAndTagBoundary(t *testing.T) {
 		t.Errorf("unexpected parsed entryOther: %+v", entryOther)
 	}
 }
+
+func TestParseAccessLogLine_Comprehensive(t *testing.T) {
+	tests := []struct {
+		name       string
+		line       string
+		wantNil    bool
+		wantTime   string
+		wantFromIP string
+		wantProto  string
+		wantTarget string
+		wantRoute  string
+		wantInb    string
+		wantOutb   string
+		wantEmail  string
+		wantAction string
+	}{
+		{
+			name:       "standard access log with email",
+			line:       "2026/09/12 10:00:01 127.0.0.1:1000 accepted tcp:example.com:443 [vless-in -> direct] email: alice@test.com",
+			wantTime:   "2026/09/12 10:00:01",
+			wantFromIP: "127.0.0.1:1000",
+			wantProto:  "TCP",
+			wantTarget: "example.com:443",
+			wantRoute:  "vless-in -> direct",
+			wantInb:    "vless-in",
+			wantOutb:   "direct",
+			wantEmail:  "alice@test.com",
+			wantAction: "accepted",
+		},
+		{
+			name:       "anonymous access log (no email)",
+			line:       "2026/09/12 10:00:01 127.0.0.1:1000 accepted tcp:example.com:443 [vless-in -> direct]",
+			wantTime:   "2026/09/12 10:00:01",
+			wantFromIP: "127.0.0.1:1000",
+			wantProto:  "TCP",
+			wantTarget: "example.com:443",
+			wantRoute:  "vless-in -> direct",
+			wantInb:    "vless-in",
+			wantOutb:   "direct",
+			wantEmail:  "",
+			wantAction: "accepted",
+		},
+		{
+			name:       "access log with milliseconds timestamp",
+			line:       "2026/09/12 10:00:01.789 127.0.0.1:1000 accepted tcp:example.com:443 [vless-in -> direct] email: alice@test.com",
+			wantTime:   "2026/09/12 10:00:01",
+			wantFromIP: "127.0.0.1:1000",
+			wantProto:  "TCP",
+			wantTarget: "example.com:443",
+			wantRoute:  "vless-in -> direct",
+			wantInb:    "vless-in",
+			wantOutb:   "direct",
+			wantEmail:  "alice@test.com",
+			wantAction: "accepted",
+		},
+		{
+			name:       "access log with IPv6 address",
+			line:       "2026/09/12 10:00:01 [::1]:51234 accepted tcp:example.com:443 [vless-in -> direct]",
+			wantTime:   "2026/09/12 10:00:01",
+			wantFromIP: "[::1]:51234",
+			wantProto:  "TCP",
+			wantTarget: "example.com:443",
+			wantRoute:  "vless-in -> direct",
+			wantInb:    "vless-in",
+			wantOutb:   "direct",
+			wantEmail:  "",
+			wantAction: "accepted",
+		},
+		{
+			name:       "access log with IPv6 target",
+			line:       "2026/09/12 10:00:01 127.0.0.1:1000 accepted tcp:[2001:db8::1]:443 [vless-in -> direct]",
+			wantTime:   "2026/09/12 10:00:01",
+			wantFromIP: "127.0.0.1:1000",
+			wantProto:  "TCP",
+			wantTarget: "[2001:db8::1]:443",
+			wantRoute:  "vless-in -> direct",
+			wantInb:    "vless-in",
+			wantOutb:   "direct",
+			wantEmail:  "",
+			wantAction: "accepted",
+		},
+		{
+			name:       "access log with from prefix and udp prefix",
+			line:       "2026/09/12 10:00:01 from udp:127.0.0.1:1000 accepted tcp:example.com:443 [vless-in -> direct]",
+			wantTime:   "2026/09/12 10:00:01",
+			wantFromIP: "127.0.0.1:1000",
+			wantProto:  "TCP",
+			wantTarget: "example.com:443",
+			wantRoute:  "vless-in -> direct",
+			wantInb:    "vless-in",
+			wantOutb:   "direct",
+			wantEmail:  "",
+			wantAction: "accepted",
+		},
+		{
+			name:       "access log with from prefix and IPv6",
+			line:       "2026/09/12 10:00:01 from tcp:[2001:db8::1]:51234 accepted tcp:example.com:443 [vless-in -> direct]",
+			wantTime:   "2026/09/12 10:00:01",
+			wantFromIP: "[2001:db8::1]:51234",
+			wantProto:  "TCP",
+			wantTarget: "example.com:443",
+			wantRoute:  "vless-in -> direct",
+			wantInb:    "vless-in",
+			wantOutb:   "direct",
+			wantEmail:  "",
+			wantAction: "accepted",
+		},
+		{
+			name:       "access log with >> route and rejected action",
+			line:       "2026/09/12 10:00:01 127.0.0.1:1000 rejected udp:8.8.8.8:53 [vless-in >> block]",
+			wantTime:   "2026/09/12 10:00:01",
+			wantFromIP: "127.0.0.1:1000",
+			wantProto:  "UDP",
+			wantTarget: "8.8.8.8:53",
+			wantRoute:  "vless-in >> block",
+			wantInb:    "vless-in",
+			wantOutb:   "block",
+			wantEmail:  "",
+			wantAction: "rejected",
+		},
+		{
+			name:       "access log with single tag route",
+			line:       "2026/09/12 10:00:01 127.0.0.1:1000 accepted tcp:api.internal:80 [local]",
+			wantTime:   "2026/09/12 10:00:01",
+			wantFromIP: "127.0.0.1:1000",
+			wantProto:  "TCP",
+			wantTarget: "api.internal:80",
+			wantRoute:  "local",
+			wantInb:    "local",
+			wantOutb:   "",
+			wantEmail:  "",
+			wantAction: "accepted",
+		},
+		{
+			name:       "special DNS log line with answer:",
+			line:       "2026/09/12 10:00:01 [dns-out] 127.0.0.1:53 DOH query answer: google.com",
+			wantTime:   "2026/09/12 10:00:01",
+			wantFromIP: "127.0.0.1 (DNS)",
+			wantProto:  "DNS",
+			wantTarget: "answer: google.com",
+			wantRoute:  "dns-resolver",
+			wantInb:    "",
+			wantOutb:   "",
+			wantEmail:  "",
+			wantAction: "query",
+		},
+		{
+			name:       "special DNS log line with dns-out",
+			line:       "2026/09/12 10:00:01 dns-out to 8.8.8.8",
+			wantTime:   "2026/09/12 10:00:01",
+			wantFromIP: "127.0.0.1 (DNS)",
+			wantProto:  "DNS",
+			wantTarget: "2026/09/12 10:00:01 dns-out to 8.8.8.8",
+			wantRoute:  "dns-resolver",
+			wantInb:    "",
+			wantOutb:   "",
+			wantEmail:  "",
+			wantAction: "query",
+		},
+		{
+			name:    "invalid empty line",
+			line:    "   ",
+			wantNil: true,
+		},
+		{
+			name:    "invalid random line",
+			line:    "this is not a valid xray log line",
+			wantNil: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			entry := ParseAccessLogLine(tt.line)
+			if tt.wantNil {
+				if entry != nil {
+					t.Fatalf("expected nil entry, got %+v", entry)
+				}
+				return
+			}
+			if entry == nil {
+				t.Fatalf("expected non-nil entry, got nil")
+			}
+			if entry.Time != tt.wantTime {
+				t.Errorf("Time = %q, want %q", entry.Time, tt.wantTime)
+			}
+			if entry.FromIP != tt.wantFromIP {
+				t.Errorf("FromIP = %q, want %q", entry.FromIP, tt.wantFromIP)
+			}
+			if entry.Protocol != tt.wantProto {
+				t.Errorf("Protocol = %q, want %q", entry.Protocol, tt.wantProto)
+			}
+			if entry.Target != tt.wantTarget {
+				t.Errorf("Target = %q, want %q", entry.Target, tt.wantTarget)
+			}
+			if entry.Route != tt.wantRoute {
+				t.Errorf("Route = %q, want %q", entry.Route, tt.wantRoute)
+			}
+			if entry.InboundTag != tt.wantInb {
+				t.Errorf("InboundTag = %q, want %q", entry.InboundTag, tt.wantInb)
+			}
+			if entry.OutboundTag != tt.wantOutb {
+				t.Errorf("OutboundTag = %q, want %q", entry.OutboundTag, tt.wantOutb)
+			}
+			if entry.Email != tt.wantEmail {
+				t.Errorf("Email = %q, want %q", entry.Email, tt.wantEmail)
+			}
+			if entry.Action != tt.wantAction {
+				t.Errorf("Action = %q, want %q", entry.Action, tt.wantAction)
+			}
+		})
+	}
+}
+
+func TestParseErrorLogLine_Comprehensive(t *testing.T) {
+	tests := []struct {
+		name         string
+		line         string
+		wantNil      bool
+		wantTime     string
+		wantLevel    string
+		wantModule   string
+		wantMessage  string
+		wantSmartTip string
+	}{
+		{
+			name:        "warning level normalized to WARN",
+			line:        "2026/09/12 10:00:01 [Warning] Core: failed to process inbound connection",
+			wantTime:    "2026/09/12 10:00:01",
+			wantLevel:   "WARN",
+			wantModule:  "Core",
+			wantMessage: "failed to process inbound connection",
+		},
+		{
+			name:         "info level with milliseconds and PID",
+			line:         "2026/09/12 10:00:01.123 [Info] [12345] App/Proxyman/Inbound: Xray core started",
+			wantTime:     "2026/09/12 10:00:01",
+			wantLevel:    "INFO",
+			wantModule:   "App/Proxyman/Inbound",
+			wantMessage:  "Xray core started",
+			wantSmartTip: "Xray 核心服务已成功初始化并加载配置",
+		},
+		{
+			name:         "error with vision smart tip",
+			line:         "2026/09/12 10:00:01 [Error] Proxy/VLESS: client flow is empty",
+			wantTime:     "2026/09/12 10:00:01",
+			wantLevel:    "ERROR",
+			wantModule:   "Proxy/VLESS",
+			wantMessage:  "client flow is empty",
+			wantSmartTip: "客户端未配置 Vision 流控，或当前入站协议不为 TCP",
+		},
+		{
+			name:         "error with dns timeout smart tip",
+			line:         "2026/09/12 10:00:01 [Warning] DNS: dns-query request timeout",
+			wantTime:     "2026/09/12 10:00:01",
+			wantLevel:    "WARN",
+			wantModule:   "DNS",
+			wantMessage:  "dns-query request timeout",
+			wantSmartTip: "DoH 远端解析握手超时，建议优先使用 8.8.8.8 UDP DNS",
+		},
+		{
+			name:         "info with nokerneltun smart tip",
+			line:         "2026/09/12 10:00:01 [Info] WireGuard: nokerneltun enabled",
+			wantTime:     "2026/09/12 10:00:01",
+			wantLevel:    "INFO",
+			wantModule:   "WireGuard",
+			wantMessage:  "nokerneltun enabled",
+			wantSmartTip: "WireGuard WARP 采用用户态 gVisor TUN 启动成功",
+		},
+		{
+			name:    "empty line returns nil",
+			line:    "   ",
+			wantNil: true,
+		},
+		{
+			name:    "unformatted line returns nil",
+			line:    "2026/09/12 10:00:01 malformed error log line",
+			wantNil: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			entry := ParseErrorLogLine(tt.line)
+			if tt.wantNil {
+				if entry != nil {
+					t.Fatalf("expected nil entry, got %+v", entry)
+				}
+				return
+			}
+			if entry == nil {
+				t.Fatalf("expected non-nil entry, got nil")
+			}
+			if entry.Time != tt.wantTime {
+				t.Errorf("Time = %q, want %q", entry.Time, tt.wantTime)
+			}
+			if entry.Level != tt.wantLevel {
+				t.Errorf("Level = %q, want %q", entry.Level, tt.wantLevel)
+			}
+			if entry.Module != tt.wantModule {
+				t.Errorf("Module = %q, want %q", entry.Module, tt.wantModule)
+			}
+			if entry.Message != tt.wantMessage {
+				t.Errorf("Message = %q, want %q", entry.Message, tt.wantMessage)
+			}
+			if tt.wantSmartTip != "" && entry.SmartTip != tt.wantSmartTip {
+				t.Errorf("SmartTip = %q, want %q", entry.SmartTip, tt.wantSmartTip)
+			}
+		})
+	}
+}
+
+func TestParseLogLineFast_Comprehensive(t *testing.T) {
+	line := []byte("2026/09/12 10:00:01.456 [::1]:51234 accepted tcp:example.com:443 [vless-in -> direct] email: alice@test.com\n")
+
+	// 1. Tag match
+	matched, timeStr, fromIP, target := ParseLogLineFast(line, LogFilter{InboundTag: "vless-in"})
+	if !matched {
+		t.Fatalf("expected matched")
+	}
+	if timeStr != "2026/09/12 10:00:01" || fromIP != "[::1]:51234" || target != "tcp:example.com:443" {
+		t.Fatalf("unexpected extracted fields: time=%s, ip=%s, target=%s", timeStr, fromIP, target)
+	}
+
+	// 2. Tag mismatch
+	matched, _, _, _ = ParseLogLineFast(line, LogFilter{InboundTag: "other-in"})
+	if matched {
+		t.Fatalf("expected not matched")
+	}
+
+	// 3. Keyword match (case insensitive)
+	matched, _, _, _ = ParseLogLineFast(line, LogFilter{Keyword: "ALICE@TEST.COM"})
+	if !matched {
+		t.Fatalf("expected keyword matched")
+	}
+
+	// 4. Keyword mismatch
+	matched, _, _, _ = ParseLogLineFast(line, LogFilter{Keyword: "non-existent"})
+	if matched {
+		t.Fatalf("expected keyword not matched")
+	}
+
+	// 5. Empty line
+	matched, _, _, _ = ParseLogLineFast([]byte("   \n"), LogFilter{})
+	if matched {
+		t.Fatalf("expected empty line to not match")
+	}
+}
+
+func BenchmarkParseAccessLogLine(b *testing.B) {
+	line := "2026/09/12 10:00:01.123 127.0.0.1:1000 accepted tcp:example.com:443 [vless-in -> direct] email: alice@test.com"
+	b.ResetTimer()
+	b.ReportAllocs()
+	for i := 0; i < b.N; i++ {
+		entry := ParseAccessLogLine(line)
+		if entry == nil {
+			b.Fatal("nil entry")
+		}
+	}
+}
+
+func BenchmarkParseErrorLogLine(b *testing.B) {
+	line := "2026/09/12 10:00:01.456 [Warning] [12345] Core: failed to process inbound connection"
+	b.ResetTimer()
+	b.ReportAllocs()
+	for i := 0; i < b.N; i++ {
+		entry := ParseErrorLogLine(line)
+		if entry == nil {
+			b.Fatal("nil entry")
+		}
+	}
+}
+
+func BenchmarkParseLogLineFast(b *testing.B) {
+	line := []byte("2026/09/12 10:00:01.123 127.0.0.1:1000 accepted tcp:example.com:443 [vless-in -> direct] email: alice@test.com")
+	filter := LogFilter{InboundTag: "vless-in"}
+	b.ResetTimer()
+	b.ReportAllocs()
+	for i := 0; i < b.N; i++ {
+		matched, _, _, _ := ParseLogLineFast(line, filter)
+		if !matched {
+			b.Fatal("not matched")
+		}
+	}
+}

@@ -20,6 +20,15 @@ jobs:
           go-version: 'stable'
           cache: true
 
+      - name: Install Xray-core for Integration Tests
+        run: |
+          XRAY_VER="v24.9.30"
+          mkdir -p bin
+          curl -sSL "https://github.com/XTLS/Xray-core/releases/download/${XRAY_VER}/Xray-linux-64.zip" -o xray.zip
+          unzip -q xray.zip -d bin/
+          chmod +x bin/xray
+          echo "$(pwd)/bin" >> $GITHUB_PATH
+
       - name: Run Static Analysis (Vet)
         run: go vet ./...
 
@@ -53,10 +62,16 @@ jobs:
           cache: 'npm'
           cache-dependency-path: web/package-lock.json
 
-      - name: Build Web Frontend
+      - name: Run Web Typecheck
         run: |
           cd web
           npm ci
+          npm run typecheck
+          cd ..
+
+      - name: Build Web Frontend
+        run: |
+          cd web
           npm run build
           cd ..
 
@@ -75,7 +90,7 @@ jobs:
           mkdir -p dist
           COMMIT_HASH=$(git rev-parse --short HEAD 2>/dev/null || echo "unknown")
           BUILD_DATE=$(date -u +'%Y-%m-%d_%H:%M:%S')
-          go build -ldflags="-s -w -X 'main.Version=v1.3.0-ci' -X 'main.Commit=${COMMIT_HASH}' -X 'main.BuildTime=${BUILD_DATE}'" -o dist/${{ matrix.output }} main.go embedded.go
+          go build -ldflags="-s -w -X 'main.Version=v2.6.2-ci' -X 'main.Commit=${COMMIT_HASH}' -X 'main.BuildTime=${BUILD_DATE}'" -o dist/${{ matrix.output }} main.go embedded.go
 
       - name: Upload Artifact
         uses: actions/upload-artifact@v4

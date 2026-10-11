@@ -1,0 +1,2 @@
+{"file": ".trellis/spec/backend/error-handling.md", "reason": "验证所有用例无静默吞错，错误包装完整"}
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "验证测试用例真实有效且通过全部核心质量门禁"}

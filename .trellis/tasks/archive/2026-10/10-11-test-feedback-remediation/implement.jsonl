@@ -1,0 +1,2 @@
+{"file": ".trellis/spec/backend/error-handling.md", "reason": "遵循显式错误传播原则，绝对禁止静默吞错，所有错误需通过 %w 上下文包裹"}
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "遵循并发安全与 KISS 原则，保障状态补偿与单元测试红绿灯验证规范"}

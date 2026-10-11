@@ -452,3 +452,25 @@
 ### Status
 
 [OK] **Completed**
+
+
+## Session 20: 治理用户删除持久化顺序与Saga独立超时补偿，加固客户端保留机制并建立端到端重启一致性回归测试
+<!-- trellis-session: v=2 fp=f4e65f8ce88fc99a -->
+
+**Date**: 2026-10-11
+**Task**: 治理用户删除持久化顺序与Saga独立超时补偿，加固客户端保留机制并建立端到端重启一致性回归测试
+**Branch**: `master`
+
+### Summary
+
+修复删除用户时先编译配置导致用户在config.json残留的幽灵复活缺陷，重构DeleteUser为Xray移除->DB删除->落盘写配置状态机；修正活跃用户清零时编译器保留旧clients的逻辑；引入基于context.WithoutCancel的独立限时超时补偿工厂；新增端到端真实SQLite+ConfigService+物理文件的重启一致性回归测试与故障注入测试；更新CI下载Xray至v25稳定版
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `81b2b55` | ci(workflow): 升级集成测试Xray-core下载版本至v25稳定版 |
+
+### Status
+
+[OK] **Completed**

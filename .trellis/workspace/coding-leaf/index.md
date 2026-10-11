@@ -8,7 +8,7 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 19
+- **Total Sessions**: 20
 - **Last Active**: 2026-10-11
 <!-- @@@/auto:current-status -->
 
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~454 | Active |
+| `journal-1.md` | ~476 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 20 | 2026-10-11 | 治理用户删除持久化顺序与Saga独立超时补偿，加固客户端保留机制并建立端到端重启一致性回归测试 | `81b2b55` | `master` |
 | 19 | 2026-10-11 | 治理用户CRUD三态一致性与Saga反向补偿，加固CI门禁 | `0bea056` | `master` |
 | 18 | 2026-10-11 | 优化 Xray 日志解析模块为零分配 Scanner | `bfe0793` | `master` |
 | 17 | 2026-10-10 | 本机免认证代理可观测性重构、日志解析协议升级与时序修复 (v2.6.1 发布) | `f9af2b9` | `master` |

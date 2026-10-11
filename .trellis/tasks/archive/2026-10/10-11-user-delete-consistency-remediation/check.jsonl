@@ -1,0 +1,2 @@
+{"file": ".trellis/spec/backend/error-handling.md", "reason": "验证Saga独立超时补偿与显式错误传播符合规约"}
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "验证门禁全绿、无并发竞态与零冗余包装"}

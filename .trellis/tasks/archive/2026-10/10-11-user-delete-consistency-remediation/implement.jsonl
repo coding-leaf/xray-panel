@@ -1,0 +1,3 @@
+{"file": ".trellis/spec/backend/error-handling.md", "reason": "定义Saga反向补偿规范与严禁静默吞错要求"}
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "定义后端并发安全与KISS极简质量标准"}
+{"file": ".trellis/spec/backend/database-guidelines.md", "reason": "定义SQLite持久化与事务原子性规范"}

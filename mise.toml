@@ -2,3 +2,28 @@
 go = "1.26"
 node = "22"
 
+[tasks.test]
+description = "运行后端单元测试"
+run = "go test ./..."
+
+[tasks.vet]
+description = "运行后端静态代码分析"
+run = "go vet ./..."
+
+[tasks."build:backend"]
+description = "编译后端可执行文件"
+run = "go build ."
+
+[tasks."build:frontend"]
+description = "编译前端静态资源"
+dir = "web"
+run = "npm run build"
+
+[tasks.typecheck]
+description = "前端 TypeScript 类型校验"
+dir = "web"
+run = "npm run typecheck"
+
+[tasks.gate]
+description = "全套质量门禁 (测试 + Vet + TS类型校验 + 前端构建)"
+depends = ["test", "vet", "typecheck", "build:frontend"]

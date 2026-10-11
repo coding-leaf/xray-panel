@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"sync"
@@ -17,7 +18,19 @@ type mockUserRepo struct {
 	users []domain.User
 }
 
-func (m *mockUserRepo) Create(ctx context.Context, user *domain.User) error { return nil }
+func (m *mockUserRepo) Create(ctx context.Context, user *domain.User) error {
+	if user.ID == 0 {
+		var maxID uint = 0
+		for _, u := range m.users {
+			if u.ID > maxID {
+				maxID = u.ID
+			}
+		}
+		user.ID = maxID + 1
+	}
+	m.users = append(m.users, *user)
+	return nil
+}
 func (m *mockUserRepo) Update(ctx context.Context, user *domain.User) error {
 	for i := range m.users {
 		if m.users[i].ID == user.ID {
@@ -59,22 +72,49 @@ func (m *mockUserRepo) UpdateFields(ctx context.Context, id uint, values map[str
 	}
 	return domain.ErrNotFound
 }
-func (m *mockUserRepo) Delete(ctx context.Context, id uint) error { return nil }
+func (m *mockUserRepo) Delete(ctx context.Context, id uint) error {
+	for i := range m.users {
+		if m.users[i].ID == id {
+			m.users = append(m.users[:i], m.users[i+1:]...)
+			return nil
+		}
+	}
+	return nil
+}
 func (m *mockUserRepo) GetByID(ctx context.Context, id uint) (*domain.User, error) {
 	for _, u := range m.users {
 		if u.ID == id {
-			return &u, nil
+			cp := u
+			return &cp, nil
 		}
 	}
 	return nil, domain.ErrNotFound
 }
 func (m *mockUserRepo) GetByUUID(ctx context.Context, uuid string) (*domain.User, error) {
+	for _, u := range m.users {
+		if u.UUID == uuid {
+			cp := u
+			return &cp, nil
+		}
+	}
 	return nil, nil
 }
 func (m *mockUserRepo) GetByEmail(ctx context.Context, email string) (*domain.User, error) {
+	for _, u := range m.users {
+		if u.Email == email {
+			cp := u
+			return &cp, nil
+		}
+	}
 	return nil, nil
 }
 func (m *mockUserRepo) GetBySubToken(ctx context.Context, token string) (*domain.User, error) {
+	for _, u := range m.users {
+		if u.SubToken == token {
+			cp := u
+			return &cp, nil
+		}
+	}
 	return nil, nil
 }
 func (m *mockUserRepo) ListByInboundTag(ctx context.Context, tag string) ([]domain.User, error) {
@@ -340,14 +380,26 @@ type xrayCall struct {
 }
 
 type mockXrayManager struct {
-	calls []xrayCall
-	mu    sync.Mutex
+	calls             []xrayCall
+	failAddUserTag    string
+	failAddUserErr    error
+	failRemoveUserErr error
+	mu                sync.Mutex
 }
 
 func (m *mockXrayManager) AddUser(ctx context.Context, inboundTag string, user *domain.User) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.calls = append(m.calls, xrayCall{op: "add", tag: inboundTag, email: user.Email})
+	if m.failAddUserTag == "" && m.failAddUserErr != nil {
+		return m.failAddUserErr
+	}
+	if m.failAddUserTag != "" && m.failAddUserTag == inboundTag {
+		if m.failAddUserErr != nil {
+			return m.failAddUserErr
+		}
+		return errors.New("simulated xray add user error")
+	}
 	return nil
 }
 
@@ -355,6 +407,37 @@ func (m *mockXrayManager) RemoveUser(ctx context.Context, inboundTag string, ema
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.calls = append(m.calls, xrayCall{op: "remove", tag: inboundTag, email: email})
+	if m.failRemoveUserErr != nil {
+		return m.failRemoveUserErr
+	}
+	return nil
+}
+
+type mockConfigSynchronizer struct {
+	failSyncUserToFile error
+	failSaveConfig     error
+	syncCalls          int
+	saveCalls          int
+	mu                 sync.Mutex
+}
+
+func (m *mockConfigSynchronizer) SyncUserToFile(ctx context.Context, authorizedTags []string, user *domain.User, isDelete bool) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.syncCalls++
+	if m.failSyncUserToFile != nil {
+		return m.failSyncUserToFile
+	}
+	return nil
+}
+
+func (m *mockConfigSynchronizer) SaveConfigQuietly(ctx context.Context, remark string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.saveCalls++
+	if m.failSaveConfig != nil {
+		return m.failSaveConfig
+	}
 	return nil
 }
 
@@ -726,6 +809,254 @@ func TestUserService_ZeroDowntimeAndAutoRestore(t *testing.T) {
 		}
 		if !foundRemove || !foundAdd {
 			t.Fatalf("expected remove followed by add on xray manager, got calls: %+v", calls)
+		}
+	})
+
+	t.Run("CreateUser Saga rollback on Xray AddUser failure cleans DB and reverts inbounds", func(t *testing.T) {
+		repo := &mockUserRepo{users: []domain.User{}}
+		mockXray := &mockXrayManager{
+			failAddUserTag: "trojan-in",
+		}
+		mockCfg := &mockConfigSynchronizer{}
+		svc := NewUserService(repo, nil, nil, mockXray, mockCfg)
+
+		dto := CreateUserDTO{
+			Email:       "saga_create_fail@test.com",
+			InboundTags: []string{"vless-in", "trojan-in"},
+		}
+
+		user, err := svc.CreateUser(context.Background(), dto)
+		if err == nil {
+			t.Fatalf("expected CreateUser to fail when trojan-in fails")
+		}
+		if user != nil {
+			t.Fatalf("expected returned user to be nil on failure")
+		}
+
+		// 断言 SQLite 中创建的用户被干净回滚删除，不留孤儿数据
+		existing, _ := repo.GetByEmail(context.Background(), "saga_create_fail@test.com")
+		if existing != nil {
+			t.Fatalf("expected user to be deleted from repo after Saga rollback, found: %+v", existing)
+		}
+
+		// 断言已成功添加的 vless-in 节点被逆向 RemoveUser
+		calls := mockXray.GetCalls()
+		foundRollbackRemove := false
+		for _, c := range calls {
+			if c.op == "remove" && c.tag == "vless-in" && c.email == "saga_create_fail@test.com" {
+				foundRollbackRemove = true
+			}
+		}
+		if !foundRollbackRemove {
+			t.Fatalf("expected vless-in to be removed on Saga rollback, got calls: %+v", calls)
+		}
+		if mockCfg.syncCalls != 0 {
+			t.Fatalf("expected config sync not to be called when Xray fails")
+		}
+	})
+
+	t.Run("CreateUser Saga rollback on Config sync failure reverts all Xray nodes and cleans DB", func(t *testing.T) {
+		repo := &mockUserRepo{users: []domain.User{}}
+		mockXray := &mockXrayManager{}
+		mockCfg := &mockConfigSynchronizer{
+			failSyncUserToFile: errors.New("simulated disk write failure"),
+		}
+		svc := NewUserService(repo, nil, nil, mockXray, mockCfg)
+
+		dto := CreateUserDTO{
+			Email:       "saga_cfg_fail@test.com",
+			InboundTags: []string{"vless-in", "trojan-in"},
+		}
+
+		user, err := svc.CreateUser(context.Background(), dto)
+		if err == nil {
+			t.Fatalf("expected CreateUser to fail on config sync failure")
+		}
+		if user != nil {
+			t.Fatalf("expected user to be nil on failure")
+		}
+
+		// 断言 DB 中孤儿数据被清除
+		existing, _ := repo.GetByEmail(context.Background(), "saga_cfg_fail@test.com")
+		if existing != nil {
+			t.Fatalf("expected user to be removed from DB after config sync failure")
+		}
+
+		// 断言所有 tags 均被 RemoveUser 撤销
+		calls := mockXray.GetCalls()
+		removedTags := make(map[string]bool)
+		for _, c := range calls {
+			if c.op == "remove" && c.email == "saga_cfg_fail@test.com" {
+				removedTags[c.tag] = true
+			}
+		}
+		if !removedTags["vless-in"] || !removedTags["trojan-in"] {
+			t.Fatalf("expected both tags to be rolled back from Xray, got removedTags: %+v", removedTags)
+		}
+	})
+
+	t.Run("UpdateUser Saga rollback restores DB and Xray to old snapshot on failure", func(t *testing.T) {
+		origUser := domain.User{
+			ID:          10,
+			Email:       "update_rollback@test.com",
+			UUID:        "uuid-orig",
+			SubToken:    "token-orig",
+			Flow:        "xtls-rprx-vision",
+			TotalBytes:  1000,
+			InboundTag:  "vless-in",
+			InboundTags: "vless-in",
+			Enabled:     true,
+		}
+		repo := &mockUserRepo{users: []domain.User{origUser}}
+		mockXray := &mockXrayManager{
+			failAddUserTag: "new-tag-in",
+			failAddUserErr: errors.New("xray add node fail"),
+		}
+		mockCfg := &mockConfigSynchronizer{}
+		svc := NewUserService(repo, nil, nil, mockXray, mockCfg)
+
+		enabledTrue := true
+		dto := domain.UpdateUserDTO{
+			InboundTags: []string{"vless-in", "new-tag-in"},
+			Flow:        "new-flow",
+			TotalBytes:  2000,
+			Enabled:     &enabledTrue,
+		}
+
+		_, err := svc.UpdateUser(context.Background(), 10, dto)
+		if err == nil {
+			t.Fatalf("expected UpdateUser to fail")
+		}
+
+		// 检查数据库记录已回滚恢复为原始数据
+		dbUser, _ := repo.GetByID(context.Background(), 10)
+		if dbUser.Flow != "xtls-rprx-vision" || dbUser.TotalBytes != 1000 || dbUser.InboundTags != "vless-in" {
+			t.Fatalf("expected user in DB to be restored to snapshot, got: %+v", dbUser)
+		}
+
+		// 检查 Xray 节点：由于原用户是 active，回滚时应重新向 vless-in 恢复旧配置
+		calls := mockXray.GetCalls()
+		foundRestoreAdd := false
+		for i := len(calls) - 1; i >= 0; i-- {
+			c := calls[i]
+			if c.op == "add" && c.tag == "vless-in" && c.email == "update_rollback@test.com" {
+				foundRestoreAdd = true
+				break
+			}
+		}
+		if !foundRestoreAdd {
+			t.Fatalf("expected old snapshot to be restored to Xray on rollback, got calls: %+v", calls)
+		}
+	})
+
+	t.Run("ResetSubToken Saga rollback preserves original UUID and SubToken on failure", func(t *testing.T) {
+		origUser := domain.User{
+			ID:          20,
+			Email:       "reset_rollback@test.com",
+			UUID:        "preserved-uuid-999",
+			SubToken:    "preserved-token-888",
+			Enabled:     true,
+			InboundTag:  "vless-in",
+			InboundTags: "vless-in",
+		}
+		repo := &mockUserRepo{users: []domain.User{origUser}}
+		mockXray := &mockXrayManager{
+			failAddUserTag: "vless-in",
+			failAddUserErr: errors.New("simulated xray failure during reset token add"),
+		}
+		mockCfg := &mockConfigSynchronizer{}
+		svc := NewUserService(repo, nil, nil, mockXray, mockCfg)
+
+		_, err := svc.ResetSubToken(context.Background(), 20)
+		if err == nil {
+			t.Fatalf("expected ResetSubToken to fail")
+		}
+
+		// 断言 DB 中的 UUID 与 SubToken 被完整还原，未被破坏
+		dbUser, _ := repo.GetByID(context.Background(), 20)
+		if dbUser.UUID != "preserved-uuid-999" {
+			t.Fatalf("expected UUID to be restored to original, got: %s", dbUser.UUID)
+		}
+		if dbUser.SubToken != "preserved-token-888" {
+			t.Fatalf("expected SubToken to be restored to original, got: %s", dbUser.SubToken)
+		}
+	})
+
+	t.Run("DeleteUser removes from Xray and config file before deleting from DB", func(t *testing.T) {
+		repo := &mockUserRepo{
+			users: []domain.User{
+				{
+					ID:          30,
+					Email:       "delete_test@test.com",
+					InboundTag:  "vless-in",
+					InboundTags: "vless-in",
+					Enabled:     true,
+				},
+			},
+		}
+		mockXray := &mockXrayManager{}
+		mockCfg := &mockConfigSynchronizer{
+			failSyncUserToFile: errors.New("config disk sync failed"),
+		}
+		svc := NewUserService(repo, nil, nil, mockXray, mockCfg)
+
+		// 写盘失败时，删除操作应当被中断，DB 记录不被删除
+		err := svc.DeleteUser(context.Background(), 30)
+		if err == nil {
+			t.Fatalf("expected DeleteUser to fail when config sync fails")
+		}
+
+		dbUser, _ := repo.GetByID(context.Background(), 30)
+		if dbUser == nil {
+			t.Fatalf("expected user to remain in DB when config file sync fails")
+		}
+	})
+
+	t.Run("Batch operations collect and join all errors without silent continue", func(t *testing.T) {
+		repo := &mockUserRepo{
+			users: []domain.User{
+				{ID: 101, Email: "u101@test.com", Enabled: true, InboundTag: "vless-in", InboundTags: "vless-in"},
+				// ID 102 does not exist
+				{ID: 103, Email: "u103@test.com", Enabled: true, InboundTag: "vless-in", InboundTags: "vless-in"},
+			},
+		}
+		mockXray := &mockXrayManager{}
+		svc := NewUserService(repo, nil, nil, mockXray, nil)
+
+		// 102 缺失应返回聚合错误，不静默丢弃
+		err := svc.BatchRenew(context.Background(), []uint{101, 102, 103}, 10)
+		if err == nil {
+			t.Fatalf("expected BatchRenew to return aggregated error for missing id 102")
+		}
+
+		err = svc.BatchSetStatus(context.Background(), []uint{101, 102, 103}, false)
+		if err == nil {
+			t.Fatalf("expected BatchSetStatus to return aggregated error for missing id 102")
+		}
+	})
+
+	t.Run("ResetTraffic returns error for non-existent user", func(t *testing.T) {
+		repo := &mockUserRepo{users: []domain.User{}}
+		svc := NewUserService(repo, nil, nil, nil, nil)
+		err := svc.ResetTraffic(context.Background(), 999)
+		if err == nil || !errors.Is(err, domain.ErrNotFound) {
+			t.Fatalf("expected ErrNotFound for non-existent user, got %v", err)
+		}
+	})
+
+	t.Run("CreateUser returns ErrAlreadyExists when email exists", func(t *testing.T) {
+		repo := &mockUserRepo{
+			users: []domain.User{
+				{ID: 1, Email: "dup@test.com"},
+			},
+		}
+		svc := NewUserService(repo, nil, nil, nil, nil)
+		_, err := svc.CreateUser(context.Background(), CreateUserDTO{
+			Email:       "dup@test.com",
+			InboundTags: []string{"vless-in"},
+		})
+		if err == nil || !errors.Is(err, domain.ErrAlreadyExists) {
+			t.Fatalf("expected ErrAlreadyExists, got %v", err)
 		}
 	})
 }

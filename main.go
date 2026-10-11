@@ -122,8 +122,12 @@ func main() {
 	compiler := xray.NewXrayCompiler(grpcPort)
 
 	configSvc := service.NewConfigService(configMgr, supervisor, inboundRepo, userRepo, snapshotRepo, compiler)
-	_ = configSvc.SyncFromFile(bgCtx)
-	_ = configSvc.RecompileAndApply(bgCtx, "面板启动自动同步与编译配置")
+	if err := configSvc.SyncFromFile(bgCtx); err != nil {
+		slog.Error("failed to sync config from file on startup, proceeding with database config", slog.Any("error", err))
+	}
+	if err := configSvc.RecompileAndApply(bgCtx, "面板启动自动同步与编译配置"); err != nil {
+		slog.Error("CRITICAL: failed to compile or reload xray config on startup", slog.Any("error", err))
+	}
 
 	userSvc := service.NewUserService(userRepo, inboundRepo, trafficLogRepo, xrayManager, configSvc)
 	botHandler := telegram.NewBotHandler(botAdapter, userRepo, inboundRepo, hostMonitor, xrayManager, userSvc, cfg.PublicURL)

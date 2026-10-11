@@ -4,7 +4,9 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"errors"
 	"fmt"
+	"log/slog"
 	"strings"
 	"time"
 
@@ -29,12 +31,17 @@ type XrayUserManager interface {
 	RemoveUser(ctx context.Context, inboundTag string, email string) error
 }
 
+type ConfigFileSynchronizer interface {
+	SyncUserToFile(ctx context.Context, authorizedTags []string, user *domain.User, isDelete bool) error
+	SaveConfigQuietly(ctx context.Context, remark string) error
+}
+
 type UserService struct {
 	userRepo       domain.UserRepository
 	inboundRepo    domain.InboundRepository
 	trafficLogRepo domain.TrafficLogRepository
 	xrayManager    XrayUserManager
-	configSvc      *ConfigService
+	configSvc      ConfigFileSynchronizer
 }
 
 func NewUserService(
@@ -42,7 +49,7 @@ func NewUserService(
 	inboundRepo domain.InboundRepository,
 	trafficLogRepo domain.TrafficLogRepository,
 	xrayManager XrayUserManager,
-	configSvc *ConfigService,
+	configSvc ConfigFileSynchronizer,
 ) *UserService {
 	return &UserService{
 		userRepo:       userRepo,
@@ -53,8 +60,19 @@ func NewUserService(
 	}
 }
 
+func isXrayUserNotFoundError(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "not found") || strings.Contains(msg, "not exist")
+}
+
 func (s *UserService) CreateUser(ctx context.Context, dto CreateUserDTO) (*domain.User, error) {
-	existing, _ := s.userRepo.GetByEmail(ctx, dto.Email)
+	existing, err := s.userRepo.GetByEmail(ctx, dto.Email)
+	if err != nil && !errors.Is(err, domain.ErrNotFound) {
+		return nil, fmt.Errorf("check existing user failed: %w", err)
+	}
 	if existing != nil {
 		return nil, fmt.Errorf("%w: 用户名/邮箱已存在", domain.ErrAlreadyExists)
 	}
@@ -68,7 +86,9 @@ func (s *UserService) CreateUser(ctx context.Context, dto CreateUserDTO) (*domai
 	}
 
 	tokenBytes := make([]byte, 16)
-	_, _ = rand.Read(tokenBytes)
+	if _, err := rand.Read(tokenBytes); err != nil {
+		return nil, fmt.Errorf("generate sub token failed: %w", err)
+	}
 	subToken := hex.EncodeToString(tokenBytes)
 
 	userUUID := uuid.New().String()
@@ -99,16 +119,42 @@ func (s *UserService) CreateUser(ctx context.Context, dto CreateUserDTO) (*domai
 		return nil, fmt.Errorf("create user in db failed: %w", err)
 	}
 
-	// 1. gRPC 热同步到所有已选节点内存
+	// 1. gRPC 热同步到所有已选节点内存，维护 addedTags 用于 Saga 反向补偿
+	addedTags := make([]string, 0, len(tags))
 	if s.xrayManager != nil {
 		for _, t := range tags {
-			_ = s.xrayManager.AddUser(ctx, t, user)
+			if err := s.xrayManager.AddUser(ctx, t, user); err != nil {
+				// 触发 Saga 反向补偿：逆序撤销已注入节点并清理 DB 孤儿记录
+				for i := len(addedTags) - 1; i >= 0; i-- {
+					if rErr := s.xrayManager.RemoveUser(ctx, addedTags[i], user.Email); rErr != nil && !isXrayUserNotFoundError(rErr) {
+						slog.Warn("compensation: failed to remove user from xray inbound", slog.String("inbound", addedTags[i]), slog.String("email", user.Email), slog.Any("error", rErr))
+					}
+				}
+				if dErr := s.userRepo.Delete(ctx, user.ID); dErr != nil {
+					slog.Error("compensation: failed to delete orphan user from database", slog.Uint64("user_id", uint64(user.ID)), slog.Any("error", dErr))
+				}
+				return nil, fmt.Errorf("add user to xray inbound %s failed: %w", t, err)
+			}
+			addedTags = append(addedTags, t)
 		}
 	}
 
 	// 2. 双向同步持久化回写 config.json 物理文件
 	if s.configSvc != nil {
-		_ = s.configSvc.SyncUserToFile(ctx, tags, user, false)
+		if err := s.configSvc.SyncUserToFile(ctx, tags, user, false); err != nil {
+			// 触发 Saga 反向补偿：清理全部已加入节点与 DB 孤儿记录
+			if s.xrayManager != nil {
+				for i := len(addedTags) - 1; i >= 0; i-- {
+					if rErr := s.xrayManager.RemoveUser(ctx, addedTags[i], user.Email); rErr != nil && !isXrayUserNotFoundError(rErr) {
+						slog.Warn("compensation: failed to remove user from xray inbound", slog.String("inbound", addedTags[i]), slog.String("email", user.Email), slog.Any("error", rErr))
+					}
+				}
+			}
+			if dErr := s.userRepo.Delete(ctx, user.ID); dErr != nil {
+				slog.Error("compensation: failed to delete orphan user from database", slog.Uint64("user_id", uint64(user.ID)), slog.Any("error", dErr))
+			}
+			return nil, fmt.Errorf("sync user to config file failed: %w", err)
+		}
 	}
 
 	return user, nil
@@ -119,72 +165,116 @@ func (s *UserService) UpdateUser(ctx context.Context, id uint, dto domain.Update
 	if err != nil {
 		return nil, err
 	}
+	if oldUser == nil {
+		return nil, domain.ErrNotFound
+	}
 
-	oldTags := oldUser.GetInboundTagList()
+	// 制作前置状态深拷贝快照，用于故障时触发 Saga 反向补偿
+	oldSnapshot := *oldUser
+	oldTags := oldSnapshot.GetInboundTagList()
 
 	// 仅合并允许修改的业务字段，严格保留 UpBytes、DownBytes、UUID、SubToken、CreatedAt
+	updatedUser := *oldUser
 	tags := dto.InboundTags
 	if len(tags) == 0 && dto.InboundTag != "" {
 		tags = []string{dto.InboundTag}
 	}
 	if len(tags) > 0 {
-		oldUser.InboundTags = strings.Join(tags, ",")
+		updatedUser.InboundTags = strings.Join(tags, ",")
 		if dto.InboundTag != "" {
-			oldUser.InboundTag = dto.InboundTag
+			updatedUser.InboundTag = dto.InboundTag
 		} else {
-			oldUser.InboundTag = tags[0]
+			updatedUser.InboundTag = tags[0]
 		}
 	}
-	oldUser.Flow = dto.Flow
-	oldUser.TotalBytes = dto.TotalBytes
-	oldUser.ExpireTime = dto.ExpireTime
-	oldUser.ResetDay = dto.ResetDay
-	oldUser.IPLimit = dto.IPLimit
+	updatedUser.Flow = dto.Flow
+	updatedUser.TotalBytes = dto.TotalBytes
+	updatedUser.ExpireTime = dto.ExpireTime
+	updatedUser.ResetDay = dto.ResetDay
+	updatedUser.IPLimit = dto.IPLimit
 	if dto.Enabled != nil {
-		oldUser.Enabled = *dto.Enabled
+		updatedUser.Enabled = *dto.Enabled
 	}
-	oldUser.UpdatedAt = time.Now()
+	updatedUser.UpdatedAt = time.Now()
 
-	newTags := oldUser.GetInboundTagList()
+	newTags := updatedUser.GetInboundTagList()
 
-	// 找出需要移除的节点
-	newTagSet := make(map[string]bool)
-	for _, t := range newTags {
-		newTagSet[t] = true
+	// 1. 更新数据库
+	if err := s.userRepo.Update(ctx, &updatedUser); err != nil {
+		return nil, fmt.Errorf("update user in db failed: %w", err)
 	}
-	for _, oldT := range oldTags {
-		if !newTagSet[oldT] {
-			if s.xrayManager != nil {
-				_ = s.xrayManager.RemoveUser(ctx, oldT, oldUser.Email)
+
+	// 定义 Saga 补偿逻辑：恢复 Xray 内存至旧快照并回滚数据库
+	rollback := func() {
+		if s.xrayManager != nil {
+			for _, t := range newTags {
+				if err := s.xrayManager.RemoveUser(ctx, t, updatedUser.Email); err != nil && !isXrayUserNotFoundError(err) {
+					slog.Warn("compensation: failed to remove user from new inbound during update rollback", slog.String("inbound", t), slog.String("email", updatedUser.Email), slog.Any("error", err))
+				}
+			}
+			if oldSnapshot.IsActive() {
+				for _, t := range oldTags {
+					if err := s.xrayManager.RemoveUser(ctx, t, oldSnapshot.Email); err != nil && !isXrayUserNotFoundError(err) {
+						slog.Warn("compensation: failed to remove user before restoring snapshot", slog.String("inbound", t), slog.String("email", oldSnapshot.Email), slog.Any("error", err))
+					}
+					if err := s.xrayManager.AddUser(ctx, t, &oldSnapshot); err != nil {
+						slog.Error("compensation: failed to re-add old snapshot to xray", slog.String("inbound", t), slog.String("email", oldSnapshot.Email), slog.Any("error", err))
+					}
+				}
+			}
+		}
+		if err := s.userRepo.Update(ctx, &oldSnapshot); err != nil {
+			slog.Error("compensation: failed to restore user snapshot in db during update rollback", slog.Uint64("user_id", uint64(oldSnapshot.ID)), slog.Any("error", err))
+		}
+	}
+
+	// 2. 刷新 Xray 内存
+	if s.xrayManager != nil {
+		newTagSet := make(map[string]bool, len(newTags))
+		for _, t := range newTags {
+			newTagSet[t] = true
+		}
+		// 找出需要移除的旧节点
+		for _, oldT := range oldTags {
+			if !newTagSet[oldT] {
+				if err := s.xrayManager.RemoveUser(ctx, oldT, updatedUser.Email); err != nil {
+					rollback()
+					return nil, fmt.Errorf("remove user from old xray inbound %s failed: %w", oldT, err)
+				}
+			}
+		}
+
+		if updatedUser.IsActive() {
+			for _, newT := range newTags {
+				// 针对现有节点先 RemoveUser 再 AddUser 以避免冲突
+				if err := s.xrayManager.RemoveUser(ctx, newT, updatedUser.Email); err != nil && !isXrayUserNotFoundError(err) {
+					rollback()
+					return nil, fmt.Errorf("remove existing user before update from xray inbound %s failed: %w", newT, err)
+				}
+				if err := s.xrayManager.AddUser(ctx, newT, &updatedUser); err != nil {
+					rollback()
+					return nil, fmt.Errorf("add updated user to xray inbound %s failed: %w", newT, err)
+				}
+			}
+		} else {
+			for _, newT := range newTags {
+				if err := s.xrayManager.RemoveUser(ctx, newT, updatedUser.Email); err != nil {
+					rollback()
+					return nil, fmt.Errorf("remove inactive user from xray inbound %s failed: %w", newT, err)
+				}
 			}
 		}
 	}
 
-	// 注入/刷新新节点
-	if oldUser.IsActive() {
-		for _, newT := range newTags {
-			if s.xrayManager != nil {
-				_ = s.xrayManager.RemoveUser(ctx, newT, oldUser.Email)
-				_ = s.xrayManager.AddUser(ctx, newT, oldUser)
-			}
-		}
-	} else {
-		for _, newT := range newTags {
-			if s.xrayManager != nil {
-				_ = s.xrayManager.RemoveUser(ctx, newT, oldUser.Email)
-			}
-		}
-	}
-
-	if err := s.userRepo.Update(ctx, oldUser); err != nil {
-		return nil, err
-	}
-
+	// 3. 落盘持久化到物理文件
 	if s.configSvc != nil {
-		_ = s.configSvc.SyncUserToFile(ctx, newTags, oldUser, false)
+		if err := s.configSvc.SyncUserToFile(ctx, newTags, &updatedUser, false); err != nil {
+			rollback()
+			return nil, fmt.Errorf("sync updated user to config file failed: %w", err)
+		}
 	}
 
-	return oldUser, nil
+	return &updatedUser, nil
 }
 
 func (s *UserService) DeleteUser(ctx context.Context, id uint) error {
@@ -192,26 +282,35 @@ func (s *UserService) DeleteUser(ctx context.Context, id uint) error {
 	if err != nil {
 		return err
 	}
+	if user == nil {
+		return domain.ErrNotFound
+	}
 
-	// 1. gRPC 热移除该用户在所有节点的内存状态
+	// 1. gRPC 热移除该用户在所有节点的内存状态（具备幂等容忍性，非致命错误不阻断）
 	if s.xrayManager != nil {
 		for _, t := range user.GetInboundTagList() {
-			_ = s.xrayManager.RemoveUser(ctx, t, user.Email)
+			if err := s.xrayManager.RemoveUser(ctx, t, user.Email); err != nil {
+				if !isXrayUserNotFoundError(err) {
+					return fmt.Errorf("remove user from xray inbound %s failed: %w", t, err)
+				}
+			}
 		}
 	}
 
-	// 2. 从数据库删除
-	if err := s.userRepo.Delete(ctx, id); err != nil {
-		return err
-	}
-
-	// 3. 清理内存运行时速率追踪器，杜绝幽灵对象内存泄漏
-	domain.RemoveUserRuntimeSpeed(user.Email)
-
-	// 4. 从物理 config.json 移除
+	// 2. 从物理 config.json 移除（若落盘失败则阻断，此时数据库未被破坏）
 	if s.configSvc != nil {
-		_ = s.configSvc.SyncUserToFile(ctx, nil, user, true)
+		if err := s.configSvc.SyncUserToFile(ctx, nil, user, true); err != nil {
+			return fmt.Errorf("sync delete user to config file failed: %w", err)
+		}
 	}
+
+	// 3. 从数据库彻底删除
+	if err := s.userRepo.Delete(ctx, id); err != nil {
+		return fmt.Errorf("delete user from db failed: %w", err)
+	}
+
+	// 4. 清理内存运行时速率追踪器，杜绝幽灵对象内存泄漏
+	domain.RemoveUserRuntimeSpeed(user.Email)
 
 	return nil
 }
@@ -247,22 +346,27 @@ func (s *UserService) ListUsers(ctx context.Context) ([]domain.User, error) {
 
 func (s *UserService) ResetTraffic(ctx context.Context, id uint) error {
 	if err := s.userRepo.ResetTraffic(ctx, id); err != nil {
-		return err
+		return fmt.Errorf("reset user traffic in db failed: %w", err)
 	}
 	user, err := s.userRepo.GetByID(ctx, id)
 	if err != nil {
-		return err
+		return fmt.Errorf("get user after reset traffic failed: %w", err)
 	}
-	if user != nil {
-		domain.RecordUserTrafficReset(user.Email)
-		if user.IsActive() {
-			if s.xrayManager != nil {
-				for _, t := range user.GetInboundTagList() {
-					_ = s.xrayManager.AddUser(ctx, t, user)
+	if user == nil {
+		return domain.ErrNotFound
+	}
+	domain.RecordUserTrafficReset(user.Email)
+	if user.IsActive() {
+		if s.xrayManager != nil {
+			for _, t := range user.GetInboundTagList() {
+				if err := s.xrayManager.AddUser(ctx, t, user); err != nil {
+					return fmt.Errorf("add user to xray inbound %s on reset traffic failed: %w", t, err)
 				}
 			}
-			if s.configSvc != nil {
-				_ = s.configSvc.SyncUserToFile(ctx, user.GetInboundTagList(), user, false)
+		}
+		if s.configSvc != nil {
+			if err := s.configSvc.SyncUserToFile(ctx, user.GetInboundTagList(), user, false); err != nil {
+				return fmt.Errorf("sync user to config file on reset traffic failed: %w", err)
 			}
 		}
 	}
@@ -278,37 +382,68 @@ func (s *UserService) ResetSubToken(ctx context.Context, id uint) (*domain.User,
 		return nil, domain.ErrNotFound
 	}
 
+	oldSnapshot := *user
+	oldUUID := user.UUID
+	oldToken := user.SubToken
 	inboundTags := user.GetInboundTagList()
 
-	// 1. gRPC 热移除旧 UUID：如果用户处于激活状态，先从所有挂载入站中剔除
-	if s.xrayManager != nil && user.IsActive() {
-		for _, t := range inboundTags {
-			_ = s.xrayManager.RemoveUser(ctx, t, user.Email)
-		}
-	}
-
-	// 2. 联动重置：生成全新 SubToken 与全新高熵 UUID (彻底切断旧设备与旧订阅)
+	// 1. 生成全新 SubToken 与全新高熵 UUID
 	tokenBytes := make([]byte, 16)
-	_, _ = rand.Read(tokenBytes)
+	if _, err := rand.Read(tokenBytes); err != nil {
+		return nil, fmt.Errorf("generate new sub token failed: %w", err)
+	}
 	newToken := hex.EncodeToString(tokenBytes)
+	newUUID := uuid.New().String()
+
 	user.SubToken = newToken
-	user.UUID = uuid.New().String()
+	user.UUID = newUUID
 	user.UpdatedAt = time.Now()
 
+	// 2. 更新数据库
 	if err := s.userRepo.Update(ctx, user); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("update reset sub token in db failed: %w", err)
 	}
 
-	// 3. gRPC 热注册新 UUID：以全新凭证重新挂载，旧客户端发包立即握手失败断网
-	if s.xrayManager != nil && user.IsActive() {
-		for _, t := range inboundTags {
-			_ = s.xrayManager.AddUser(ctx, t, user)
+	// 定义 Saga 补偿逻辑：恢复原凭证到数据库与 Xray 挂载
+	rollback := func() {
+		user.SubToken = oldToken
+		user.UUID = oldUUID
+		if err := s.userRepo.Update(ctx, user); err != nil {
+			slog.Error("compensation: failed to restore original credentials in db", slog.Uint64("user_id", uint64(user.ID)), slog.Any("error", err))
+		}
+
+		if s.xrayManager != nil && oldSnapshot.IsActive() {
+			for _, t := range inboundTags {
+				if err := s.xrayManager.RemoveUser(ctx, t, user.Email); err != nil && !isXrayUserNotFoundError(err) {
+					slog.Warn("compensation: failed to remove user before restoring credentials in xray", slog.String("inbound", t), slog.String("email", user.Email), slog.Any("error", err))
+				}
+				if err := s.xrayManager.AddUser(ctx, t, &oldSnapshot); err != nil {
+					slog.Error("compensation: failed to re-add user with original credentials in xray", slog.String("inbound", t), slog.String("email", oldSnapshot.Email), slog.Any("error", err))
+				}
+			}
 		}
 	}
 
-	// 4. 静默持久化回写 config.json 物理文件
+	// 3. gRPC 热注册新 UUID：先移除旧凭证再注入新凭证
+	if s.xrayManager != nil && user.IsActive() {
+		for _, t := range inboundTags {
+			if err := s.xrayManager.RemoveUser(ctx, t, user.Email); err != nil && !isXrayUserNotFoundError(err) {
+				rollback()
+				return nil, fmt.Errorf("remove old user credentials from xray inbound %s failed: %w", t, err)
+			}
+			if err := s.xrayManager.AddUser(ctx, t, user); err != nil {
+				rollback()
+				return nil, fmt.Errorf("register reset token in xray inbound %s failed: %w", t, err)
+			}
+		}
+	}
+
+	// 4. 持久化回写 config.json 物理文件
 	if s.configSvc != nil {
-		_ = s.configSvc.SyncUserToFile(ctx, inboundTags, user, false)
+		if err := s.configSvc.SyncUserToFile(ctx, inboundTags, user, false); err != nil {
+			rollback()
+			return nil, fmt.Errorf("sync reset token to config file failed: %w", err)
+		}
 	}
 
 	return user, nil
@@ -318,9 +453,14 @@ func (s *UserService) BatchRenew(ctx context.Context, ids []uint, addDays int) e
 	if addDays == 0 {
 		return nil
 	}
+	var errs []error
 	for _, id := range ids {
 		u, err := s.userRepo.GetByID(ctx, id)
-		if err != nil {
+		if err != nil || u == nil {
+			if err == nil {
+				err = domain.ErrNotFound
+			}
+			errs = append(errs, fmt.Errorf("renew user %d get failed: %w", id, err))
 			continue
 		}
 		now := time.Now().UnixMilli()
@@ -340,22 +480,32 @@ func (s *UserService) BatchRenew(ctx context.Context, ids []uint, addDays int) e
 			IPLimit:     u.IPLimit,
 			Enabled:     &u.Enabled,
 		}
-		_, _ = s.UpdateUser(ctx, id, dto)
+		if _, err := s.UpdateUser(ctx, id, dto); err != nil {
+			errs = append(errs, fmt.Errorf("renew user %d update failed: %w", id, err))
+		}
 	}
-	return nil
+	return errors.Join(errs...)
 }
 
 func (s *UserService) BatchResetTraffic(ctx context.Context, ids []uint) error {
+	var errs []error
 	for _, id := range ids {
-		_ = s.ResetTraffic(ctx, id)
+		if err := s.ResetTraffic(ctx, id); err != nil {
+			errs = append(errs, fmt.Errorf("reset traffic user %d failed: %w", id, err))
+		}
 	}
-	return nil
+	return errors.Join(errs...)
 }
 
 func (s *UserService) BatchSetStatus(ctx context.Context, ids []uint, enabled bool) error {
+	var errs []error
 	for _, id := range ids {
 		u, err := s.userRepo.GetByID(ctx, id)
-		if err != nil {
+		if err != nil || u == nil {
+			if err == nil {
+				err = domain.ErrNotFound
+			}
+			errs = append(errs, fmt.Errorf("set status user %d get failed: %w", id, err))
 			continue
 		}
 		dto := domain.UpdateUserDTO{
@@ -368,9 +518,11 @@ func (s *UserService) BatchSetStatus(ctx context.Context, ids []uint, enabled bo
 			IPLimit:     u.IPLimit,
 			Enabled:     &enabled,
 		}
-		_, _ = s.UpdateUser(ctx, id, dto)
+		if _, err := s.UpdateUser(ctx, id, dto); err != nil {
+			errs = append(errs, fmt.Errorf("set status user %d update failed: %w", id, err))
+		}
 	}
-	return nil
+	return errors.Join(errs...)
 }
 
 func (s *UserService) CheckAndResetMonthlyTraffic(ctx context.Context) error {
@@ -383,6 +535,7 @@ func (s *UserService) CheckAndResetMonthlyTraffic(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	var errs []error
 	anyActiveReset := false
 	for _, u := range users {
 		if u.ResetDay <= 0 {
@@ -397,17 +550,25 @@ func (s *UserService) CheckAndResetMonthlyTraffic(ctx context.Context) error {
 
 		// 当今天已达到或越过有效重置日，且本月尚未重置时触发（具备短月份自适应与停机恢复补偿能力）
 		if today >= effectiveResetDay && u.LastResetMonth != currentYearMonth {
-			_ = s.userRepo.ResetTraffic(ctx, u.ID)
+			if err := s.userRepo.ResetTraffic(ctx, u.ID); err != nil {
+				errs = append(errs, fmt.Errorf("reset user %d traffic failed: %w", u.ID, err))
+				continue
+			}
 			domain.RecordUserTrafficReset(u.Email)
 			u.UpBytes = 0
 			u.DownBytes = 0
 			u.LastResetMonth = currentYearMonth
-			_ = s.userRepo.Update(ctx, &u)
+			if err := s.userRepo.Update(ctx, &u); err != nil {
+				errs = append(errs, fmt.Errorf("update user %d reset month failed: %w", u.ID, err))
+				continue
+			}
 
 			if u.IsActive() {
 				if s.xrayManager != nil {
 					for _, t := range u.GetInboundTagList() {
-						_ = s.xrayManager.AddUser(ctx, t, &u)
+						if err := s.xrayManager.AddUser(ctx, t, &u); err != nil {
+							errs = append(errs, fmt.Errorf("add user %d to xray %s failed: %w", u.ID, t, err))
+						}
 					}
 				}
 				anyActiveReset = true
@@ -415,9 +576,11 @@ func (s *UserService) CheckAndResetMonthlyTraffic(ctx context.Context) error {
 		}
 	}
 	if anyActiveReset && s.configSvc != nil {
-		_ = s.configSvc.SaveConfigQuietly(ctx, "月度流量重置配置静默同步")
+		if err := s.configSvc.SaveConfigQuietly(ctx, "月度流量重置配置静默同步"); err != nil {
+			errs = append(errs, fmt.Errorf("save config quietly failed: %w", err))
+		}
 	}
-	return nil
+	return errors.Join(errs...)
 }
 
 func (s *UserService) GetTrafficHistory(ctx context.Context, userID uint, days int) ([]domain.TrafficLog, error) {

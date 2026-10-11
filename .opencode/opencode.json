@@ -18,24 +18,6 @@
     "serena": {
       "enabled": false
     },
-    "context7": {
-      "enabled": true
-    },
-    "playwright": {
-      "type": "local",
-      "command": [
-        "npx",
-        "-y",
-        "@playwright/mcp@latest",
-        "--browser=chromium"
-      ],
-      "enabled": false
-    },
-    "docs-langchain": {
-      "type": "remote",
-      "url": "https://docs.langchain.com/mcp",
-      "enabled": false
-    },
     "github": {
       "enabled": false
     }

@@ -89,13 +89,14 @@ export function insertSyntheticTextPart(parts, text, kind) {
 export const MESSAGES_TRANSFORM_HOOK = "experimental.chat.messages.transform"
 
 /**
- * Index of the last user message in an OpenCode `{info, parts}[]` transcript.
- * Compaction and prompt both pass that shape to messages.transform.
+ * Index of the last user message in an OpenCode transcript.
+ * Supports both V1 `{info: {role: "user"}, parts}` and V2 / AI SDK `{role: "user"}` shapes.
  */
 export function findLatestUserMessageIndex(messages) {
   if (!Array.isArray(messages)) return -1
   for (let i = messages.length - 1; i >= 0; i--) {
-    if (messages[i]?.info?.role === "user") return i
+    const msg = messages[i]
+    if (msg?.info?.role === "user" || msg?.role === "user") return i
   }
   return -1
 }
@@ -103,10 +104,10 @@ export function findLatestUserMessageIndex(messages) {
 export function platformInputFromMessages(messages) {
   const index = findLatestUserMessageIndex(messages)
   if (index < 0) return null
-  const info = messages[index].info
-  if (!info || typeof info !== "object") return null
+  const msg = messages[index]
+  const info = msg.info || msg
   return {
-    sessionID: info.sessionID,
+    sessionID: info.sessionID || info.sessionId,
     agent: info.agent,
   }
 }
@@ -114,18 +115,27 @@ export function platformInputFromMessages(messages) {
 export function latestUserPromptText(messages) {
   const index = findLatestUserMessageIndex(messages)
   if (index < 0) return ""
-  const part = findUserTextPart(messages[index].parts)
-  return typeof part?.text === "string" ? part.text : ""
+  const msg = messages[index]
+  if (Array.isArray(msg?.parts)) {
+    const part = findUserTextPart(msg.parts)
+    if (typeof part?.text === "string") return part.text
+  }
+  if (typeof msg?.content === "string") return msg.content
+  if (Array.isArray(msg?.content)) {
+    const part = msg.content.find(p => p?.type === "text" && p?.text)
+    if (typeof part?.text === "string") return part.text
+  }
+  return ""
 }
 
 export function transcriptHasAssistantMessage(messages) {
   if (!Array.isArray(messages)) return false
-  return messages.some(message => message?.info?.role === "assistant")
+  return messages.some(msg => msg?.info?.role === "assistant" || msg?.role === "assistant")
 }
 
 /**
  * Clone the latest user message and prepend an ephemeral synthetic text
- * part. The original message object and its `parts` array are left
+ * part. The original message object and its parts/content array are left
  * untouched so a transform cannot leak into OpenCode's stored history.
  */
 export function prependEphemeralText(messages, text) {
@@ -134,15 +144,37 @@ export function prependEphemeralText(messages, text) {
   const index = findLatestUserMessageIndex(messages)
   if (index < 0) return false
   const original = messages[index]
-  const parts = Array.isArray(original.parts) ? original.parts.slice() : []
-  parts.unshift({
-    type: "text",
-    text,
-    synthetic: true,
-  })
-  messages[index] = {
-    ...original,
-    parts,
+  const cloned = { ...original }
+  let modified = false
+
+  if (Array.isArray(original.parts)) {
+    const parts = original.parts.slice()
+    parts.unshift({
+      type: "text",
+      text,
+      synthetic: true,
+    })
+    cloned.parts = parts
+    modified = true
   }
+
+  if (typeof original.content === "string") {
+    cloned.content = text + "\n\n" + original.content
+    modified = true
+  } else if (Array.isArray(original.content)) {
+    const content = original.content.slice()
+    content.unshift({
+      type: "text",
+      text,
+    })
+    cloned.content = content
+    modified = true
+  }
+
+  if (!modified) {
+    cloned.parts = [{ type: "text", text, synthetic: true }]
+  }
+
+  messages[index] = cloned
   return true
 }

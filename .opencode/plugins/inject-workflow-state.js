@@ -4,21 +4,9 @@
  *
  * Per-turn UserPromptSubmit equivalent for OpenCode.
  *
- * On every model request, inject a short <workflow-state> breadcrumb
- * into the in-memory copy of the latest user message via
- * `experimental.chat.messages.transform`. Stored history and the TUI
- * are not modified (issue #553). Breadcrumb text is pulled exclusively
- * from the project's workflow.md [workflow-state:STATUS] tag blocks —
- * workflow.md is the single source of truth. There are no fallback
- * tables in this plugin: when workflow.md is missing or a tag is
- * absent, the breadcrumb degrades to a generic
- * "Refer to workflow.md for current step." line so users see (and fix)
- * the broken state instead of the plugin silently masking it.
- *
- * Silently skips when:
- *   - No .trellis/ directory
- *   - No active task in the session runtime context
- *   - task.json malformed or missing status
+ * Injects a short <workflow-state> breadcrumb into the in-memory copy
+ * of the latest user message. Supports both V2 `ctx.session.hook("context")`
+ * and V1 `server()` with `experimental.chat.messages.transform`.
  */
 
 import { existsSync, readFileSync } from "fs"
@@ -32,12 +20,8 @@ import {
 import { TrellisContext, debugLog, isTrellisSubagent } from "../lib/trellis-context.js"
 
 // Supports STATUS values with letters, digits, underscores, hyphens
-// (so "in-review" / "blocked-by-team" work alongside "in_progress").
 const TAG_RE = /\[workflow-state:([A-Za-z0-9_-]+)\]\s*\n([\s\S]*?)\n\s*\[\/workflow-state:\1\]/g
 
-// Escape hatch for the per-turn breadcrumb (issue #427). Mirrors
-// `common.config.get_prompt_injection_config()` / the shared Python hook's
-// `_resolve_skip_keyword()` + `prompt_has_skip_keyword()`.
 const DEFAULT_PROMPT_INJECTION_SKIP_KEYWORD = "no-trellis"
 
 function stripInlineComment(value) {
@@ -62,12 +46,6 @@ function unquoteYaml(s) {
   return s
 }
 
-/**
- * Line-based parser for ONLY the `prompt_injection:` block of
- * `.trellis/config.yaml`. Not a general YAML parser — mirrors
- * `common.config.get_prompt_injection_config()` semantics for this section
- * only (missing key keeps the default; non-string value keeps the default).
- */
 function readSkipKeyword(directory) {
   const path = join(directory, ".trellis", "config.yaml")
   if (!existsSync(path)) return DEFAULT_PROMPT_INJECTION_SKIP_KEYWORD
@@ -99,11 +77,6 @@ function readSkipKeyword(directory) {
   return DEFAULT_PROMPT_INJECTION_SKIP_KEYWORD
 }
 
-/**
- * Case-insensitive, word-boundary match of `keyword` in `text`. Hyphen
- * counts as a word char so "no-trellisx" / "xno-trellis" don't match, but
- * punctuation/whitespace boundaries do. Empty keyword never matches.
- */
 function promptHasSkipKeyword(text, keyword) {
   if (!keyword || typeof text !== "string") return false
   const escaped = keyword.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
@@ -111,15 +84,6 @@ function promptHasSkipKeyword(text, keyword) {
   return pattern.test(text)
 }
 
-/**
- * Parse workflow.md for [workflow-state:STATUS] blocks.
- *
- * Returns {status: body}. workflow.md is the single source of truth —
- * there are no fallback tables here. Missing tags (or a missing /
- * unreadable workflow.md) fall back to a generic line in
- * buildBreadcrumb so users see the broken state and fix workflow.md
- * rather than the plugin silently masking it.
- */
 function loadBreadcrumbs(directory) {
   const workflowPath = join(directory, ".trellis", "workflow.md")
   if (!existsSync(workflowPath)) return {}
@@ -138,9 +102,6 @@ function loadBreadcrumbs(directory) {
   return result
 }
 
-/**
- * Get (taskId, status) from active task, or null if no active task.
- */
 function getActiveTask(ctx, platformInput = null) {
   const active = ctx.getActiveTask(platformInput)
   const taskRef = active.taskPath
@@ -162,13 +123,6 @@ function getActiveTask(ctx, platformInput = null) {
   }
 }
 
-/**
- * Build the <workflow-state>...</workflow-state> block.
- * - Known status (tag present in workflow.md) → detailed body
- * - Unknown status (no tag, or workflow.md missing) → generic
- *   "Refer to workflow.md for current step." line
- * - no_task pseudo-status (id === null) → header omits task info
- */
 function buildBreadcrumb(id, status, templates) {
   let body = templates[status]
   if (body === undefined) {
@@ -178,56 +132,80 @@ function buildBreadcrumb(id, status, templates) {
   return `<workflow-state>\n${header}\n${body}\n</workflow-state>`
 }
 
-// OpenCode 1.2.x expects plugins to be factory functions (see inject-subagent-context.js comment).
-export default async ({ directory }) => {
-  const ctx = new TrellisContext(directory)
-  debugLog("workflow-state", "Plugin loaded, directory:", directory)
+function handleWorkflowStateInjection(ctx, directory, messages, platformInput) {
+  if (isTrellisSubagent(platformInput)) {
+    debugLog("workflow-state", "Skipping trellis subagent turn:", platformInput?.agent)
+    return
+  }
+  if (process.env.TRELLIS_HOOKS === "0" || process.env.TRELLIS_DISABLE_HOOKS === "1") {
+    return
+  }
+  if (process.env.OPENCODE_NON_INTERACTIVE === "1") {
+    return
+  }
+  if (!ctx.isTrellisProject()) {
+    return
+  }
 
-  return {
+  const originalText = latestUserPromptText(messages)
+  if (promptHasSkipKeyword(originalText, readSkipKeyword(directory))) {
+    debugLog("workflow-state", "Skipping turn: skip keyword present in prompt")
+    return
+  }
+
+  const templates = loadBreadcrumbs(directory)
+  const task = getActiveTask(ctx, platformInput)
+  const breadcrumb = task
+    ? buildBreadcrumb(task.id, task.status, templates, task.source)
+    : buildBreadcrumb(null, "no_task", templates)
+
+  prependEphemeralText(messages, breadcrumb)
+  debugLog(
+    "workflow-state",
+    "Injected breadcrumb for task",
+    task ? task.id : "none",
+    "status",
+    task ? task.status : "no_task",
+  )
+}
+
+export default {
+  id: "inject-workflow-state",
+  async setup(opencodeCtx) {
+    const directory = opencodeCtx?.directory ?? opencodeCtx?.location?.directory ?? process.cwd()
+    const ctx = new TrellisContext(directory)
+    debugLog("workflow-state", "Plugin loaded (V2), directory:", directory)
+
+    if (opencodeCtx?.session?.hook) {
+      await opencodeCtx.session.hook("context", async (event) => {
+        try {
+          const messages = event.messages
+          const platformInput = {
+            agent: event.agent,
+            sessionID: event.sessionID,
+            ...platformInputFromMessages(messages),
+          }
+          handleWorkflowStateInjection(ctx, directory, messages, platformInput)
+        } catch (error) {
+          debugLog(
+            "workflow-state",
+            "Error in context hook:",
+            error instanceof Error ? error.message : String(error),
+          )
+        }
+      })
+    }
+  },
+  async server({ directory }) {
+    const ctx = new TrellisContext(directory)
+    debugLog("workflow-state", "Plugin loaded (V1), directory:", directory)
+
+    return {
       [MESSAGES_TRANSFORM_HOOK]: async (_input, output) => {
         try {
           const messages = output?.messages
           const platformInput = platformInputFromMessages(messages)
-          // Skip Trellis sub-agent turns — the per-turn breadcrumb is for the
-          // main session only; sub-agent context comes from the parent's
-          // tool.execute.before injection.
-          if (isTrellisSubagent(platformInput)) {
-            debugLog("workflow-state", "Skipping trellis subagent turn:", platformInput?.agent)
-            return
-          }
-          if (process.env.TRELLIS_HOOKS === "0" || process.env.TRELLIS_DISABLE_HOOKS === "1") {
-            return
-          }
-          if (process.env.OPENCODE_NON_INTERACTIVE === "1") {
-            return
-          }
-          if (!ctx.isTrellisProject()) {
-            return
-          }
-
-          const originalText = latestUserPromptText(messages)
-
-          // Escape hatch (issue #427): user prompt contains the skip keyword
-          // as a standalone word — emit nothing for this turn only.
-          if (promptHasSkipKeyword(originalText, readSkipKeyword(directory))) {
-            debugLog("workflow-state", "Skipping turn: skip keyword present in prompt")
-            return
-          }
-
-          const templates = loadBreadcrumbs(directory)
-          const task = getActiveTask(ctx, platformInput)
-          const breadcrumb = task
-            ? buildBreadcrumb(task.id, task.status, templates, task.source)
-            : buildBreadcrumb(null, "no_task", templates)
-
-          prependEphemeralText(messages, breadcrumb)
-          debugLog(
-            "workflow-state",
-            "Injected breadcrumb for task",
-            task ? task.id : "none",
-            "status",
-            task ? task.status : "no_task",
-          )
+          handleWorkflowStateInjection(ctx, directory, messages, platformInput)
         } catch (error) {
           debugLog(
             "workflow-state",
@@ -236,5 +214,6 @@ export default async ({ directory }) => {
           )
         }
       },
-  }
+    }
+  },
 }

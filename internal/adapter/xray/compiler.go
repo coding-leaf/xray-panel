@@ -322,12 +322,7 @@ func (c *XrayCompiler) compileInbound(inb *domain.Inbound, users []domain.User) 
 			return nil, err
 		}
 		if clients != nil {
-			rawClients, hasRaw := settingsMap["clients"].([]interface{})
-			if hasRaw && len(rawClients) > 0 && len(filterActiveUsersForInbound(inb, users)) == 0 {
-				// 保留原本存在于 settingsJson 的 clients
-			} else {
-				settingsMap["clients"] = clients
-			}
+			settingsMap["clients"] = clients
 		}
 		adapter.DecorateSettings(inb, settingsMap)
 	}

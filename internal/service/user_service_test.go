@@ -982,7 +982,7 @@ func TestUserService_ZeroDowntimeAndAutoRestore(t *testing.T) {
 		}
 	})
 
-	t.Run("DeleteUser removes from Xray and config file before deleting from DB", func(t *testing.T) {
+	t.Run("DeleteUser removes from Xray and DB then syncs file with Saga rollback on config sync failure", func(t *testing.T) {
 		repo := &mockUserRepo{
 			users: []domain.User{
 				{
@@ -1000,7 +1000,7 @@ func TestUserService_ZeroDowntimeAndAutoRestore(t *testing.T) {
 		}
 		svc := NewUserService(repo, nil, nil, mockXray, mockCfg)
 
-		// 写盘失败时，删除操作应当被中断，DB 记录不被删除
+		// 写盘失败时，删除操作应当被中断并触发 Saga 补偿恢复 DB 和 Xray 节点
 		err := svc.DeleteUser(context.Background(), 30)
 		if err == nil {
 			t.Fatalf("expected DeleteUser to fail when config sync fails")
@@ -1008,7 +1008,18 @@ func TestUserService_ZeroDowntimeAndAutoRestore(t *testing.T) {
 
 		dbUser, _ := repo.GetByID(context.Background(), 30)
 		if dbUser == nil {
-			t.Fatalf("expected user to remain in DB when config file sync fails")
+			t.Fatalf("expected user to be restored in DB by Saga rollback when config file sync fails")
+		}
+
+		calls := mockXray.GetCalls()
+		foundAdd := false
+		for _, c := range calls {
+			if c.op == "add" && c.tag == "vless-in" && c.email == "delete_test@test.com" {
+				foundAdd = true
+			}
+		}
+		if !foundAdd {
+			t.Fatalf("expected user to be re-added to Xray on delete rollback, got calls: %+v", calls)
 		}
 	})
 

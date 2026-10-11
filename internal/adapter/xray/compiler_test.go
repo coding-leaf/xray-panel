@@ -710,6 +710,35 @@ func TestCompiler_ShadowsocksMethodBuild(t *testing.T) {
 			t.Fatal("Expected non-nil inbounds")
 		}
 	})
+
+	t.Run("Inbound with settingsJson clients cleared when users become empty", func(t *testing.T) {
+		// 模拟 Inbound 历史 SettingsJSON 中曾经持久化过残留 clients 的场景
+		inbounds := []domain.Inbound{
+			{
+				Tag:          "vless-residual",
+				Listen:       "0.0.0.0",
+				Port:         4433,
+				Protocol:     "vless",
+				SettingsJSON: `{"clients":[{"id":"old-uuid-1","flow":"xtls-rprx-vision","email":"old@test.com"}]}`,
+				Enabled:      true,
+			},
+		}
+		// 活跃用户为空（用户被删除）
+		users := []domain.User{}
+		cfg, err := c.Compile(inbounds, []domain.Outbound{{Tag: "direct", Protocol: "freedom"}}, nil, nil, users)
+		if err != nil {
+			t.Fatalf("Compile failed: %v", err)
+		}
+		var sm map[string]interface{}
+		_ = json.Unmarshal(cfg.Inbounds[0].Settings, &sm)
+		clients, ok := sm["clients"].([]interface{})
+		if !ok {
+			t.Fatalf("expected clients array, got %v", sm["clients"])
+		}
+		if len(clients) != 0 {
+			t.Fatalf("expected 0 clients when active users empty, got %d residual clients", len(clients))
+		}
+	})
 }
 
 func TestCompiler_SubRoute_UserIsolation(t *testing.T) {

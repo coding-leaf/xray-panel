@@ -127,6 +127,18 @@ func main() {
 	}
 	if err := configSvc.RecompileAndApply(bgCtx, "面板启动自动同步与编译配置"); err != nil {
 		slog.Error("CRITICAL: failed to compile or reload xray config on startup", slog.Any("error", err))
+		// 尝试从最近快照回滚降级
+		snapshots, sErr := configSvc.ListSnapshots(bgCtx, 1)
+		if sErr == nil && len(snapshots) > 0 {
+			slog.Warn("attempting fallback to last known good config snapshot", slog.Uint64("snapshot_id", uint64(snapshots[0].ID)))
+			if rErr := configSvc.RollbackSnapshot(bgCtx, snapshots[0].ID); rErr != nil {
+				slog.Error("DEGRADED: fallback snapshot rollback also failed, running in degraded state", slog.Any("error", rErr))
+			} else {
+				slog.Info("successfully recovered startup config from snapshot fallback", slog.Uint64("snapshot_id", uint64(snapshots[0].ID)))
+			}
+		} else {
+			slog.Error("DEGRADED: no fallback snapshot available, running in degraded state")
+		}
 	}
 
 	userSvc := service.NewUserService(userRepo, inboundRepo, trafficLogRepo, xrayManager, configSvc)

@@ -68,6 +68,13 @@ func isXrayUserNotFoundError(err error) bool {
 	return strings.Contains(msg, "not found") || strings.Contains(msg, "not exist")
 }
 
+func createCompensatingContext(ctx context.Context, timeout time.Duration) (context.Context, context.CancelFunc) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	return context.WithTimeout(context.WithoutCancel(ctx), timeout)
+}
+
 func (s *UserService) CreateUser(ctx context.Context, dto CreateUserDTO) (*domain.User, error) {
 	existing, err := s.userRepo.GetByEmail(ctx, dto.Email)
 	if err != nil && !errors.Is(err, domain.ErrNotFound) {
@@ -125,12 +132,14 @@ func (s *UserService) CreateUser(ctx context.Context, dto CreateUserDTO) (*domai
 		for _, t := range tags {
 			if err := s.xrayManager.AddUser(ctx, t, user); err != nil {
 				// 触发 Saga 反向补偿：逆序撤销已注入节点并清理 DB 孤儿记录
+				compCtx, cancel := createCompensatingContext(ctx, 15*time.Second)
+				defer cancel()
 				for i := len(addedTags) - 1; i >= 0; i-- {
-					if rErr := s.xrayManager.RemoveUser(ctx, addedTags[i], user.Email); rErr != nil && !isXrayUserNotFoundError(rErr) {
+					if rErr := s.xrayManager.RemoveUser(compCtx, addedTags[i], user.Email); rErr != nil && !isXrayUserNotFoundError(rErr) {
 						slog.Warn("compensation: failed to remove user from xray inbound", slog.String("inbound", addedTags[i]), slog.String("email", user.Email), slog.Any("error", rErr))
 					}
 				}
-				if dErr := s.userRepo.Delete(ctx, user.ID); dErr != nil {
+				if dErr := s.userRepo.Delete(compCtx, user.ID); dErr != nil {
 					slog.Error("compensation: failed to delete orphan user from database", slog.Uint64("user_id", uint64(user.ID)), slog.Any("error", dErr))
 				}
 				return nil, fmt.Errorf("add user to xray inbound %s failed: %w", t, err)
@@ -143,14 +152,16 @@ func (s *UserService) CreateUser(ctx context.Context, dto CreateUserDTO) (*domai
 	if s.configSvc != nil {
 		if err := s.configSvc.SyncUserToFile(ctx, tags, user, false); err != nil {
 			// 触发 Saga 反向补偿：清理全部已加入节点与 DB 孤儿记录
+			compCtx, cancel := createCompensatingContext(ctx, 15*time.Second)
+			defer cancel()
 			if s.xrayManager != nil {
 				for i := len(addedTags) - 1; i >= 0; i-- {
-					if rErr := s.xrayManager.RemoveUser(ctx, addedTags[i], user.Email); rErr != nil && !isXrayUserNotFoundError(rErr) {
+					if rErr := s.xrayManager.RemoveUser(compCtx, addedTags[i], user.Email); rErr != nil && !isXrayUserNotFoundError(rErr) {
 						slog.Warn("compensation: failed to remove user from xray inbound", slog.String("inbound", addedTags[i]), slog.String("email", user.Email), slog.Any("error", rErr))
 					}
 				}
 			}
-			if dErr := s.userRepo.Delete(ctx, user.ID); dErr != nil {
+			if dErr := s.userRepo.Delete(compCtx, user.ID); dErr != nil {
 				slog.Error("compensation: failed to delete orphan user from database", slog.Uint64("user_id", uint64(user.ID)), slog.Any("error", dErr))
 			}
 			return nil, fmt.Errorf("sync user to config file failed: %w", err)
@@ -206,24 +217,26 @@ func (s *UserService) UpdateUser(ctx context.Context, id uint, dto domain.Update
 
 	// 定义 Saga 补偿逻辑：恢复 Xray 内存至旧快照并回滚数据库
 	rollback := func() {
+		compCtx, cancel := createCompensatingContext(ctx, 15*time.Second)
+		defer cancel()
 		if s.xrayManager != nil {
 			for _, t := range newTags {
-				if err := s.xrayManager.RemoveUser(ctx, t, updatedUser.Email); err != nil && !isXrayUserNotFoundError(err) {
+				if err := s.xrayManager.RemoveUser(compCtx, t, updatedUser.Email); err != nil && !isXrayUserNotFoundError(err) {
 					slog.Warn("compensation: failed to remove user from new inbound during update rollback", slog.String("inbound", t), slog.String("email", updatedUser.Email), slog.Any("error", err))
 				}
 			}
 			if oldSnapshot.IsActive() {
 				for _, t := range oldTags {
-					if err := s.xrayManager.RemoveUser(ctx, t, oldSnapshot.Email); err != nil && !isXrayUserNotFoundError(err) {
+					if err := s.xrayManager.RemoveUser(compCtx, t, oldSnapshot.Email); err != nil && !isXrayUserNotFoundError(err) {
 						slog.Warn("compensation: failed to remove user before restoring snapshot", slog.String("inbound", t), slog.String("email", oldSnapshot.Email), slog.Any("error", err))
 					}
-					if err := s.xrayManager.AddUser(ctx, t, &oldSnapshot); err != nil {
+					if err := s.xrayManager.AddUser(compCtx, t, &oldSnapshot); err != nil {
 						slog.Error("compensation: failed to re-add old snapshot to xray", slog.String("inbound", t), slog.String("email", oldSnapshot.Email), slog.Any("error", err))
 					}
 				}
 			}
 		}
-		if err := s.userRepo.Update(ctx, &oldSnapshot); err != nil {
+		if err := s.userRepo.Update(compCtx, &oldSnapshot); err != nil {
 			slog.Error("compensation: failed to restore user snapshot in db during update rollback", slog.Uint64("user_id", uint64(oldSnapshot.ID)), slog.Any("error", err))
 		}
 	}
@@ -286,27 +299,55 @@ func (s *UserService) DeleteUser(ctx context.Context, id uint) error {
 		return domain.ErrNotFound
 	}
 
-	// 1. gRPC 热移除该用户在所有节点的内存状态（具备幂等容忍性，非致命错误不阻断）
-	if s.xrayManager != nil {
-		for _, t := range user.GetInboundTagList() {
-			if err := s.xrayManager.RemoveUser(ctx, t, user.Email); err != nil {
-				if !isXrayUserNotFoundError(err) {
-					return fmt.Errorf("remove user from xray inbound %s failed: %w", t, err)
+	oldSnapshot := *user
+	tags := user.GetInboundTagList()
+
+	// 1. gRPC 热移除该用户在所有节点的内存状态，记录 removedTags 用于失败回滚
+	removedTags := make([]string, 0, len(tags))
+	rollbackXray := func() {
+		compCtx, cancel := createCompensatingContext(ctx, 15*time.Second)
+		defer cancel()
+		if s.xrayManager != nil && oldSnapshot.IsActive() {
+			for _, t := range removedTags {
+				if err := s.xrayManager.AddUser(compCtx, t, &oldSnapshot); err != nil {
+					slog.Error("compensation: failed to re-add user to xray during delete rollback",
+						slog.String("inbound", t), slog.String("email", oldSnapshot.Email), slog.Any("error", err))
 				}
 			}
 		}
 	}
 
-	// 2. 从物理 config.json 移除（若落盘失败则阻断，此时数据库未被破坏）
-	if s.configSvc != nil {
-		if err := s.configSvc.SyncUserToFile(ctx, nil, user, true); err != nil {
-			return fmt.Errorf("sync delete user to config file failed: %w", err)
+	if s.xrayManager != nil {
+		for _, t := range tags {
+			if err := s.xrayManager.RemoveUser(ctx, t, user.Email); err != nil {
+				if !isXrayUserNotFoundError(err) {
+					rollbackXray()
+					return fmt.Errorf("remove user from xray inbound %s failed: %w", t, err)
+				}
+			}
+			removedTags = append(removedTags, t)
 		}
 	}
 
-	// 3. 从数据库彻底删除
+	// 2. 从数据库删除用户记录（保留内存快照用于写盘失败补偿）
 	if err := s.userRepo.Delete(ctx, id); err != nil {
+		rollbackXray()
 		return fmt.Errorf("delete user from db failed: %w", err)
+	}
+
+	// 3. 从物理 config.json 移除写盘（此时 DB 中已无该用户，重新编译出的配置必然干净）
+	if s.configSvc != nil {
+		if err := s.configSvc.SyncUserToFile(ctx, nil, user, true); err != nil {
+			// 触发 Saga 完整反向补偿：恢复数据库记录，并恢复 Xray 内存节点
+			compCtx, cancel := createCompensatingContext(ctx, 15*time.Second)
+			defer cancel()
+			if cErr := s.userRepo.Create(compCtx, &oldSnapshot); cErr != nil {
+				slog.Error("compensation: failed to restore user in db during delete rollback",
+					slog.Uint64("user_id", uint64(oldSnapshot.ID)), slog.String("email", oldSnapshot.Email), slog.Any("error", cErr))
+			}
+			rollbackXray()
+			return fmt.Errorf("sync delete user to config file failed: %w", err)
+		}
 	}
 
 	// 4. 清理内存运行时速率追踪器，杜绝幽灵对象内存泄漏
@@ -406,18 +447,20 @@ func (s *UserService) ResetSubToken(ctx context.Context, id uint) (*domain.User,
 
 	// 定义 Saga 补偿逻辑：恢复原凭证到数据库与 Xray 挂载
 	rollback := func() {
+		compCtx, cancel := createCompensatingContext(ctx, 15*time.Second)
+		defer cancel()
 		user.SubToken = oldToken
 		user.UUID = oldUUID
-		if err := s.userRepo.Update(ctx, user); err != nil {
+		if err := s.userRepo.Update(compCtx, user); err != nil {
 			slog.Error("compensation: failed to restore original credentials in db", slog.Uint64("user_id", uint64(user.ID)), slog.Any("error", err))
 		}
 
 		if s.xrayManager != nil && oldSnapshot.IsActive() {
 			for _, t := range inboundTags {
-				if err := s.xrayManager.RemoveUser(ctx, t, user.Email); err != nil && !isXrayUserNotFoundError(err) {
+				if err := s.xrayManager.RemoveUser(compCtx, t, user.Email); err != nil && !isXrayUserNotFoundError(err) {
 					slog.Warn("compensation: failed to remove user before restoring credentials in xray", slog.String("inbound", t), slog.String("email", user.Email), slog.Any("error", err))
 				}
-				if err := s.xrayManager.AddUser(ctx, t, &oldSnapshot); err != nil {
+				if err := s.xrayManager.AddUser(compCtx, t, &oldSnapshot); err != nil {
 					slog.Error("compensation: failed to re-add user with original credentials in xray", slog.String("inbound", t), slog.String("email", oldSnapshot.Email), slog.Any("error", err))
 				}
 			}

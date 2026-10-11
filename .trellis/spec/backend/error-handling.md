@@ -53,9 +53,19 @@
    - 必须维护错误收集切片，最终通过 `errors.Join(errList...)` 聚合返回，以便交付层感知部分失败明细。
 4. **补偿动作的观测性防线**：
    - 逆向补偿步骤本身如果遇到异常（如网络中断），严禁使用 `_ =` 静默吞掉，必须通过结构化日志（`slog.Warn` / `slog.Error`）记录关联实体 ID、节点标签与底层错误，供运维溯源审计。
+5. **独立超时补偿上下文 (Decoupled Compensating Context)**：
+   - 严禁直接复用外部传入的可能已 Cancel 的 `ctx` 执行补偿动作；
+   - 必须通过 `context.WithoutCancel(ctx)` 派生独立的超时 Context（例如 `context.WithTimeout(context.WithoutCancel(ctx), 15*time.Second)`），防止因客户端超时或主动掐断连接导致补偿执行中断，留下脏状态。
+6. **删除操作持久化顺序与防复活原则 (Deletion Sequence & Anti-Resurrection)**：
+   - 删除状态机必须严格遵循：`① Xray 运行态剔除 ➔ ② DB 记录删除 ➔ ③ 文件静态编译落盘 (SyncUserToFile) ➔ ④ 运行时追踪清理`；
+   - 绝不能在 DB 删除前执行依赖 DB 查询的全局配置重新编译（`SaveConfigQuietly`），否则被删记录仍会被读取并写回物理文件，在下次冷重启（`SyncFromFile`）时幽灵复活；
+   - 若在第 ③ 步落盘阶段发生 I/O 故障，必须触发完整 Saga 反向补偿：使用独立上下文向 DB 重新写回旧快照，并向 Xray 重新注入已剔除节点，返回错误并阻断。
+7. **编译器 Clients 零残留原则 (Zero Clients Retention)**：
+   - 当入站由面板适配器托管且活跃用户数清零时，编译器输出的 `clients` 必须显式置为空切片（`[]`），严禁回退保留历史 `settingsJson` 中的废弃凭证。
 
+---
 
-- **不存在全局错误码体系**：代码中**没有** `{"code": 40001, "message": "..."}` 这类统一错误码
+## 5. HTTP 错误契约边界
   封装，也没有 `code` 常量表。错误契约就是「HTTP 状态码 + `{"error": "..."}`」。
 - **唯一的 `{code, msg, data}` 信封是 Reality 专用**：
   `InboundHandler` 的 Reality 状态/检查接口返回

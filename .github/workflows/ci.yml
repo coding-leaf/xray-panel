@@ -22,7 +22,7 @@ jobs:
 
       - name: Install Xray-core for Integration Tests
         run: |
-          XRAY_VER="v24.9.30"
+          XRAY_VER="v25.1.30"
           mkdir -p bin
           curl -sSL "https://github.com/XTLS/Xray-core/releases/download/${XRAY_VER}/Xray-linux-64.zip" -o xray.zip
           unzip -q xray.zip -d bin/

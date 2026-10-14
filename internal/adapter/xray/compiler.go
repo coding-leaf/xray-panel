@@ -376,6 +376,19 @@ func (c *XrayCompiler) compileOutbound(ob *domain.Outbound) (*XrayOutbound, erro
 		settingsStr = "{}"
 	}
 
+	// 针对 VLESS 出站清洗顶层 settings.flow（Xray 客户端 VLessOutboundConfig 仅支持 "" 或有效 flow，杜绝 "none"）
+	if strings.EqualFold(ob.Protocol, "vless") && settingsStr != "{}" {
+		var sm map[string]interface{}
+		if err := json.Unmarshal([]byte(settingsStr), &sm); err == nil {
+			if f, ok := sm["flow"].(string); ok && !strings.EqualFold(f, "xtls-rprx-vision") && !strings.EqualFold(f, "xtls-rprx-vision-udp443") {
+				delete(sm, "flow")
+				if b, err := json.Marshal(sm); err == nil {
+					settingsStr = string(b)
+				}
+			}
+		}
+	}
+
 	return &XrayOutbound{
 		Tag:            ob.Tag,
 		Protocol:       ob.Protocol,

@@ -159,6 +159,14 @@ func (a *VLESSAdapter) DecorateSettings(inbound *domain.Inbound, settingsMap map
 	if settingsMap["decryption"] == nil {
 		settingsMap["decryption"] = "none"
 	}
+	// Xray-core VLESS inbound settings only supports "" or "xtls-rprx-vision" (vless.XRV).
+	// Values like "none" will cause Xray-core to reject with:
+	// VLESS "settings.flow" doesn't support "none" in this version
+	if flow, ok := settingsMap["flow"].(string); ok {
+		if !strings.EqualFold(flow, "xtls-rprx-vision") {
+			delete(settingsMap, "flow")
+		}
+	}
 }
 
 // VMessAdapter VMess 协议适配器

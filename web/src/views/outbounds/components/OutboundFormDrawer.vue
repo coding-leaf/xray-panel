@@ -267,7 +267,7 @@
             >
               <option value="xtls-rprx-vision">xtls-rprx-vision (XTLS Vision 极速流控 - 推荐)</option>
               <option value="xtls-rprx-vision-udp443">xtls-rprx-vision-udp443</option>
-              <option value="">none (无流控 - 适用于 XHTTP / gRPC / WS 等)</option>
+              <option value="none">none (无流控 - 适用于 XHTTP / gRPC / WS 等)</option>
             </select>
           </FormField>
         </div>
@@ -436,9 +436,9 @@ const onOutboundProtocolChange = () => {
     form.value.vlessFlow = ''
   } else if (form.value.protocol === 'vless') {
     if (form.value.streamNetwork === 'tcp' && ['reality', 'tls'].includes(form.value.streamSecurity)) {
-      form.value.vlessFlow = 'xtls-rprx-vision'
+      if (!form.value.vlessFlow) form.value.vlessFlow = 'xtls-rprx-vision'
     } else {
-      form.value.vlessFlow = ''
+      form.value.vlessFlow = 'none'
     }
   }
 }
@@ -448,7 +448,7 @@ const onOutboundSecurityChange = () => {
     if (form.value.streamNetwork === 'tcp' && ['reality', 'tls'].includes(form.value.streamSecurity)) {
       if (!form.value.vlessFlow) form.value.vlessFlow = 'xtls-rprx-vision'
     } else {
-      form.value.vlessFlow = ''
+      form.value.vlessFlow = 'none'
     }
   }
 }
@@ -462,6 +462,13 @@ const onOutboundNetworkChange = () => {
   }
   if (!['tcp', 'xhttp', 'grpc'].includes(form.value.streamNetwork) && form.value.streamSecurity === 'reality') {
     form.value.streamSecurity = 'tls'
+  }
+  if (form.value.protocol === 'vless') {
+    if (form.value.streamNetwork === 'tcp' && ['reality', 'tls'].includes(form.value.streamSecurity)) {
+      if (!form.value.vlessFlow) form.value.vlessFlow = 'xtls-rprx-vision'
+    } else {
+      form.value.vlessFlow = 'none'
+    }
   }
 }
 

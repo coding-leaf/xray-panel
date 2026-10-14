@@ -201,7 +201,13 @@ export function sanitizeInboundPayload(raw: InboundFormData): InboundFormData {
     clean.fallbackDest = raw.fallbackDest || '80'
     clean.fallbackXver = raw.fallbackXver || 0
     if (clean.network === 'tcp' && ['reality', 'tls'].includes(clean.security)) {
-      clean.vlessFlow = raw.vlessFlow || 'xtls-rprx-vision'
+      if (raw.vlessFlow === 'none' || raw.vlessFlow === '') {
+        clean.vlessFlow = 'none'
+      } else if (raw.vlessFlow) {
+        clean.vlessFlow = raw.vlessFlow
+      } else {
+        clean.vlessFlow = 'xtls-rprx-vision'
+      }
     } else {
       clean.vlessFlow = ''
     }
@@ -398,7 +404,7 @@ export function buildSettingsJSON(clean: InboundFormData, usersList: any[] = [])
         email: userObj.email,
         level: 0,
       }
-      if (flowVal) {
+      if (flowVal && flowVal !== 'none') {
         c.flow = flowVal
       }
       clients.push(c)

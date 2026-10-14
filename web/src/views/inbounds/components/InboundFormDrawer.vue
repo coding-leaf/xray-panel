@@ -137,7 +137,7 @@
           >
             <option v-if="form.network === 'tcp' && ['reality', 'tls'].includes(form.security)" value="xtls-rprx-vision">xtls-rprx-vision (XTLS Vision 极速流控 - 推荐)</option>
             <option v-if="form.network === 'tcp' && ['reality', 'tls'].includes(form.security)" value="xtls-rprx-vision-udp443">xtls-rprx-vision-udp443</option>
-            <option value="">none (无流控 - 适用 XHTTP / gRPC / WS 等)</option>
+            <option value="none">none (无流控 - 适用 XHTTP / gRPC / WS 等)</option>
           </select>
         </div>
 
@@ -736,7 +736,7 @@ const onNetworkChange = () => {
     form.value.security = 'tls'
   }
   if (form.value.network !== 'tcp') {
-    form.value.vlessFlow = ''
+    form.value.vlessFlow = 'none'
   } else if (form.value.protocol === 'vless' && ['reality', 'tls'].includes(form.value.security) && !form.value.vlessFlow) {
     form.value.vlessFlow = 'xtls-rprx-vision'
   }
@@ -747,7 +747,7 @@ const onSecurityChange = () => {
     if (form.value.network === 'tcp' && ['reality', 'tls'].includes(form.value.security)) {
       if (!form.value.vlessFlow) form.value.vlessFlow = 'xtls-rprx-vision'
     } else {
-      form.value.vlessFlow = ''
+      form.value.vlessFlow = 'none'
     }
   }
 }
@@ -772,9 +772,9 @@ const onProtocolChange = () => {
     form.value.vlessFlow = ''
   } else if (form.value.protocol === 'vless') {
     if (form.value.network === 'tcp' && ['reality', 'tls'].includes(form.value.security)) {
-      form.value.vlessFlow = 'xtls-rprx-vision'
+      if (!form.value.vlessFlow || form.value.vlessFlow === 'none') form.value.vlessFlow = 'xtls-rprx-vision'
     } else {
-      form.value.vlessFlow = ''
+      form.value.vlessFlow = 'none'
     }
   } else {
     form.value.vlessFlow = ''
@@ -919,7 +919,14 @@ const initFormData = () => {
     } catch (e) {}
 
     const isTcp = (stream.network || inb.protocol === 'vless' ? (stream.network || 'tcp') : 'tcp') === 'tcp'
-    form.value.vlessFlow = isTcp ? (settings.flow !== undefined ? settings.flow : (inb.protocol === 'vless' ? 'xtls-rprx-vision' : '')) : ''
+    const isTlsOrReality = ['reality', 'tls'].includes(stream.security || 'none')
+    if (settings.flow !== undefined) {
+      form.value.vlessFlow = (settings.flow === '' || settings.flow === 'none') ? 'none' : settings.flow
+    } else if (inb.protocol === 'vless') {
+      form.value.vlessFlow = (isTcp && isTlsOrReality) ? 'xtls-rprx-vision' : 'none'
+    } else {
+      form.value.vlessFlow = 'none'
+    }
 
     const assignedEmails: string[] = []
     if (settings.clients?.length > 0) {
@@ -987,17 +994,7 @@ const initFormData = () => {
 
     form.value.network = stream.network || 'tcp'
     form.value.security = stream.security || 'none'
-    if (['socks', 'http', 'dokodemo-door'].includes(inb.protocol)) {
-      form.value.network = 'tcp'
-      form.value.security = 'none'
-      form.value.vlessFlow = ''
-    } else if (inb.protocol === 'shadowsocks') {
-      form.value.security = 'none'
-      form.value.vlessFlow = ''
-    } else if (inb.protocol === 'vmess' && form.value.security === 'reality') {
-      form.value.security = 'tls'
-      form.value.vlessFlow = ''
-    }
+    // form.value.vlessFlow already initialized above based on settings.flow and isTcp
     if (stream.xhttpSettings) {
       form.value.xhttpPath = stream.xhttpSettings.path || ''
       form.value.xhttpMode = stream.xhttpSettings.mode || 'auto'

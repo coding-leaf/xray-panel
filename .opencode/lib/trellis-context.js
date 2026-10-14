@@ -528,6 +528,7 @@ export class TrellisContext {
         timeout: 10000,
         encoding: "utf-8",
         stdio: ["pipe", "pipe", "pipe"],
+        windowsHide: true,
         env: {
           ...process.env,
           ...(contextKey ? { TRELLIS_CONTEXT_ID: contextKey } : {}),

@@ -4,6 +4,20 @@
 
 ---
 
+## v2.6.4 (2026-10) - 修复入站出站 VLESS TCP 流控关闭持久化、回显及 Xray 内核协议对齐
+- **流控状态持久化与回显准确性**：
+  - 入站抽屉流控选项规范化为 `none`，彻底移除表单数据清洗中将空流控强制短路覆盖为 `xtls-rprx-vision` 的历史兜底逻辑；
+  - 修复重新打开抽屉与协议/传输层联动（`onNetworkChange`、`onSecurityChange`）时丢失关闭状态并意外开启 Vision 的缺陷；
+  - 出站表单（`populateOutboundForm`、`buildSettingsJSON`）同步对齐支持稳定关闭与持久化；
+- **Xray-core 原生协议规范严格对齐与报错防御**：
+  - 修复关闭流控时将内部标识 `"none"` 泄露至 Xray 导致 `VLESS "settings.flow" doesn't support "none"` 的核心校验拦截问题；
+  - 严格遵循官方规范：在生成 Xray 核心入站/出站配置时，自动剥离非 Vision 的非法流控字段；
+  - 订阅转换与客户端节点导出（`node_converter.go`）严格对齐，关闭流控时不生成 `flow` 参数，不被用户默认 flow 意外覆盖；
+- **部署脚本增强**：
+  - Windows 原生部署脚本 `deploy.ps1` 与通用脚本 `deploy.sh` 升级支持 3 台节点集群部署（`vps-jp`, `vps-us`, `vps-us2`）。
+
+---
+
 ## v2.6.3 (2026-10) - 用户生命周期三态一致性与Saga反向补偿、启动容灾与质量门禁加固
 - **用户 CRUD 三态一致性与 Saga 反向补偿机制 (Saga Compensation)**：
   - 彻底清除 `UserService` 中对 `xrayManager` 与 `configSvc` 的静默吞错（`_ =`），异常显式向上层暴露并包裹精准阶段上下文（`%w`）；

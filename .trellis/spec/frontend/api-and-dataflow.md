@@ -78,7 +78,7 @@ View  ──►  web/src/api/index.ts (axios 单例)  ──┬──►  /api/*
    - **Trojan**: 客户端认证凭据必须为 `{ password, email, level: 0 }`，严禁输出 `id`；
    - **Shadowsocks / SS2022**: 必须提供合法加密算法 (`method`)，单用户填密码或结合关联用户生成 Sub-Key clients；
    - **VMess / Socks / HTTP**: 严禁选择 `REALITY` 伪装；
-   - **Flow 流控 (xtls-rprx-vision)**: 严格限定仅在 `vless` + `tcp` + (`reality` 或 `tls`) 下有效并允许输出，其他所有协议一律清洗为空。
+   - **Flow 流控 (xtls-rprx-vision / none)**: 严格限定仅在 `vless` + `tcp` + (`reality` 或 `tls`) 下生效。当用户主动关闭流控或在非支持传输协议下时，前端状态与持久化配置 (`settings.flow`) 显式规范为 `'none'`，确保抽屉回显稳定一致；在向 Xray-core 核心下发配置（入站 `clients[].flow` 与出站 `users[0].flow`）以及导出客户端节点订阅链接时，必须将 `'none'` 清洗过滤为省略或空字符串，杜绝向 Xray 核心注入非法流控参数或在客户端链接中产生 `flow=none` 错误参数。
 
 2. **出站协议 (Outbounds)**:
    - **freedom / blackhole / wireguard / socks / http / dns**: 均为无传输安全层出站，`streamSettings` 必须清空为 `""`，禁止附带任何 Reality / TLS / XHTTP 参数；

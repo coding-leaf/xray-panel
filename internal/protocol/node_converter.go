@@ -247,11 +247,11 @@ func InboundToNodeConfig(inbound *domain.Inbound, user *domain.User, hostDomain 
 			} else if customFlow != "" {
 				flow = customFlow
 			} else {
-				flow = "xtls-rprx-vision"
-			}
-
-			if flow == "" && user.Flow != "" {
-				flow = user.Flow
+				if user.Flow != "" && !strings.EqualFold(user.Flow, "none") {
+					flow = user.Flow
+				} else if user.Flow == "" {
+					flow = "xtls-rprx-vision"
+				}
 			}
 		}
 		if flow != "" {

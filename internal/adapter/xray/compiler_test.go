@@ -677,6 +677,9 @@ func TestCompiler_ShadowsocksMethodBuild(t *testing.T) {
 		}
 		var sm map[string]interface{}
 		_ = json.Unmarshal(cfg.Inbounds[0].Settings, &sm)
+		if sm["flow"] != nil {
+			t.Errorf("expected settings.flow to be stripped for xray compatibility, got %v", sm["flow"])
+		}
 		clients := sm["clients"].([]interface{})
 		c0 := clients[0].(map[string]interface{})
 		if c0["flow"] != nil && c0["flow"] != "" {

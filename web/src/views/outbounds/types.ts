@@ -147,7 +147,14 @@ export function populateOutboundForm(ob: OutboundItem): OutboundFormState {
         const u = s.vnext[0].users[0]
         form.proxyPassword = u.id || u.password || ''
         if (ob.protocol === 'vless') {
-          form.vlessFlow = u.flow !== undefined ? u.flow : 'xtls-rprx-vision'
+          const flowCandidate = s.flow !== undefined ? s.flow : u.flow
+          if (flowCandidate !== undefined) {
+            form.vlessFlow = flowCandidate === '' || flowCandidate === 'none' ? 'none' : flowCandidate
+          } else {
+            const isTcp = form.streamNetwork === 'tcp'
+            const isTlsOrReality = ['reality', 'tls'].includes(form.streamSecurity)
+            form.vlessFlow = (isTcp && isTlsOrReality) ? 'xtls-rprx-vision' : 'none'
+          }
         } else if (ob.protocol === 'vmess') {
           form.vmessSecurity = u.security || 'auto'
           form.vmessAlterId = u.alterId || 0
@@ -208,14 +215,17 @@ export function buildSettingsJSON(form: OutboundFormState): string {
   } else if (form.protocol === 'vless') {
     const isTcp = form.streamNetwork === 'tcp'
     const isTlsOrReality = ['reality', 'tls'].includes(form.streamSecurity)
+    const flowVal = (isTcp && isTlsOrReality) ? (form.vlessFlow || '') : ''
     const userObj: Record<string, any> = {
       id: form.proxyPassword,
       encryption: 'none',
     }
-    if (isTcp && isTlsOrReality && form.vlessFlow) {
-      userObj.flow = form.vlessFlow
+    if (flowVal && flowVal !== 'none') {
+      userObj.flow = flowVal
+    } else {
+      userObj.flow = ''
     }
-    return JSON.stringify({
+    const settings: Record<string, any> = {
       vnext: [
         {
           address: form.proxyHost,
@@ -223,7 +233,11 @@ export function buildSettingsJSON(form: OutboundFormState): string {
           users: [userObj],
         },
       ],
-    })
+    }
+    if (flowVal) {
+      settings.flow = flowVal
+    }
+    return JSON.stringify(settings)
   } else if (form.protocol === 'vmess') {
     return JSON.stringify({
       vnext: [

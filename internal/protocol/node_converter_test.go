@@ -275,6 +275,76 @@ func TestBuildShareLink_FullParameterParity(t *testing.T) {
 			t.Fatalf("expected ss:// prefix, got %s", link)
 		}
 	})
+
+	t.Run("VLESS TCP REALITY with flow none explicitly disables flow even if user has flow", func(t *testing.T) {
+		inbound := &domain.Inbound{
+			Tag:            "vless-flow-none",
+			Protocol:       "vless",
+			Listen:         "0.0.0.0",
+			Port:           443,
+			ExternalHost:   "example.com",
+			SettingsJSON:   `{"flow":"none"}`,
+			StreamSettings: `{"network":"tcp","security":"reality","realitySettings":{"serverName":"apple.com","shortId":"aabbcc1122","publicKey":"test-pbk"}}`,
+			Remark:         "VLESS None Flow Node",
+			Enabled:        true,
+		}
+		userWithFlow := &domain.User{
+			Email:       "flow-user@example.com",
+			UUID:        "7117295b-4362-0001-a133-b969344dfcd5",
+			InboundTags: "vless-flow-none",
+			Flow:        "xtls-rprx-vision",
+			Enabled:     true,
+		}
+
+		node := protocol.InboundToNodeConfig(inbound, userWithFlow, "", 0)
+		if flow := node.GetParam("flow", ""); flow != "" {
+			t.Errorf("expected empty flow when inbound sets flow none, got: %s", flow)
+		}
+
+		link := protocol.BuildShareLink(inbound, userWithFlow, "", 0)
+		u, err := url.Parse(link)
+		if err != nil {
+			t.Fatalf("failed to parse share link: %v", err)
+		}
+		if qFlow := u.Query().Get("flow"); qFlow != "" {
+			t.Errorf("expected share link flow query param to be empty, got: %s", qFlow)
+		}
+	})
+
+	t.Run("VLESS TCP REALITY with user flow none also results in empty flow", func(t *testing.T) {
+		inbound := &domain.Inbound{
+			Tag:            "vless-no-inbound-flow",
+			Protocol:       "vless",
+			Listen:         "0.0.0.0",
+			Port:           443,
+			ExternalHost:   "example.com",
+			SettingsJSON:   `{}`,
+			StreamSettings: `{"network":"tcp","security":"reality","realitySettings":{"serverName":"apple.com","shortId":"aabbcc1122","publicKey":"test-pbk"}}`,
+			Remark:         "VLESS Node",
+			Enabled:        true,
+		}
+		userNoneFlow := &domain.User{
+			Email:       "user-none@example.com",
+			UUID:        "7117295b-4362-0001-a133-b969344dfcd6",
+			InboundTags: "vless-no-inbound-flow",
+			Flow:        "none",
+			Enabled:     true,
+		}
+
+		node := protocol.InboundToNodeConfig(inbound, userNoneFlow, "", 0)
+		if flow := node.GetParam("flow", ""); flow != "" {
+			t.Errorf("expected empty flow when user sets flow none, got: %s", flow)
+		}
+
+		link := protocol.BuildShareLink(inbound, userNoneFlow, "", 0)
+		u, err := url.Parse(link)
+		if err != nil {
+			t.Fatalf("failed to parse share link: %v", err)
+		}
+		if qFlow := u.Query().Get("flow"); qFlow != "" {
+			t.Errorf("expected share link flow query param to be empty, got: %s", qFlow)
+		}
+	})
 }
 
 func TestInboundsToNodeConfigs_UserIsolation(t *testing.T) {

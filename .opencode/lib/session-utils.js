@@ -128,6 +128,7 @@ function loadTrellisConfig(directory, contextKey = null) {
       timeout: 5000,
       encoding: "utf-8",
       stdio: ["pipe", "pipe", "pipe"],
+      windowsHide: true,
       env: {
         ...process.env,
         ...(contextKey ? { TRELLIS_CONTEXT_ID: contextKey } : {}),
@@ -293,6 +294,7 @@ function runGit(directory, args) {
       timeout: 3000,
       encoding: "utf-8",
       stdio: ["pipe", "pipe", "pipe"],
+      windowsHide: true,
     }).trim()
   } catch {
     return ""

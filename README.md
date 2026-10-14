@@ -1,7 +1,7 @@
 # Xray Decoupled Panel
 
 <p align="center">
-  <img src="https://img.shields.io/badge/Version-v2.6.3-indigo?style=flat-square" alt="Version">
+  <img src="https://img.shields.io/badge/Version-v2.6.4-indigo?style=flat-square" alt="Version">
   <img src="https://img.shields.io/badge/Go-1.26+-00ADD8?style=flat-square&logo=go" alt="Go Version">
   <img src="https://img.shields.io/badge/Vue-3.4+-4FC08D?style=flat-square&logo=vue.js" alt="Vue Version">
   <img src="https://img.shields.io/badge/License-MIT-green.svg?style=flat-square" alt="License">

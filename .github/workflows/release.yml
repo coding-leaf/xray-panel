@@ -85,7 +85,7 @@ jobs:
           mkdir -p dist
           TAG_VERSION="${{ github.ref_name }}"
           if [ -z "$TAG_VERSION" ] || [ "$TAG_VERSION" = "master" ] || [ "$TAG_VERSION" = "main" ]; then
-            TAG_VERSION="v2.6.3"
+            TAG_VERSION="v2.6.4"
           fi
           COMMIT_HASH=$(git rev-parse --short HEAD 2>/dev/null || echo "unknown")
           BUILD_DATE=$(date -u +'%Y-%m-%d_%H:%M:%S')

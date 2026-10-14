@@ -474,3 +474,25 @@
 ### Status
 
 [OK] **Completed**
+
+
+## Session 21: v2.6.4 VLESS流控关闭持久化与Xray协议对齐发布
+<!-- trellis-session: v=2 fp=cf5eab6f908ee085 -->
+
+**Date**: 2026-10-15
+**Task**: v2.6.4 VLESS流控关闭持久化与Xray协议对齐发布
+**Branch**: `master`
+
+### Summary
+
+修复入站与出站VLESS TCP流控关闭持久化、回显及Xray内核协议校验拦截，升级发布v2.6.4
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `2cb9554` | release: v2.6.4 修复入站出站 VLESS TCP 流控关闭持久化、回显及 Xray 协议对齐 |
+
+### Status
+
+[OK] **Completed**

@@ -1,0 +1,4 @@
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "后端并发、KISS 极简规范与错误处理规范"}
+{"file": ".trellis/spec/backend/directory-structure.md", "reason": "后端分层边界 internal/adapter 与 domain 规范"}
+{"file": ".trellis/spec/frontend/components-and-routing.md", "reason": "前端 SFC 约定与 RoutingView 页面规范"}
+{"file": ".trellis/spec/frontend/quality-guidelines.md", "reason": "前端构建门禁与零警告规范"}

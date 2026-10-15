@@ -1,0 +1,2 @@
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "验证编译器极简放权设计与单测覆盖"}
+{"file": ".trellis/spec/frontend/quality-guidelines.md", "reason": "验证前端 Vite 生产构建与类型检查通过"}

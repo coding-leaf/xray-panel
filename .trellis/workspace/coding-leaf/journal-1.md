@@ -562,3 +562,25 @@
 ### Status
 
 [OK] **Completed**
+
+
+## Session 25: v2.6.5 路由单一事实源重构与移动端响应式发布
+<!-- trellis-session: v=2 fp=2b560da5828f50d9 -->
+
+**Date**: 2026-10-15
+**Task**: v2.6.5 路由单一事实源重构与移动端响应式发布
+**Branch**: `master`
+
+### Summary
+
+发布 v2.6.5，完成路由单一事实源重构、跨机节点防截流、把手拖拽与高对比度排位交互，同步更新四处版本号与CI并推送至GitHub
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `225ab79` | release: v2.6.5 路由单一事实源重构、跨机节点防截流、把手拖拽与移动端卡片流响应式 |
+
+### Status
+
+[OK] **Completed**

@@ -8,7 +8,7 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 23
+- **Total Sessions**: 24
 - **Last Active**: 2026-10-15
 <!-- @@@/auto:current-status -->
 
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~542 | Active |
+| `journal-1.md` | ~564 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 24 | 2026-10-15 | 消灭隐式路由两层皮与单一事实源重构 | `593344c` | `master` |
 | 23 | 2026-10-15 | 路由规则拖拽重排与移动端响应式布局优化 | `9412f01` | `master` |
 | 22 | 2026-10-15 | 精细化路由编排与编译器放权支持 | `a613192` | `master` |
 | 21 | 2026-10-15 | v2.6.4 VLESS流控关闭持久化与Xray协议对齐发布 | `2cb9554` | `master` |

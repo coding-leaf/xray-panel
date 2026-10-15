@@ -540,3 +540,25 @@
 ### Status
 
 [OK] **Completed**
+
+
+## Session 24: 消灭隐式路由两层皮与单一事实源重构
+<!-- trellis-session: v=2 fp=868b0dcb6d27475b -->
+
+**Date**: 2026-10-15
+**Task**: 消灭隐式路由两层皮与单一事实源重构
+**Branch**: `master`
+
+### Summary
+
+彻底移除 compiler.go 隐式 Layer 3 追加，确立路由规则单一事实源；新建入站线路默认显式追加至尾部；在 RoutingView 中加回高对比度、适宜尺寸的上下移动箭头按钮与列宽保护
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `593344c` | refactor(routing): 废除编译器隐式追加，确立路由单一事实源并加回高对比度排位箭头 |
+
+### Status
+
+[OK] **Completed**

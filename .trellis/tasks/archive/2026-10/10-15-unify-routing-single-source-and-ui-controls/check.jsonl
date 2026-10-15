@@ -1,0 +1,2 @@
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "验证编译器单一事实源与无隐式追加"}
+{"file": ".trellis/spec/frontend/quality-guidelines.md", "reason": "验证前端组件构建与高对比度按钮样式"}

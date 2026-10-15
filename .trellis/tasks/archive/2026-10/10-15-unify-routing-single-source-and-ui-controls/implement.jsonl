@@ -1,0 +1,4 @@
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "后端编译器中立性与单一事实源规约"}
+{"file": ".trellis/spec/backend/directory-structure.md", "reason": "后端分层 internal/adapter 与 internal/service 规范"}
+{"file": ".trellis/spec/frontend/components-and-routing.md", "reason": "前端 SFC 与高对比度交互组件设计规范"}
+{"file": ".trellis/spec/frontend/quality-guidelines.md", "reason": "前端构建与无警告规范"}

@@ -151,6 +151,10 @@ func (s *ConfigService) SaveConfigQuietly(ctx context.Context, remark string) er
 		}
 		routing = nil
 	}
+	if routing == nil {
+		routing = &domain.RoutingConfig{DomainStrategy: "IPIfNonMatch"}
+	}
+	s.ensureSubRouteRules(routing, inbounds)
 
 	// 4. 读取 DNS
 	dns, err := s.GetDNSConfig(ctx)
@@ -507,6 +511,30 @@ func (s *ConfigService) GetRoutingConfig(ctx context.Context) (*domain.RoutingCo
 		root.Routing.DomainStrategy = "IPIfNonMatch"
 	}
 
+	// 自动过滤内部 api 规则，并对历史遗留堆叠规则进行幂等去重
+	seen := make(map[string]bool)
+	var cleanRules []domain.RoutingRule
+	for _, r := range root.Routing.Rules {
+		if (len(r.InboundTag) > 0 && r.InboundTag[0] == "api") || r.OutboundTag == "api" {
+			continue
+		}
+		keyBytes, _ := json.Marshal(r)
+		key := string(keyBytes)
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		cleanRules = append(cleanRules, r)
+	}
+	root.Routing.Rules = cleanRules
+
+	// 确保所有启用的 SubRoutes 在 routing.Rules 中均有显式规则（若无则默认追加至尾部）
+	if s.inboundRepo != nil {
+		if inbounds, err := s.inboundRepo.ListAll(ctx); err == nil {
+			s.ensureSubRouteRules(&root.Routing, inbounds)
+		}
+	}
+
 	return &root.Routing, nil
 }
 
@@ -515,6 +543,9 @@ func (s *ConfigService) SaveRoutingConfig(ctx context.Context, cfg *domain.Routi
 	if s.inboundRepo != nil {
 		inbounds, _ = s.inboundRepo.ListAll(ctx)
 	}
+	// 确保入站分流线路有默认规则兜底（若完全无匹配则放尾部）
+	s.ensureSubRouteRules(cfg, inbounds)
+
 	outbounds, err := s.ListOutbounds(ctx)
 	if err != nil && !errors.Is(err, domain.ErrNotFound) {
 		return fmt.Errorf("read outbounds failed, abort saving to protect config: %w", err)
@@ -541,6 +572,55 @@ func (s *ConfigService) SaveRoutingConfig(ctx context.Context, cfg *domain.Routi
 		return err
 	}
 	return s.supervisor.Reload(ctx)
+}
+
+func (s *ConfigService) ensureSubRouteRules(routing *domain.RoutingConfig, inbounds []domain.Inbound) {
+	if routing == nil {
+		return
+	}
+	for _, inb := range inbounds {
+		if !inb.Enabled {
+			continue
+		}
+		for _, sr := range inb.GetSubRoutes() {
+			if !sr.Enabled || sr.RouteID <= 0 || sr.OutboundTag == "" {
+				continue
+			}
+			routeIDStr := fmt.Sprintf("%d", sr.RouteID)
+
+			matched := false
+			for _, r := range routing.Rules {
+				if r.VlessRoute == routeIDStr {
+					if len(r.InboundTag) == 0 || sliceContains(r.InboundTag, inb.Tag) {
+						matched = true
+						break
+					}
+				}
+			}
+
+			if !matched {
+				rule := domain.RoutingRule{
+					Type:        "field",
+					InboundTag:  []string{inb.Tag},
+					VlessRoute:  routeIDStr,
+					OutboundTag: sr.OutboundTag,
+				}
+				if len(sr.AllowedUsers) > 0 {
+					rule.User = sr.AllowedUsers
+				}
+				routing.Rules = append(routing.Rules, rule)
+			}
+		}
+	}
+}
+
+func sliceContains(slice []string, val string) bool {
+	for _, s := range slice {
+		if s == val {
+			return true
+		}
+	}
+	return false
 }
 
 // === DNS 设置 (DNS Management) ===

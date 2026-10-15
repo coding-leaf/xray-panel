@@ -1,9 +1,9 @@
 package domain
 
 type Outbound struct {
-	Tag          string `json:"tag"`
-	Protocol     string `json:"protocol"` // freedom, blackhole, wireguard, shadowsocks, vless, vmess, trojan, socks, http
-	SettingsJSON string `json:"settingsJson"`
+	Tag            string `json:"tag"`
+	Protocol       string `json:"protocol"` // freedom, blackhole, wireguard, shadowsocks, vless, vmess, trojan, socks, http
+	SettingsJSON   string `json:"settingsJson"`
 	StreamSettings string `json:"streamSettings,omitempty"`
 }
 
@@ -18,6 +18,7 @@ type RoutingRule struct {
 	Port        string   `json:"port,omitempty"`
 	Network     string   `json:"network,omitempty"`
 	Protocol    []string `json:"protocol,omitempty"`
+	User        []string `json:"user,omitempty"`
 	Attrs       string   `json:"attrs,omitempty"`
 }
 

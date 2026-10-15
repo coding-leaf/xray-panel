@@ -113,6 +113,18 @@ func TestXrayCompiler_Compile(t *testing.T) {
 				Domain:      []string{"geosite:category-ads-all"},
 				OutboundTag: "block",
 			},
+			{
+				Type:        "field",
+				InboundTag:  []string{"vless-tcp-reality"},
+				VlessRoute:  "1",
+				OutboundTag: "jp-direct",
+			},
+			{
+				Type:        "field",
+				InboundTag:  []string{"vless-tcp-reality"},
+				VlessRoute:  "2",
+				OutboundTag: "us-relay",
+			},
 		},
 	}
 
@@ -221,6 +233,21 @@ func TestXrayCompiler_Compile(t *testing.T) {
 	// Rule 3: Scoped SubRoute 2 兜底 (vlessRoute: 2, inboundTag: ["vless-tcp-reality"])
 	if rules[3].VlessRoute != "2" || rules[3].OutboundTag != "us-relay" {
 		t.Errorf("Rule 3 mismatch: %+v", rules[3])
+	}
+
+	// 5. 验证单一事实源：废除 Layer 3 隐式幽灵规则，若 routing.Rules 仅 1 条，则最终仅 2 条 (api + block)
+	minimalRouting := &domain.RoutingConfig{
+		DomainStrategy: "IPIfNonMatch",
+		Rules: []domain.RoutingRule{
+			{Type: "field", Domain: []string{"geosite:category-ads-all"}, OutboundTag: "block"},
+		},
+	}
+	minimalCfg, err := compiler.Compile(inbounds, outbounds, minimalRouting, dns, users)
+	if err != nil {
+		t.Fatalf("Compile minimalRouting failed: %v", err)
+	}
+	if len(minimalCfg.Routing.Rules) != 2 {
+		t.Errorf("Expected exactly 2 rules (api + block) with no Layer 3 ghost rules, got %d", len(minimalCfg.Routing.Rules))
 	}
 }
 
@@ -766,7 +793,25 @@ func TestCompiler_SubRoute_UserIsolation(t *testing.T) {
 		{Tag: "public-out", Protocol: "freedom"},
 	}
 
-	cfg, err := compiler.Compile(inbounds, outbounds, nil, nil, nil)
+	routing := &domain.RoutingConfig{
+		Rules: []domain.RoutingRule{
+			{
+				Type:        "field",
+				InboundTag:  []string{"vless-in"},
+				VlessRoute:  "10",
+				OutboundTag: "vip-out",
+				User:        []string{"vip@example.com", "admin@example.com"},
+			},
+			{
+				Type:        "field",
+				InboundTag:  []string{"vless-in"},
+				VlessRoute:  "20",
+				OutboundTag: "public-out",
+			},
+		},
+	}
+
+	cfg, err := compiler.Compile(inbounds, outbounds, routing, nil, nil)
 	if err != nil {
 		t.Fatalf("Compile failed: %v", err)
 	}
@@ -796,7 +841,7 @@ func TestCompiler_SubRoute_UserIsolation(t *testing.T) {
 		t.Errorf("publicRule.User expected empty/nil, got %v", publicRule.User)
 	}
 
-	jsonBytes, err := compiler.CompileToJSON(inbounds, outbounds, nil, nil, nil)
+	jsonBytes, err := compiler.CompileToJSON(inbounds, outbounds, routing, nil, nil)
 	if err != nil {
 		t.Fatalf("CompileToJSON failed: %v", err)
 	}
@@ -983,9 +1028,9 @@ func TestXrayCompiler_CustomVlessRouteAndLayering(t *testing.T) {
 	}
 
 	rules := cfg.Routing.Rules
-	// 期望规则数：1(api) + 4(用户自定义 Layer 2) + 2(SubRoute Layer 3) = 7
-	if len(rules) != 7 {
-		t.Fatalf("Expected 7 rules, got %d", len(rules))
+	// 期望规则数：1(api) + 4(用户自定义 Layer 2 单一事实源，废除隐式 Layer 3) = 5
+	if len(rules) != 5 {
+		t.Fatalf("Expected 5 rules, got %d", len(rules))
 	}
 
 	// Layer 1: API 规则
@@ -1014,14 +1059,6 @@ func TestXrayCompiler_CustomVlessRouteAndLayering(t *testing.T) {
 		t.Errorf("Rule 4 expected vlessRoute 3 -> out-sg, got %+v", rules[4])
 	}
 
-	// Layer 3: Inbound SubRoute 兜底规则 (仅限定于 vless-in 入站)
-	if rules[5].VlessRoute != "1" || rules[5].OutboundTag != "local-direct" || rules[5].InboundTag[0] != "vless-in" {
-		t.Errorf("Rule 5 expected SubRoute 1 fallback, got %+v", rules[5])
-	}
-	if rules[6].VlessRoute != "2" || rules[6].OutboundTag != "subroute-fallback" || rules[6].InboundTag[0] != "vless-in" {
-		t.Errorf("Rule 6 expected SubRoute 2 fallback, got %+v", rules[6])
-	}
-
 	// 验证 JSON 序列化中字段保留
 	jsonBytes, err := compiler.CompileToJSON(inbounds, outbounds, routing, nil, nil)
 	if err != nil {
@@ -1041,5 +1078,87 @@ func TestXrayCompiler_CustomVlessRouteAndLayering(t *testing.T) {
 	r1 := raw.Routing.Rules[1]
 	if r1["vlessRoute"] != "2" || r1["outboundTag"] != "out-us" {
 		t.Errorf("JSON Rule 1 mismatch: %v", r1)
+	}
+}
+
+func TestCompiler_Deduplication(t *testing.T) {
+	compiler := xray.NewXrayCompiler()
+
+	routing := &domain.RoutingConfig{
+		Rules: []domain.RoutingRule{
+			{Domain: []string{"geosite:cn"}, OutboundTag: "direct"},
+			{Domain: []string{"geosite:category-ads-all"}, OutboundTag: "block"},
+			// 重复规则 1 (完全相同)
+			{Domain: []string{"geosite:cn"}, OutboundTag: "direct"},
+			// 重复规则 2 (带 vlessRoute)
+			{VlessRoute: "1", InboundTag: []string{"vless-in"}, OutboundTag: "warp-out"},
+			{VlessRoute: "1", InboundTag: []string{"vless-in"}, OutboundTag: "warp-out"},
+		},
+	}
+
+	cfg, err := compiler.Compile(nil, nil, routing, nil, nil)
+	if err != nil {
+		t.Fatalf("Compile failed: %v", err)
+	}
+
+	// 规则数应为: 1 (api) + 3 (去重后的规则: cn, ads, vlessRoute: 1) = 4
+	if len(cfg.Routing.Rules) != 4 {
+		t.Fatalf("Expected 4 rules after deduplication, got %d", len(cfg.Routing.Rules))
+	}
+
+	if cfg.Routing.Rules[1].Domain[0] != "geosite:cn" {
+		t.Errorf("Rule 1 expected geosite:cn, got %+v", cfg.Routing.Rules[1])
+	}
+	if cfg.Routing.Rules[2].Domain[0] != "geosite:category-ads-all" {
+		t.Errorf("Rule 2 expected geosite:category-ads-all, got %+v", cfg.Routing.Rules[2])
+	}
+	if cfg.Routing.Rules[3].VlessRoute != "1" || cfg.Routing.Rules[3].OutboundTag != "warp-out" {
+		t.Errorf("Rule 3 expected vlessRoute 1 -> warp-out, got %+v", cfg.Routing.Rules[3])
+	}
+}
+
+func TestCompiler_IdempotentCompile(t *testing.T) {
+	compiler := xray.NewXrayCompiler()
+
+	inbounds := []domain.Inbound{
+		{
+			ID:       1,
+			Tag:      "vless-in",
+			Port:     443,
+			Protocol: "vless",
+			SubRoutesJson: `[
+				{"routeId": 1, "outboundTag": "local-direct", "enabled": true},
+				{"routeId": 2, "outboundTag": "subroute-fallback", "enabled": true}
+			]`,
+			Enabled: true,
+		},
+	}
+
+	routing := &domain.RoutingConfig{
+		Rules: []domain.RoutingRule{
+			{Domain: []string{"geosite:google"}, OutboundTag: "proxy"},
+			{VlessRoute: "1", InboundTag: []string{"vless-in"}, OutboundTag: "local-direct"},
+		},
+	}
+
+	// 连续编译 3 次
+	for i := 0; i < 3; i++ {
+		cfg, err := compiler.Compile(inbounds, nil, routing, nil, nil)
+		if err != nil {
+			t.Fatalf("Compile round %d failed: %v", i, err)
+		}
+		// 每次结果必须完全一致：1 (api) + 2 (用户规则) = 3
+		if len(cfg.Routing.Rules) != 3 {
+			t.Fatalf("Round %d: Expected exactly 3 rules, got %d", i, len(cfg.Routing.Rules))
+		}
+		if cfg.Routing.Rules[0].OutboundTag != "api" {
+			t.Errorf("Round %d: Rule 0 should be api", i)
+		}
+		if cfg.Routing.Rules[1].Domain[0] != "geosite:google" {
+			t.Errorf("Round %d: Rule 1 should be google", i)
+		}
+		if cfg.Routing.Rules[2].VlessRoute != "1" {
+			t.Errorf("Round %d: Rule 2 should be vlessRoute 1", i)
+		}
 	}
 }

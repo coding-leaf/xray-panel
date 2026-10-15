@@ -2,6 +2,7 @@ package service_test
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"testing"
@@ -142,5 +143,119 @@ func TestConfigService_SaveConfigQuietly_GuardsAgainstSilentWipe(t *testing.T) {
 	}
 	if string(preservedContent) != string(corruptedContent) {
 		t.Fatalf("config file was overwritten despite read error! Got:\n%s", string(preservedContent))
+	}
+}
+
+type mockInboundRepoWithList struct {
+	domain.InboundRepository
+	inbounds []domain.Inbound
+}
+
+func (m *mockInboundRepoWithList) ListAll(ctx context.Context) ([]domain.Inbound, error) {
+	return m.inbounds, nil
+}
+
+type mockConfigStorageWithContent struct {
+	service.ConfigStorage
+	content []byte
+}
+
+func (m *mockConfigStorageWithContent) ReadRawConfig() ([]byte, error) {
+	return m.content, nil
+}
+
+func (m *mockConfigStorageWithContent) WriteConfig(ctx context.Context, raw []byte) error {
+	m.content = raw
+	return nil
+}
+
+func TestConfigService_GetRoutingConfig_DeduplicationAndApiFiltering(t *testing.T) {
+	rawJSON := []byte(`{
+		"routing": {
+			"domainStrategy": "IPIfNonMatch",
+			"rules": [
+				{"type": "field", "inboundTag": ["api"], "outboundTag": "api"},
+				{"type": "field", "domain": ["geosite:cn"], "outboundTag": "direct"},
+				{"type": "field", "domain": ["geosite:cn"], "outboundTag": "direct"},
+				{"type": "field", "domain": ["geosite:category-ads-all"], "outboundTag": "block"}
+			]
+		}
+	}`)
+	cfgStorage := &mockConfigStorageWithContent{content: rawJSON}
+	svc := service.NewConfigService(cfgStorage, nil, nil, nil, nil, nil)
+
+	routing, err := svc.GetRoutingConfig(context.Background())
+	if err != nil {
+		t.Fatalf("GetRoutingConfig failed: %v", err)
+	}
+
+	// api 规则被过滤，重复的 geosite:cn 被去重，最终只剩 2 条：geosite:cn 与 ads
+	if len(routing.Rules) != 2 {
+		t.Fatalf("Expected 2 rules, got %d", len(routing.Rules))
+	}
+	if routing.Rules[0].Domain[0] != "geosite:cn" {
+		t.Errorf("Rule 0 expected geosite:cn, got %+v", routing.Rules[0])
+	}
+	if routing.Rules[1].Domain[0] != "geosite:category-ads-all" {
+		t.Errorf("Rule 1 expected ads, got %+v", routing.Rules[1])
+	}
+}
+
+func TestConfigService_EnsureSubRoutes_AppendsToTailWithoutDuplicate(t *testing.T) {
+	rawJSON := []byte(`{
+		"routing": {
+			"domainStrategy": "IPIfNonMatch",
+			"rules": [
+				{"type": "field", "domain": ["geosite:google"], "outboundTag": "proxy"}
+			]
+		}
+	}`)
+	cfgStorage := &mockConfigStorageWithContent{content: rawJSON}
+	inboundRepo := &mockInboundRepoWithList{
+		inbounds: []domain.Inbound{
+			{
+				Tag:     "vless-in",
+				Enabled: true,
+				SubRoutesJson: `[
+					{"routeId": 1, "outboundTag": "us-exit", "enabled": true},
+					{"routeId": 2, "outboundTag": "jp-exit", "enabled": true}
+				]`,
+			},
+		},
+	}
+	svc := service.NewConfigService(cfgStorage, nil, inboundRepo, nil, nil, nil)
+
+	// 第一次调用 GetRoutingConfig：SubRoute 1 和 2 应该被自动追加在尾部
+	routing, err := svc.GetRoutingConfig(context.Background())
+	if err != nil {
+		t.Fatalf("GetRoutingConfig failed: %v", err)
+	}
+
+	// 总规则数：1 (google) + 2 (SubRoutes 追加至尾部) = 3
+	if len(routing.Rules) != 3 {
+		t.Fatalf("Expected 3 rules, got %d", len(routing.Rules))
+	}
+	if routing.Rules[0].Domain[0] != "geosite:google" {
+		t.Errorf("Rule 0 should be google")
+	}
+	if routing.Rules[1].VlessRoute != "1" || routing.Rules[1].OutboundTag != "us-exit" {
+		t.Errorf("Rule 1 should be vlessRoute 1 -> us-exit, got %+v", routing.Rules[1])
+	}
+	if routing.Rules[2].VlessRoute != "2" || routing.Rules[2].OutboundTag != "jp-exit" {
+		t.Errorf("Rule 2 should be vlessRoute 2 -> jp-exit, got %+v", routing.Rules[2])
+	}
+
+	// 模拟将已追加的规则写回存储，再次获取，验证不重复追加
+	cleanJSON, _ := json.Marshal(map[string]interface{}{
+		"routing": routing,
+	})
+	cfgStorage.content = cleanJSON
+
+	routing2, err := svc.GetRoutingConfig(context.Background())
+	if err != nil {
+		t.Fatalf("GetRoutingConfig second call failed: %v", err)
+	}
+	if len(routing2.Rules) != 3 {
+		t.Fatalf("Expected strictly 3 rules on second call (no duplicate explosion), got %d", len(routing2.Rules))
 	}
 }

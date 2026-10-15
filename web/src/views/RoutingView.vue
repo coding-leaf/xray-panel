@@ -173,7 +173,7 @@
             <th class="h-9 px-3 text-left align-middle font-medium text-muted-foreground uppercase tracking-wider">目标出站 (OutboundTag)</th>
             <th class="h-9 px-3 text-left align-middle font-medium text-muted-foreground uppercase tracking-wider">来源入站 (Inbounds)</th>
             <th class="h-9 px-3 text-left align-middle font-medium text-muted-foreground uppercase tracking-wider">匹配条件矩阵</th>
-            <th class="h-9 px-3 text-right align-middle font-medium text-muted-foreground uppercase tracking-wider w-20">操作</th>
+            <th class="h-9 px-3 text-right align-middle font-medium text-muted-foreground uppercase tracking-wider w-44 whitespace-nowrap">操作</th>
           </tr>
         </thead>
         <tbody class="divide-y divide-border/40">
@@ -262,12 +262,30 @@
             </td>
 
             <!-- 5. Actions -->
-            <td class="p-3 align-middle text-right">
-              <div class="flex items-center justify-end gap-1">
+            <td class="p-3 align-middle text-right whitespace-nowrap">
+              <div class="flex items-center justify-end gap-1.5 shrink-0">
+                <button
+                  type="button"
+                  class="h-8 w-8 inline-flex items-center justify-center rounded-md bg-neutral-800 border border-neutral-600/80 text-neutral-100 hover:bg-neutral-700 hover:text-white disabled:opacity-25 disabled:cursor-not-allowed transition-colors shrink-0 shadow-sm"
+                  :disabled="Number(idx) === 0"
+                  @click="moveRule(Number(idx), -1)"
+                  title="上移规则"
+                >
+                  <ArrowUp class="w-4 h-4" />
+                </button>
+                <button
+                  type="button"
+                  class="h-8 w-8 inline-flex items-center justify-center rounded-md bg-neutral-800 border border-neutral-600/80 text-neutral-100 hover:bg-neutral-700 hover:text-white disabled:opacity-25 disabled:cursor-not-allowed transition-colors shrink-0 shadow-sm"
+                  :disabled="Number(idx) === (routingConfig.rules?.length || 1) - 1"
+                  @click="moveRule(Number(idx), 1)"
+                  title="下移规则"
+                >
+                  <ArrowDown class="w-4 h-4" />
+                </button>
                 <Button
                   variant="ghost"
                   size="sm"
-                  class="h-7 w-7 p-0 text-brand-400 hover:text-brand-300"
+                  class="h-8 w-8 p-0 text-brand-400 hover:text-brand-300"
                   @click="editRule(Number(idx))"
                   title="编辑规则"
                 >
@@ -276,7 +294,7 @@
                 <Button
                   variant="ghost"
                   size="sm"
-                  class="h-7 w-7 p-0 text-rose-400 hover:text-rose-300 hover:bg-rose-950/40"
+                  class="h-8 w-8 p-0 text-rose-400 hover:text-rose-300 hover:bg-rose-950/40"
                   @click="deleteRule(Number(idx))"
                   title="删除规则"
                 >
@@ -347,11 +365,29 @@
           </div>
 
           <!-- Actions -->
-          <div class="flex items-center gap-1 shrink-0">
+          <div class="flex items-center gap-1.5 shrink-0">
+            <button
+              type="button"
+              class="h-8 w-8 inline-flex items-center justify-center rounded-md bg-neutral-800 border border-neutral-600/80 text-neutral-100 hover:bg-neutral-700 hover:text-white disabled:opacity-25 disabled:cursor-not-allowed transition-colors shrink-0 shadow-sm"
+              :disabled="Number(idx) === 0"
+              @click="moveRule(Number(idx), -1)"
+              title="上移规则"
+            >
+              <ArrowUp class="w-4 h-4" />
+            </button>
+            <button
+              type="button"
+              class="h-8 w-8 inline-flex items-center justify-center rounded-md bg-neutral-800 border border-neutral-600/80 text-neutral-100 hover:bg-neutral-700 hover:text-white disabled:opacity-25 disabled:cursor-not-allowed transition-colors shrink-0 shadow-sm"
+              :disabled="Number(idx) === (routingConfig.rules?.length || 1) - 1"
+              @click="moveRule(Number(idx), 1)"
+              title="下移规则"
+            >
+              <ArrowDown class="w-4 h-4" />
+            </button>
             <Button
               variant="ghost"
               size="sm"
-              class="h-7 w-7 p-0 text-brand-400 hover:text-brand-300"
+              class="h-8 w-8 p-0 text-brand-400 hover:text-brand-300"
               @click="editRule(Number(idx))"
               title="编辑规则"
             >
@@ -360,7 +396,7 @@
             <Button
               variant="ghost"
               size="sm"
-              class="h-7 w-7 p-0 text-rose-400 hover:text-rose-300 hover:bg-rose-950/40"
+              class="h-8 w-8 p-0 text-rose-400 hover:text-rose-300 hover:bg-rose-950/40"
               @click="deleteRule(Number(idx))"
               title="删除规则"
             >
@@ -690,7 +726,7 @@
 
 <script setup lang="ts">
 import { ref, onMounted, computed } from 'vue'
-import { Plus, Check, Edit3, Trash2, Database, RotateCw, GripVertical } from 'lucide-vue-next'
+import { Plus, Check, Edit3, Trash2, Database, RotateCw, GripVertical, ArrowUp, ArrowDown } from 'lucide-vue-next'
 import Button from '../components/ui/Button.vue'
 import Badge from '../components/ui/Badge.vue'
 import Drawer from '../components/ui/Drawer.vue'
@@ -920,6 +956,15 @@ const saveRuleInDrawer = () => {
 
 const deleteRule = (idx: number) => {
   routingConfig.value.rules.splice(idx, 1)
+}
+
+const moveRule = (idx: number, delta: number) => {
+  const rules = routingConfig.value.rules
+  if (!rules) return
+  const newIdx = idx + delta
+  if (newIdx < 0 || newIdx >= rules.length) return
+  const [moved] = rules.splice(idx, 1)
+  rules.splice(newIdx, 0, moved)
 }
 
 // Drag-and-Drop Reorder Handlers

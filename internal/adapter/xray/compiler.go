@@ -153,7 +153,7 @@ func (c *XrayCompiler) Compile(
 		})
 	}
 
-	// 4. 分层编译 Routing 规则 (Layer 1 ~ Layer 4)
+	// 4. 分层编译 Routing 规则 (Layer 1 核心通信 + Layer 2 统一规则池单一事实源)
 	domainStrategy := "IPIfNonMatch"
 	if routing != nil && routing.DomainStrategy != "" {
 		domainStrategy = routing.DomainStrategy
@@ -161,22 +161,27 @@ func (c *XrayCompiler) Compile(
 
 	var layeredRules []XrayRoutingRule
 
-	// Layer 1: 系统内置 API 规则
+	// Layer 1: 系统内置核心 API 规则 (仅保障面板本地 gRPC 调度)
 	layeredRules = append(layeredRules, XrayRoutingRule{
 		Type:        "field",
 		InboundTag:  []string{"api"},
 		OutboundTag: "api",
 	})
 
-	// Layer 2: 自定义全局分流规则 (用户在 Routing 视图维护的域名/IP/协议/vlessRoute 规则，严格按用户编排顺序输出)
+	// Layer 2: 统一分流规则池 (完全放权、单一事实源，忠实按序输出并做幂等去重保护)
 	if routing != nil {
+		seen := make(map[string]bool)
 		for _, r := range routing.Rules {
-			// 过滤掉已被自动管理的 api 规则
-			if len(r.InboundTag) > 0 && r.InboundTag[0] == "api" {
+			// 过滤掉已被自动管理的 api 规则，防止重复
+			if (len(r.InboundTag) > 0 && r.InboundTag[0] == "api") || r.OutboundTag == "api" {
 				continue
 			}
-			layeredRules = append(layeredRules, XrayRoutingRule{
-				Type:        "field",
+			ruleType := r.Type
+			if ruleType == "" {
+				ruleType = "field"
+			}
+			rule := XrayRoutingRule{
+				Type:        ruleType,
 				Tag:         r.Tag,
 				InboundTag:  r.InboundTag,
 				OutboundTag: r.OutboundTag,
@@ -186,29 +191,16 @@ func (c *XrayCompiler) Compile(
 				Port:        r.Port,
 				Network:     r.Network,
 				Protocol:    r.Protocol,
+				User:        r.User,
 				Attrs:       r.Attrs,
-			})
-		}
-	}
-
-	// Layer 3: 接入网关通道分流规则 (Scoped Rules - 协议级与单端口多出口兜底)
-	for _, inb := range inbounds {
-		if !inb.Enabled {
-			continue
-		}
-		for _, sr := range inb.GetSubRoutes() {
-			if sr.Enabled && sr.RouteID > 0 && sr.OutboundTag != "" {
-				rule := XrayRoutingRule{
-					Type:        "field",
-					InboundTag:  []string{inb.Tag}, // 严格限定 Inbound 命名空间，防止冲突
-					VlessRoute:  fmt.Sprintf("%d", sr.RouteID),
-					OutboundTag: sr.OutboundTag,
-				}
-				if len(sr.AllowedUsers) > 0 {
-					rule.User = sr.AllowedUsers
-				}
-				layeredRules = append(layeredRules, rule)
 			}
+			keyBytes, _ := json.Marshal(rule)
+			key := string(keyBytes)
+			if seen[key] {
+				continue
+			}
+			seen[key] = true
+			layeredRules = append(layeredRules, rule)
 		}
 	}
 

@@ -518,3 +518,25 @@
 ### Status
 
 [OK] **Completed**
+
+
+## Session 23: 路由规则拖拽重排与移动端响应式布局优化
+<!-- trellis-session: v=2 fp=e0eb85a51cd1e861 -->
+
+**Date**: 2026-10-15
+**Task**: 路由规则拖拽重排与移动端响应式布局优化
+**Branch**: `master`
+
+### Summary
+
+在 RoutingView 中引入 GripVertical 拖拽把手与序号直跳调序，移除单步箭头按钮，并重构移动端卡片流响应式布局
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `9412f01` | feat(ui): RoutingView 支持 ⋮⋮ 拖拽重排、序号直跳并适配移动端卡片流响应式布局 |
+
+### Status
+
+[OK] **Completed**

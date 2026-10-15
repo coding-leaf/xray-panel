@@ -164,27 +164,54 @@
       </div>
     </div>
 
-    <!-- Rules Table-First List -->
-    <div class="relative w-full overflow-hidden rounded-lg border border-border bg-neutral-950">
+    <!-- Rules Table-First List (Desktop >= 640px) -->
+    <div class="hidden sm:block relative w-full overflow-hidden rounded-lg border border-border bg-neutral-950">
       <table class="w-full caption-bottom text-xs border-collapse">
         <thead class="border-b border-border bg-neutral-900 font-mono text-[11px]">
           <tr>
-            <th class="h-9 px-3 text-center align-middle font-medium text-muted-foreground uppercase tracking-wider w-12">次序</th>
+            <th class="h-9 px-3 text-center align-middle font-medium text-muted-foreground uppercase tracking-wider w-24">次序</th>
             <th class="h-9 px-3 text-left align-middle font-medium text-muted-foreground uppercase tracking-wider">目标出站 (OutboundTag)</th>
             <th class="h-9 px-3 text-left align-middle font-medium text-muted-foreground uppercase tracking-wider">来源入站 (Inbounds)</th>
             <th class="h-9 px-3 text-left align-middle font-medium text-muted-foreground uppercase tracking-wider">匹配条件矩阵</th>
-            <th class="h-9 px-3 text-right align-middle font-medium text-muted-foreground uppercase tracking-wider w-36">优先级与操作</th>
+            <th class="h-9 px-3 text-right align-middle font-medium text-muted-foreground uppercase tracking-wider w-20">操作</th>
           </tr>
         </thead>
         <tbody class="divide-y divide-border/40">
           <tr
             v-for="(rule, idx) in routingConfig.rules"
             :key="idx"
-            class="hover:bg-muted/20 transition-colors"
+            :draggable="true"
+            @dragstart="onDragStart($event, Number(idx))"
+            @dragover.prevent="onDragOver($event, Number(idx))"
+            @drop.prevent="onDrop(Number(idx))"
+            @dragend="onDragEnd"
+            class="transition-colors group"
+            :class="[
+              draggedIndex === idx
+                ? 'opacity-30 bg-muted/30 border-dashed border-indigo-500/50'
+                : (dragOverIndex === idx && draggedIndex !== idx
+                    ? 'bg-indigo-500/10 border-t-2 border-indigo-500'
+                    : 'hover:bg-muted/20')
+            ]"
           >
-            <!-- 1. Index / Priority -->
-            <td class="p-3 text-center align-middle font-mono text-muted-foreground font-semibold text-xs">
-              #{{ Number(idx) + 1 }}
+            <!-- 1. Drag Handle & Index / Priority -->
+            <td class="p-2.5 text-center align-middle font-mono">
+              <div class="flex items-center justify-center gap-1.5">
+                <span
+                  class="cursor-grab active:cursor-grabbing p-1 text-muted-foreground hover:text-foreground transition-colors shrink-0"
+                  title="按住拖拽调整顺序"
+                >
+                  <GripVertical class="w-4 h-4" />
+                </span>
+                <button
+                  type="button"
+                  @click="openQuickReorder(Number(idx))"
+                  class="px-1.5 py-0.5 rounded font-mono text-[11px] font-semibold bg-neutral-900 border border-border/80 text-foreground hover:border-indigo-500/60 hover:text-indigo-400 hover:bg-neutral-800 transition-all shadow-sm shrink-0"
+                  title="点击快速修改位次"
+                >
+                  #{{ Number(idx) + 1 }}
+                </button>
+              </div>
             </td>
 
             <!-- 2. Target Outbound -->
@@ -240,26 +267,6 @@
                 <Button
                   variant="ghost"
                   size="sm"
-                  class="h-7 w-7 p-0"
-                  :disabled="Number(idx) === 0"
-                  @click="moveRule(Number(idx), -1)"
-                  title="上移优先级"
-                >
-                  <ArrowUp class="w-3.5 h-3.5" />
-                </Button>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  class="h-7 w-7 p-0"
-                  :disabled="Number(idx) === (routingConfig.rules?.length || 0) - 1"
-                  @click="moveRule(Number(idx), 1)"
-                  title="下移优先级"
-                >
-                  <ArrowDown class="w-3.5 h-3.5" />
-                </Button>
-                <Button
-                  variant="ghost"
-                  size="sm"
                   class="h-7 w-7 p-0 text-brand-400 hover:text-brand-300"
                   @click="editRule(Number(idx))"
                   title="编辑规则"
@@ -287,6 +294,144 @@
           </tr>
         </tbody>
       </table>
+    </div>
+
+    <!-- Mobile Card Stack List (< 640px) -->
+    <div class="sm:hidden space-y-2.5">
+      <div
+        v-for="(rule, idx) in routingConfig.rules"
+        :key="idx"
+        :draggable="true"
+        @dragstart="onDragStart($event, Number(idx))"
+        @dragover.prevent="onDragOver($event, Number(idx))"
+        @drop.prevent="onDrop(Number(idx))"
+        @dragend="onDragEnd"
+        class="p-3 rounded-lg border bg-neutral-950 transition-all space-y-2.5"
+        :class="[
+          draggedIndex === idx
+            ? 'opacity-30 border-dashed border-indigo-500/60'
+            : (dragOverIndex === idx && draggedIndex !== idx
+                ? 'ring-2 ring-indigo-500/70 bg-indigo-500/10 border-indigo-500'
+                : 'border-border hover:border-border/80')
+        ]"
+      >
+        <!-- Card Top Bar: Handle + Index Badge + Outbound Tag + Actions -->
+        <div class="flex items-center justify-between gap-2 pb-2 border-b border-border/50">
+          <div class="flex items-center gap-1.5 min-w-0">
+            <span
+              class="cursor-grab active:cursor-grabbing p-1 text-muted-foreground hover:text-foreground shrink-0 touch-none"
+              title="按住拖拽排序"
+            >
+              <GripVertical class="w-4 h-4" />
+            </span>
+            <button
+              type="button"
+              @click="openQuickReorder(Number(idx))"
+              class="px-1.5 py-0.5 rounded font-mono text-[11px] font-semibold bg-neutral-900 border border-border text-foreground hover:border-indigo-500/60 hover:text-indigo-400 shrink-0"
+              title="点击快速修改位次"
+            >
+              #{{ Number(idx) + 1 }}
+            </button>
+            <div class="flex items-center gap-1.5 truncate">
+              <Badge :variant="getOutboundBadgeVariant(rule.outboundTag)">
+                {{ rule.outboundTag }}
+              </Badge>
+              <span
+                v-if="!isKnownOutbound(rule.outboundTag)"
+                class="text-amber-400 text-[10px] font-semibold shrink-0"
+                title="系统中未配置该出站标签"
+              >
+                ⚠️ 未知
+              </span>
+            </div>
+          </div>
+
+          <!-- Actions -->
+          <div class="flex items-center gap-1 shrink-0">
+            <Button
+              variant="ghost"
+              size="sm"
+              class="h-7 w-7 p-0 text-brand-400 hover:text-brand-300"
+              @click="editRule(Number(idx))"
+              title="编辑规则"
+            >
+              <Edit3 class="w-3.5 h-3.5" />
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              class="h-7 w-7 p-0 text-rose-400 hover:text-rose-300 hover:bg-rose-950/40"
+              @click="deleteRule(Number(idx))"
+              title="删除规则"
+            >
+              <Trash2 class="w-3.5 h-3.5" />
+            </Button>
+          </div>
+        </div>
+
+        <!-- Card Body / Matching Criteria Matrix -->
+        <div class="space-y-1.5 text-xs font-mono">
+          <!-- Inbounds info if specified -->
+          <div v-if="rule.inboundTag?.length" class="flex items-start gap-1.5 text-[11px]">
+            <span class="text-muted-foreground shrink-0 font-sans">来源入站:</span>
+            <span class="text-foreground break-all">{{ rule.inboundTag.join(', ') }}</span>
+          </div>
+
+          <!-- Criteria Badges with auto wrap & zero horizontal overflow -->
+          <div class="flex flex-wrap items-center gap-1.5 text-[11px]">
+            <span
+              v-if="rule.vlessRoute"
+              class="px-1.5 py-0.5 rounded bg-indigo-950/60 text-indigo-300 border border-indigo-800/50 break-all"
+            >
+              vlessRoute: {{ rule.vlessRoute }}
+            </span>
+            <span
+              v-if="rule.domain?.length"
+              class="px-1.5 py-0.5 rounded bg-blue-950/60 text-blue-300 border border-blue-800/50 break-all"
+            >
+              域名: {{ rule.domain.join(', ') }}
+            </span>
+            <span
+              v-if="rule.ip?.length"
+              class="px-1.5 py-0.5 rounded bg-purple-950/60 text-purple-300 border border-purple-800/50 break-all"
+            >
+              IP: {{ rule.ip.join(', ') }}
+            </span>
+            <span
+              v-if="rule.protocol?.length"
+              class="px-1.5 py-0.5 rounded bg-amber-950/60 text-amber-300 border border-amber-800/50 break-all"
+            >
+              协议: {{ rule.protocol.join(', ') }}
+            </span>
+            <span
+              v-if="rule.port"
+              class="px-1.5 py-0.5 rounded bg-rose-950/60 text-rose-300 border border-rose-800/50"
+            >
+              端口: {{ rule.port }}
+            </span>
+            <span
+              v-if="rule.network"
+              class="px-1.5 py-0.5 rounded bg-neutral-900 text-neutral-300 border border-border"
+            >
+              网络: {{ rule.network }}
+            </span>
+            <span
+              v-if="!rule.vlessRoute && !rule.domain?.length && !rule.ip?.length && !rule.protocol?.length && !rule.port && !rule.network"
+              class="text-muted-foreground text-[11px] font-sans"
+            >
+              无额外限制 (匹配任意流量)
+            </span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Mobile Empty State -->
+      <div
+        v-if="!routingConfig.rules?.length"
+        class="p-8 text-center text-muted-foreground text-xs rounded-lg border border-border bg-neutral-950"
+      >
+        暂无路由分流规则，点击上方「添加规则」或使用智能预设
+      </div>
     </div>
 
     <!-- Rule Edit Drawer (Replacing old centered modal) -->
@@ -481,15 +626,75 @@
         </div>
       </div>
     </div>
+
+    <!-- Quick Reorder Modal (Direct Jump) -->
+    <Modal
+      v-model="showReorderModal"
+      title="调整规则优先级位次"
+      description="长列表快速直达，无需重复长距离拖拽"
+      size="sm"
+    >
+      <form @submit.prevent="confirmQuickReorder" class="space-y-4 text-xs">
+        <div class="space-y-3">
+          <div class="p-3 rounded-md bg-neutral-900 border border-border flex items-center justify-between font-mono">
+            <span class="text-muted-foreground">当前规则与次序:</span>
+            <div class="flex items-center gap-1.5">
+              <span class="text-foreground font-bold">#{{ reorderSourceIndex + 1 }}</span>
+              <Badge v-if="currentReorderRule" :variant="getOutboundBadgeVariant(currentReorderRule.outboundTag)">
+                {{ currentReorderRule.outboundTag }}
+              </Badge>
+            </div>
+          </div>
+
+          <div class="space-y-1.5">
+            <label class="block text-foreground font-medium">
+              目标新位次 (范围: 1 ~ {{ routingConfig.rules?.length || 1 }})
+            </label>
+            <input
+              ref="reorderInputRef"
+              v-model.number="reorderTargetPosition"
+              type="number"
+              :min="1"
+              :max="routingConfig.rules?.length || 1"
+              class="w-full bg-neutral-950 border border-border rounded-md px-3 py-2 text-foreground font-mono text-sm focus:outline-none focus:ring-1 focus:ring-ring"
+              placeholder="输入目标序号，如 1"
+              required
+            />
+            <p class="text-[11px] text-muted-foreground leading-relaxed">
+              确认后该规则将直接移动至目标位次，其它规则将依次平移顺延。
+            </p>
+          </div>
+        </div>
+
+        <div class="flex justify-end gap-2.5 pt-2 border-t border-border">
+          <Button
+            variant="secondary"
+            size="sm"
+            type="button"
+            @click="showReorderModal = false"
+          >
+            取消
+          </Button>
+          <Button
+            variant="default"
+            size="sm"
+            type="submit"
+          >
+            确认调整
+          </Button>
+        </div>
+      </form>
+    </Modal>
   </div>
 </template>
 
 <script setup lang="ts">
 import { ref, onMounted, computed } from 'vue'
-import { Plus, Check, ArrowUp, ArrowDown, Edit3, Trash2, Database, RotateCw } from 'lucide-vue-next'
+import { Plus, Check, Edit3, Trash2, Database, RotateCw, GripVertical } from 'lucide-vue-next'
 import Button from '../components/ui/Button.vue'
 import Badge from '../components/ui/Badge.vue'
 import Drawer from '../components/ui/Drawer.vue'
+import Modal from '../components/ui/Modal.vue'
 import { toast } from '../utils/toast'
 import api from '../api'
 
@@ -717,12 +922,90 @@ const deleteRule = (idx: number) => {
   routingConfig.value.rules.splice(idx, 1)
 }
 
-const moveRule = (idx: number, step: number) => {
-  const target = idx + step
-  if (target < 0 || target >= routingConfig.value.rules.length) return
-  const temp = routingConfig.value.rules[idx]
-  routingConfig.value.rules[idx] = routingConfig.value.rules[target]
-  routingConfig.value.rules[target] = temp
+// Drag-and-Drop Reorder Handlers
+const draggedIndex = ref<number | null>(null)
+const dragOverIndex = ref<number | null>(null)
+
+const onDragStart = (e: DragEvent, idx: number) => {
+  draggedIndex.value = idx
+  if (e.dataTransfer) {
+    e.dataTransfer.effectAllowed = 'move'
+    e.dataTransfer.setData('text/plain', String(idx))
+  }
+}
+
+const onDragOver = (e: DragEvent, idx: number) => {
+  if (draggedIndex.value === null) return
+  e.preventDefault()
+  if (e.dataTransfer) {
+    e.dataTransfer.dropEffect = 'move'
+  }
+  if (dragOverIndex.value !== idx) {
+    dragOverIndex.value = idx
+  }
+}
+
+const onDrop = (idx: number) => {
+  if (draggedIndex.value === null) return
+  const fromIdx = draggedIndex.value
+  const toIdx = idx
+  const rules = routingConfig.value.rules
+  if (rules && fromIdx !== toIdx && fromIdx >= 0 && fromIdx < rules.length && toIdx >= 0 && toIdx < rules.length) {
+    const [moved] = rules.splice(fromIdx, 1)
+    rules.splice(toIdx, 0, moved)
+  }
+  draggedIndex.value = null
+  dragOverIndex.value = null
+}
+
+const onDragEnd = () => {
+  draggedIndex.value = null
+  dragOverIndex.value = null
+}
+
+// Quick Reorder Modal (Direct Jump) Handlers
+const showReorderModal = ref(false)
+const reorderSourceIndex = ref<number>(-1)
+const reorderTargetPosition = ref<number>(1)
+const reorderInputRef = ref<HTMLInputElement | null>(null)
+
+const currentReorderRule = computed(() => {
+  if (reorderSourceIndex.value >= 0 && routingConfig.value.rules) {
+    return routingConfig.value.rules[reorderSourceIndex.value]
+  }
+  return null
+})
+
+const openQuickReorder = (idx: number) => {
+  reorderSourceIndex.value = idx
+  reorderTargetPosition.value = idx + 1
+  showReorderModal.value = true
+  setTimeout(() => {
+    reorderInputRef.value?.focus()
+    reorderInputRef.value?.select()
+  }, 100)
+}
+
+const confirmQuickReorder = () => {
+  const rules = routingConfig.value.rules
+  if (!rules || reorderSourceIndex.value < 0 || reorderSourceIndex.value >= rules.length) {
+    showReorderModal.value = false
+    return
+  }
+  const total = rules.length
+  if (total <= 1) {
+    showReorderModal.value = false
+    return
+  }
+  const target = Math.max(1, Math.min(total, Math.floor(Number(reorderTargetPosition.value) || 1)))
+  const targetIdx = target - 1
+  if (targetIdx !== reorderSourceIndex.value) {
+    const fromIdx = reorderSourceIndex.value
+    const [item] = rules.splice(fromIdx, 1)
+    rules.splice(targetIdx, 0, item)
+    toast.success(`规则已从 #${fromIdx + 1} 调整至 #${target}`)
+  }
+  showReorderModal.value = false
 }
 
 // 智能预设向导 (Smart Preset Wizard)

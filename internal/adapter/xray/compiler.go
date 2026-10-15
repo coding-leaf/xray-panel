@@ -168,14 +168,11 @@ func (c *XrayCompiler) Compile(
 		OutboundTag: "api",
 	})
 
-	// Layer 2: 自定义全局分流规则 (用户在 Routing 视图维护的域名/IP/阻断规则，最高业务优先级)
+	// Layer 2: 自定义全局分流规则 (用户在 Routing 视图维护的域名/IP/协议/vlessRoute 规则，严格按用户编排顺序输出)
 	if routing != nil {
 		for _, r := range routing.Rules {
-			// 过滤掉已被自动管理的 api 规则与 vlessRoute 规则
+			// 过滤掉已被自动管理的 api 规则
 			if len(r.InboundTag) > 0 && r.InboundTag[0] == "api" {
-				continue
-			}
-			if r.VlessRoute != "" {
 				continue
 			}
 			layeredRules = append(layeredRules, XrayRoutingRule{
@@ -183,6 +180,7 @@ func (c *XrayCompiler) Compile(
 				Tag:         r.Tag,
 				InboundTag:  r.InboundTag,
 				OutboundTag: r.OutboundTag,
+				VlessRoute:  r.VlessRoute,
 				Domain:      r.Domain,
 				IP:          r.IP,
 				Port:        r.Port,

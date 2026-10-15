@@ -82,15 +82,14 @@ sequenceDiagram
 
 ```mermaid
 flowchart TD
-    InPacket([入站流量接入]) --> L1{Layer 1: 系统核心与安全保护}
+    InPacket([入站流量接入]) --> L1{Layer 1: 系统核心管理通道}
 
     L1 -->|inboundTag: api| ToAPI[api -> gRPC 内部管理 8080]
-    L1 -->|protocol: bittorrent / port: 25| ToBlock1[block -> 拦截 BT 与垃圾邮件]
-    L1 -->|非系统流量| L2{Layer 2: 全局与业务自定义规则}
+    L1 -->|非系统管理流量| L2{Layer 2: 用户自定义规则池<br/>(严格按用户编排顺序 First-Match)}
 
-    L2 -->|geosite:category-ads-all| ToBlock2[block -> 广告拦截]
-    L2 -->|geoip:cn / geosite:cn| ToDirect1[direct -> 大陆直连]
-    L2 -->|自定义域名/IP 规则| ToCustom[对应出口]
+    L2 -->|自定义/向导规则: 广告拦截 / BT / 邮件 25 阻断| ToBlock[block -> 用户按需拦截]
+    L2 -->|自定义节点分流: vlessRoute 规则| ToTunnel[指定出站 -> 节点穿透/定制分流]
+    L2 -->|自定义域名/IP 规则 (geosite/geoip)| ToCustom[对应出口 (如 direct / warp-out)]
     L2 -->|未命中自定义规则| L3{Layer 3: 接入网关专属通道 Scoped Rules}
 
     L3 -->|inboundTag: [网关A] & vlessRoute: 1| ToJP[定向转发至 日本直连]

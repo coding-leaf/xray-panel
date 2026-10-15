@@ -922,3 +922,124 @@ func TestXrayCompiler_RealityStrictValidation(t *testing.T) {
 		}
 	})
 }
+
+func TestXrayCompiler_CustomVlessRouteAndLayering(t *testing.T) {
+	compiler := xray.NewXrayCompiler()
+
+	inbounds := []domain.Inbound{
+		{
+			ID:       1,
+			Tag:      "vless-in",
+			Port:     443,
+			Protocol: "vless",
+			Enabled:  true,
+			SubRoutesJson: `[
+				{"routeId": 1, "outboundTag": "local-direct", "enabled": true},
+				{"routeId": 2, "outboundTag": "subroute-fallback", "enabled": true}
+			]`,
+		},
+	}
+
+	outbounds := []domain.Outbound{
+		{Tag: "direct", Protocol: "freedom"},
+		{Tag: "block", Protocol: "blackhole"},
+		{Tag: "out-us", Protocol: "freedom"},
+		{Tag: "out-sg", Protocol: "freedom"},
+		{Tag: "warp-out", Protocol: "freedom"},
+		{Tag: "local-direct", Protocol: "freedom"},
+		{Tag: "subroute-fallback", Protocol: "freedom"},
+	}
+
+	routing := &domain.RoutingConfig{
+		DomainStrategy: "IPIfNonMatch",
+		Rules: []domain.RoutingRule{
+			// 1. 用户自定义穿透规则：vlessRoute: 2 优先转发至 out-us
+			{
+				VlessRoute:  "2",
+				OutboundTag: "out-us",
+			},
+			// 2. 广告阻断
+			{
+				Domain:      []string{"geosite:category-ads-all"},
+				OutboundTag: "block",
+			},
+			// 3. 国内流量分流
+			{
+				Domain:      []string{"geosite:cn"},
+				IP:          []string{"geoip:cn"},
+				OutboundTag: "warp-out",
+			},
+			// 4. 自定义节点分流：vlessRoute: 3 转发至 out-sg
+			{
+				VlessRoute:  "3",
+				OutboundTag: "out-sg",
+			},
+		},
+	}
+
+	cfg, err := compiler.Compile(inbounds, outbounds, routing, nil, nil)
+	if err != nil {
+		t.Fatalf("Compile failed: %v", err)
+	}
+
+	rules := cfg.Routing.Rules
+	// 期望规则数：1(api) + 4(用户自定义 Layer 2) + 2(SubRoute Layer 3) = 7
+	if len(rules) != 7 {
+		t.Fatalf("Expected 7 rules, got %d", len(rules))
+	}
+
+	// Layer 1: API 规则
+	if rules[0].OutboundTag != "api" || len(rules[0].InboundTag) == 0 || rules[0].InboundTag[0] != "api" {
+		t.Errorf("Rule 0 should be internal api, got %+v", rules[0])
+	}
+
+	// Layer 2: 严格按用户自定义顺序输出
+	// Rule 1: vlessRoute: 2 -> out-us (排在 geosite:cn 之前，保证节点级穿透不被全局规则截胡)
+	if rules[1].VlessRoute != "2" || rules[1].OutboundTag != "out-us" {
+		t.Errorf("Rule 1 expected vlessRoute 2 -> out-us, got %+v", rules[1])
+	}
+
+	// Rule 2: geosite:category-ads-all -> block
+	if rules[2].OutboundTag != "block" || len(rules[2].Domain) == 0 || rules[2].Domain[0] != "geosite:category-ads-all" {
+		t.Errorf("Rule 2 expected ad block, got %+v", rules[2])
+	}
+
+	// Rule 3: geosite:cn -> warp-out
+	if rules[3].OutboundTag != "warp-out" || len(rules[3].Domain) == 0 || rules[3].Domain[0] != "geosite:cn" {
+		t.Errorf("Rule 3 expected cn分流 -> warp-out, got %+v", rules[3])
+	}
+
+	// Rule 4: vlessRoute: 3 -> out-sg
+	if rules[4].VlessRoute != "3" || rules[4].OutboundTag != "out-sg" {
+		t.Errorf("Rule 4 expected vlessRoute 3 -> out-sg, got %+v", rules[4])
+	}
+
+	// Layer 3: Inbound SubRoute 兜底规则 (仅限定于 vless-in 入站)
+	if rules[5].VlessRoute != "1" || rules[5].OutboundTag != "local-direct" || rules[5].InboundTag[0] != "vless-in" {
+		t.Errorf("Rule 5 expected SubRoute 1 fallback, got %+v", rules[5])
+	}
+	if rules[6].VlessRoute != "2" || rules[6].OutboundTag != "subroute-fallback" || rules[6].InboundTag[0] != "vless-in" {
+		t.Errorf("Rule 6 expected SubRoute 2 fallback, got %+v", rules[6])
+	}
+
+	// 验证 JSON 序列化中字段保留
+	jsonBytes, err := compiler.CompileToJSON(inbounds, outbounds, routing, nil, nil)
+	if err != nil {
+		t.Fatalf("CompileToJSON failed: %v", err)
+	}
+
+	var raw struct {
+		Routing struct {
+			Rules []map[string]interface{} `json:"rules"`
+		} `json:"routing"`
+	}
+	if err := json.Unmarshal(jsonBytes, &raw); err != nil {
+		t.Fatalf("Unmarshal failed: %v", err)
+	}
+
+	// 验证 Rule 1 在 JSON 中具有 vlessRoute: "2"
+	r1 := raw.Routing.Rules[1]
+	if r1["vlessRoute"] != "2" || r1["outboundTag"] != "out-us" {
+		t.Errorf("JSON Rule 1 mismatch: %v", r1)
+	}
+}

@@ -8,7 +8,7 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 21
+- **Total Sessions**: 22
 - **Last Active**: 2026-10-15
 <!-- @@@/auto:current-status -->
 
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~498 | Active |
+| `journal-1.md` | ~520 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 22 | 2026-10-15 | 精细化路由编排与编译器放权支持 | `a613192` | `master` |
 | 21 | 2026-10-15 | v2.6.4 VLESS流控关闭持久化与Xray协议对齐发布 | `2cb9554` | `master` |
 | 20 | 2026-10-11 | 治理用户删除持久化顺序与Saga独立超时补偿，加固客户端保留机制并建立端到端重启一致性回归测试 | `81b2b55` | `master` |
 | 19 | 2026-10-11 | 治理用户CRUD三态一致性与Saga反向补偿，加固CI门禁 | `0bea056` | `master` |

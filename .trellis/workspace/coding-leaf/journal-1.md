@@ -496,3 +496,25 @@
 ### Status
 
 [OK] **Completed**
+
+
+## Session 22: 精细化路由编排与编译器放权支持
+<!-- trellis-session: v=2 fp=7a6719a6758fe1db -->
+
+**Date**: 2026-10-15
+**Task**: 精细化路由编排与编译器放权支持
+**Branch**: `master`
+
+### Summary
+
+移除 compiler.go 中对 vlessRoute 的静默过滤，确立机制极简中立与策略放权原则，更新单测与架构规约，解决跨机节点隧道被入口机规则提前截流的问题
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `a613192` | fix(routing): 废除 compiler.go 对 vlessRoute 过滤并遵循机制极简与策略放权原则 |
+
+### Status
+
+[OK] **Completed**

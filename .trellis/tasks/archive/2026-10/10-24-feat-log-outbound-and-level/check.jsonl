@@ -1,0 +1,3 @@
+{"file": ".trellis/spec/backend/logging-guidelines.md", "reason": "验证日志等级与出站过滤契约"}
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "验证逆向日志流零分配与单测覆盖"}
+{"file": ".trellis/spec/frontend/quality-guidelines.md", "reason": "验证前端组件复用与类型安全"}

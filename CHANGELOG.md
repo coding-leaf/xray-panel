@@ -4,6 +4,32 @@
 
 ---
 
+## v2.6.6 (2026-10) - 修复用户保存异常与虚拟节点转化规范、新增出站日志过滤与核心日志等级、移动端全量响应式适配
+
+- **用户保存与失效 Inbound 移除容错治理 (Idempotent Node Removal)**：
+  - 提炼 `isXrayIgnorableRemoveError` 判定，精准识别 `handler not found`、`failed to get handler`、`not found`、`not exist` 等错误；
+  - 在用户更新旧标签清理、用户停用时从入站移除、物理删除用户以及 Saga 逆向补偿等链路中，将失效节点或凭据已清理的良性错误作为非致命状态放行并记录 Info 日志，彻底消除了历史失效节点残留导致用户保存报 500 回滚死锁的缺陷；
+  - 修复 `UserSubscriptionService.getNodeTags` 空匹配时危险回退全选所有可用节点的隐患，杜绝自动给用户绑定全量入站。
+- **单端口多出口 (SubRoute / 虚拟节点) 规范化转换**：
+  - 严格限制 SubRoute（虚拟节点）展开仅对 `vless` 协议生效，消灭对 VMess/Trojan 等不支持 UUID 路由隐写的协议生成无效虚假节点的问题；
+  - 规范未命名分流线路 fallback 为 `<InboundRemark/Tag> - 线路 #<RouteID>` 确定性命名，消除客户端导入同名冲突；
+  - 订阅服务与节点转换器支持按 `route`（RouteID）过滤，并在前端 `SingleSub` 中准确注入 `?tag=<inboundTag>&route=<routeId>` 独立定向订阅链接；
+  - 用户表格与抽屉的线路统计统一收敛至服务层，并联动 `CanAccess(user.Email)` 进行真实权限过滤。
+- **出站日志过滤与 Xray 核心运行日志等级全栈能力 (Logs & Outbound Filtering)**：
+  - 扩展 `domain.LogFilter` 与 `/logs` 接口，支持接收 `outbound` 出口标签与 `level` 日志级别过滤；
+  - 在 `log_reader.go` 中实现零堆内存分配（`0 B/op, 0 allocs/op`）的 `matchOutboundTagBytes` 与 `matchLevelBytes` 逆向分块扫描算法；
+  - 前端 `LogsView.vue` 访问模式新增“出站 (Outbound)”下拉选择器与点击徽章联动过滤；错误模式切换级别透传至后端加速扫描；
+  - 赋予 `XrayCompiler` 并发安全的 `SetLogLevel` / `GetLogLevel`，并在生成 Xray 根配置时动态渲染 `log.loglevel`（支持 warning/info/debug/error/none）；
+  - `SettingService` 持久化 `xray_log_level` 并驱动重新编译平滑热更新，启动时自动预载入；前端 `SettingsView.vue` 新增对应配置项。
+- **移动端“桌面表格 + 移动卡片流”全量响应式适配 (Mobile UX & Safe Area)**：
+  - `UserTable.vue` 新增移动端专用卡片流，支持整卡点击检视、多选复选框防冒泡、实时传输测速、配额进度条、到期状态与快捷操作栏自适应折行；
+  - `InboundTable.vue` 新增入站移动端卡片流，直观呈现 Tag、端口、协议流控、REALITY 健康巡检状态与操作组；
+  - `OutboundTable.vue` 修复桌面端横向截断问题（改为 `overflow-x-auto`），并补齐移动端出站卡片流；
+  - `DashboardView.vue` 与 `UserTrafficModal.vue` 修复小屏溢出，增加自适应水平滚动；
+  - `Drawer.vue` 与 `Modal.vue` 的 Footer 底部操作栏引入 CSS `env(safe-area-inset-bottom)`，彻底杜绝 iOS/Android 全面屏手势条遮挡按键。
+
+---
+
 ## v2.6.5 (2026-10) - 路由单一事实源重构、跨机节点防截流、把手拖拽与移动端卡片流响应式
 
 - **消灭路由阴阳两套规则与单一事实源重构 (Single Source of Truth)**：

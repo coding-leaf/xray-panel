@@ -80,7 +80,17 @@
 
 ---
 
-## 5. 记录内容与敏感信息防线
+## 6. Xray 核心日志配置与反向分块扫描规约
+
+- **Xray 核心运行日志级别控制**：
+  - 键名：`xray_log_level`，支持官方标准等级 `debug` / `info` / `warning` / `error` / `none`（默认 `warning`，别名 `warn` 规范化为 `warning`）；
+  - 由 `SettingService` 持久化至 SQLite 并在变更时驱动 `XrayCompiler` 与 `ConfigService.RecompileAndApply` 平滑热重载；
+  - 面板启动时（`main.go`）优先从数据库加载预设值，未配置时回退默认 `warning`。
+- **Xray 日志反向流式读取过滤 (`log_reader.go`)**：
+  - `domain.LogFilter` 统一承载 `InboundTag`、`OutboundTag`、`Level`、`Keyword` 过滤契约；
+  - **零分配高性能匹配铁律**：`ReadLastLinesFiltered` 采用 64KB Chunk Buffer 逆向流式扫描，其内部匹配函数（`matchInboundTagBytes`、`matchOutboundTagBytes`、`matchLevelBytes`）必须保证 **0 B/op, 0 allocs/op**，严禁在扫描热循环中产生临时字符串或堆内存分配；
+  - 标签与等级扫描需防御客户端/目标 IPv6（如 `[::1]:51234`）及 PID 前缀（如 `[12345]`）的符号混淆。
+
 
 **会记录**
 - 生命周期与编排：启动、各服务起停、优雅停机、清理阶段（`main.go:42-236`）；

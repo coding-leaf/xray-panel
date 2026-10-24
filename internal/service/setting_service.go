@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"panel/internal/domain"
 )
@@ -20,12 +21,23 @@ type BotReloader interface {
 	SendMessage(ctx context.Context, text string) error
 }
 
+type LogLevelSetter interface {
+	SetLogLevel(lvl string)
+	GetLogLevel() string
+}
+
+type ConfigRecompiler interface {
+	RecompileAndApply(ctx context.Context, remark string) error
+}
+
 type SettingService struct {
-	settingRepo domain.SettingRepository
-	configMgr   SettingReloader
-	supervisor  SupervisorReloader
-	botAdapter  BotReloader
-	auditSvc    *AuditLogService
+	settingRepo    domain.SettingRepository
+	configMgr      SettingReloader
+	supervisor     SupervisorReloader
+	botAdapter     BotReloader
+	auditSvc       *AuditLogService
+	logLevelSetter LogLevelSetter
+	recompiler     ConfigRecompiler
 }
 
 func NewSettingService(
@@ -47,12 +59,29 @@ func NewSettingService(
 	return s
 }
 
+func (s *SettingService) WithLogLevelSetter(setter LogLevelSetter) *SettingService {
+	s.logLevelSetter = setter
+	return s
+}
+
+func (s *SettingService) WithRecompiler(recompiler ConfigRecompiler) *SettingService {
+	s.recompiler = recompiler
+	return s
+}
+
 func (s *SettingService) GetAllSettings(ctx context.Context) (map[string]string, error) {
 	settings, err := s.settingRepo.GetAll(ctx)
 	if err != nil {
 		return nil, err
 	}
 	delete(settings, "jwt_secret")
+	if lvl, ok := settings["xray_log_level"]; !ok || lvl == "" {
+		if s.logLevelSetter != nil && s.logLevelSetter.GetLogLevel() != "" {
+			settings["xray_log_level"] = s.logLevelSetter.GetLogLevel()
+		} else {
+			settings["xray_log_level"] = "warning"
+		}
+	}
 	return settings, nil
 }
 
@@ -62,6 +91,12 @@ func (s *SettingService) UpdateSettings(ctx context.Context, body map[string]int
 			continue
 		}
 		strVal := fmt.Sprintf("%v", v)
+		if k == "xray_log_level" {
+			strVal = strings.ToLower(strings.TrimSpace(strVal))
+			if strVal == "warn" {
+				strVal = "warning"
+			}
+		}
 		_ = s.settingRepo.Set(ctx, k, strVal)
 	}
 
@@ -101,6 +136,33 @@ func (s *SettingService) UpdateSettings(ctx context.Context, body map[string]int
 			}
 		}
 		_ = s.botAdapter.UpdateConfig(tgToken, chatID)
+	}
+
+	// 动态更新 Xray 核心运行日志等级并驱动重新编译与平滑重载
+	if lvlVal, ok := body["xray_log_level"]; ok && lvlVal != nil {
+		lvlStr := strings.ToLower(strings.TrimSpace(fmt.Sprintf("%v", lvlVal)))
+		if lvlStr == "warn" {
+			lvlStr = "warning"
+		}
+		switch lvlStr {
+		case "debug", "info", "warning", "error", "none":
+		default:
+			lvlStr = "warning"
+		}
+		if lvlStr != "" && lvlStr != "<nil>" {
+			changed := true
+			if s.logLevelSetter != nil {
+				if s.logLevelSetter.GetLogLevel() == lvlStr {
+					changed = false
+				}
+				s.logLevelSetter.SetLogLevel(lvlStr)
+			}
+			if changed && s.recompiler != nil {
+				if err := s.recompiler.RecompileAndApply(ctx, fmt.Sprintf("更新 Xray 日志等级为 %s", lvlStr)); err != nil {
+					return fmt.Errorf("应用 Xray 日志等级失败: %w", err)
+				}
+			}
+		}
 	}
 
 	if s.auditSvc != nil {

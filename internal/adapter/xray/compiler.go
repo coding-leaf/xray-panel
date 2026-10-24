@@ -6,6 +6,7 @@ import (
 	"net"
 	"strconv"
 	"strings"
+	"sync"
 
 	"panel/internal/domain"
 )
@@ -14,6 +15,8 @@ import (
 type XrayCompiler struct {
 	grpcPort int
 	registry *ProtocolRegistry
+	logLevel string
+	mu       sync.RWMutex
 }
 
 func NewXrayCompiler(grpcPort ...int) *XrayCompiler {
@@ -24,7 +27,39 @@ func NewXrayCompiler(grpcPort ...int) *XrayCompiler {
 	return &XrayCompiler{
 		grpcPort: port,
 		registry: DefaultProtocolRegistry(),
+		logLevel: "warning",
 	}
+}
+
+// SetLogLevel 设置 Xray 核心运行日志等级（支持 debug, info, warning, error, none；缺省/非法回退为 warning）
+func (c *XrayCompiler) SetLogLevel(lvl string) {
+	if c == nil {
+		return
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	lvl = strings.ToLower(strings.TrimSpace(lvl))
+	switch lvl {
+	case "debug", "info", "warning", "error", "none":
+		c.logLevel = lvl
+	case "warn":
+		c.logLevel = "warning"
+	default:
+		c.logLevel = "warning"
+	}
+}
+
+// GetLogLevel 获取当前配置的 Xray 核心运行日志等级，默认 warning
+func (c *XrayCompiler) GetLogLevel() string {
+	if c == nil {
+		return "warning"
+	}
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	if c.logLevel == "" {
+		return "warning"
+	}
+	return c.logLevel
 }
 
 // WithProtocolRegistry 配置自定义协议适配器注册中心
@@ -52,7 +87,7 @@ func (c *XrayCompiler) Compile(
 		Log: &XrayLogConfig{
 			Access:   "/var/log/xray/access.log",
 			Error:    "/var/log/xray/error.log",
-			LogLevel: "warning",
+			LogLevel: c.GetLogLevel(),
 		},
 		API: &XrayAPIConfig{
 			Tag:      "api",

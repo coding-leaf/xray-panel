@@ -23,6 +23,8 @@ type ErrorLogEntry struct {
 }
 
 type LogFilter struct {
-	InboundTag string
-	Keyword    string
+	InboundTag  string
+	OutboundTag string
+	Level       string
+	Keyword     string
 }

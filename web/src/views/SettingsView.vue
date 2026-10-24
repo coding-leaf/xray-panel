@@ -80,7 +80,7 @@
           <p class="text-[10px] text-muted-foreground mt-1">官方路径: <code>/usr/local/bin/xray</code></p>
         </div>
 
-        <div class="sm:col-span-2">
+        <div>
           <label class="block text-muted-foreground font-medium mb-1">GeoData 规则库存储目录</label>
           <input
             v-model="settings.xray_geodata_dir"
@@ -89,6 +89,21 @@
             class="w-full bg-neutral-950 border border-border rounded-md px-2.5 py-1.5 text-foreground font-mono focus:outline-none focus:ring-1 focus:ring-ring"
           />
           <p class="text-[10px] text-muted-foreground mt-1">官方路径: <code>/usr/local/share/xray</code>（存放 geoip.dat 与 geosite.dat）</p>
+        </div>
+
+        <div>
+          <label class="block text-muted-foreground font-medium mb-1">Xray 运行日志等级 (LogLevel)</label>
+          <select
+            v-model="settings.xray_log_level"
+            class="w-full bg-neutral-950 border border-border rounded-md px-2.5 py-1.5 text-foreground font-mono focus:outline-none focus:ring-1 focus:ring-ring cursor-pointer"
+          >
+            <option value="warning">warning (警告 - 默认推荐)</option>
+            <option value="info">info (信息 - 包含连接生命周期)</option>
+            <option value="debug">debug (调试 - 详细排错)</option>
+            <option value="error">error (仅严重错误)</option>
+            <option value="none">none (静音 - 关闭日志输出)</option>
+          </select>
+          <p class="text-[10px] text-muted-foreground mt-1">控制 Xray 核心运行与错误日志详细程度，修改后平滑重载生效</p>
         </div>
       </div>
     </div>
@@ -397,6 +412,7 @@ const settings = ref<any>({
   xray_config_path: '/usr/local/etc/xray/config.json',
   xray_bin_path: '/usr/local/bin/xray',
   xray_geodata_dir: '/usr/local/share/xray',
+  xray_log_level: 'warning',
   public_url: '',
   portal_url: '',
   sub_domain: '',

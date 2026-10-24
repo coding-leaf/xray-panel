@@ -605,6 +605,8 @@ export async function handleMockRequest(url: string, method: string, data?: any)
     const urlObj = new URL(url, 'http://localhost')
     const logType = urlObj.searchParams.get('type') || 'access'
     const inbound = urlObj.searchParams.get('inbound') || ''
+    const outbound = urlObj.searchParams.get('outbound') || ''
+    const level = (urlObj.searchParams.get('level') || '').toUpperCase()
     const keyword = (urlObj.searchParams.get('keyword') || '').toLowerCase()
     const nowStr = new Date().toISOString().replace('T', ' ').substring(0, 19).replace(/-/g, '/')
 
@@ -698,6 +700,9 @@ export async function handleMockRequest(url: string, method: string, data?: any)
     if (inbound) {
       access = access.filter((a) => a.inbound_tag === inbound)
     }
+    if (outbound) {
+      access = access.filter((a) => a.outbound_tag === outbound)
+    }
     if (keyword) {
       access = access.filter(
         (a) =>
@@ -735,6 +740,10 @@ export async function handleMockRequest(url: string, method: string, data?: any)
       },
     ]
 
+    if (level) {
+      const normLvl = level === 'WARNING' ? 'WARN' : level
+      errors = errors.filter((e) => e.level === normLvl)
+    }
     if (keyword) {
       errors = errors.filter(
         (e) =>
@@ -748,7 +757,20 @@ export async function handleMockRequest(url: string, method: string, data?: any)
     if (inbound) {
       const tag1 = `[${inbound} ->`
       const tag2 = `[${inbound}]`
-      extraLogs = extraLogs.filter((l: string) => l.includes(tag1) || l.includes(tag2))
+      const tag3 = `[${inbound} >>`
+      extraLogs = extraLogs.filter((l: string) => l.includes(tag1) || l.includes(tag2) || l.includes(tag3))
+    }
+    if (outbound) {
+      const out1 = `-> ${outbound}]`
+      const out2 = `>> ${outbound}]`
+      const out3 = `[${outbound}]`
+      extraLogs = extraLogs.filter((l: string) => l.includes(out1) || l.includes(out2) || l.includes(out3))
+    }
+    if (level) {
+      const normLvl = level === 'WARN' ? 'warning' : level.toLowerCase()
+      extraLogs = extraLogs.filter(
+        (l: string) => l.toLowerCase().includes(`[${normLvl}]`) || l.toLowerCase().includes(`[${level.toLowerCase()}]`)
+      )
     }
 
     const lines = logType === 'access' ? access.map((a) => a.raw) : errors.map((e) => e.raw)

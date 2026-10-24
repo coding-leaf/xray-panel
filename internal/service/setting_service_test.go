@@ -68,6 +68,29 @@ func (m *mockBotReloader) SendMessage(ctx context.Context, text string) error {
 	return nil
 }
 
+type mockLogLevelSetter struct {
+	level string
+}
+
+func (m *mockLogLevelSetter) SetLogLevel(lvl string) {
+	m.level = lvl
+}
+
+func (m *mockLogLevelSetter) GetLogLevel() string {
+	return m.level
+}
+
+type mockConfigRecompiler struct {
+	recompiled bool
+	remark     string
+}
+
+func (m *mockConfigRecompiler) RecompileAndApply(ctx context.Context, remark string) error {
+	m.recompiled = true
+	m.remark = remark
+	return nil
+}
+
 func TestSettingService_GetAll_HidesJWTSecret(t *testing.T) {
 	repo := &mockSettingRepo{data: map[string]string{
 		"jwt_secret": "sensitive-jwt",
@@ -132,5 +155,93 @@ func TestSettingService_UpdateSettings_ReloadsComponents(t *testing.T) {
 	}
 	if bot.sentMsg == "" {
 		t.Errorf("expected test message to be sent")
+	}
+}
+
+func TestSettingService_GetAll_DefaultLogLevel(t *testing.T) {
+	// Case 1: No log level in repo, no setter -> defaults to "warning"
+	repo := &mockSettingRepo{data: map[string]string{}}
+	svc := NewSettingService(repo, nil, nil, nil)
+
+	settings, err := svc.GetAllSettings(context.Background())
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if settings["xray_log_level"] != "warning" {
+		t.Errorf("expected default xray_log_level 'warning', got %s", settings["xray_log_level"])
+	}
+
+	// Case 2: Setter provides current level
+	setter := &mockLogLevelSetter{level: "debug"}
+	svc = NewSettingService(repo, nil, nil, nil).WithLogLevelSetter(setter)
+	settings, err = svc.GetAllSettings(context.Background())
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if settings["xray_log_level"] != "debug" {
+		t.Errorf("expected xray_log_level 'debug' from setter, got %s", settings["xray_log_level"])
+	}
+
+	// Case 3: Repo already has log level
+	repo.data["xray_log_level"] = "error"
+	settings, err = svc.GetAllSettings(context.Background())
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if settings["xray_log_level"] != "error" {
+		t.Errorf("expected xray_log_level 'error' from repo, got %s", settings["xray_log_level"])
+	}
+}
+
+func TestSettingService_UpdateSettings_LogLevel(t *testing.T) {
+	repo := &mockSettingRepo{data: map[string]string{}}
+	setter := &mockLogLevelSetter{level: "warning"}
+	recompiler := &mockConfigRecompiler{}
+
+	svc := NewSettingService(repo, nil, nil, nil).
+		WithLogLevelSetter(setter).
+		WithRecompiler(recompiler)
+
+	body := map[string]interface{}{
+		"xray_log_level": "info",
+	}
+
+	if err := svc.UpdateSettings(context.Background(), body, "127.0.0.1"); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if repo.data["xray_log_level"] != "info" {
+		t.Errorf("expected repo xray_log_level 'info', got %s", repo.data["xray_log_level"])
+	}
+	if setter.level != "info" {
+		t.Errorf("expected setter level 'info', got %s", setter.level)
+	}
+	if !recompiler.recompiled {
+		t.Errorf("expected recompiler to be triggered on log level change")
+	}
+
+	// Re-updating with the same level should not trigger recompile
+	recompiler.recompiled = false
+	if err := svc.UpdateSettings(context.Background(), body, "127.0.0.1"); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if recompiler.recompiled {
+		t.Errorf("expected recompiler NOT to be triggered when log level is unchanged")
+	}
+
+	// Updating with alias "warn" when setter is "warning" should normalize and not trigger recompile
+	setter.level = "warning"
+	recompiler.recompiled = false
+	warnBody := map[string]interface{}{
+		"xray_log_level": "warn",
+	}
+	if err := svc.UpdateSettings(context.Background(), warnBody, "127.0.0.1"); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if repo.data["xray_log_level"] != "warning" {
+		t.Errorf("expected repo xray_log_level normalized to 'warning', got %s", repo.data["xray_log_level"])
+	}
+	if recompiler.recompiled {
+		t.Errorf("expected recompiler NOT to be triggered for alias 'warn' when already 'warning'")
 	}
 }

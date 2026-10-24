@@ -518,6 +518,7 @@ const DEFAULT_RAW_STATE: MockState = {
     xray_config_path: '/usr/local/etc/xray/config.json',
     xray_bin_path: '/usr/local/bin/xray',
     xray_geodata_dir: '/usr/local/share/xray',
+    xray_log_level: 'warning',
     public_url: 'https://demo.example.com:9000',
     portal_url: '',
     sub_domain: 'sub.example.com',

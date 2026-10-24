@@ -125,6 +125,22 @@
           </select>
         </div>
 
+        <!-- Outbound Dropdown Filter (Access Mode) -->
+        <div v-if="logType === 'access'" class="flex items-center gap-1.5 bg-black/40 px-3 py-1.5 rounded-xl border border-gray-800 text-xs">
+          <Send class="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+          <span class="text-gray-400 shrink-0">出站:</span>
+          <select
+            v-model="selectedOutbound"
+            @change="fetchLogs"
+            class="bg-transparent text-white font-mono font-medium focus:outline-none cursor-pointer pr-2 text-xs"
+          >
+            <option value="" class="bg-gray-900 text-gray-300">全部出站</option>
+            <option v-for="tag in outboundOptions" :key="tag" :value="tag" class="bg-gray-900 text-emerald-300">
+              {{ tag }}
+            </option>
+          </select>
+        </div>
+
         <!-- User Dropdown Filter (Access Mode) -->
         <div v-if="logType === 'access'" class="flex items-center gap-1.5 bg-black/40 px-3 py-1.5 rounded-xl border border-gray-800 text-xs">
           <User class="w-3.5 h-3.5 text-indigo-400 shrink-0" />
@@ -146,6 +162,7 @@
           <span class="text-gray-400 shrink-0">级别:</span>
           <select
             v-model="selectedLevel"
+            @change="fetchLogs"
             class="bg-transparent text-white font-mono font-medium focus:outline-none cursor-pointer pr-2 text-xs"
           >
             <option value="" class="bg-gray-900 text-gray-300">全部级别</option>
@@ -217,11 +234,17 @@
             <span>结构化访问记录 (共 {{ filteredAccessLogs.length }} 条)</span>
           </div>
           <div class="flex items-center gap-2">
-            <span v-if="selectedInbound" class="text-cyan-400 font-mono text-[11px] bg-neutral-950 px-2 py-0.5 rounded border border-border">
+            <span v-if="selectedInbound" class="text-cyan-400 font-mono text-[11px] bg-neutral-950 px-2 py-0.5 rounded border border-border flex items-center gap-1">
               入站节点: {{ selectedInbound }}
+              <button @click="selectedInbound = ''; onInboundSelectChange()" class="hover:text-white" title="清除入站过滤">✕</button>
             </span>
-            <span v-if="selectedUserEmail" class="text-indigo-400 font-mono text-[11px] bg-neutral-950 px-2 py-0.5 rounded border border-border">
+            <span v-if="selectedOutbound" class="text-emerald-400 font-mono text-[11px] bg-neutral-950 px-2 py-0.5 rounded border border-border flex items-center gap-1">
+              出站分流: {{ selectedOutbound }}
+              <button @click="selectedOutbound = ''; fetchLogs()" class="hover:text-white" title="清除出站过滤">✕</button>
+            </span>
+            <span v-if="selectedUserEmail" class="text-indigo-400 font-mono text-[11px] bg-neutral-950 px-2 py-0.5 rounded border border-border flex items-center gap-1">
               过滤用户: {{ selectedUserEmail }}
+              <button @click="selectedUserEmail = ''" class="hover:text-white" title="清除用户过滤">✕</button>
             </span>
           </div>
         </div>
@@ -282,17 +305,20 @@
                     </span>
                     <span class="text-gray-500 text-xs">→</span>
                     <span
-                      class="px-2 py-0.5 rounded text-[11px] font-bold font-mono border"
+                      class="px-2 py-0.5 rounded text-[11px] font-bold font-mono border cursor-pointer hover:brightness-125 transition-all"
                       :class="getRouteBadgeClass(row.outbound_tag || row.route)"
-                      :title="'出站分流: ' + (row.outbound_tag || row.route || 'direct')"
+                      @click="setFilterOutbound(row.outbound_tag || row.route)"
+                      :title="'点击以此出站过滤: ' + (row.outbound_tag || row.route || 'direct')"
                     >
                       {{ row.outbound_tag || row.route || 'direct' }}
                     </span>
                   </div>
                   <span
                     v-else
-                    class="px-2.5 py-1 rounded-lg text-[11px] font-bold border"
+                    class="px-2.5 py-1 rounded-lg text-[11px] font-bold border cursor-pointer hover:brightness-125 transition-all"
                     :class="getRouteBadgeClass(row.route)"
+                    @click="setFilterOutbound(row.route)"
+                    :title="'点击以此出站过滤: ' + (row.route || 'direct')"
                   >
                     {{ row.route || 'direct' }}
                   </span>
@@ -354,14 +380,21 @@
                 {{ row.inbound_tag }}
               </span>
               <span class="text-muted-foreground text-[10px]">→</span>
-              <span class="px-1.5 py-0.5 rounded text-[10px] font-bold border" :class="getRouteBadgeClass(row.outbound_tag || row.route)">
+              <span
+                class="px-1.5 py-0.5 rounded text-[10px] font-bold border cursor-pointer hover:brightness-125 transition-all"
+                :class="getRouteBadgeClass(row.outbound_tag || row.route)"
+                @click="setFilterOutbound(row.outbound_tag || row.route)"
+                :title="'点击以此出站过滤: ' + (row.outbound_tag || row.route || 'direct')"
+              >
                 {{ row.outbound_tag || row.route || 'direct' }}
               </span>
             </div>
             <span
               v-else
-              class="px-2 py-0.5 rounded text-[10px] font-bold border shrink-0"
+              class="px-2 py-0.5 rounded text-[10px] font-bold border shrink-0 cursor-pointer hover:brightness-125 transition-all"
               :class="getRouteBadgeClass(row.route)"
+              @click="setFilterOutbound(row.route)"
+              :title="'点击以此出站过滤: ' + (row.route || 'direct')"
             >
               {{ row.route || 'direct' }}
             </span>
@@ -857,6 +890,7 @@ import {
   ShieldAlert,
   ArrowUpDown,
   Radio,
+  Send,
   ShieldCheck,
   Trash2,
   Eye,
@@ -880,6 +914,7 @@ const sortOrder = ref<'desc' | 'asc'>('desc')
 const searchKeyword = ref('')
 const selectedUserEmail = ref('')
 const selectedInbound = ref('')
+const selectedOutbound = ref('')
 const selectedLevel = ref('')
 const selectedAction = ref('')
 const maxLines = ref(200)
@@ -904,6 +939,7 @@ const rawLines = shallowRef<string[]>([])
 const auditEntries = shallowRef<any[]>([])
 const knownUsers = ref<any[]>([])
 const knownInbounds = ref<any[]>([])
+const knownOutbounds = ref<any[]>([])
 let timer: any = null
 
 const auditActionOptions = [
@@ -1010,8 +1046,17 @@ const fetchLogs = async () => {
       const params = new URLSearchParams()
       params.append('type', logType.value)
       params.append('lines', maxLines.value.toString())
-      if (logType.value === 'access' && selectedInbound.value) {
-        params.append('inbound', selectedInbound.value)
+      if (logType.value === 'access') {
+        if (selectedInbound.value) {
+          params.append('inbound', selectedInbound.value)
+        }
+        if (selectedOutbound.value) {
+          params.append('outbound', selectedOutbound.value)
+        }
+      } else if (logType.value === 'error') {
+        if (selectedLevel.value) {
+          params.append('level', selectedLevel.value)
+        }
       }
       if (searchKeyword.value) {
         params.append('keyword', searchKeyword.value)
@@ -1052,10 +1097,12 @@ watch(
       selectedInbound.value = tag
       if (tag && (tagChanged || oldType !== validType)) {
         selectedUserEmail.value = ''
+        selectedOutbound.value = ''
         searchKeyword.value = ''
       }
     } else {
       selectedInbound.value = ''
+      selectedOutbound.value = ''
     }
 
     rawAccessEntries.value = []
@@ -1085,6 +1132,15 @@ const fetchInbounds = async () => {
   try {
     const inbounds: any = await api.get('/inbounds')
     knownInbounds.value = inbounds || []
+  } catch (e) {
+    console.error(e)
+  }
+}
+
+const fetchOutbounds = async () => {
+  try {
+    const outbounds: any = await api.get('/outbounds')
+    knownOutbounds.value = outbounds || []
   } catch (e) {
     console.error(e)
   }
@@ -1152,6 +1208,27 @@ const inboundOptions = computed(() => {
   return Array.from(tagSet)
 })
 
+// 收集所有出站 Tag (已知出站 + 访问日志解析)
+const outboundOptions = computed(() => {
+  const tagSet = new Set<string>()
+  if (selectedOutbound.value) {
+    tagSet.add(selectedOutbound.value)
+  }
+  for (const out of knownOutbounds.value) {
+    if (out.tag) tagSet.add(out.tag)
+  }
+  for (const item of rawAccessEntries.value) {
+    if (item.outbound_tag) tagSet.add(item.outbound_tag)
+  }
+  return Array.from(tagSet)
+})
+
+const setFilterOutbound = (tag: string) => {
+  if (!tag) return
+  selectedOutbound.value = tag
+  fetchLogs()
+}
+
 // 1. 结构化 Access 访问日志
 const filteredAccessLogs = computed(() => {
   if (logType.value !== 'access') return []
@@ -1159,6 +1236,7 @@ const filteredAccessLogs = computed(() => {
   const kw = searchKeyword.value.toLowerCase()
   const filterEmail = selectedUserEmail.value.toLowerCase()
   const targetInbound = selectedInbound.value
+  const targetOutbound = selectedOutbound.value
 
   const list = rawAccessEntries.value.filter((item) => {
     if (filterEmail && (!item.email || !item.email.toLowerCase().includes(filterEmail))) {
@@ -1166,6 +1244,11 @@ const filteredAccessLogs = computed(() => {
     }
     if (targetInbound) {
       if (!item.inbound_tag || item.inbound_tag !== targetInbound) {
+        return false
+      }
+    }
+    if (targetOutbound) {
+      if (!item.outbound_tag || item.outbound_tag !== targetOutbound) {
         return false
       }
     }
@@ -1234,6 +1317,12 @@ const filteredRawLines = computed(() => {
         const tag2 = `[${targetInbound}]`
         const tag3 = `[${targetInbound} >>`
         if (!line.includes(tag1) && !line.includes(tag2) && !line.includes(tag3)) return false
+      }
+      if (selectedOutbound.value) {
+        const out1 = `-> ${selectedOutbound.value}]`
+        const out2 = `>> ${selectedOutbound.value}]`
+        const out3 = `[${selectedOutbound.value}]`
+        if (!line.includes(out1) && !line.includes(out2) && !line.includes(out3)) return false
       }
     }
     if (logType.value === 'error' && filterLvl && !l.includes(filterLvl)) return false
@@ -1318,6 +1407,7 @@ const handleVisibilityChange = () => {
 onMounted(() => {
   fetchUsers()
   fetchInbounds()
+  fetchOutbounds()
   document.addEventListener('visibilitychange', handleVisibilityChange)
 })
 

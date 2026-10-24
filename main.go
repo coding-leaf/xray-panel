@@ -120,6 +120,9 @@ func main() {
 		}
 	}
 	compiler := xray.NewXrayCompiler(grpcPort)
+	if savedLogLevel, err := settingRepo.Get(bgCtx, "xray_log_level"); err == nil && savedLogLevel != "" {
+		compiler.SetLogLevel(savedLogLevel)
+	}
 
 	configSvc := service.NewConfigService(configMgr, supervisor, inboundRepo, userRepo, snapshotRepo, compiler)
 	if err := configSvc.SyncFromFile(bgCtx); err != nil {
@@ -151,7 +154,9 @@ func main() {
 	ticketSvc := service.NewTicketService(ticketRepo, userRepo, subSvc, settingRepo)
 	auditLogSvc := service.NewAuditLogService(auditLogRepo)
 	authSvc := service.NewAuthService(adminRepo, cfg.JWTSecret, auditLogSvc)
-	settingSvc := service.NewSettingService(settingRepo, configMgr, supervisor, botAdapter, auditLogSvc)
+	settingSvc := service.NewSettingService(settingRepo, configMgr, supervisor, botAdapter, auditLogSvc).
+		WithLogLevelSetter(compiler).
+		WithRecompiler(configSvc)
 	realityProber := reality.NewDefaultRealityProber()
 	realityMonitorSvc := service.NewRealityMonitorService(inboundRepo, realityProber, alertSvc)
 

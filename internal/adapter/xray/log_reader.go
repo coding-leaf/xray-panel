@@ -114,6 +114,45 @@ func containsFoldASCII(s []byte, sub string) bool {
 	return false
 }
 
+var (
+	arrowBytes         = []byte("->")
+	doubleGreaterBytes = []byte(">>")
+)
+
+// equalBytesString 高性能零分配字节切片与字符串比较
+func equalBytesString(b []byte, s string) bool {
+	if len(b) != len(s) {
+		return false
+	}
+	for i := 0; i < len(b); i++ {
+		if b[i] != s[i] {
+			return false
+		}
+	}
+	return true
+}
+
+// equalFoldBytesString 高性能零分配字节切片与字符串大小写无关比较
+func equalFoldBytesString(b []byte, s string) bool {
+	if len(b) != len(s) {
+		return false
+	}
+	for i := 0; i < len(b); i++ {
+		c1 := b[i]
+		c2 := s[i]
+		if c1 >= 'A' && c1 <= 'Z' {
+			c1 += 'a' - 'A'
+		}
+		if c2 >= 'A' && c2 <= 'Z' {
+			c2 += 'a' - 'A'
+		}
+		if c1 != c2 {
+			return false
+		}
+	}
+	return true
+}
+
 // matchInboundTagBytes 高性能零分配入站标签匹配，支持 [tag]、[tag -> ...] 与 [tag >> ...]
 func matchInboundTagBytes(line []byte, tag string) bool {
 	if tag == "" {
@@ -127,10 +166,12 @@ func matchInboundTagBytes(line []byte, tag string) bool {
 		}
 		start := offset + idx + 1
 		rem := line[start:]
-		if len(rem) >= len(tag) && string(rem[:len(tag)]) == tag {
+		if len(rem) >= len(tag) && equalBytesString(rem[:len(tag)], tag) {
 			after := rem[len(tag):]
 			if len(after) > 0 && after[0] == ']' {
-				return true
+				if len(after) == 1 || after[1] != ':' {
+					return true
+				}
 			}
 			if len(after) >= 3 && after[0] == ' ' && after[1] == '-' && after[2] == '>' {
 				return true
@@ -140,6 +181,97 @@ func matchInboundTagBytes(line []byte, tag string) bool {
 			}
 		}
 		offset = start
+	}
+}
+
+// matchOutboundTagBytes 高性能零分配出站标签匹配，支持 [in -> out]、[in >> out] 与独立 [out]
+func matchOutboundTagBytes(line []byte, tag string) bool {
+	if tag == "" {
+		return true
+	}
+	offset := 0
+	for {
+		idx := bytes.IndexByte(line[offset:], '[')
+		if idx == -1 {
+			return false
+		}
+		start := offset + idx + 1
+		closeIdx := bytes.IndexByte(line[start:], ']')
+		if closeIdx == -1 {
+			return false
+		}
+		// 跳过 IPv6 host:port 形式的括号（如 [::1]:51234），防止误识别为路由标签
+		if start+closeIdx+1 < len(line) && line[start+closeIdx+1] == ':' {
+			offset = start + closeIdx + 1
+			continue
+		}
+		bracketContent := line[start : start+closeIdx]
+
+		if arrowIdx := bytes.Index(bracketContent, arrowBytes); arrowIdx != -1 {
+			outboundPart := bytes.TrimSpace(bracketContent[arrowIdx+2:])
+			if equalBytesString(outboundPart, tag) {
+				return true
+			}
+		} else if arrowIdx := bytes.Index(bracketContent, doubleGreaterBytes); arrowIdx != -1 {
+			outboundPart := bytes.TrimSpace(bracketContent[arrowIdx+2:])
+			if equalBytesString(outboundPart, tag) {
+				return true
+			}
+		} else {
+			outboundPart := bytes.TrimSpace(bracketContent)
+			if equalBytesString(outboundPart, tag) {
+				return true
+			}
+		}
+
+		offset = start + closeIdx + 1
+	}
+}
+
+// matchLevelBytes 高性能零分配错误日志级别匹配，支持 WARN/WARNING, INFO, ERROR, DEBUG 等大小写无关比对
+func matchLevelBytes(line []byte, level string) bool {
+	level = strings.TrimSpace(level)
+	if level == "" {
+		return true
+	}
+	isWarn := strings.EqualFold(level, "WARN") || strings.EqualFold(level, "WARNING")
+	var target string
+	if isWarn {
+		target = "WARN"
+	} else if strings.EqualFold(level, "INFO") {
+		target = "INFO"
+	} else if strings.EqualFold(level, "ERROR") {
+		target = "ERROR"
+	} else if strings.EqualFold(level, "DEBUG") {
+		target = "DEBUG"
+	} else if strings.EqualFold(level, "NONE") {
+		target = "NONE"
+	} else {
+		return false
+	}
+
+	offset := 0
+	for {
+		idx := bytes.IndexByte(line[offset:], '[')
+		if idx == -1 {
+			return false
+		}
+		start := offset + idx + 1
+		closeIdx := bytes.IndexByte(line[start:], ']')
+		if closeIdx == -1 {
+			return false
+		}
+		candidate := bytes.TrimSpace(line[start : start+closeIdx])
+
+		if isWarn {
+			if equalFoldBytesString(candidate, "WARN") || equalFoldBytesString(candidate, "WARNING") {
+				return true
+			}
+		} else if equalFoldBytesString(candidate, target) {
+			return true
+		}
+
+		offset = start + closeIdx + 1
 	}
 }
 
@@ -226,6 +358,14 @@ func ParseLogLineFast(raw []byte, filter LogFilter) (matched bool, timeStr, from
 		return false, "", "", ""
 	}
 
+	if filter.OutboundTag != "" && !matchOutboundTagBytes(trimmed, filter.OutboundTag) {
+		return false, "", "", ""
+	}
+
+	if filter.Level != "" && !matchLevelBytes(trimmed, filter.Level) {
+		return false, "", "", ""
+	}
+
 	if filter.Keyword != "" && !containsFoldASCII(trimmed, filter.Keyword) {
 		return false, "", "", ""
 	}
@@ -277,6 +417,12 @@ func ReadLastLinesFiltered(filePath string, maxLines int, filter LogFilter) ([]s
 
 	matchLine := func(line []byte) bool {
 		if filter.InboundTag != "" && !matchInboundTagBytes(line, filter.InboundTag) {
+			return false
+		}
+		if filter.OutboundTag != "" && !matchOutboundTagBytes(line, filter.OutboundTag) {
+			return false
+		}
+		if filter.Level != "" && !matchLevelBytes(line, filter.Level) {
 			return false
 		}
 		if filter.Keyword != "" && !containsFoldASCII(line, filter.Keyword) {

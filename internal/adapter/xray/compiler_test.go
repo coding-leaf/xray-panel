@@ -868,6 +868,76 @@ func TestCompiler_SubRoute_UserIsolation(t *testing.T) {
 	}
 }
 
+func TestXrayCompiler_LogLevel(t *testing.T) {
+	c := xray.NewXrayCompiler()
+
+	// 1. Default log level should be "warning"
+	if c.GetLogLevel() != "warning" {
+		t.Fatalf("expected default log level warning, got %s", c.GetLogLevel())
+	}
+
+	cfg, err := c.Compile(nil, nil, nil, nil, nil)
+	if err != nil {
+		t.Fatalf("compile failed: %v", err)
+	}
+	if cfg.Log == nil || cfg.Log.LogLevel != "warning" {
+		t.Fatalf("expected compiled log level warning, got %v", cfg.Log)
+	}
+
+	// 2. SetLogLevel with valid levels
+	validLevels := []string{"debug", "info", "warning", "error", "none"}
+	for _, lvl := range validLevels {
+		c.SetLogLevel(lvl)
+		if c.GetLogLevel() != lvl {
+			t.Errorf("SetLogLevel(%s): expected %s, got %s", lvl, lvl, c.GetLogLevel())
+		}
+	}
+
+	// 3. Case-insensitivity & trimming
+	c.SetLogLevel("  DEBUG  ")
+	if c.GetLogLevel() != "debug" {
+		t.Errorf("expected debug, got %s", c.GetLogLevel())
+	}
+
+	// 4. "warn" alias should map to "warning"
+	c.SetLogLevel("warn")
+	if c.GetLogLevel() != "warning" {
+		t.Errorf("expected warning for warn alias, got %s", c.GetLogLevel())
+	}
+
+	// 5. Invalid levels fallback to "warning"
+	c.SetLogLevel("invalid_level_xyz")
+	if c.GetLogLevel() != "warning" {
+		t.Errorf("expected fallback warning for invalid level, got %s", c.GetLogLevel())
+	}
+
+	// 6. Verify Compile and CompileToJSON reflect set level
+	c.SetLogLevel("info")
+	cfg, err = c.Compile(nil, nil, nil, nil, nil)
+	if err != nil {
+		t.Fatalf("compile failed: %v", err)
+	}
+	if cfg.Log.LogLevel != "info" {
+		t.Errorf("expected compiled log level info, got %s", cfg.Log.LogLevel)
+	}
+
+	jsonBytes, err := c.CompileToJSON(nil, nil, nil, nil, nil)
+	if err != nil {
+		t.Fatalf("CompileToJSON failed: %v", err)
+	}
+	var raw struct {
+		Log struct {
+			LogLevel string `json:"loglevel"`
+		} `json:"log"`
+	}
+	if err := json.Unmarshal(jsonBytes, &raw); err != nil {
+		t.Fatalf("unmarshal failed: %v", err)
+	}
+	if raw.Log.LogLevel != "info" {
+		t.Errorf("expected json loglevel info, got %s", raw.Log.LogLevel)
+	}
+}
+
 func TestXrayCompiler_RealityStrictValidation(t *testing.T) {
 	compiler := xray.NewXrayCompiler()
 	outbounds := []domain.Outbound{{Tag: "direct", Protocol: "freedom"}}

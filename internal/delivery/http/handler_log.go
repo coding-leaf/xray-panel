@@ -29,11 +29,15 @@ func (h *LogHandler) GetLogs(c *gin.Context) {
 	lines, _ := strconv.Atoi(linesStr)
 
 	inbound := c.Query("inbound")
+	outbound := c.Query("outbound")
+	level := c.Query("level")
 	keyword := c.Query("keyword")
 
 	filter := domain.LogFilter{
-		InboundTag: inbound,
-		Keyword:    keyword,
+		InboundTag:  inbound,
+		OutboundTag: outbound,
+		Level:       level,
+		Keyword:     keyword,
 	}
 
 	resp, err := h.logSvc.GetRecentLogs(c.Request.Context(), logType, lines, filter)

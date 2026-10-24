@@ -573,6 +573,255 @@ func TestParseLogLineFast_Comprehensive(t *testing.T) {
 	}
 }
 
+func TestMatchOutboundTagBytes(t *testing.T) {
+	tests := []struct {
+		name     string
+		line     string
+		tag      string
+		expected bool
+	}{
+		{
+			name:     "empty tag matches everything",
+			line:     "2026/09/12 10:00:01 127.0.0.1:1000 accepted tcp:example.com:443 [vless-in -> direct]",
+			tag:      "",
+			expected: true,
+		},
+		{
+			name:     "standard route -> match",
+			line:     "2026/09/12 10:00:01 127.0.0.1:1000 accepted tcp:example.com:443 [vless-in -> direct] email: foo@example.com",
+			tag:      "direct",
+			expected: true,
+		},
+		{
+			name:     "standard route -> mismatch",
+			line:     "2026/09/12 10:00:01 127.0.0.1:1000 accepted tcp:example.com:443 [vless-in -> direct] email: foo@example.com",
+			tag:      "warp-out",
+			expected: false,
+		},
+		{
+			name:     "fallback route >> match",
+			line:     "2026/09/12 10:00:01 127.0.0.1:1000 rejected udp:8.8.8.8:53 [vless-in >> block]",
+			tag:      "block",
+			expected: true,
+		},
+		{
+			name:     "fallback route >> mismatch",
+			line:     "2026/09/12 10:00:01 127.0.0.1:1000 rejected udp:8.8.8.8:53 [vless-in >> block]",
+			tag:      "direct",
+			expected: false,
+		},
+		{
+			name:     "single standalone tag match",
+			line:     "2026/09/12 10:00:01 127.0.0.1:1000 accepted tcp:api.internal:80 [direct]",
+			tag:      "direct",
+			expected: true,
+		},
+		{
+			name:     "single standalone tag mismatch",
+			line:     "2026/09/12 10:00:01 127.0.0.1:1000 accepted tcp:api.internal:80 [local]",
+			tag:      "direct",
+			expected: false,
+		},
+		{
+			name:     "tag boundary prefix should not match",
+			line:     "2026/09/12 10:00:01 127.0.0.1:1000 accepted tcp:example.com:443 [vless-in -> direct-out]",
+			tag:      "direct",
+			expected: false,
+		},
+		{
+			name:     "tag boundary suffix should not match",
+			line:     "2026/09/12 10:00:01 127.0.0.1:1000 accepted tcp:example.com:443 [vless-in -> my-direct]",
+			tag:      "direct",
+			expected: false,
+		},
+		{
+			name:     "IPv6 client address does not fool route matching",
+			line:     "2026/09/12 10:00:01 [::1]:51234 accepted tcp:example.com:443 [vless-in -> direct]",
+			tag:      "direct",
+			expected: true,
+		},
+		{
+			name:     "IPv6 client address bracket should not match as outbound tag",
+			line:     "2026/09/12 10:00:01 [::1]:51234 accepted tcp:example.com:443 [vless-in -> direct]",
+			tag:      "::1",
+			expected: false,
+		},
+		{
+			name:     "IPv6 target address bracket should not match as outbound tag",
+			line:     "2026/09/12 10:00:01 127.0.0.1:1000 accepted tcp:[2001:db8::1]:443 [vless-in -> direct]",
+			tag:      "2001:db8::1",
+			expected: false,
+		},
+		{
+			name:     "no bracket in line",
+			line:     "2026/09/12 10:00:01 malformed line without brackets",
+			tag:      "direct",
+			expected: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := matchOutboundTagBytes([]byte(tt.line), tt.tag)
+			if got != tt.expected {
+				t.Errorf("matchOutboundTagBytes(%q, %q) = %v; want %v", tt.line, tt.tag, got, tt.expected)
+			}
+		})
+	}
+}
+
+func TestMatchLevelBytes(t *testing.T) {
+	tests := []struct {
+		name     string
+		line     string
+		level    string
+		expected bool
+	}{
+		{
+			name:     "empty level matches everything",
+			line:     "2026/09/12 10:00:01 [Warning] Core: failed connection",
+			level:    "",
+			expected: true,
+		},
+		{
+			name:     "warning matches [Warning] with warn filter",
+			line:     "2026/09/12 10:00:01 [Warning] Core: failed connection",
+			level:    "warn",
+			expected: true,
+		},
+		{
+			name:     "warning matches [Warning] with warning filter",
+			line:     "2026/09/12 10:00:01 [Warning] Core: failed connection",
+			level:    "warning",
+			expected: true,
+		},
+		{
+			name:     "warning matches [Warning] with uppercase WARN",
+			line:     "2026/09/12 10:00:01 [Warning] Core: failed connection",
+			level:    "WARN",
+			expected: true,
+		},
+		{
+			name:     "warning matches [WARN]",
+			line:     "2026/09/12 10:00:01 [WARN] Core: failed connection",
+			level:    "warn",
+			expected: true,
+		},
+		{
+			name:     "info matches [Info]",
+			line:     "2026/09/12 10:00:01.123 [Info] [12345] App: started",
+			level:    "INFO",
+			expected: true,
+		},
+		{
+			name:     "error matches [Error]",
+			line:     "2026/09/12 10:00:01 [Error] Proxy: client flow is empty",
+			level:    "error",
+			expected: true,
+		},
+		{
+			name:     "debug matches [Debug]",
+			line:     "2026/09/12 10:00:01 [Debug] DNS: query resolved",
+			level:    "debug",
+			expected: true,
+		},
+		{
+			name:     "level mismatch",
+			line:     "2026/09/12 10:00:01 [Info] App: started",
+			level:    "error",
+			expected: false,
+		},
+		{
+			name:     "PID in brackets is not mistaken for level",
+			line:     "2026/09/12 10:00:01 [Info] [12345] App: started",
+			level:    "12345",
+			expected: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := matchLevelBytes([]byte(tt.line), tt.level)
+			if got != tt.expected {
+				t.Errorf("matchLevelBytes(%q, %q) = %v; want %v", tt.line, tt.level, got, tt.expected)
+			}
+		})
+	}
+}
+
+func TestReadLastLinesFiltered_OutboundAndLevel(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	// 1. Access log outbound tag filtering
+	accessFile := filepath.Join(tmpDir, "access_outbound.log")
+	fAcc, err := os.Create(accessFile)
+	if err != nil {
+		t.Fatalf("failed to create temp file: %v", err)
+	}
+	fAcc.WriteString("2026/09/12 10:00:01 127.0.0.1:1000 accepted tcp:example.com:443 [vless-in -> direct]\n")
+	fAcc.WriteString("2026/09/12 10:00:02 127.0.0.1:1001 accepted tcp:google.com:443 [vless-in -> warp-out]\n")
+	fAcc.WriteString("2026/09/12 10:00:03 127.0.0.1:1002 accepted tcp:youtube.com:443 [vmess-in -> warp-out]\n")
+	fAcc.WriteString("2026/09/12 10:00:04 127.0.0.1:1003 rejected udp:8.8.8.8:53 [vless-in >> block]\n")
+	fAcc.Close()
+
+	// Filter by outbound = warp-out
+	lines, err := ReadLastLinesFiltered(accessFile, 10, LogFilter{OutboundTag: "warp-out"})
+	if err != nil {
+		t.Fatalf("ReadLastLinesFiltered failed: %v", err)
+	}
+	if len(lines) != 2 {
+		t.Fatalf("expected 2 lines with outbound warp-out, got %d: %v", len(lines), lines)
+	}
+
+	// Filter by inbound = vless-in AND outbound = warp-out
+	lines, err = ReadLastLinesFiltered(accessFile, 10, LogFilter{InboundTag: "vless-in", OutboundTag: "warp-out"})
+	if err != nil {
+		t.Fatalf("ReadLastLinesFiltered failed: %v", err)
+	}
+	if len(lines) != 1 {
+		t.Fatalf("expected 1 line for vless-in -> warp-out, got %d", len(lines))
+	}
+
+	// Filter by outbound = block
+	lines, err = ReadLastLinesFiltered(accessFile, 10, LogFilter{OutboundTag: "block"})
+	if err != nil {
+		t.Fatalf("ReadLastLinesFiltered failed: %v", err)
+	}
+	if len(lines) != 1 {
+		t.Fatalf("expected 1 line for block, got %d", len(lines))
+	}
+
+	// 2. Error log level filtering
+	errorFile := filepath.Join(tmpDir, "error_level.log")
+	fErr, err := os.Create(errorFile)
+	if err != nil {
+		t.Fatalf("failed to create temp file: %v", err)
+	}
+	fErr.WriteString("2026/09/12 10:00:01 [Warning] Core: connection timeout\n")
+	fErr.WriteString("2026/09/12 10:00:02 [Info] [12345] App: core started\n")
+	fErr.WriteString("2026/09/12 10:00:03 [Error] Proxy/VLESS: client flow is empty\n")
+	fErr.WriteString("2026/09/12 10:00:04 [Warning] DNS: timeout\n")
+	fErr.Close()
+
+	// Filter by level = WARN
+	errLines, err := ReadLastLinesFiltered(errorFile, 10, LogFilter{Level: "WARN"})
+	if err != nil {
+		t.Fatalf("ReadLastLinesFiltered failed: %v", err)
+	}
+	if len(errLines) != 2 {
+		t.Fatalf("expected 2 WARN lines, got %d: %v", len(errLines), errLines)
+	}
+
+	// Filter by level = ERROR
+	errLines, err = ReadLastLinesFiltered(errorFile, 10, LogFilter{Level: "ERROR"})
+	if err != nil {
+		t.Fatalf("ReadLastLinesFiltered failed: %v", err)
+	}
+	if len(errLines) != 1 {
+		t.Fatalf("expected 1 ERROR line, got %d: %v", len(errLines), errLines)
+	}
+}
+
 func BenchmarkParseAccessLogLine(b *testing.B) {
 	line := "2026/09/12 10:00:01.123 127.0.0.1:1000 accepted tcp:example.com:443 [vless-in -> direct] email: alice@test.com"
 	b.ResetTimer()
@@ -605,6 +854,28 @@ func BenchmarkParseLogLineFast(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		matched, _, _, _ := ParseLogLineFast(line, filter)
 		if !matched {
+			b.Fatal("not matched")
+		}
+	}
+}
+
+func BenchmarkMatchOutboundTagBytes(b *testing.B) {
+	line := []byte("2026/09/12 10:00:01.123 127.0.0.1:1000 accepted tcp:example.com:443 [vless-in -> direct] email: foo@example.com")
+	b.ResetTimer()
+	b.ReportAllocs()
+	for i := 0; i < b.N; i++ {
+		if !matchOutboundTagBytes(line, "direct") {
+			b.Fatal("not matched")
+		}
+	}
+}
+
+func BenchmarkMatchLevelBytes(b *testing.B) {
+	line := []byte("2026/09/12 10:00:01.456 [Warning] [12345] Core: failed to process inbound connection")
+	b.ResetTimer()
+	b.ReportAllocs()
+	for i := 0; i < b.N; i++ {
+		if !matchLevelBytes(line, "WARN") {
 			b.Fatal("not matched")
 		}
 	}

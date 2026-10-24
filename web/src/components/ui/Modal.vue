@@ -65,7 +65,7 @@
           </div>
 
           <!-- Footer -->
-          <div v-if="$slots.footer" class="p-3.5 border-t border-border bg-card shrink-0 flex items-center justify-end gap-2.5">
+          <div v-if="$slots.footer" class="p-3.5 pb-[max(0.875rem,env(safe-area-inset-bottom))] border-t border-border bg-card shrink-0 flex items-center justify-end gap-2.5">
             <slot name="footer" />
           </div>
         </div>

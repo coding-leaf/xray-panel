@@ -52,7 +52,16 @@ cd web && mise x -- npm run build       # vite build
 
 ---
 
-## 安全防线
+## 移动端响应式与多终端适配规范
+
+- **桌面表格 + 移动卡片流双模规范**：
+  - 核心实体列表（用户、入站、出站、路由规则）统一采用 Tailwind `sm:` (640px) 断点作为分水岭；
+  - 桌面端（`hidden sm:block`）渲染高密度表格；移动端（`sm:hidden space-y-2.5`）切换为多行信息触摸卡片流；
+  - **卡片交互与事件冒泡防护**：整卡点击统一调出检视器抽屉（`@click="emit('inspect', item)"`），内部复选框（Checkbox）与操作按钮栏必须绑定 `@click.stop`，杜绝误触抽屉；
+  - **弹性文本与折行保护**：卡片底部操作栏一律添加 `flex-wrap`，防止小屏截断；超长字段（如邮箱、Tag、目标端点）需配置 `min-w-0 flex-1 truncate`。
+- **浮层与弹窗底部安全区内边距**：
+  - `Drawer.vue` 与 `Modal.vue` 的 Footer 底部必须携带 `pb-[max(0.875rem, env(safe-area-inset-bottom))]`，防止 iOS / Android 全面屏手势条遮挡“保存/确定/取消”按钮。
+
 
 - **凭据不留存**：禁止在 `LocalStorage` / `SessionStorage` 长久保存明文提取码；
   Portal 等敏感页面必须支持超时锁屏物理自毁（见 `frontend/index.md`）。

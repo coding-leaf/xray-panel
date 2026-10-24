@@ -64,8 +64,8 @@
       </div>
     </div>
 
-    <!-- Main Table View -->
-    <div class="relative w-full overflow-hidden rounded-lg border border-border bg-neutral-950">
+    <!-- Main Table View (Desktop) -->
+    <div class="hidden sm:block relative w-full overflow-x-auto rounded-lg border border-border bg-neutral-950">
       <table class="w-full caption-bottom text-xs border-collapse">
         <thead class="border-b border-border bg-neutral-900">
           <tr>
@@ -173,6 +173,106 @@
           </tr>
         </tbody>
       </table>
+    </div>
+
+    <!-- Mobile Card Stream View (< sm) -->
+    <div class="sm:hidden space-y-2.5">
+      <div
+        v-for="ob in filteredOutbounds"
+        :key="ob.tag"
+        @click="emit('inspect', ob)"
+        class="rounded-lg border bg-neutral-950 p-3 space-y-2.5 transition-all cursor-pointer"
+        :class="[
+          selectedTag === ob.tag
+            ? 'border-indigo-500/70 bg-indigo-500/5'
+            : 'border-border hover:border-border/80'
+        ]"
+      >
+        <!-- Card Top Bar: Tag + System Default Badge + Protocol Badge -->
+        <div class="flex items-center justify-between gap-2 pb-2 border-b border-border/50">
+          <div class="flex items-center gap-1.5 min-w-0">
+            <span class="font-mono font-semibold text-foreground text-xs truncate">{{ ob.tag }}</span>
+            <span v-if="ob.tag === 'direct' || ob.tag === 'block'" class="text-[10px] font-mono px-1 py-0.2 rounded bg-neutral-800 text-neutral-400 border border-neutral-700 shrink-0">
+              系统默认
+            </span>
+          </div>
+
+          <Badge :variant="getProtocolBadgeVariant(ob.protocol)" class="shrink-0 text-[10px]">
+            {{ ob.protocol?.toUpperCase() }}
+          </Badge>
+        </div>
+
+        <!-- Usage Description -->
+        <div class="text-[11px] text-muted-foreground truncate" :title="getUsageDesc(ob)">
+          {{ getUsageDesc(ob) }}
+        </div>
+
+        <!-- Network & Security + Target Endpoint -->
+        <div class="space-y-1.5 text-xs font-mono">
+          <div class="flex items-center justify-between">
+            <span class="text-muted-foreground text-[11px] shrink-0">目标端点:</span>
+            <span class="text-foreground text-[11px] truncate ml-2 text-right" :title="getTargetEndpoint(ob)">
+              {{ getTargetEndpoint(ob) }}
+            </span>
+          </div>
+
+          <div v-if="getOutboundStreamInfo(ob).network || getOutboundStreamInfo(ob).security" class="flex items-center justify-between">
+            <span class="text-muted-foreground text-[11px]">传输与安全:</span>
+            <div class="flex items-center gap-1.5">
+              <span v-if="getOutboundStreamInfo(ob).network" class="px-1.5 py-0.5 rounded text-[10px] bg-neutral-900 border border-border text-neutral-300">
+                {{ getOutboundStreamInfo(ob).network.toUpperCase() }}
+              </span>
+              <span v-if="getOutboundStreamInfo(ob).security && getOutboundStreamInfo(ob).security !== 'none'" class="px-1.5 py-0.5 rounded text-[10px] bg-cyan-950/60 border border-cyan-800/50 text-cyan-300">
+                {{ getOutboundStreamInfo(ob).security.toUpperCase() }}
+              </span>
+            </div>
+          </div>
+
+          <div v-if="formatSettingsSummary(ob)" class="pt-1 border-t border-border/30 text-[11px] text-muted-foreground truncate" :title="formatSettingsSummary(ob)">
+            {{ formatSettingsSummary(ob) }}
+          </div>
+        </div>
+
+        <!-- Card Action Buttons -->
+        <div class="pt-2 border-t border-border/40 flex flex-wrap items-center justify-end gap-1.5" @click.stop>
+          <Button
+            variant="ghost"
+            size="sm"
+            class="h-7 px-2 text-xs"
+            @click="emit('inspect', ob)"
+            title="查看详情与参数"
+          >
+            <Eye class="w-3.5 h-3.5 mr-1" />
+            <span>详情</span>
+          </Button>
+          <Button
+            variant="secondary"
+            size="sm"
+            class="h-7 px-2 text-xs text-brand-400 hover:text-brand-300"
+            @click="emit('edit', ob)"
+            title="编辑配置"
+          >
+            <Edit3 class="w-3.5 h-3.5 mr-1" />
+            <span>编辑</span>
+          </Button>
+          <Button
+            v-if="ob.tag !== 'direct' && ob.tag !== 'block'"
+            variant="ghost"
+            size="sm"
+            class="h-7 px-2 text-xs text-rose-400 hover:text-rose-300 hover:bg-rose-950/40"
+            @click="emit('delete', ob.tag)"
+            title="删除节点"
+          >
+            <Trash2 class="w-3.5 h-3.5 mr-1" />
+            <span>删除</span>
+          </Button>
+        </div>
+      </div>
+
+      <!-- Empty State for Mobile -->
+      <div v-if="filteredOutbounds.length === 0" class="p-8 text-center rounded-lg border border-border bg-neutral-950 text-muted-foreground">
+        <p class="text-xs">未找到符合条件的出站节点</p>
+      </div>
     </div>
   </div>
 </template>

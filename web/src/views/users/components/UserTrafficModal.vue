@@ -128,8 +128,8 @@
 
       <!-- Table breakdown -->
       <div class="space-y-1.5">
-        <div class="max-h-44 overflow-y-auto rounded-md border border-border bg-neutral-950">
-          <table class="w-full text-left text-xs">
+        <div class="max-h-44 overflow-auto rounded-md border border-border bg-neutral-950">
+          <table class="w-full text-left text-xs min-w-[280px]">
             <thead class="border-b border-border bg-neutral-900 sticky top-0">
               <tr class="font-mono text-[11px] text-muted-foreground">
                 <th class="py-2 px-3">日期</th>

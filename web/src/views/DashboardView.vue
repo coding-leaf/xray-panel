@@ -203,8 +203,8 @@
               查看全部入站 ➔
             </router-link>
           </div>
-          <div class="overflow-hidden rounded-md border border-border bg-neutral-950">
-            <table class="w-full text-left text-xs border-collapse">
+          <div class="overflow-x-auto rounded-md border border-border bg-neutral-950">
+            <table class="w-full text-left text-xs border-collapse min-w-[380px]">
               <thead class="text-muted-foreground bg-neutral-900 border-b border-border font-mono text-[11px]">
                 <tr>
                   <th class="py-2 px-3">标签 (Tag)</th>

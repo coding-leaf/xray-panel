@@ -100,8 +100,17 @@
         </select>
       </div>
 
-      <div v-if="selectedUserIds.length > 0" class="flex items-center gap-2 text-xs">
-        <span class="text-muted-foreground font-mono">已选 {{ selectedUserIds.length }} 位</span>
+      <div class="flex items-center justify-between sm:justify-end gap-2 text-xs">
+        <label v-if="filteredUsers.length > 0" class="sm:hidden flex items-center gap-1.5 text-muted-foreground cursor-pointer text-xs">
+          <input
+            type="checkbox"
+            :checked="isAllUsersSelected"
+            @change="emit('toggle-select-all')"
+            class="rounded bg-neutral-900 border-border text-foreground focus:ring-0 cursor-pointer"
+          />
+          <span>全选</span>
+        </label>
+        <span v-if="selectedUserIds.length > 0" class="text-muted-foreground font-mono">已选 {{ selectedUserIds.length }} 位</span>
       </div>
     </div>
 
@@ -190,200 +199,385 @@
       </div>
     </div>
 
-    <!-- Main Table View -->
-    <Table>
-      <TableHeader>
-        <TableRow class="hover:bg-transparent cursor-default">
-          <TableHead class="w-10 text-center">
-            <input
-              type="checkbox"
-              :checked="isAllUsersSelected"
-              @change="emit('toggle-select-all')"
-              class="rounded bg-neutral-900 border-border text-foreground focus:ring-0 cursor-pointer"
-            />
-          </TableHead>
-          <TableHead class="min-w-[180px]">用户名 / 标识</TableHead>
-          <TableHead class="min-w-[140px]">授权入站节点</TableHead>
-          <TableHead class="min-w-[160px]">流量配额</TableHead>
-          <TableHead class="min-w-[130px]">有效期与重置</TableHead>
-          <TableHead class="min-w-[120px]">状态与实时速率</TableHead>
-          <TableHead class="text-right min-w-[170px]">操作</TableHead>
-        </TableRow>
-      </TableHeader>
-      <TableBody>
-        <TableRow
-          v-for="user in filteredUsers"
-          :key="user.id"
-          @click="emit('inspect', user)"
-          :class="{ 'bg-muted/30': currentInspectorUserId === user.id }"
-        >
-          <!-- Checkbox -->
-          <TableCell class="text-center" @click.stop>
+    <!-- Main Table View (Desktop) -->
+    <div class="hidden sm:block">
+      <Table>
+        <TableHeader>
+          <TableRow class="hover:bg-transparent cursor-default">
+            <TableHead class="w-10 text-center">
+              <input
+                type="checkbox"
+                :checked="isAllUsersSelected"
+                @change="emit('toggle-select-all')"
+                class="rounded bg-neutral-900 border-border text-foreground focus:ring-0 cursor-pointer"
+              />
+            </TableHead>
+            <TableHead class="min-w-[180px]">用户名 / 标识</TableHead>
+            <TableHead class="min-w-[140px]">授权入站节点</TableHead>
+            <TableHead class="min-w-[160px]">流量配额</TableHead>
+            <TableHead class="min-w-[130px]">有效期与重置</TableHead>
+            <TableHead class="min-w-[120px]">状态与实时速率</TableHead>
+            <TableHead class="text-right min-w-[170px]">操作</TableHead>
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          <TableRow
+            v-for="user in filteredUsers"
+            :key="user.id"
+            @click="emit('inspect', user)"
+            :class="{ 'bg-muted/30': currentInspectorUserId === user.id }"
+          >
+            <!-- Checkbox -->
+            <TableCell class="text-center" @click.stop>
+              <input
+                type="checkbox"
+                :checked="selectedUserIds.includes(user.id)"
+                @change="onUserCheck(user.id)"
+                class="rounded bg-neutral-900 border-border text-foreground focus:ring-0 cursor-pointer"
+              />
+            </TableCell>
+
+            <!-- Username & Email & SubToken -->
+            <TableCell>
+              <div class="font-mono font-medium text-foreground text-xs truncate max-w-[220px]">
+                {{ user.email }}
+              </div>
+              <div class="text-[10px] text-muted-foreground font-mono flex items-center gap-1.5 mt-0.5">
+                <span v-if="user.ipLimit > 0" class="text-amber-400 font-semibold">限 {{ user.ipLimit }} IP</span>
+                <span v-else>无IP限制</span>
+                <span>•</span>
+                <span class="truncate max-w-[120px]" :title="user.subToken || '未生成'">
+                  Token: {{ user.subToken ? user.subToken.substring(0, 8) + '...' : '未生成' }}
+                </span>
+              </div>
+            </TableCell>
+
+            <!-- Inbound Tags -->
+            <TableCell>
+              <div class="flex flex-wrap gap-1 max-w-[200px]">
+                <Badge
+                  v-for="tag in getNodeTags(user).slice(0, 3)"
+                  :key="tag"
+                  variant="outline"
+                  class="text-[10px] px-1.5 py-0 font-mono"
+                >
+                  <span>{{ tag }}</span>
+                  <span v-if="getSubRoutesCount(tag, user)" class="text-cyan-400 font-bold ml-0.5">({{ getSubRoutesCount(tag, user) }}线)</span>
+                </Badge>
+                <Badge
+                  v-if="getNodeTags(user).length > 3"
+                  variant="secondary"
+                  class="text-[10px] px-1 py-0 font-mono"
+                  :title="getNodeTags(user).slice(3).join(', ')"
+                >
+                  +{{ getNodeTags(user).length - 3 }}
+                </Badge>
+                <span v-if="!getNodeTags(user).length" class="text-[11px] text-muted-foreground font-mono">
+                  未分配节点
+                </span>
+              </div>
+            </TableCell>
+
+            <!-- Traffic Usage & Progress -->
+            <TableCell class="font-mono">
+              <div class="space-y-1">
+                <div class="text-xs text-foreground flex items-center justify-between">
+                  <span>{{ formatBytes(user.upBytes + user.downBytes) }}</span>
+                  <span class="text-muted-foreground text-[11px]">/ {{ user.totalBytes > 0 ? formatBytes(user.totalBytes) : '无限制' }}</span>
+                </div>
+                <div v-if="user.totalBytes > 0" class="w-full max-w-[140px] h-1.5 bg-neutral-900 rounded-full overflow-hidden border border-border/40">
+                  <div
+                    class="h-full rounded-full transition-all"
+                    :class="getTrafficProgressClass(user)"
+                    :style="{ width: `${Math.min(100, getTrafficPercent(user))}%` }"
+                  />
+                </div>
+              </div>
+            </TableCell>
+
+            <!-- Expire Date & Reset -->
+            <TableCell class="font-mono text-[11px]">
+              <div :class="isUserExpired(user) ? 'text-amber-400 font-semibold' : 'text-foreground'">
+                {{ user.expireTime > 0 ? formatDate(user.expireTime) : '永久有效' }}
+                <span v-if="isUserExpired(user)" class="text-[10px] text-rose-400 ml-1">(已到期)</span>
+              </div>
+              <div v-if="user.resetDay > 0" class="text-[10px] text-cyan-400/90 mt-0.5">
+                每月 {{ user.resetDay }} 日自动重置
+              </div>
+            </TableCell>
+
+            <!-- Status & Live Speeds -->
+            <TableCell>
+              <div class="space-y-1">
+                <div class="flex items-center gap-1.5">
+                  <Badge
+                    :variant="getUserBadgeVariant(user)"
+                    :dot="true"
+                    class="text-[10px]"
+                  >
+                    {{ getUserStatusText(user) }}
+                  </Badge>
+                </div>
+                <!-- Real-time transfer speed -->
+                <div v-if="user.isOnline && (user.upSpeed > 0 || user.downSpeed > 0)" class="text-[10px] font-mono text-cyan-400 flex items-center gap-1">
+                  <span>↑{{ formatBytes(user.upSpeed) }}/s</span>
+                  <span>↓{{ formatBytes(user.downSpeed) }}/s</span>
+                </div>
+              </div>
+            </TableCell>
+
+            <!-- Quick Action Buttons -->
+            <TableCell class="text-right" @click.stop>
+              <div class="flex items-center justify-end gap-1">
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  @click="emit('inspect', user)"
+                  title="打开巡检抽屉"
+                >
+                  <SlidersHorizontal class="w-3.5 h-3.5" />
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  @click="copyText(UserSubscriptionService.getDirectTokenSubUrl(user))"
+                  title="复制聚合订阅链接"
+                >
+                  <Copy class="w-3.5 h-3.5" />
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  @click="emit('share', user)"
+                  title="二维码与安全提取码"
+                >
+                  <QrCode class="w-3.5 h-3.5" />
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  @click="emit('history', user)"
+                  title="查看流量历史趋势"
+                >
+                  <BarChart2 class="w-3.5 h-3.5 text-cyan-400" />
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  @click="emit('edit', user)"
+                  title="编辑用户配置"
+                >
+                  <Edit class="w-3.5 h-3.5" />
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  class="text-rose-400 hover:text-rose-300 hover:bg-rose-500/10"
+                  @click="emit('delete', user.id)"
+                  title="删除用户"
+                >
+                  <Trash2 class="w-3.5 h-3.5" />
+                </Button>
+              </div>
+            </TableCell>
+          </TableRow>
+
+          <!-- Empty State -->
+          <TableRow v-if="!filteredUsers.length" class="hover:bg-transparent">
+            <TableCell colspan="7" class="p-10 text-center text-muted-foreground">
+              <div class="flex flex-col items-center justify-center gap-2">
+                <Users class="w-8 h-8 text-neutral-600 mb-1" />
+                <p class="text-xs font-medium text-neutral-300">没有匹配的用户记录</p>
+                <p class="text-[11px] text-muted-foreground">可尝试调整搜索关键字或筛选条件，或点击右上角添加新用户</p>
+              </div>
+            </TableCell>
+          </TableRow>
+        </TableBody>
+      </Table>
+    </div>
+
+    <!-- Mobile Card Stream View (< sm) -->
+    <div class="sm:hidden space-y-2.5">
+      <div
+        v-for="user in filteredUsers"
+        :key="user.id"
+        @click="emit('inspect', user)"
+        class="rounded-lg border bg-neutral-950 p-3 space-y-2.5 transition-all cursor-pointer"
+        :class="[
+          selectedUserIds.includes(user.id)
+            ? 'border-indigo-500/70 bg-indigo-500/5'
+            : (currentInspectorUserId === user.id ? 'border-border bg-muted/20' : 'border-border hover:border-border/80')
+        ]"
+      >
+        <!-- Card Top Bar: Checkbox + Email + Status & Speed -->
+        <div class="flex items-start justify-between gap-2 pb-2 border-b border-border/50">
+          <div class="flex items-start gap-2 min-w-0 flex-1">
             <input
               type="checkbox"
               :checked="selectedUserIds.includes(user.id)"
+              @click.stop
               @change="onUserCheck(user.id)"
-              class="rounded bg-neutral-900 border-border text-foreground focus:ring-0 cursor-pointer"
+              class="mt-0.5 rounded bg-neutral-900 border-border text-foreground focus:ring-0 cursor-pointer shrink-0"
             />
-          </TableCell>
-
-          <!-- Username & Email & SubToken -->
-          <TableCell>
-            <div class="font-mono font-medium text-foreground text-xs truncate max-w-[220px]">
-              {{ user.email }}
-            </div>
-            <div class="text-[10px] text-muted-foreground font-mono flex items-center gap-1.5 mt-0.5">
-              <span v-if="user.ipLimit > 0" class="text-amber-400 font-semibold">限 {{ user.ipLimit }} IP</span>
-              <span v-else>无IP限制</span>
-              <span>•</span>
-              <span class="truncate max-w-[120px]" :title="user.subToken || '未生成'">
-                Token: {{ user.subToken ? user.subToken.substring(0, 8) + '...' : '未生成' }}
-              </span>
-            </div>
-          </TableCell>
-
-          <!-- Inbound Tags -->
-          <TableCell>
-            <div class="flex flex-wrap gap-1 max-w-[200px]">
-              <Badge
-                v-for="tag in getNodeTags(user).slice(0, 3)"
-                :key="tag"
-                variant="outline"
-                class="text-[10px] px-1.5 py-0 font-mono"
-              >
-                <span>{{ tag }}</span>
-                <span v-if="getSubRoutesCount(tag, user)" class="text-cyan-400 font-bold ml-0.5">({{ getSubRoutesCount(tag, user) }}线)</span>
-              </Badge>
-              <Badge
-                v-if="getNodeTags(user).length > 3"
-                variant="secondary"
-                class="text-[10px] px-1 py-0 font-mono"
-                :title="getNodeTags(user).slice(3).join(', ')"
-              >
-                +{{ getNodeTags(user).length - 3 }}
-              </Badge>
-              <span v-if="!getNodeTags(user).length" class="text-[11px] text-muted-foreground font-mono">
-                未分配节点
-              </span>
-            </div>
-          </TableCell>
-
-          <!-- Traffic Usage & Progress -->
-          <TableCell class="font-mono">
-            <div class="space-y-1">
-              <div class="text-xs text-foreground flex items-center justify-between">
-                <span>{{ formatBytes(user.upBytes + user.downBytes) }}</span>
-                <span class="text-muted-foreground text-[11px]">/ {{ user.totalBytes > 0 ? formatBytes(user.totalBytes) : '无限制' }}</span>
+            <div class="min-w-0 flex-1">
+              <div class="font-mono font-medium text-foreground text-xs truncate" :title="user.email">
+                {{ user.email }}
               </div>
-              <div v-if="user.totalBytes > 0" class="w-full max-w-[140px] h-1.5 bg-neutral-900 rounded-full overflow-hidden border border-border/40">
-                <div
-                  class="h-full rounded-full transition-all"
-                  :class="getTrafficProgressClass(user)"
-                  :style="{ width: `${Math.min(100, getTrafficPercent(user))}%` }"
-                />
+              <div class="text-[10px] text-muted-foreground font-mono flex items-center gap-1.5 mt-0.5">
+                <span v-if="user.ipLimit > 0" class="text-amber-400 font-semibold">限 {{ user.ipLimit }} IP</span>
+                <span v-else>无IP限制</span>
+                <span>•</span>
+                <span class="truncate max-w-[100px]" :title="user.subToken || '未生成'">
+                  Token: {{ user.subToken ? user.subToken.substring(0, 8) + '...' : '未生成' }}
+                </span>
               </div>
             </div>
-          </TableCell>
+          </div>
 
-          <!-- Expire Date & Reset -->
-          <TableCell class="font-mono text-[11px]">
-            <div :class="isUserExpired(user) ? 'text-amber-400 font-semibold' : 'text-foreground'">
+          <div class="flex flex-col items-end gap-1 shrink-0">
+            <Badge
+              :variant="getUserBadgeVariant(user)"
+              :dot="true"
+              class="text-[10px]"
+            >
+              {{ getUserStatusText(user) }}
+            </Badge>
+            <div v-if="user.isOnline && (user.upSpeed > 0 || user.downSpeed > 0)" class="text-[10px] font-mono text-cyan-400 flex items-center gap-1">
+              <span>↑{{ formatBytes(user.upSpeed) }}/s</span>
+              <span>↓{{ formatBytes(user.downSpeed) }}/s</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Authorized Nodes row -->
+        <div class="flex items-center justify-between text-xs font-mono">
+          <span class="text-muted-foreground text-[11px] shrink-0">授权节点:</span>
+          <div class="flex flex-wrap justify-end gap-1 min-w-0">
+            <Badge
+              v-for="tag in getNodeTags(user).slice(0, 3)"
+              :key="tag"
+              variant="outline"
+              class="text-[10px] px-1.5 py-0 font-mono"
+            >
+              <span>{{ tag }}</span>
+              <span v-if="getSubRoutesCount(tag, user)" class="text-cyan-400 font-bold ml-0.5">({{ getSubRoutesCount(tag, user) }}线)</span>
+            </Badge>
+            <Badge
+              v-if="getNodeTags(user).length > 3"
+              variant="secondary"
+              class="text-[10px] px-1 py-0 font-mono"
+              :title="getNodeTags(user).slice(3).join(', ')"
+            >
+              +{{ getNodeTags(user).length - 3 }}
+            </Badge>
+            <span v-if="!getNodeTags(user).length" class="text-[11px] text-muted-foreground font-mono">
+              未分配节点
+            </span>
+          </div>
+        </div>
+
+        <!-- Traffic Usage row & Progress bar -->
+        <div class="space-y-1 font-mono text-xs">
+          <div class="flex items-center justify-between">
+            <span class="text-muted-foreground text-[11px]">流量配额:</span>
+            <div class="flex items-center gap-1">
+              <span class="text-foreground">{{ formatBytes(user.upBytes + user.downBytes) }}</span>
+              <span class="text-muted-foreground text-[11px]">/ {{ user.totalBytes > 0 ? formatBytes(user.totalBytes) : '无限制' }}</span>
+            </div>
+          </div>
+          <div v-if="user.totalBytes > 0" class="w-full h-1.5 bg-neutral-900 rounded-full overflow-hidden border border-border/40">
+            <div
+              class="h-full rounded-full transition-all"
+              :class="getTrafficProgressClass(user)"
+              :style="{ width: `${Math.min(100, getTrafficPercent(user))}%` }"
+            />
+          </div>
+        </div>
+
+        <!-- Expire Date & Reset -->
+        <div class="flex items-center justify-between text-[11px] font-mono">
+          <span class="text-muted-foreground">有效期:</span>
+          <div class="text-right">
+            <span :class="isUserExpired(user) ? 'text-amber-400 font-semibold' : 'text-foreground'">
               {{ user.expireTime > 0 ? formatDate(user.expireTime) : '永久有效' }}
               <span v-if="isUserExpired(user)" class="text-[10px] text-rose-400 ml-1">(已到期)</span>
-            </div>
-            <div v-if="user.resetDay > 0" class="text-[10px] text-cyan-400/90 mt-0.5">
-              每月 {{ user.resetDay }} 日自动重置
-            </div>
-          </TableCell>
+            </span>
+            <span v-if="user.resetDay > 0" class="text-[10px] text-cyan-400/90 ml-1.5">
+              (每月{{ user.resetDay }}日重置)
+            </span>
+          </div>
+        </div>
 
-          <!-- Status & Live Speeds -->
-          <TableCell>
-            <div class="space-y-1">
-              <div class="flex items-center gap-1.5">
-                <Badge
-                  :variant="getUserBadgeVariant(user)"
-                  :dot="true"
-                  class="text-[10px]"
-                >
-                  {{ getUserStatusText(user) }}
-                </Badge>
-              </div>
-              <!-- Real-time transfer speed -->
-              <div v-if="user.isOnline && (user.upSpeed > 0 || user.downSpeed > 0)" class="text-[10px] font-mono text-cyan-400 flex items-center gap-1">
-                <span>↑{{ formatBytes(user.upSpeed) }}/s</span>
-                <span>↓{{ formatBytes(user.downSpeed) }}/s</span>
-              </div>
-            </div>
-          </TableCell>
+        <!-- Card Action Buttons -->
+        <div class="pt-2 border-t border-border/40 flex flex-wrap items-center justify-between gap-1" @click.stop>
+          <div class="flex items-center gap-1">
+            <Button
+              variant="outline"
+              size="sm"
+              class="h-7 px-2 text-[11px]"
+              @click="emit('inspect', user)"
+            >
+              <SlidersHorizontal class="w-3 h-3 mr-1" />
+              <span>详情</span>
+            </Button>
+            <Button
+              variant="secondary"
+              size="sm"
+              class="h-7 px-2 text-[11px]"
+              @click="emit('share', user)"
+            >
+              <QrCode class="w-3 h-3 mr-1" />
+              <span>分享</span>
+            </Button>
+            <Button
+              variant="ghost"
+              size="icon"
+              class="h-7 w-7 text-muted-foreground hover:text-foreground"
+              @click="copyText(UserSubscriptionService.getDirectTokenSubUrl(user))"
+              title="复制聚合订阅链接"
+            >
+              <Copy class="w-3.5 h-3.5" />
+            </Button>
+            <Button
+              variant="ghost"
+              size="icon"
+              class="h-7 w-7 text-cyan-400 hover:text-cyan-300"
+              @click="emit('history', user)"
+              title="查看流量历史趋势"
+            >
+              <BarChart2 class="w-3.5 h-3.5" />
+            </Button>
+          </div>
+          <div class="flex items-center gap-1">
+            <Button
+              variant="secondary"
+              size="sm"
+              class="h-7 px-2 text-[11px]"
+              @click="emit('edit', user)"
+            >
+              <Edit class="w-3 h-3 mr-1" />
+              <span>编辑</span>
+            </Button>
+            <Button
+              variant="ghost"
+              size="icon"
+              class="h-7 w-7 text-rose-400 hover:text-rose-300 hover:bg-rose-500/10"
+              @click="emit('delete', user.id)"
+              title="删除用户"
+            >
+              <Trash2 class="w-3.5 h-3.5" />
+            </Button>
+          </div>
+        </div>
+      </div>
 
-          <!-- Quick Action Buttons -->
-          <TableCell class="text-right" @click.stop>
-            <div class="flex items-center justify-end gap-1">
-              <Button
-                variant="ghost"
-                size="icon"
-                @click="emit('inspect', user)"
-                title="打开巡检抽屉"
-              >
-                <SlidersHorizontal class="w-3.5 h-3.5" />
-              </Button>
-              <Button
-                variant="ghost"
-                size="icon"
-                @click="copyText(UserSubscriptionService.getDirectTokenSubUrl(user))"
-                title="复制聚合订阅链接"
-              >
-                <Copy class="w-3.5 h-3.5" />
-              </Button>
-              <Button
-                variant="ghost"
-                size="icon"
-                @click="emit('share', user)"
-                title="二维码与安全提取码"
-              >
-                <QrCode class="w-3.5 h-3.5" />
-              </Button>
-              <Button
-                variant="ghost"
-                size="icon"
-                @click="emit('history', user)"
-                title="查看流量历史趋势"
-              >
-                <BarChart2 class="w-3.5 h-3.5 text-cyan-400" />
-              </Button>
-              <Button
-                variant="ghost"
-                size="icon"
-                @click="emit('edit', user)"
-                title="编辑用户配置"
-              >
-                <Edit class="w-3.5 h-3.5" />
-              </Button>
-              <Button
-                variant="ghost"
-                size="icon"
-                class="text-rose-400 hover:text-rose-300 hover:bg-rose-500/10"
-                @click="emit('delete', user.id)"
-                title="删除用户"
-              >
-                <Trash2 class="w-3.5 h-3.5" />
-              </Button>
-            </div>
-          </TableCell>
-        </TableRow>
-
-        <!-- Empty State -->
-        <TableRow v-if="!filteredUsers.length" class="hover:bg-transparent">
-          <TableCell colspan="7" class="p-10 text-center text-muted-foreground">
-            <div class="flex flex-col items-center justify-center gap-2">
-              <Users class="w-8 h-8 text-neutral-600 mb-1" />
-              <p class="text-xs font-medium text-neutral-300">没有匹配的用户记录</p>
-              <p class="text-[11px] text-muted-foreground">可尝试调整搜索关键字或筛选条件，或点击右上角添加新用户</p>
-            </div>
-          </TableCell>
-        </TableRow>
-      </TableBody>
-    </Table>
+      <!-- Empty State for Mobile -->
+      <div v-if="!filteredUsers.length" class="p-8 text-center rounded-lg border border-border bg-neutral-950 text-muted-foreground">
+        <Users class="w-8 h-8 text-neutral-600 mx-auto mb-1.5" />
+        <p class="text-xs font-medium text-neutral-300">没有匹配的用户记录</p>
+        <p class="text-[11px] text-muted-foreground mt-0.5">可尝试调整搜索关键字或筛选条件，或点击右上角添加新用户</p>
+      </div>
+    </div>
   </div>
 </template>
 

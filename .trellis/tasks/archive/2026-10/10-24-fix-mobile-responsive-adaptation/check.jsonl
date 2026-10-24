@@ -1,0 +1,2 @@
+{"file": ".trellis/spec/frontend/quality-guidelines.md", "reason": "验证移动端响应式布局与断点自适应"}
+{"file": ".trellis/spec/frontend/components-and-routing.md", "reason": "验证抽屉遮挡、安全区以及底部导航适配"}

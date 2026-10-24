@@ -1,0 +1,30 @@
+{
+  "id": "fix-bugs-and-logs",
+  "name": "fix-bugs-and-logs",
+  "title": "修复移动端与节点转化异常及扩展日志能力",
+  "description": "修复移动端适配、用户保存与虚拟节点转化异常、新增出站日志过滤与核心日志等级配置",
+  "status": "completed",
+  "dev_type": null,
+  "scope": null,
+  "package": null,
+  "priority": "P2",
+  "creator": "coding-leaf",
+  "assignee": "coding-leaf",
+  "createdAt": "2026-10-24",
+  "completedAt": "2026-10-24",
+  "branch": null,
+  "base_branch": "master",
+  "worktree_path": null,
+  "commit": null,
+  "pr_url": null,
+  "subtasks": [],
+  "children": [
+    "10-24-fix-user-inbound-and-virtual-nodes",
+    "10-24-feat-log-outbound-and-level",
+    "10-24-fix-mobile-responsive-adaptation"
+  ],
+  "parent": null,
+  "relatedFiles": [],
+  "notes": "",
+  "meta": {}
+}

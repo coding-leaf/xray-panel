@@ -1,0 +1,3 @@
+{"file": ".trellis/spec/backend/error-handling.md", "reason": "检查 Xray RemoveUser 容错逻辑是否完备且无隐式静默吞非预期错误"}
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "验证单元测试覆盖与并发安全"}
+{"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "检查虚拟节点转换逻辑与订阅导出字段契约一致性"}

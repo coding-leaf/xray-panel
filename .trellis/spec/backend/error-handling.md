@@ -62,6 +62,9 @@
    - 若在第 ③ 步落盘阶段发生 I/O 故障，必须触发完整 Saga 反向补偿：使用独立上下文向 DB 重新写回旧快照，并向 Xray 重新注入已剔除节点，返回错误并阻断。
 7. **编译器 Clients 零残留原则 (Zero Clients Retention)**：
    - 当入站由面板适配器托管且活跃用户数清零时，编译器输出的 `clients` 必须显式置为空切片（`[]`），严禁回退保留历史 `settingsJson` 中的废弃凭证。
+8. **Xray 节点剔除良性错误幂等容错原则 (Idempotent Node Removal Toleration)**：
+   - 在变更用户（清理旧关联 Inbound）、停用用户、删除用户或执行 Saga 逆向补偿阶段从 Xray Inbound 中剔除凭据时，若底层 gRPC 返回包含 `handler not found`、`failed to get handler`、`not found`、`not exist` 等错误，表明该 Inbound 已不在核心运行态或用户本就未注册在该节点；
+   - 此类错误属于良性/幂等状态，必须通过统一判定函数（如 `isXrayIgnorableRemoveError`）进行容错放行并记录 Info 日志，绝对禁止将其视为致命故障直接阻断流程并触发 Saga 回滚，避免用户保存与节点清理陷入死锁。
 
 ---
 

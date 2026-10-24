@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	"panel/internal/domain"
@@ -181,8 +182,60 @@ func TestSubService_GetUserShareInfo_SubRoutes(t *testing.T) {
 	if resp.Nodes[0].Remark != "日本落地" {
 		t.Errorf("expected node 1 remark to be '日本落地', got '%s'", resp.Nodes[0].Remark)
 	}
+	if resp.Nodes[0].SingleSub != "https://panel.example.com/sub/token123?tag=vless-in&route=1" {
+		t.Errorf("expected single sub with route=1, got '%s'", resp.Nodes[0].SingleSub)
+	}
 	if resp.Nodes[1].Remark != "新美国中转" {
 		t.Errorf("expected node 2 remark to be '新美国中转', got '%s'", resp.Nodes[1].Remark)
+	}
+	if resp.Nodes[1].SingleSub != "https://panel.example.com/sub/token123?tag=vless-in&route=3" {
+		t.Errorf("expected single sub with route=3, got '%s'", resp.Nodes[1].SingleSub)
+	}
+}
+
+func TestSubService_ExportUserSubscription_RouteFilter(t *testing.T) {
+	user := &domain.User{
+		ID:          1,
+		Email:       "test-route@example.com",
+		UUID:        "7117295b-4362-4260-a133-b969344dfcd5",
+		SubToken:    "route_filter_token_123",
+		InboundTags: "vless-in",
+		Enabled:     true,
+	}
+	inboundRepo := &mockSubInboundRepo{
+		inbounds: []domain.Inbound{
+			{
+				Tag:            "vless-in",
+				Protocol:       "vless",
+				Port:           443,
+				Listen:         "0.0.0.0",
+				ExternalHost:   "198.51.100.1",
+				Enabled:        true,
+				StreamSettings: `{"network":"tcp","security":"none"}`,
+				SubRoutesJson:  `[{"id":"1","name":"日本落地","routeId":1,"outboundTag":"direct","enabled":true},{"id":"2","name":"新美国中转","routeId":3,"outboundTag":"out-us","enabled":true}]`,
+			},
+		},
+	}
+	userRepo := &mockSubUserRepo{user: user}
+	svc := NewSubService(userRepo, inboundRepo, nil)
+
+	// Filter route 3
+	payload, output, err := svc.ExportUserSubscription(context.Background(), "route_filter_token_123", "", "", "raw", 3)
+	if err != nil {
+		t.Fatalf("ExportUserSubscription failed: %v", err)
+	}
+	if payload == nil {
+		t.Fatalf("expected payload to be non-nil")
+	}
+	lines := strings.Split(strings.TrimSpace(output), "\n")
+	if len(lines) != 1 {
+		t.Fatalf("expected 1 line for filtered route 3, got %d lines: %v", len(lines), lines)
+	}
+	if !strings.Contains(lines[0], "%E6%96%B0%E7%BE%8E%E5%9B%BD%E4%B8%AD%E8%BD%AC") && !strings.Contains(lines[0], "#新美国中转") {
+		t.Fatalf("expected line to contain route remark, got %s", lines[0])
+	}
+	if !strings.Contains(lines[0], "7117295b-4362-0003-a133-b969344dfcd5") {
+		t.Fatalf("expected line to contain UUID with routeId 3 encoded, got %s", lines[0])
 	}
 }
 

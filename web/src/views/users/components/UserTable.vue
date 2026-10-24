@@ -252,7 +252,7 @@
                 class="text-[10px] px-1.5 py-0 font-mono"
               >
                 <span>{{ tag }}</span>
-                <span v-if="getSubRoutesCount(tag)" class="text-cyan-400 font-bold ml-0.5">({{ getSubRoutesCount(tag) }}线)</span>
+                <span v-if="getSubRoutesCount(tag, user)" class="text-cyan-400 font-bold ml-0.5">({{ getSubRoutesCount(tag, user) }}线)</span>
               </Badge>
               <Badge
                 v-if="getNodeTags(user).length > 3"
@@ -483,14 +483,7 @@ const getNodeTags = (user: UserItem): string[] => {
   return UserSubscriptionService.getNodeTags(user, props.availableInbounds)
 }
 
-const getSubRoutesCount = (tag: string): number => {
-  const inb = props.availableInbounds.find((i: any) => i.tag === tag)
-  if (!inb) return 0
-  try {
-    const srs = JSON.parse(inb.subRoutesJson || '[]')
-    return srs.filter((s: any) => s.enabled !== false).length
-  } catch (_e) {
-    return 0
-  }
+const getSubRoutesCount = (tag: string, user?: UserItem | null): number => {
+  return UserSubscriptionService.getSubRoutesCount(tag, props.availableInbounds, user)
 }
 </script>

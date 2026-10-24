@@ -2,6 +2,7 @@ package protocol
 
 import (
 	"encoding/json"
+	"fmt"
 	"net"
 	"strings"
 
@@ -296,7 +297,12 @@ func InboundToNodeConfig(inbound *domain.Inbound, user *domain.User, hostDomain 
 }
 
 // InboundsToNodeConfigs 将一组 Inbound 和 User 转换为 []*NodeConfig
-func InboundsToNodeConfigs(inbounds []domain.Inbound, user *domain.User, hostDomain string, defaultPort int, tagFilter string) []*NodeConfig {
+func InboundsToNodeConfigs(inbounds []domain.Inbound, user *domain.User, hostDomain string, defaultPort int, tagFilter string, routeFilter ...uint16) []*NodeConfig {
+	var targetRoute uint16
+	if len(routeFilter) > 0 {
+		targetRoute = routeFilter[0]
+	}
+
 	var nodes []*NodeConfig
 	for _, in := range inbounds {
 		if !in.Enabled || !user.HasInbound(in.Tag) {
@@ -305,15 +311,31 @@ func InboundsToNodeConfigs(inbounds []domain.Inbound, user *domain.User, hostDom
 		if tagFilter != "" && in.Tag != tagFilter {
 			continue
 		}
+
+		isVless := in.Protocol == "" || strings.EqualFold(in.Protocol, "vless")
 		subRoutes := in.GetSubRoutes()
-		if len(subRoutes) == 0 {
+
+		// 协议约束：SubRoute 仅限 VLESS 协议
+		if len(subRoutes) == 0 || !isVless {
+			if targetRoute > 0 {
+				continue
+			}
 			if node := InboundToNodeConfig(&in, user, hostDomain, defaultPort); node != nil {
 				nodes = append(nodes, node)
 			}
 			continue
 		}
+
+		baseName := in.Remark
+		if baseName == "" {
+			baseName = in.Tag
+		}
+
 		for _, sr := range subRoutes {
 			if !sr.Enabled {
+				continue
+			}
+			if targetRoute > 0 && sr.RouteID != targetRoute {
 				continue
 			}
 			if user != nil && !sr.CanAccess(user.Email) {
@@ -322,6 +344,8 @@ func InboundsToNodeConfigs(inbounds []domain.Inbound, user *domain.User, hostDom
 			tempInbound := in
 			if sr.Name != "" {
 				tempInbound.Remark = sr.Name
+			} else {
+				tempInbound.Remark = fmt.Sprintf("%s - 线路 #%d", baseName, sr.RouteID)
 			}
 			tempInbound.RouteID = sr.RouteID
 			if node := InboundToNodeConfig(&tempInbound, user, hostDomain, defaultPort); node != nil {

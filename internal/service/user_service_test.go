@@ -134,6 +134,64 @@ func (m *mockUserRepo) ResetTraffic(ctx context.Context, id uint) error {
 	return nil
 }
 
+func TestIsXrayIgnorableRemoveError(t *testing.T) {
+	tests := []struct {
+		name     string
+		err      error
+		expected bool
+	}{
+		{
+			name:     "nil error",
+			err:      nil,
+			expected: false,
+		},
+		{
+			name:     "standard handler not found",
+			err:      errors.New("handler not found: vless-reality"),
+			expected: true,
+		},
+		{
+			name:     "wrapped gRPC failed to get handler",
+			err:      errors.New("rpc error: code = Unknown desc = app/proxyman/command: failed to get handler: vless-reality"),
+			expected: true,
+		},
+		{
+			name:     "full xray proxyman error chain",
+			err:      errors.New("rpc error: code = Unknown desc = app/proxyman/command: failed to get handler: vless-reality > app/proxyman/inbound: handler not found: vless-reality"),
+			expected: true,
+		},
+		{
+			name:     "user not exist",
+			err:      errors.New("User not exist in inbound"),
+			expected: true,
+		},
+		{
+			name:     "case insensitive NOT FOUND",
+			err:      errors.New("HANDLER NOT FOUND"),
+			expected: true,
+		},
+		{
+			name:     "unrelated fatal network error",
+			err:      errors.New("connection refused"),
+			expected: false,
+		},
+		{
+			name:     "database lock error",
+			err:      errors.New("sqlite: database is locked"),
+			expected: false,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := isXrayIgnorableRemoveError(tc.err)
+			if got != tc.expected {
+				t.Errorf("isXrayIgnorableRemoveError(%v) = %v; want %v", tc.err, got, tc.expected)
+			}
+		})
+	}
+}
+
 func TestCheckAndResetMonthlyTraffic(t *testing.T) {
 	now := time.Now()
 	today := now.Day()
@@ -1068,6 +1126,90 @@ func TestUserService_ZeroDowntimeAndAutoRestore(t *testing.T) {
 		})
 		if err == nil || !errors.Is(err, domain.ErrAlreadyExists) {
 			t.Fatalf("expected ErrAlreadyExists, got %v", err)
+		}
+	})
+
+	t.Run("UpdateUser ignores handler not found or failed to get handler on RemoveUser", func(t *testing.T) {
+		origUser := domain.User{
+			ID:          50,
+			Email:       "test-ignorable@example.com",
+			UUID:        "uuid-orig-50",
+			InboundTag:  "vless-reality,trojan-in",
+			InboundTags: "vless-reality,trojan-in",
+			Enabled:     true,
+		}
+		repo := &mockUserRepo{users: []domain.User{origUser}}
+		mockXray := &mockXrayManager{
+			failRemoveUserErr: errors.New("rpc error: code = Unknown desc = app/proxyman/command: failed to get handler: vless-reality > app/proxyman/inbound: handler not found: vless-reality"),
+		}
+		mockCfg := &mockConfigSynchronizer{}
+		svc := NewUserService(repo, nil, nil, mockXray, mockCfg)
+
+		enabledTrue := true
+		dto := domain.UpdateUserDTO{
+			InboundTags: []string{"trojan-in"}, // removing vless-reality
+			Enabled:     &enabledTrue,
+		}
+
+		updated, err := svc.UpdateUser(context.Background(), 50, dto)
+		if err != nil {
+			t.Fatalf("expected UpdateUser to succeed when RemoveUser returns handler not found, but got error: %v", err)
+		}
+		if updated == nil {
+			t.Fatalf("expected updated user to be non-nil")
+		}
+	})
+
+	t.Run("UpdateUser with disabled user ignores handler not found on RemoveUser", func(t *testing.T) {
+		origUser := domain.User{
+			ID:          51,
+			Email:       "test-inactive@example.com",
+			UUID:        "uuid-orig-51",
+			InboundTag:  "vless-reality",
+			InboundTags: "vless-reality",
+			Enabled:     true,
+		}
+		repo := &mockUserRepo{users: []domain.User{origUser}}
+		mockXray := &mockXrayManager{
+			failRemoveUserErr: errors.New("rpc error: code = Unknown desc = app/proxyman/command: failed to get handler: vless-reality > app/proxyman/inbound: handler not found: vless-reality"),
+		}
+		mockCfg := &mockConfigSynchronizer{}
+		svc := NewUserService(repo, nil, nil, mockXray, mockCfg)
+
+		enabledFalse := false
+		dto := domain.UpdateUserDTO{
+			InboundTags: []string{"vless-reality"},
+			Enabled:     &enabledFalse,
+		}
+
+		updated, err := svc.UpdateUser(context.Background(), 51, dto)
+		if err != nil {
+			t.Fatalf("expected UpdateUser to succeed when disabling user with missing inbound handler, got error: %v", err)
+		}
+		if updated == nil {
+			t.Fatalf("expected updated user to be non-nil")
+		}
+	})
+
+	t.Run("DeleteUser ignores handler not found or failed to get handler on RemoveUser", func(t *testing.T) {
+		origUser := domain.User{
+			ID:          52,
+			Email:       "test-del@example.com",
+			UUID:        "uuid-orig-52",
+			InboundTag:  "vless-reality",
+			InboundTags: "vless-reality",
+			Enabled:     true,
+		}
+		repo := &mockUserRepo{users: []domain.User{origUser}}
+		mockXray := &mockXrayManager{
+			failRemoveUserErr: errors.New("rpc error: code = Unknown desc = app/proxyman/command: failed to get handler: vless-reality"),
+		}
+		mockCfg := &mockConfigSynchronizer{}
+		svc := NewUserService(repo, nil, nil, mockXray, mockCfg)
+
+		err := svc.DeleteUser(context.Background(), 52)
+		if err != nil {
+			t.Fatalf("expected DeleteUser to succeed when RemoveUser returns failed to get handler, got error: %v", err)
 		}
 	})
 }

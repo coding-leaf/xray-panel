@@ -3,6 +3,7 @@ package http
 import (
 	"fmt"
 	"net/http"
+	"strconv"
 	"strings"
 
 	"panel/internal/service"
@@ -35,7 +36,14 @@ func (h *SubHandler) GetSubscription(c *gin.Context) {
 		format = c.Query("type")
 	}
 
-	payload, output, err := h.subSvc.ExportUserSubscription(c.Request.Context(), token, tagFilter, reqHost, format)
+	var routeFilters []uint16
+	if rStr := c.Query("route"); rStr != "" {
+		if val, err := strconv.ParseUint(rStr, 10, 16); err == nil && val > 0 {
+			routeFilters = append(routeFilters, uint16(val))
+		}
+	}
+
+	payload, output, err := h.subSvc.ExportUserSubscription(c.Request.Context(), token, tagFilter, reqHost, format, routeFilters...)
 	if err != nil {
 		c.String(http.StatusForbidden, err.Error())
 		return

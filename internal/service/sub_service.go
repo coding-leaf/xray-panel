@@ -24,7 +24,7 @@ func NewSubService(userRepo domain.UserRepository, inboundRepo domain.InboundRep
 	}
 }
 
-func (s *SubService) resolveSubscriptionNodes(ctx context.Context, token string, tagFilter string, reqHost string) (*domain.User, []*protocol.NodeConfig, error) {
+func (s *SubService) resolveSubscriptionNodes(ctx context.Context, token string, tagFilter string, reqHost string, routeFilter ...uint16) (*domain.User, []*protocol.NodeConfig, error) {
 	if token == "" {
 		return nil, nil, domain.ErrSubscriptionToken
 	}
@@ -69,12 +69,12 @@ func (s *SubService) resolveSubscriptionNodes(ctx context.Context, token string,
 		}
 	}
 
-	nodes := protocol.InboundsToNodeConfigs(inbounds, user, hostDomain, defaultPort, tagFilter)
+	nodes := protocol.InboundsToNodeConfigs(inbounds, user, hostDomain, defaultPort, tagFilter, routeFilter...)
 	return user, nodes, nil
 }
 
-func (s *SubService) GetSubscriptionByToken(ctx context.Context, token string, tagFilter string, reqHost string) (*domain.SubscriptionPayload, error) {
-	user, nodes, err := s.resolveSubscriptionNodes(ctx, token, tagFilter, reqHost)
+func (s *SubService) GetSubscriptionByToken(ctx context.Context, token string, tagFilter string, reqHost string, routeFilter ...uint16) (*domain.SubscriptionPayload, error) {
+	user, nodes, err := s.resolveSubscriptionNodes(ctx, token, tagFilter, reqHost, routeFilter...)
 	if err != nil {
 		return nil, err
 	}
@@ -107,8 +107,8 @@ func (s *SubService) GetSubscriptionByToken(ctx context.Context, token string, t
 }
 
 // ExportUserSubscription 支持按指定格式导出用户订阅 (base64, clash, sing-box 等)
-func (s *SubService) ExportUserSubscription(ctx context.Context, token string, tagFilter string, reqHost string, format string) (*domain.SubscriptionPayload, string, error) {
-	user, nodes, err := s.resolveSubscriptionNodes(ctx, token, tagFilter, reqHost)
+func (s *SubService) ExportUserSubscription(ctx context.Context, token string, tagFilter string, reqHost string, format string, routeFilter ...uint16) (*domain.SubscriptionPayload, string, error) {
+	user, nodes, err := s.resolveSubscriptionNodes(ctx, token, tagFilter, reqHost, routeFilter...)
 	if err != nil {
 		return nil, "", err
 	}
@@ -197,8 +197,9 @@ func (s *SubService) GetUserShareInfo(ctx context.Context, userID uint, baseURL 
 		if !in.Enabled || !user.HasInbound(in.Tag) {
 			continue
 		}
+		isVless := in.Protocol == "" || strings.EqualFold(in.Protocol, "vless")
 		subRoutes := in.GetSubRoutes()
-		if len(subRoutes) == 0 {
+		if len(subRoutes) == 0 || !isVless {
 			link := protocol.BuildShareLink(&in, user, hostDomain, defaultPort)
 			remark := in.Remark
 			if remark == "" {
@@ -214,6 +215,11 @@ func (s *SubService) GetUserShareInfo(ctx context.Context, userID uint, baseURL 
 			continue
 		}
 
+		baseName := in.Remark
+		if baseName == "" {
+			baseName = in.Tag
+		}
+
 		for _, sr := range subRoutes {
 			if !sr.Enabled {
 				continue
@@ -224,8 +230,8 @@ func (s *SubService) GetUserShareInfo(ctx context.Context, userID uint, baseURL 
 			tempIn := in
 			if sr.Name != "" {
 				tempIn.Remark = sr.Name
-			} else if tempIn.Remark == "" {
-				tempIn.Remark = fmt.Sprintf("%s - 线路 #%d", in.Tag, sr.RouteID)
+			} else {
+				tempIn.Remark = fmt.Sprintf("%s - 线路 #%d", baseName, sr.RouteID)
 			}
 			tempIn.RouteID = sr.RouteID
 			link := protocol.BuildShareLink(&tempIn, user, hostDomain, defaultPort)
@@ -234,7 +240,7 @@ func (s *SubService) GetUserShareInfo(ctx context.Context, userID uint, baseURL 
 				Protocol:  in.Protocol,
 				Remark:    tempIn.Remark,
 				ShareLink: link,
-				SingleSub: fmt.Sprintf("%s/sub/%s?tag=%s", baseURL, user.SubToken, in.Tag),
+				SingleSub: fmt.Sprintf("%s/sub/%s?tag=%s&route=%d", baseURL, user.SubToken, in.Tag, sr.RouteID),
 			})
 		}
 	}

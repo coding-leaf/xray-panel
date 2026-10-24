@@ -257,7 +257,7 @@
               <div class="text-[10px] text-muted-foreground mt-0.5">
                 <span v-if="getInboundMeta(tag)">{{ getInboundMeta(tag)?.protocol?.toUpperCase() }} :{{ getInboundMeta(tag)?.port }}</span>
                 <span v-else>自定义接入点</span>
-                <span v-if="getSubRoutesCount(tag)" class="text-cyan-400 font-bold ml-1.5">({{ getSubRoutesCount(tag) }}条线路)</span>
+                <span v-if="getSubRoutesCount(tag, user)" class="text-cyan-400 font-bold ml-1.5">({{ getSubRoutesCount(tag, user) }}条线路)</span>
               </div>
             </div>
             <Badge variant="outline" class="text-[10px] shrink-0 font-mono">
@@ -353,14 +353,7 @@ const getInboundMeta = (tag: string) => {
   return props.availableInbounds.find((i: any) => i.tag === tag)
 }
 
-const getSubRoutesCount = (tag: string): number => {
-  const inb = props.availableInbounds.find((i: any) => i.tag === tag)
-  if (!inb) return 0
-  try {
-    const srs = JSON.parse(inb.subRoutesJson || '[]')
-    return srs.filter((s: any) => s.enabled !== false).length
-  } catch (_e) {
-    return 0
-  }
+const getSubRoutesCount = (tag: string, user?: UserItem | null): number => {
+  return UserSubscriptionService.getSubRoutesCount(tag, props.availableInbounds, user)
 }
 </script>

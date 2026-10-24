@@ -432,3 +432,98 @@ func TestInboundsToNodeConfigs_UserIsolation(t *testing.T) {
 		t.Fatalf("expected 0 nodes when all subroutes unauthorized, got %d", len(nodesNone))
 	}
 }
+
+func TestInboundsToNodeConfigs_NonVlessIgnoresSubRoutes(t *testing.T) {
+	subRoutes := []domain.SubRoute{
+		{ID: "1", Name: "Line 1", RouteID: 1, OutboundTag: "direct", Enabled: true},
+		{ID: "2", Name: "Line 2", RouteID: 2, OutboundTag: "warp", Enabled: true},
+	}
+	subRoutesBytes, _ := json.Marshal(subRoutes)
+
+	inbound := domain.Inbound{
+		Tag:           "trojan-in",
+		Protocol:      "trojan",
+		Port:          443,
+		SubRoutesJson: string(subRoutesBytes),
+		Enabled:       true,
+	}
+	user := &domain.User{
+		Email:       "user@example.com",
+		UUID:        "7117295b-4362-4260-a133-b969344dfcd5",
+		InboundTags: "trojan-in",
+		Enabled:     true,
+	}
+
+	nodes := protocol.InboundsToNodeConfigs([]domain.Inbound{inbound}, user, "127.0.0.1", 443, "")
+	if len(nodes) != 1 {
+		t.Fatalf("expected 1 node for non-vless inbound despite subroutes, got %d", len(nodes))
+	}
+}
+
+func TestInboundsToNodeConfigs_UnnamedSubRouteFallback(t *testing.T) {
+	subRoutes := []domain.SubRoute{
+		{ID: "1", Name: "", RouteID: 5, OutboundTag: "direct", Enabled: true},
+	}
+	subRoutesBytes, _ := json.Marshal(subRoutes)
+
+	inbound := domain.Inbound{
+		Tag:           "vless-in",
+		Remark:        "香港主节点",
+		Protocol:      "vless",
+		Port:          443,
+		SubRoutesJson: string(subRoutesBytes),
+		Enabled:       true,
+	}
+	user := &domain.User{
+		Email:       "user@example.com",
+		UUID:        "7117295b-4362-4260-a133-b969344dfcd5",
+		InboundTags: "vless-in",
+		Enabled:     true,
+	}
+
+	nodes := protocol.InboundsToNodeConfigs([]domain.Inbound{inbound}, user, "127.0.0.1", 443, "")
+	if len(nodes) != 1 {
+		t.Fatalf("expected 1 node, got %d", len(nodes))
+	}
+	expectedRemark := "香港主节点 - 线路 #5"
+	if nodes[0].Name != expectedRemark {
+		t.Fatalf("expected remark %q, got %q", expectedRemark, nodes[0].Name)
+	}
+}
+
+func TestInboundsToNodeConfigs_RouteFilter(t *testing.T) {
+	subRoutes := []domain.SubRoute{
+		{ID: "1", Name: "线路1", RouteID: 1, OutboundTag: "direct", Enabled: true},
+		{ID: "2", Name: "线路2", RouteID: 2, OutboundTag: "warp", Enabled: true},
+	}
+	subRoutesBytes, _ := json.Marshal(subRoutes)
+
+	inbound := domain.Inbound{
+		Tag:           "vless-in",
+		Protocol:      "vless",
+		Port:          443,
+		SubRoutesJson: string(subRoutesBytes),
+		Enabled:       true,
+	}
+	user := &domain.User{
+		Email:       "user@example.com",
+		UUID:        "7117295b-4362-4260-a133-b969344dfcd5",
+		InboundTags: "vless-in",
+		Enabled:     true,
+	}
+
+	// Filter for route 2 only
+	nodes := protocol.InboundsToNodeConfigs([]domain.Inbound{inbound}, user, "127.0.0.1", 443, "", 2)
+	if len(nodes) != 1 {
+		t.Fatalf("expected 1 node matching route 2, got %d", len(nodes))
+	}
+	if nodes[0].Name != "线路2" {
+		t.Fatalf("expected '线路2', got %q", nodes[0].Name)
+	}
+
+	// Filter for non-existent route 99
+	nodesNone := protocol.InboundsToNodeConfigs([]domain.Inbound{inbound}, user, "127.0.0.1", 443, "", 99)
+	if len(nodesNone) != 0 {
+		t.Fatalf("expected 0 nodes matching route 99, got %d", len(nodesNone))
+	}
+}

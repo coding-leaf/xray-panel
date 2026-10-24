@@ -22,12 +22,28 @@ export class UserSubscriptionService {
 
     if (availableInbounds && availableInbounds.length > 0) {
       const validTags = new Set(availableInbounds.map((i: any) => i.tag))
-      const filtered = tags.filter((t) => validTags.has(t))
-      if (filtered.length > 0) {
-        return filtered
-      }
-      return availableInbounds.map((i: any) => i.tag)
+      return tags.filter((t) => validTags.has(t))
     }
     return tags
+  }
+
+  /** 计算指定 Inbound 标签下用户可见的有效分流线路数量 */
+  static getSubRoutesCount(tag: string, availableInbounds: any[] = [], user?: UserItem | null): number {
+    const inb = availableInbounds.find((i: any) => i.tag === tag)
+    if (!inb) return 0
+    const isVless = !inb.protocol || inb.protocol.toLowerCase() === 'vless'
+    if (!isVless) return 0
+    try {
+      const srs = JSON.parse(inb.subRoutesJson || '[]')
+      return srs.filter((s: any) => {
+        if (s.enabled === false) return false
+        if (user && s.allowedUsers && s.allowedUsers.length > 0) {
+          return s.allowedUsers.includes(user.email)
+        }
+        return true
+      }).length
+    } catch (_e) {
+      return 0
+    }
   }
 }

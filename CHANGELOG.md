@@ -4,8 +4,12 @@
 
 ---
 
-## v2.6.7 (2026-11) - 用户与订阅高可定制化、全链路动态版本号、前后端配置对齐与陈年隐患根治
+## v2.6.7 (2026-11) - 用户与订阅高可定制化、全链路动态版本号、三栏脉冲连线可视化拓扑与陈年隐患根治
 
+- **三栏动态脉冲连线可视化拓扑中心 (Visual Pipeline Topology Canvas)**：
+  - 将 `TopologyView` 重构为对标现代可观测性管线的**左（接入网关）➔ 中（分流通道/路由策略）➔ 右（落地出口）**三栏动态 SVG 贝塞尔连线画布，并保留一键切换回「传统分组池」的双模视图；
+  - **全协议路由流向推导引擎 (`useTopologyGraph`)**：同时联动 `/inbounds`、`/outbounds` 与 `/routing`，自动推导 VLESS `SubRoute` 单端口多出口、指定 `inboundTag` 专属路由规则、全局分流规则以及 `Default Fallback` 默认直通兜底链路，让 `socks`、`trojan`、`shadowsocks` 等普通入站也能清晰展现完整流向，实现零孤岛入站与闲置出口智能识别；
+  - **动态脉冲粒子与双向悬停溯源 (`useSvgBezier`)**：启用链路呈现虚线导轨 + 从左向右流动的发光脉冲圆点，支持鼠标悬停任意节点时双向 BFS 高亮整条上下游关联链路，并支持原位启停/删除线路、编辑网关/出口及闲置出口「⚡ 1步挂载为线路」；移动端自动降级为紧凑三级流式链路卡片。
 - **用户全字段自由定制与热重载安全同步 (User Full Customizability & Hot-Reload Sync)**：
   - 解除编辑用户时的 `Email` 只读限制，支持直接修改用户标识、自定义或一键随机生成 `UUID` 与 `SubToken`；前端随机生成统一采用 128-bit CSPRNG（`crypto.getRandomValues` 生成 32 位十六进制 `SubToken` 与符合 RFC 4122 v4 的安全 `UUID`），与后端 `crypto/rand` 熵强度严格对齐；
   - 当用户的 `Email` 或 `UUID` 变更时，`UserService.UpdateUser` 先以旧快照调用 `RemoveUser(oldEmail)` 精确卸载 Xray 内存态旧凭据，再注入新凭据，并自动联动刷新所有 Inbound `SubRoute.AllowedUsers` 白名单，实现零孤儿凭据残留；

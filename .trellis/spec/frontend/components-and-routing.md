@@ -50,6 +50,21 @@
 
 ---
 
+## 动态可视化拓扑画布规范 (Visual Pipeline Topology Canvas)
+
+- **全协议三栏路由流向推导 (`web/src/views/topology/composables/useTopologyGraph.ts`)**：
+  - 拓扑图必须同时消费 `/inbounds`、`/outbounds` 与 `/routing` 三个数据源，覆盖全部三条真实路由路径：
+    1. **Path 1 (`SubRoute` 单端口多出口)**：解析 `inbounds[].subRoutes`，生成 `Inbound -> SubRoute Channel -> Outbound` 链路；
+    2. **Path 2 (`Routing Rules` 路由规则匹配)**：解析 `routing.rules`（过滤内部 `api` 规则），对指定了 `inboundTag` 的专属规则与未限定入站的全局规则生成路由分流节点与对应边；
+    3. **Path 3 (`Default Fallback` 默认兜底出站)**：对任何未被锁死唯一出口的入站（含 `socks`、`trojan`、`shadowsocks` 等无 `SubRoute` 的普通入站），自动推导指向默认首出站（`outbounds[0]` / `direct`）的兜底通道，确保画布零孤岛入站；
+  - 右栏落地出口需统计入度引用计数（`referenceCount`），对零引用出口标记为 `闲置 (isIdle)` 并提供原位「⚡ 1步挂载为线路」快捷入口。
+- **零第三方图形库依赖与 SVG SMIL 兼容约束 (`useSvgBezier.ts` & `TopologyCanvas.vue`)**：
+  - 严禁引入大型第三方流程图/画布库（如 Vue Flow、G6、ECharts），统一使用原生 SVG 三次贝塞尔曲线（`M x1 y1 C cx1 cy1, cx2 cy2, x2 y2`）结合 DOM 相对坐标测量与 `ResizeObserver` + `requestAnimationFrame` 节流重绘；
+  - 流动脉冲粒子 `<animateMotion>` 必须同时提供 `path` 属性与引用 `<path :id="..."><mpath :href="#..." />`，且外层 `<circle>` 需绑定包含 `edge.id + pathD + isActive` 的复合 `:key`，确保各浏览器内核在路径重算或悬停加速时正确重启 SMIL 动画；
+  - 桌面端（`lg:` 及以上）展示三栏 SVG 贝塞尔连线画布，窄屏/移动端自动降级为紧凑三级流式链路卡片，并保留顶部切换至「传统分组池 (`TopologyPoolsView`)」的双模开关。
+
+---
+
 ## 跨模块上下文导航规范 (Cross-Module Context Navigation)
 
 - **入站至日志溯源导航**：

@@ -356,6 +356,12 @@ const DEFAULT_RAW_STATE: MockState = {
         outboundTag: 'warp-out',
         ip: ['geoip:cn'],
       },
+      {
+        type: 'field',
+        outboundTag: 'hk-landing',
+        inboundTag: ['trojan-reality'],
+        domain: ['geosite:netflix', 'geosite:disney'],
+      },
     ],
   },
   dns: {

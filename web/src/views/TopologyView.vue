@@ -4,22 +4,44 @@
     <div class="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
       <div>
         <div class="flex items-center gap-2.5">
-          <h1 class="text-2xl font-extrabold text-white tracking-tight">线路与拓扑中心 (Topology)</h1>
+          <h1 class="text-2xl font-extrabold text-foreground tracking-tight">线路与拓扑中心 (Topology)</h1>
           <span class="px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-indigo-500/15 text-indigo-400 border border-indigo-500/30 flex items-center gap-1">
             <span class="w-1.5 h-1.5 rounded-full bg-indigo-400 animate-pulse"></span>
             <span>强类型编译器实时拓扑</span>
           </span>
         </div>
-        <p class="text-xs text-gray-400 mt-0.5">一体化接入网关、分流通道与落地出口，支持单端口多出口向导式 1 步发布</p>
+        <p class="text-xs text-muted-foreground mt-0.5">一体化接入网关、分流通道与落地出口，全协议路由流向可视化与 1 步发布</p>
       </div>
 
-      <!-- Action Buttons -->
+      <!-- Action Buttons & View Mode Switcher -->
       <div class="flex flex-wrap items-center gap-2.5">
+        <!-- View Switcher (Segmented Control) -->
+        <div class="flex items-center p-0.5 bg-muted rounded-md border border-border">
+          <button
+            type="button"
+            @click="viewMode = 'canvas'"
+            class="px-3 py-1.5 rounded-[4px] text-xs font-medium transition-all flex items-center gap-1.5"
+            :class="viewMode === 'canvas' ? 'bg-background text-foreground shadow-sm font-semibold' : 'text-muted-foreground hover:text-foreground'"
+          >
+            <Workflow class="w-3.5 h-3.5 text-cyan-400" />
+            <span>拓扑画布</span>
+          </button>
+          <button
+            type="button"
+            @click="viewMode = 'pools'"
+            class="px-3 py-1.5 rounded-[4px] text-xs font-medium transition-all flex items-center gap-1.5"
+            :class="viewMode === 'pools' ? 'bg-background text-foreground shadow-sm font-semibold' : 'text-muted-foreground hover:text-foreground'"
+          >
+            <LayoutGrid class="w-3.5 h-3.5 text-indigo-400" />
+            <span>分组卡片池</span>
+          </button>
+        </div>
+
         <button
-          @click="openWizard"
+          @click="openWizard()"
           class="px-3.5 py-1.5 bg-foreground text-background hover:bg-foreground/90 text-xs font-medium rounded-md transition-colors flex items-center gap-1.5 shadow-sm"
         >
-          <Zap class="w-3.5 h-3.5" />
+          <Zap class="w-3.5 h-3.5 text-amber-400" />
           <span>1步发布落地线路</span>
         </button>
 
@@ -41,388 +63,81 @@
       </div>
     </div>
 
-    <!-- Navigation Tabs -->
-    <div class="flex items-center gap-2 border-b border-gray-800/80 pb-3 flex-nowrap overflow-x-auto">
-      <button
-        @click="activeTab = 'channels'"
-        class="px-4 py-2 rounded-xl text-xs font-semibold transition-all flex items-center gap-2 shrink-0"
-        :class="activeTab === 'channels' ? 'bg-brand-600/20 text-brand-300 border border-brand-500/30' : 'text-gray-400 hover:text-gray-200 hover:bg-gray-900/50'"
-      >
-        <Network class="w-4 h-4" />
-        <span>分流通道全景 (Channels: {{ allChannels.length }})</span>
-      </button>
+    <!-- VIEW 1: 动态脉冲连线画布 (Topology Canvas) -->
+    <TopologyCanvas
+      v-if="viewMode === 'canvas'"
+      :graph="graph"
+      :stream-pipelines="streamPipelines"
+      :compute-active-subgraph="computeActiveSubgraph"
+      @open-wizard="openWizard"
+      @open-create-gateway="openCreateGatewayModal"
+      @open-create-exit="openCreateExitModal"
+      @toggle-channel-status="toggleChannelStatus"
+      @delete-channel="deleteChannel"
+      @edit-gateway="editGateway"
+      @delete-gateway="deleteGateway"
+      @logs="viewLogs"
+      @edit-outbound="editOutbound"
+      @delete-outbound="deleteOutbound"
+    />
 
-      <button
-        @click="activeTab = 'gateways'"
-        class="px-4 py-2 rounded-xl text-xs font-semibold transition-all flex items-center gap-2 shrink-0"
-        :class="activeTab === 'gateways' ? 'bg-brand-600/20 text-brand-300 border border-brand-500/30' : 'text-gray-400 hover:text-gray-200 hover:bg-gray-900/50'"
-      >
-        <Radio class="w-4 h-4" />
-        <span>接入网关池 (Gateways: {{ inbounds.length }})</span>
-      </button>
+    <!-- VIEW 2: 传统分组池视图 (Topology Pools View) -->
+    <TopologyPoolsView
+      v-else
+      :inbounds="inbounds"
+      :outbounds="outbounds"
+      :all-channels="allChannels"
+      @open-wizard="openWizard"
+      @open-create-gateway="openCreateGatewayModal"
+      @open-create-exit="openCreateExitModal"
+      @toggle-channel-status="toggleChannelStatus"
+      @delete-channel="deleteChannel"
+      @edit-gateway="editGateway"
+      @delete-gateway="deleteGateway"
+      @edit-outbound="editOutbound"
+      @delete-outbound="deleteOutbound"
+    />
 
-      <button
-        @click="activeTab = 'exits'"
-        class="px-4 py-2 rounded-xl text-xs font-semibold transition-all flex items-center gap-2 shrink-0"
-        :class="activeTab === 'exits' ? 'bg-brand-600/20 text-brand-300 border border-brand-500/30' : 'text-gray-400 hover:text-gray-200 hover:bg-gray-900/50'"
-      >
-        <Send class="w-4 h-4" />
-        <span>落地出口池 (Exit Nodes: {{ outbounds.length }})</span>
-      </button>
-    </div>
-
-    <!-- TAB 1: 分流通道全景流水线 (Channels Pipeline) -->
-    <div v-if="activeTab === 'channels'" class="space-y-4">
-      <div v-if="allChannels.length > 0" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-        <div
-          v-for="ch in allChannels"
-          :key="ch.id"
-          class="p-4 rounded-lg bg-card border border-border flex flex-col justify-between group"
-        >
-          <div>
-            <!-- Channel Title & RouteID Badge -->
-            <div class="flex items-center justify-between mb-3">
-              <div class="flex items-center gap-2">
-                <span class="text-sm font-bold text-foreground tracking-tight">{{ ch.name }}</span>
-              </div>
-              <span
-                v-if="ch.routeId > 0"
-                class="px-2 py-0.5 rounded-md text-[11px] font-mono font-bold bg-indigo-950/60 text-indigo-300 border border-indigo-800/50"
-              >
-                Route #{{ ch.routeId }}
-              </span>
-              <span v-else class="px-2 py-0.5 rounded-md text-[11px] font-mono font-bold bg-neutral-900 text-muted-foreground border border-border">
-                直通
-              </span>
-            </div>
-
-            <!-- Pipeline Flow Topology Card -->
-            <div class="bg-neutral-950 p-3 rounded-md border border-border space-y-2 text-xs font-mono">
-              <!-- Gateway Info -->
-              <div class="flex items-center justify-between text-muted-foreground">
-                <span class="text-neutral-500">接入网关</span>
-                <span class="text-cyan-400 font-medium">{{ ch.gatewayTag }} (:{{ ch.externalPort || ch.gatewayPort }})</span>
-              </div>
-
-              <!-- Flow Arrow -->
-              <div class="flex items-center justify-center text-neutral-600 text-[10px]">
-                <span>↓ Scoped VLESS 分流 (0x{{ (ch.routeId || 0).toString(16).padStart(4, '0') }})</span>
-              </div>
-
-              <!-- Exit Node Info -->
-              <div class="flex items-center justify-between text-muted-foreground">
-                <span class="text-neutral-500">落地出口</span>
-                <span class="text-brand-300 font-bold flex items-center gap-1">
-                  <span>{{ ch.outboundTag }}</span>
-                  <span class="text-[10px] px-1 py-0.2 rounded bg-neutral-900 text-neutral-300 font-normal uppercase">
-                    {{ getOutboundProtocol(ch.outboundTag) }}
-                  </span>
-                </span>
-              </div>
-            </div>
-
-            <!-- Status & Meta -->
-            <div class="mt-3 flex items-center justify-between text-[11px] text-muted-foreground font-mono">
-              <span>状态: <span :class="ch.enabled ? 'text-emerald-400 font-medium' : 'text-neutral-500 line-through'">{{ ch.enabled ? '已发布' : '已暂停' }}</span></span>
-              <span>单端口订阅就绪</span>
-            </div>
-          </div>
-
-          <!-- Actions -->
-          <div class="mt-4 pt-3 border-t border-border flex items-center justify-between text-xs">
-            <button
-              @click="toggleChannelStatus(ch)"
-              class="text-muted-foreground hover:text-foreground transition-colors"
-            >
-              {{ ch.enabled ? '暂停线路' : '启用线路' }}
-            </button>
-            <button
-              @click="deleteChannel(ch)"
-              class="text-rose-400 hover:text-rose-300 transition-colors"
-            >
-              删除线路
-            </button>
-          </div>
-        </div>
-      </div>
-
-      <!-- Empty State -->
-      <div v-else class="p-12 text-center rounded-lg bg-card border border-border">
-        <Network class="w-12 h-12 mx-auto text-neutral-600 mb-3" />
-        <h3 class="text-sm font-semibold text-foreground">暂未发布任何分流线路</h3>
-        <p class="text-xs text-muted-foreground mt-1">点击右上角“⚡ 1步发布落地线路”即可一键将落地节点发布为订阅线路</p>
-      </div>
-    </div>
-
-    <!-- TAB 2: 接入网关池 (Gateways / Inbounds) -->
-    <div v-if="activeTab === 'gateways'" class="space-y-4">
-      <div class="flex items-center justify-between">
-        <span class="text-xs text-muted-foreground">已部署的入站接入网关节点（共 {{ inbounds.length }} 个）</span>
-        <button
-          @click="openCreateGatewayModal"
-          class="px-3.5 py-1.5 bg-neutral-900 hover:bg-neutral-800 text-foreground border border-border text-xs font-semibold rounded-md transition-all flex items-center gap-1.5"
-        >
-          <Plus class="w-3.5 h-3.5" />
-          <span>新建接入网关</span>
-        </button>
-      </div>
-      <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-        <div
-          v-for="inb in inbounds"
-          :key="inb.id"
-          class="p-4 rounded-lg bg-card border border-border flex flex-col justify-between"
-        >
-          <div>
-            <div class="flex items-center justify-between mb-3">
-              <span class="text-sm font-bold text-foreground tracking-tight font-mono">{{ inb.tag }}</span>
-              <div class="flex items-center gap-1.5">
-                <span class="px-2 py-0.5 rounded-md text-[11px] font-mono font-bold uppercase bg-brand-500/20 text-brand-300 border border-brand-500/30">
-                  {{ inb.protocol }}
-                </span>
-                <span class="px-2 py-0.5 rounded-md text-[11px] font-mono font-medium bg-neutral-900 text-cyan-400 border border-border">
-                  {{ getStreamNetwork(inb) }}
-                </span>
-              </div>
-            </div>
-
-            <div class="space-y-2 text-xs text-muted-foreground">
-              <div class="flex justify-between py-1 border-b border-border/50">
-                <span>端口映射 (内部 ➔ 外部)</span>
-                <span class="text-brand-300 font-mono font-bold">:{{ inb.port }} ➔ :{{ inb.externalPort || 443 }}</span>
-              </div>
-              <div class="flex justify-between py-1 border-b border-border/50">
-                <span>安全协议 (Security)</span>
-                <span class="text-foreground font-mono uppercase font-semibold">{{ getSecurityType(inb) }}</span>
-              </div>
-              <div class="flex justify-between py-1 border-b border-border/50">
-                <span>挂载分流线路</span>
-                <span class="text-indigo-300 font-mono font-bold">{{ (inb.subRoutes || []).length }} 条</span>
-              </div>
-              <div class="flex justify-between py-1">
-                <span>端口连通性</span>
-                <span :class="inb.isAlive ? 'text-emerald-400' : 'text-rose-400'" class="font-semibold flex items-center gap-1">
-                  <span class="w-1.5 h-1.5 rounded-full" :class="inb.isAlive ? 'bg-emerald-400' : 'bg-rose-400'"></span>
-                  <span>{{ inb.isAlive ? `正常 (${inb.latencyMs || 1}ms)` : '未连通' }}</span>
-                </span>
-              </div>
-            </div>
-          </div>
-
-          <div class="mt-4 pt-3 border-t border-border flex items-center justify-between">
-            <button @click="editGateway(inb)" class="text-xs text-brand-400 hover:text-brand-300">
-              编辑网关参数
-            </button>
-            <button @click="deleteGateway(inb.id)" class="text-xs text-rose-400 hover:text-rose-300">
-              删除网关
-            </button>
-          </div>
-        </div>
-      </div>
-    </div>
-
-    <!-- TAB 3: 落地出口池 (Exit Nodes / Outbounds) -->
-    <div v-if="activeTab === 'exits'" class="space-y-4">
-      <div class="flex items-center justify-between">
-        <span class="text-xs text-muted-foreground">已配置的落地出口节点（共 {{ outbounds.length }} 个）</span>
-        <button
-          @click="openCreateExitModal"
-          class="px-3.5 py-1.5 bg-neutral-900 hover:bg-neutral-800 text-foreground border border-border text-xs font-semibold rounded-md transition-all flex items-center gap-1.5"
-        >
-          <Plus class="w-3.5 h-3.5" />
-          <span>新建落地出口</span>
-        </button>
-      </div>
-      <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-        <div
-          v-for="ob in outbounds"
-          :key="ob.tag"
-          class="p-4 rounded-lg bg-card border border-border flex flex-col justify-between"
-        >
-          <div>
-            <div class="flex items-center justify-between mb-3">
-              <span class="text-sm font-bold text-foreground tracking-tight font-mono">{{ ob.tag }}</span>
-              <span class="px-2 py-0.5 rounded-md text-[11px] font-mono font-bold uppercase" :class="protocolBadgeColor(ob.protocol)">
-                {{ ob.protocol }}
-              </span>
-            </div>
-
-            <div class="space-y-2 text-xs text-muted-foreground">
-              <div class="flex justify-between py-1 border-b border-border/50">
-                <span>出站协议</span>
-                <span class="text-foreground font-mono font-semibold">{{ ob.protocol }}</span>
-              </div>
-              <div class="py-1">
-                <span class="block mb-1 text-neutral-500 text-[11px]">设置摘要:</span>
-                <div class="bg-neutral-950 p-2 rounded-md border border-border text-[11px] font-mono text-muted-foreground truncate">
-                  {{ formatSettingsSummary(ob) }}
-                </div>
-              </div>
-            </div>
-          </div>
-
-          <div class="mt-4 pt-3 border-t border-border flex items-center justify-between">
-            <button @click="editOutbound(ob)" class="text-xs text-brand-400 hover:text-brand-300">
-              编辑设置
-            </button>
-            <button
-              v-if="ob.tag !== 'direct' && ob.tag !== 'block'"
-              @click="deleteOutbound(ob.tag)"
-              class="text-xs text-rose-400 hover:text-rose-300"
-            >
-              删除
-            </button>
-            <span v-else class="text-xs text-neutral-600 font-mono">系统保留</span>
-          </div>
-        </div>
-      </div>
-    </div>
-
-    <!-- ⚡ 1步发布落地线路向导弹窗 (Quick Publish Wizard Modal) -->
-    <div v-if="showWizardModal" class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/75 overflow-y-auto">
-      <div class="w-full max-w-lg p-5 rounded-lg border border-border bg-card shadow-2xl space-y-4 my-8 max-h-[90vh] overflow-y-auto">
-        <div class="flex items-center justify-between pb-2 border-b border-border">
-          <div>
-            <h2 class="text-sm font-bold text-foreground flex items-center gap-2">
-              <span>⚡ 1步发布落地线路向导</span>
-            </h2>
-            <p class="text-xs text-muted-foreground mt-0.5">自动创建出口节点、绑定接入网关、分配 RouteID 并下发订阅</p>
-          </div>
-          <button @click="showWizardModal = false" class="text-muted-foreground hover:text-foreground text-base">✕</button>
-        </div>
-
-        <form @submit.prevent="submitWizard" class="space-y-4 text-xs">
-          <!-- 录入模式切换 -->
-          <div class="flex gap-2 p-1 bg-gray-900/80 rounded-xl border border-gray-800">
-            <button
-              type="button"
-              :class="wizardMode === 'link' ? 'bg-brand-600 text-white font-bold' : 'text-gray-400 hover:text-white'"
-              class="flex-1 py-2 text-xs rounded-lg transition-all"
-              @click="wizardMode = 'link'"
-            >
-              粘贴节点链接解析
-            </button>
-            <button
-              type="button"
-              :class="wizardMode === 'manual' ? 'bg-brand-600 text-white font-bold' : 'text-gray-400 hover:text-white'"
-              class="flex-1 py-2 text-xs rounded-lg transition-all"
-              @click="wizardMode = 'manual'"
-            >
-              从现有出口选择 / 自定义
-            </button>
-          </div>
-
-          <!-- 模式 1: 节点链接解析 -->
-          <div v-if="wizardMode === 'link'" class="space-y-3 bg-gray-900/50 p-4 rounded-2xl border border-gray-800">
-            <div>
-              <label class="block text-gray-300 mb-1 font-medium">节点链接 (支持 vless://, vmess://, trojan://, ss://)</label>
-              <textarea
-                v-model="wizardLink"
-                @input="parseImportLink"
-                rows="3"
-                placeholder="vless://uuid@server:443?type=tcp&security=reality...#香港节点"
-                class="w-full bg-gray-900 border border-gray-700 rounded-xl p-3 text-white font-mono text-[11px] focus:outline-none focus:border-brand-500"
-              ></textarea>
-            </div>
-            <div v-if="parsedExitTag" class="text-[11px] text-cyan-400 font-mono">
-              ✓ 解析成功: 出口标识将设为 <span class="font-bold text-white">{{ parsedExitTag }}</span> ({{ parsedProtocol }})
-            </div>
-          </div>
-
-          <!-- 模式 2: 从现有出口选择 -->
-          <div v-else class="space-y-3 bg-gray-900/50 p-4 rounded-2xl border border-gray-800">
-            <div>
-              <label class="block text-gray-300 mb-1 font-medium">选择目标出口 (Outbound)</label>
-              <select
-                v-model="wizardForm.exitTag"
-                class="w-full bg-gray-900 border border-gray-700 rounded-xl px-3 py-2 text-white font-mono focus:outline-none focus:border-brand-500"
-              >
-                <option v-for="ob in outbounds" :key="ob.tag" :value="ob.tag">
-                  {{ ob.tag }} ({{ ob.protocol }})
-                </option>
-              </select>
-            </div>
-          </div>
-
-          <!-- 线路基本参数 -->
-          <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <div>
-              <label class="block text-gray-300 mb-1 font-medium">订阅线路名称</label>
-              <input
-                v-model="wizardForm.channelName"
-                type="text"
-                required
-                placeholder="如 🇯🇵 日本原生直连"
-                class="w-full bg-gray-900 border border-gray-700 rounded-xl px-3 py-2 text-white focus:outline-none focus:border-brand-500"
-              />
-            </div>
-
-            <div>
-              <label class="block text-gray-300 mb-1 font-medium">挂载接入网关</label>
-              <select
-                v-model="wizardForm.gatewayTag"
-                class="w-full bg-gray-900 border border-gray-700 rounded-xl px-3 py-2 text-white font-mono focus:outline-none focus:border-brand-500"
-              >
-                <option v-for="inb in inbounds" :key="inb.tag" :value="inb.tag">
-                  {{ inb.tag }} (:{{ inb.externalPort || inb.port }})
-                </option>
-              </select>
-            </div>
-          </div>
-
-          <!-- 自动分配 RouteID 预览卡片 -->
-          <div class="p-3.5 bg-indigo-950/30 border border-indigo-500/30 rounded-2xl flex items-center justify-between text-xs">
-            <div class="space-y-0.5">
-              <span class="text-indigo-300 font-semibold block">协议级单端口分流</span>
-              <span class="text-[10px] text-gray-400">系统已自动分配下一个空闲 RouteID</span>
-            </div>
-            <span class="px-3 py-1 bg-indigo-500/20 text-indigo-300 font-mono font-bold rounded-lg border border-indigo-500/30">
-              Route #{{ nextRouteId }}
-            </span>
-          </div>
-
-          <div class="pt-3 border-t border-gray-800 flex items-center justify-end gap-3">
-            <button
-              type="button"
-              @click="showWizardModal = false"
-              class="px-3.5 py-1.5 rounded-md text-xs font-medium text-muted-foreground hover:text-foreground transition-colors"
-            >
-              取消
-            </button>
-            <button
-              type="submit"
-              :disabled="wizardSubmitting"
-              class="px-4 py-2 bg-foreground text-background hover:bg-foreground/90 font-medium text-xs rounded-md shadow-sm transition-colors disabled:opacity-50"
-            >
-              {{ wizardSubmitting ? '正在发布...' : '立即发布并生效' }}
-            </button>
-          </div>
-        </form>
-      </div>
-    </div>
+    <!-- ⚡ 1步发布落地线路向导弹窗 -->
+    <QuickPublishWizardModal
+      v-model="showWizardModal"
+      :inbounds="inbounds"
+      :outbounds="outbounds"
+      :next-route-id="nextRouteId"
+      :initial-exit-tag="wizardInitialExitTag"
+      @success="fetchAll"
+    />
   </div>
 </template>
 
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
-import {
-  Plus,
-  Zap,
-  Radio,
-  Send,
-  Network,
-} from 'lucide-vue-next'
+import { Plus, Zap, Workflow, LayoutGrid } from 'lucide-vue-next'
 import api from '../api'
 import { toast } from '../utils/toast'
+import { useTopologyGraph } from './topology/composables/useTopologyGraph'
+import TopologyCanvas from './topology/components/TopologyCanvas.vue'
+import TopologyPoolsView from './topology/components/TopologyPoolsView.vue'
+import QuickPublishWizardModal from './topology/components/QuickPublishWizardModal.vue'
 
 const router = useRouter()
-const activeTab = ref<'channels' | 'gateways' | 'exits'>('channels')
+const viewMode = ref<'canvas' | 'pools'>('canvas')
 
 const inbounds = ref<any[]>([])
 const outbounds = ref<any[]>([])
+const routing = ref<any>({ rules: [] })
 const usersList = ref<any[]>([])
 
-// 聚合所有通道 (Channels)
+// Topology Graph Derivation Engine
+const { graph, streamPipelines, computeActiveSubgraph } = useTopologyGraph(
+  inbounds,
+  outbounds,
+  routing,
+  usersList,
+)
+
+// Aggregate channels for traditional pools view and nextRouteId
 const allChannels = computed(() => {
   const list: any[] = []
   for (const inb of inbounds.value) {
@@ -442,7 +157,6 @@ const allChannels = computed(() => {
         })
       }
     } else {
-      // 独立直出通道
       list.push({
         id: `${inb.tag}_direct`,
         name: inb.remark || inb.tag,
@@ -468,358 +182,13 @@ const nextRouteId = computed(() => {
   return id
 })
 
-// === 1步向导状态 ===
+// Wizard Modal State
 const showWizardModal = ref(false)
-const wizardMode = ref<'link' | 'manual'>('link')
-const wizardLink = ref('')
-const wizardSubmitting = ref(false)
-const parsedExitTag = ref('')
-const parsedProtocol = ref('')
-const parsedOutboundPayload = ref<any>(null)
+const wizardInitialExitTag = ref('')
 
-const wizardForm = ref({
-  channelName: '',
-  gatewayTag: '',
-  exitTag: 'direct',
-})
-
-const openWizard = () => {
-  wizardLink.value = ''
-  parsedExitTag.value = ''
-  parsedProtocol.value = ''
-  parsedOutboundPayload.value = null
-  wizardForm.value = {
-    channelName: `分流线路 #${nextRouteId.value}`,
-    gatewayTag: inbounds.value[0]?.tag || '',
-    exitTag: outbounds.value[0]?.tag || 'direct',
-  }
+const openWizard = (initialExitTag?: string) => {
+  wizardInitialExitTag.value = initialExitTag || ''
   showWizardModal.value = true
-}
-
-const parseImportLink = () => {
-  const link = wizardLink.value.trim()
-  if (!link) {
-    parsedExitTag.value = ''
-    parsedOutboundPayload.value = null
-    return
-  }
-  try {
-    if (link.startsWith('vless://')) {
-      const u = new URL(link)
-      const cleanHost = u.hostname.replace(/[^a-zA-Z0-9]/g, '') || 'node'
-      const tag = `out-vless-${cleanHost}-${Math.random().toString(36).substring(2, 6)}`
-      parsedExitTag.value = tag
-      parsedProtocol.value = 'vless'
-      if (u.hash) {
-        wizardForm.value.channelName = decodeURIComponent(u.hash.replace('#', ''))
-      }
-
-      const params = u.searchParams
-      const network = params.get('type') || 'tcp'
-      const security = params.get('security') || 'none'
-      const flow = params.get('flow') || ''
-      const sni = params.get('sni') || ''
-      const pbk = params.get('pbk') || ''
-      const sid = params.get('sid') || ''
-      const fp = params.get('fp') || 'chrome'
-      const spx = params.get('spx') || ''
-      const path = params.get('path') || ''
-      const mode = params.get('mode') || 'auto'
-      const serviceName = params.get('serviceName') || ''
-
-      const userObj: any = {
-        id: u.username,
-        encryption: 'none',
-      }
-      if (flow) {
-        userObj.flow = flow
-      }
-
-      const stream: any = {
-        network,
-        security,
-      }
-
-      if (security === 'reality') {
-        stream.realitySettings = {
-          serverName: sni || u.hostname,
-          fingerprint: fp,
-          publicKey: pbk,
-          shortId: sid,
-          spiderX: spx,
-        }
-      } else if (security === 'tls') {
-        stream.tlsSettings = {
-          serverName: sni || u.hostname,
-          fingerprint: fp,
-        }
-      }
-
-      if (network === 'xhttp') {
-        stream.xhttpSettings = { path: path || '/', mode }
-      } else if (network === 'ws') {
-        stream.wsSettings = { path: path || '/' }
-      } else if (network === 'grpc') {
-        stream.grpcSettings = { serviceName }
-      }
-
-      parsedOutboundPayload.value = {
-        tag,
-        protocol: 'vless',
-        settingsJson: JSON.stringify({
-          vnext: [
-            {
-              address: u.hostname,
-              port: parseInt(u.port) || 443,
-              users: [userObj],
-            },
-          ],
-        }),
-        streamSettings: JSON.stringify(stream),
-      }
-    } else if (link.startsWith('trojan://')) {
-      const u = new URL(link)
-      const cleanHost = u.hostname.replace(/[^a-zA-Z0-9]/g, '') || 'node'
-      const tag = `out-trojan-${cleanHost}-${Math.random().toString(36).substring(2, 6)}`
-      parsedExitTag.value = tag
-      parsedProtocol.value = 'trojan'
-      if (u.hash) {
-        wizardForm.value.channelName = decodeURIComponent(u.hash.replace('#', ''))
-      }
-
-      const params = u.searchParams
-      const network = params.get('type') || 'tcp'
-      const security = params.get('security') || 'tls'
-      const sni = params.get('sni') || ''
-
-      const stream: any = {
-        network,
-        security,
-      }
-      if (security === 'tls') {
-        stream.tlsSettings = {
-          serverName: sni || u.hostname,
-        }
-      }
-
-      parsedOutboundPayload.value = {
-        tag,
-        protocol: 'trojan',
-        settingsJson: JSON.stringify({
-          servers: [
-            {
-              address: u.hostname,
-              port: parseInt(u.port) || 443,
-              password: u.username,
-            },
-          ],
-        }),
-        streamSettings: JSON.stringify(stream),
-      }
-    } else if (link.startsWith('ss://')) {
-      const clean = link.replace('ss://', '')
-      const parts = clean.split('#')
-      const mainPart = parts[0]
-      if (parts[1]) {
-        wizardForm.value.channelName = decodeURIComponent(parts[1])
-      }
-
-      let method = 'aes-128-gcm'
-      let password = ''
-      let server = ''
-      let port = 443
-
-      if (mainPart.includes('@')) {
-        const [authB64, hostPort] = mainPart.split('@')
-        try {
-          const auth = atob(authB64)
-          const authParts = auth.split(':')
-          method = authParts[0]
-          password = authParts[1]
-        } catch (e) {}
-        const hp = hostPort.split(':')
-        server = hp[0]
-        port = parseInt(hp[1]) || 443
-      } else {
-        try {
-          const decoded = atob(mainPart)
-          const [auth, hp] = decoded.split('@')
-          const authParts = auth.split(':')
-          method = authParts[0]
-          password = authParts[1]
-          const hpParts = hp.split(':')
-          server = hpParts[0]
-          port = parseInt(hpParts[1]) || 443
-        } catch (e) {}
-      }
-
-      const tag = `out-ss-${server.replace(/[^a-zA-Z0-9]/g, '') || 'node'}-${Math.random().toString(36).substring(2, 6)}`
-      parsedExitTag.value = tag
-      parsedProtocol.value = 'shadowsocks'
-      parsedOutboundPayload.value = {
-        tag,
-        protocol: 'shadowsocks',
-        settingsJson: JSON.stringify({
-          servers: [
-            {
-              address: server,
-              port: port,
-              method: method,
-              password: password,
-            },
-          ],
-        }),
-      }
-    }
-  } catch (e) {
-    console.error('Parse link failed', e)
-  }
-}
-
-const submitWizard = async () => {
-  wizardSubmitting.value = true
-  try {
-    let targetOutboundTag = wizardForm.value.exitTag
-
-    // 如果是通过链接导入的新出口，先创建出站
-    if (wizardMode.value === 'link') {
-      if (!parsedOutboundPayload.value) {
-        toast.error('未检测到有效的节点链接，请检查格式')
-        return
-      }
-      targetOutboundTag = parsedOutboundPayload.value.tag
-      // 检查出站是否已存在，不存在才创建
-      const existingOb = outbounds.value.find((o) => o.tag === targetOutboundTag)
-      if (!existingOb) {
-        await api.post('/outbounds', parsedOutboundPayload.value)
-      }
-    }
-
-    // 将 SubRoute 挂载到选定的网关
-    const targetGateway = inbounds.value.find((i) => i.tag === wizardForm.value.gatewayTag)
-    if (!targetGateway) {
-      toast.error('未找到目标接入网关')
-      return
-    }
-
-    const currentSubRoutes = targetGateway.subRoutes || []
-    currentSubRoutes.push({
-      id: Math.random().toString(36).substring(2, 9),
-      name: wizardForm.value.channelName,
-      routeId: nextRouteId.value,
-      outboundTag: targetOutboundTag,
-      enabled: true,
-    })
-
-    const payload = {
-      ...targetGateway,
-      subRoutesJson: JSON.stringify(currentSubRoutes),
-    }
-
-    await api.put(`/inbounds/${targetGateway.id}`, payload)
-    toast.success('🎉 线路发布成功！已自动注入 Xray 路由表并就绪订阅')
-    showWizardModal.value = false
-    await fetchAll()
-  } catch (err: any) {
-    toast.error(err.response?.data?.error || '发布线路失败')
-  } finally {
-    wizardSubmitting.value = false
-  }
-}
-
-const toggleChannelStatus = async (ch: any) => {
-  try {
-    const targetGateway = inbounds.value.find((i) => i.id === ch.inboundId)
-    if (!targetGateway) return
-
-    if (ch.routeId > 0) {
-      const srs = targetGateway.subRoutes || []
-      for (const sr of srs) {
-        if (sr.routeId === ch.routeId) {
-          sr.enabled = !sr.enabled
-        }
-      }
-      await api.put(`/inbounds/${targetGateway.id}`, {
-        ...targetGateway,
-        subRoutesJson: JSON.stringify(srs),
-      })
-    } else {
-      // 切换网关整体启用状态
-      await api.put(`/inbounds/${targetGateway.id}`, {
-        ...targetGateway,
-        enabled: !targetGateway.enabled,
-      })
-    }
-    toast.success('状态已更新')
-    await fetchAll()
-  } catch (err) {
-    toast.error('更新状态失败')
-  }
-}
-
-const deleteChannel = async (ch: any) => {
-  if (!confirm(`确定删除线路 "${ch.name}" 吗？`)) return
-  try {
-    const targetGateway = inbounds.value.find((i) => i.id === ch.inboundId)
-    if (!targetGateway) return
-
-    if (ch.routeId > 0) {
-      const srs = (targetGateway.subRoutes || []).filter((s: any) => s.routeId !== ch.routeId)
-      await api.put(`/inbounds/${targetGateway.id}`, {
-        ...targetGateway,
-        subRoutesJson: JSON.stringify(srs),
-      })
-      toast.success('线路已删除')
-    } else {
-      // 独立网关直出线路，提示并删除网关
-      await api.delete(`/inbounds/${targetGateway.id}`)
-      toast.success('网关及线路已删除')
-    }
-    await fetchAll()
-  } catch (err) {
-    toast.error('删除线路失败')
-  }
-}
-
-// 辅助方法
-const getOutboundProtocol = (tag: string) => {
-  const ob = outbounds.value.find((o) => o.tag === tag)
-  return ob ? ob.protocol : 'freedom'
-}
-
-const getStreamNetwork = (inb: any) => {
-  try {
-    const s = JSON.parse(inb.streamSettings || '{}')
-    return s.network || 'tcp'
-  } catch (e) {
-    return 'tcp'
-  }
-}
-
-const getSecurityType = (inb: any) => {
-  try {
-    const s = JSON.parse(inb.streamSettings || '{}')
-    return s.security || 'none'
-  } catch (e) {
-    return 'none'
-  }
-}
-
-const protocolBadgeColor = (p: string) => {
-  switch ((p || '').toLowerCase()) {
-    case 'vless': return 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/30'
-    case 'trojan': return 'bg-purple-500/20 text-purple-300 border border-purple-500/30'
-    case 'freedom': return 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
-    case 'wireguard': return 'bg-amber-500/20 text-amber-300 border border-amber-500/30'
-    default: return 'bg-gray-800 text-gray-300'
-  }
-}
-
-const formatSettingsSummary = (ob: any) => {
-  if (ob.protocol === 'freedom') return '直连公网 (Freedom)'
-  if (ob.protocol === 'blackhole') return '黑洞拦截 (Blackhole)'
-  if (ob.protocol === 'wireguard') return 'Cloudflare WARP (WireGuard)'
-  return ob.settingsJson || '{}'
 }
 
 const openCreateGatewayModal = () => {
@@ -845,6 +214,10 @@ const deleteGateway = async (id: number) => {
   }
 }
 
+const viewLogs = (tag: string) => {
+  router.push({ path: '/logs', query: { type: 'access', inbound: tag } })
+}
+
 const editOutbound = (ob: any) => {
   router.push({ path: '/outbounds', query: { edit: ob.tag } })
 }
@@ -860,13 +233,82 @@ const deleteOutbound = async (tag: string) => {
   }
 }
 
+const toggleChannelStatus = async (item: any) => {
+  try {
+    const routeId = item.routeId ?? item.raw?.routeId
+    const inboundId = item.inboundId ?? item.raw?.inboundId
+    const gatewayTag = item.gatewayTag ?? item.raw?.gatewayTag
+
+    const targetGateway = inbounds.value.find((i) => i.id === inboundId || i.tag === gatewayTag)
+    if (!targetGateway) return
+
+    if (routeId && routeId > 0) {
+      const srs = targetGateway.subRoutes || []
+      for (const sr of srs) {
+        if (sr.routeId === routeId) {
+          const currentEnabled = sr.enabled !== false
+          sr.enabled = !currentEnabled
+        }
+      }
+      await api.put(`/inbounds/${targetGateway.id}`, {
+        ...targetGateway,
+        subRoutesJson: JSON.stringify(srs),
+      })
+    } else {
+      const currentEnabled = targetGateway.enabled !== false
+      await api.put(`/inbounds/${targetGateway.id}`, {
+        ...targetGateway,
+        enabled: !currentEnabled,
+      })
+    }
+    toast.success('状态已更新')
+    await fetchAll()
+  } catch (err) {
+    toast.error('更新状态失败')
+  }
+}
+
+const deleteChannel = async (item: any) => {
+  const isFallback = item.category === 'fallback' || !item.routeId || item.routeId <= 0
+  const name = item.name || item.title || item.raw?.name || '线路'
+  const confirmMsg = isFallback
+    ? `确定删除接入网关 "${item.gatewayTag || name}" 及其直通链路吗？`
+    : `确定删除分流线路 "${name}" 吗？`
+  if (!confirm(confirmMsg)) return
+  try {
+    const routeId = item.routeId ?? item.raw?.routeId
+    const inboundId = item.inboundId ?? item.raw?.inboundId
+    const gatewayTag = item.gatewayTag ?? item.raw?.gatewayTag
+
+    const targetGateway = inbounds.value.find((i) => i.id === inboundId || i.tag === gatewayTag)
+    if (!targetGateway) return
+
+    if (routeId && routeId > 0) {
+      const srs = (targetGateway.subRoutes || []).filter((s: any) => s.routeId !== routeId)
+      await api.put(`/inbounds/${targetGateway.id}`, {
+        ...targetGateway,
+        subRoutesJson: JSON.stringify(srs),
+      })
+      toast.success('线路已删除')
+    } else {
+      await api.delete(`/inbounds/${targetGateway.id}`)
+      toast.success('网关及线路已删除')
+    }
+    await fetchAll()
+  } catch (err) {
+    toast.error('删除线路失败')
+  }
+}
+
 const fetchAll = async () => {
   try {
-    const [inbRes, obRes, uRes]: any = await Promise.all([
+    const [inbRes, obRes, routeRes, uRes]: any = await Promise.all([
       api.get('/inbounds'),
       api.get('/outbounds').catch(() => []),
+      api.get('/routing').catch(() => ({ rules: [] })),
       api.get('/users').catch(() => []),
     ])
+
     inbounds.value = (inbRes || []).map((ib: any) => {
       let srs: any[] = []
       try {
@@ -875,6 +317,7 @@ const fetchAll = async () => {
       return { ...ib, subRoutes: srs }
     })
     outbounds.value = obRes || []
+    routing.value = routeRes || { rules: [] }
     usersList.value = uRes || []
   } catch (err) {
     console.error(err)

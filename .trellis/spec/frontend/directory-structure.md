@@ -8,7 +8,7 @@
 
 ```
 web/src/
-├── views/        # 页面级 SFC (PascalCase) 与按特性拆分的子目录 (如 views/inbounds/)
+├── views/        # 页面级 SFC (PascalCase) 与按特性拆分的子目录 (如 views/inbounds/, views/outbounds/, views/users/, views/topology/)
 ├── components/   # ui/ (Button, Input, Badge, Drawer, FormField, SectionCard) 与 ToastContainer.vue
 ├── api/          # index.ts (axios 单例) + reality.ts (类型化领域接口)
 ├── router/       # index.ts (单文件路由表)
@@ -20,7 +20,7 @@ web/src/
 └── vite-env.d.ts # Vite 客户端引用 + *.vue shim
 ```
 
-- **特性就近组织**：对于复杂模块（如 `views/inbounds/`），其对应的局部子组件、专属 composable 与局部 types 就近存放在所属业务目录下，严禁分散创建全局冗余目录。
+- **特性就近组织**：对于复杂模块（如 `views/inbounds/`、`views/outbounds/`、`views/users/`、`views/topology/`），其对应的局部子组件（`components/`）、专属 composable（`composables/`）与局部 `types.ts` 就近存放在所属业务目录下，严禁分散创建全局冗余目录。
 - **公共工具规范**：全仓通用的格式化（字节、速率、日期）与操作（剪贴板复制）统一收敛至 `utils/format.ts` 和 `utils/clipboard.ts`，禁止在各 View 内私自实现重复函数。
 
 ---

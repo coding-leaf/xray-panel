@@ -78,7 +78,10 @@ View  ──►  web/src/api/index.ts (axios 单例)  ──┬──►  /api/*
    - **Trojan**: 客户端认证凭据必须为 `{ password, email, level: 0 }`，严禁输出 `id`；
    - **Shadowsocks / SS2022**: 必须提供合法加密算法 (`method`)，单用户填密码或结合关联用户生成 Sub-Key clients；
    - **VMess / Socks / HTTP**: 严禁选择 `REALITY` 伪装；
-   - **Flow 流控 (xtls-rprx-vision / none)**: 严格限定仅在 `vless` + `tcp` + (`reality` 或 `tls`) 下生效。当用户主动关闭流控或在非支持传输协议下时，前端状态与持久化配置 (`settings.flow`) 显式规范为 `'none'`，确保抽屉回显稳定一致；在向 Xray-core 核心下发配置（入站 `clients[].flow` 与出站 `users[0].flow`）以及导出客户端节点订阅链接时，必须将 `'none'` 清洗过滤为省略或空字符串，杜绝向 Xray 核心注入非法流控参数或在客户端链接中产生 `flow=none` 错误参数。
+   - **Flow 流控 (xtls-rprx-vision / none)**: 严格限定仅在 `vless` + `tcp` + (`reality` 或 `tls`) 下生效。当用户主动关闭流控或在非支持传输协议下时，前端状态与持久化配置 (`settings.flow`) 显式规范为 `'none'`，确保抽屉回显稳定一致；在向 Xray-core 核心下发配置（入站 `clients[].flow` 与出站 `users[0].flow`）以及导出客户端节点订阅链接时，必须将 `'none'` 清洗过滤为省略或空字符串，杜绝向 Xray 核心注入非法流控参数或在客户端链接中产生 `flow=none` 错误参数；
+   - **流控徽标与详情展示协议隔离**: `InboundTable.vue`、`InboundDetailDrawer.vue` 与 `getNodeFlow(inb)` 必须严格校验 `inb.protocol === 'vless'` 后才可读取与渲染 Flow 流控信息，严禁在 `socks`、`http`、`dokodemo-door` 等非 VLESS 协议旁渲染出 `xtls-rprx-vision` 徽标；
+   - **新建用户默认入站过滤**: `UserFormDrawer.vue` 在初始化默认选中入站或点击“全选”时，仅可勾选支持多用户分发的代理协议（`vless`、`vmess`、`trojan`、`shadowsocks`、`shadowsocks-2022`），必须自动排除 `socks`、`http`、`dokodemo-door` 等本地或端口转发入站；
+   - **前端凭据随机生成 CSPRNG 强约束**: 前端生成随机 `SubToken` 与 `UUID` 时，严禁使用 `Math.random()` 或短字符串取模；`SubToken` 必须使用 `crypto.getRandomValues(new Uint8Array(16))` 转换为 **32 位小写十六进制字符串（128-bit 满熵）**，与后端 `crypto/rand` + `hex.EncodeToString` 严格一致；`UUID` 优先使用 `crypto.randomUUID()`，在非 HTTPS 环境下回退至基于 `crypto.getRandomValues(new Uint8Array(16))` 的 RFC 4122 v4 实现。
 
 2. **出站协议 (Outbounds)**:
    - **freedom / blackhole / wireguard / socks / http / dns**: 均为无传输安全层出站，`streamSettings` 必须清空为 `""`，禁止附带任何 Reality / TLS / XHTTP 参数；

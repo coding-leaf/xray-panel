@@ -83,4 +83,27 @@
   - 严格遵循用户在界面排定的顺序（First-Match 原则）输出 Layer 2 自定义规则池，确保跨机专属通道（`vlessRoute`）等关键策略不被无作用域的大网规则截流；
 - **单一事实源与消灭隐式追加 (Single Source of Truth)**：
   - 彻底废除编译器底层遍历入站分流线路隐式追加 Layer 3 规则的逻辑，消灭“系统托管 vs 自定义”阴阳两套规则；
-  - 统一路由规则池为唯一事实源（所见即所得），新入站线路显式作为普通规则默认追加至尾部，严禁产生读出 ➔ 编译 ➔ 翻倍的回环污染。
+  - 统一路由规则池为唯一事实源（所见即所得），新入站线路显式作为普通规则默认追加至尾部，严禁产生读出 ➔ 编译 ➔ 翻倍的回环污染；
+  - **SubRoute 规则全生命周期对账 (`ensureSubRouteRules`)**：每次对账不仅要补齐新增的 `vlessRoute` 兜底规则，还必须就地同步已修改的 `OutboundTag` / `AllowedUsers`，并自动清理已在入站中删除、停用或改号的残留僵尸 `vlessRoute` 纯兜底规则（通过 `isPureSubRouteFallbackRule` 精确区分纯兜底规则与用户自定义带域名/IP 条件的路由规则）。
+
+---
+
+## 8. 启动反向同步与显式空状态防抹除准则 (Startup Sync & Explicit-None Preservation)
+
+- **问题背景**：Xray-core 官方协议对部分字段的“关闭”状态要求在 `config.json` 中完全省略该键（例如 VLESS `settings.flow` 仅允许 `""` 或 `"xtls-rprx-vision"`，传入 `"none"` 会导致核心报错拒绝启动），而面板数据库通过 `"flow": "none"` 区分“显式禁用流控”与“未配置（默认启用 Vision）”。
+- **核心约束**：
+  - 在 `ConfigService.syncFromRawJSON`（面板启动 `SyncFromFile` 或保存原生 JSON）从 `config.json` 反向同步回 SQLite 时，若 `config.json` 中 `vless` 入站的 `settings.flow` 为空且 `clients` 均未开启 `flow`，必须保留数据库中原有的 `"flow": "none"` 标记（或写回 `"flow": "none"`），**严禁直接将省略了 `flow` 的 JSON 覆盖回数据库导致 `"flow": "none"` 丢失并在紧随其后的 `RecompileAndApply` 中死灰复燃为 `xtls-rprx-vision`**；
+  - 对数据库中已存在的用户（`existingUser != nil`），`syncFromRawJSON` 严禁用单个入站编译后的 `client.flow` 反向覆盖用户的全局 `user.Flow` 策略（防止用户设置的 `"none"` 或 `""` 被篡改）。
+
+---
+
+## 9. 订阅与分享链接导出契约 (Subscription & Share Link Export Invariants)
+
+- **RFC 3986 URI Fragment 编码规范**：
+  - 导出 `vless://`、`trojan://`、`ss://`、`hysteria2://`、`socks://` 分享链接的 `#remark` 锚点后缀时，严禁直接使用 `url.QueryEscape`（会将空格编码为 `+` 号导致 v2rayNG / NekoBox 等客户端节点名显示加号）；
+  - 必须统一调用 `protocol.EscapeRemark(remark)`（将 `+` 替换为 `%20`），严格遵循 RFC 3986 百分号编码标准。
+- **uTLS 指纹 (`fp`) 雙链路一致性**：
+  - 聚合订阅（`resolveSubscriptionNodes`）与单节点直连分享链接（`GetUserShareInfo`）必须统一读取系统设置 `sub_default_fingerprint` 并同步至 `protocol.SetDefaultFingerprint`；
+  - 优先级契约：`入站显式配置的 fingerprint (realitySettings/tlsSettings.fingerprint) > 系统默认 sub_default_fingerprint > 兜底 "chrome"`。
+- **非客户端代理协议过滤**：
+  - `dokodemo-door`（任意门端口转发）等非客户端代理协议在 `InboundToNodeConfig`、`InboundsToNodeConfigs` 与 `GetUserShareInfo` 中必须自动跳过，严禁导出为无效客户端订阅节点。

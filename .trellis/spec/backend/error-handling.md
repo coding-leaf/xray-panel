@@ -65,6 +65,11 @@
 8. **Xray 节点剔除良性错误幂等容错原则 (Idempotent Node Removal Toleration)**：
    - 在变更用户（清理旧关联 Inbound）、停用用户、删除用户或执行 Saga 逆向补偿阶段从 Xray Inbound 中剔除凭据时，若底层 gRPC 返回包含 `handler not found`、`failed to get handler`、`not found`、`not exist` 等错误，表明该 Inbound 已不在核心运行态或用户本就未注册在该节点；
    - 此类错误属于良性/幂等状态，必须通过统一判定函数（如 `isXrayIgnorableRemoveError`）进行容错放行并记录 Info 日志，绝对禁止将其视为致命故障直接阻断流程并触发 Saga 回滚，避免用户保存与节点清理陷入死锁。
+9. **非 UserManager 协议动态热拔插短路与容错原则 (Non-UserManager Protocol Bypass)**：
+   - Xray-core 的 gRPC `AlterInbound`（`AddUserOperation` / `RemoveUserOperation`）仅对实现了 `proxyman.UserManager` 的多用户代理协议（`vless`、`vmess`、`trojan`、`shadowsocks` / `shadowsocks-2022`）生效；
+   - 原生应用层代理与端口转发协议（`socks`、`http`、`dokodemo-door`）在 Xray-core 中**未实现** `UserManager`，调用 `AlterInbound` 必返回 `rpc error: code = Unknown desc = app/proxyman/command: proxy is not a UserManager`；
+   - 在 `XrayManager.AddUser` / `RemoveUser` 入口必须先通过 `domain.SupportsDynamicUser(inbound.Protocol)` 检查，对不支持动态用户管理的协议直接静默短路返回 `nil`；同时在 `isXrayIgnorableRemoveError` / `isXrayIgnorableAddUserError` 中将 `not a usermanager` 与 `does not support dynamic account operations` 纳入良性可忽略范畴，严禁因此触发用户保存回滚；
+   - 当用户的唯一身份标识（`Email` 或 `UUID`）发生修改时，`UserService.UpdateUser` 必须先以旧快照 `oldSnapshot.Email` 调用 `RemoveUser` 精确卸载旧凭据，再注入新凭据，并同步更新所有入站 `SubRoute.AllowedUsers` 白名单中的邮箱引用。
 
 ---
 

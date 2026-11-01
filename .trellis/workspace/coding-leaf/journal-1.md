@@ -630,3 +630,25 @@
 ### Status
 
 [OK] **Completed**
+
+
+## Session 28: 修复客户端uTLS指纹分发、Socks热拔插报错、CSPRNG随机Token与多协议入站参数
+<!-- trellis-session: v=2 fp=0df5d71bf13958d8 -->
+
+**Date**: 2026-11-02
+**Task**: 修复客户端uTLS指纹分发、Socks热拔插报错、CSPRNG随机Token与多协议入站参数
+**Branch**: `master`
+
+### Summary
+
+修复单节点分享链接uTLS指纹失效并新增入站客户端指纹选择器；消除非VLESS协议Vision徽标误显与Socks/HTTP/Dokodemo-door动态UserManager gRPC报错；将前端随机SubToken升级为128-bit 32位十六进制CSPRNG；补齐VMess/Trojan/SS/Socks/HTTP/Dokodemo-door入站专属参数与后端适配器。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `74f6dda` | fix(protocol,sub,ui): 修复客户端uTLS指纹分发、Socks热拔插报错、CSPRNG随机Token与多协议入站参数 |
+
+### Status
+
+[OK] **Completed**

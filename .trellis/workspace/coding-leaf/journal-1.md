@@ -608,3 +608,25 @@
 ### Status
 
 [OK] **Completed**
+
+
+## Session 27: v2.6.7 用户与订阅高可定制化、全链路动态版本号、配置对齐与陈年隐患根治
+<!-- trellis-session: v=2 fp=097189a830075e9d -->
+
+**Date**: 2026-11-02
+**Task**: v2.6.7 用户与订阅高可定制化、全链路动态版本号、配置对齐与陈年隐患根治
+**Branch**: `master`
+
+### Summary
+
+完成 11-01-prep-agent-arch-and-fixes 及其 4 个子任务交付：支持用户全字段可编辑与热重载安全同步、订阅节点排序权重与置顶公告/流量状态节点、URI Fragment RFC3986 %20 空格编码修复、面板版本号全链路动态绑定、补齐入站/出站/路由/DNS 缺失配置，并根治重启后面板空 Flow (none) 自动恢复为 xtls-rprx-vision 以及 SubRoute 僵尸 vlessRoute 规则残留两大陈年缺陷。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `3e9f8a5` | release: v2.6.7 用户与订阅高可定制化、全链路动态版本号、前后端配置对齐与陈年隐患根治 |
+
+### Status
+
+[OK] **Completed**

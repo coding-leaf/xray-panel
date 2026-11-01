@@ -8,8 +8,8 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 26
-- **Last Active**: 2026-10-24
+- **Total Sessions**: 27
+- **Last Active**: 2026-11-02
 <!-- @@@/auto:current-status -->
 
 ---
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~610 | Active |
+| `journal-1.md` | ~632 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 27 | 2026-11-02 | v2.6.7 用户与订阅高可定制化、全链路动态版本号、配置对齐与陈年隐患根治 | `3e9f8a5` | `master` |
 | 26 | 2026-10-24 | 修复移动端适配、用户保存异常与虚拟节点转化，新增出站过滤与核心日志等级 | `7da74f1`, `d253ff7`, `8a2ad4d` | `master` |
 | 25 | 2026-10-15 | v2.6.5 路由单一事实源重构与移动端响应式发布 | `225ab79` | `master` |
 | 24 | 2026-10-15 | 消灭隐式路由两层皮与单一事实源重构 | `593344c` | `master` |

@@ -1,4 +1,4 @@
-import { computed, type Ref } from 'vue'
+import { ref, computed, type Ref } from 'vue'
 import type {
   TopologyGraph,
   TopologyNode,
@@ -37,11 +37,22 @@ export function useTopologyGraph(
   outbounds: Ref<any[]>,
   routing: Ref<any>,
   users: Ref<any[]>,
+  showGlobalRulesRef?: Ref<boolean>,
 ) {
+  const innerShowGlobalRules = showGlobalRulesRef || ref(false)
+  const hiddenGlobalGroupsCount = ref(0)
+  const totalGlobalGroupsCount = ref(0)
+
   const graph = computed<TopologyGraph>(() => {
-    const inbList = inbounds.value || []
+    // 1. Thoroughly filter inbounds: remove internal 'api'
+    const inbList = (inbounds.value || []).filter((inb) => inb && inb.tag !== 'api')
     const obList = outbounds.value || []
-    const routingRules = (routing.value?.rules || []).filter((r: any) => r && r.outboundTag !== 'api')
+
+    // 2. Filter routing rules: exclude 'api' outbound and SubRoute shadow rules (vlessRoute)
+    const rawRules = routing.value?.rules || []
+    const routingRules = rawRules.filter(
+      (r: any) => r && r.outboundTag !== 'api' && !r.vlessRoute,
+    )
     const userList = users.value || []
 
     const refCountMap = new Map<string, number>()
@@ -116,59 +127,129 @@ export function useTopologyGraph(
       })
     }
 
-    // Path 1: VLESS SubRoute (Scoped SubRoute 线路)
+    // Path 1: VLESS SubRoute (Smart aggregation of multi-inbound identical routeId & outboundTag)
+    interface SubRouteGroupItem {
+      inb: any
+      sr: any
+    }
+    const subRouteGroupMap = new Map<string, SubRouteGroupItem[]>()
+    const subRouteTargetTags = new Set<string>()
+
     for (const inb of inbList) {
-      const inbNodeId = `inb-${inb.id || inb.tag}`
-      const matchedInbNode = inboundNodes.find((n) => n.id === inbNodeId)
-      const inbClientCount = matchedInbNode?.metrics?.clientCount || 0
       const subRoutes: any[] = inb.subRoutes || []
-      if (subRoutes.length > 0) {
-        for (const sr of subRoutes) {
-          const chId = `ch-${inb.tag}-sr-${sr.routeId}`
-          const targetOutTag = sr.outboundTag || 'direct'
-          const targetOutId = `out-${targetOutTag}`
-          const isEnabled = sr.enabled !== false && inb.enabled !== false
-          const isBlocked = targetOutTag === 'block' || targetOutTag === 'blackhole'
-          const linkStatus: LinkStatus = !isEnabled ? 'paused' : (isBlocked ? 'blocked' : 'active')
-
-          refCountMap.set(targetOutTag, (refCountMap.get(targetOutTag) || 0) + 1)
-
-          const routeClientCount =
-            sr.allowedUsers && Array.isArray(sr.allowedUsers) && sr.allowedUsers.length > 0
-              ? sr.allowedUsers.length
-              : inbClientCount
-
-          channelNodes.push({
-            id: chId,
-            type: 'channel',
-            category: 'subroute',
-            title: sr.name || `线路 #${sr.routeId}`,
-            tag: targetOutTag,
-            protocol: 'subroute',
-            status: !isEnabled ? 'paused' : (isBlocked ? 'blocked' : 'normal'),
-            routeId: sr.routeId,
-            gatewayTag: inb.tag,
-            outboundTag: targetOutTag,
-            inboundId: inb.id,
-            metrics: {
-              clientCount: routeClientCount,
-            },
-            raw: { ...sr, inboundId: inb.id, gatewayTag: inb.tag },
-          })
-
-          addEdge(inbNodeId, chId, linkStatus, 'subroute', `Route #${sr.routeId}`)
-          addEdge(chId, targetOutId, linkStatus, 'subroute', targetOutTag)
+      for (const sr of subRoutes) {
+        const targetOutTag = sr.outboundTag || 'direct'
+        subRouteTargetTags.add(targetOutTag)
+        const key = `${sr.routeId}__${targetOutTag}`
+        if (!subRouteGroupMap.has(key)) {
+          subRouteGroupMap.set(key, [])
         }
+        subRouteGroupMap.get(key)!.push({ inb, sr })
       }
     }
 
-    // Path 2: Routing rules
+    for (const [, items] of subRouteGroupMap.entries()) {
+      const first = items[0]
+      const routeId = first.sr.routeId
+      const targetOutTag = first.sr.outboundTag || 'direct'
+      const chId = `ch-sr-${routeId}-${targetOutTag}`
+      const targetOutId = `out-${targetOutTag}`
+      const isBlocked = targetOutTag === 'block' || targetOutTag === 'blackhole'
+
+      // Always count references for each bound subroute
+      refCountMap.set(targetOutTag, (refCountMap.get(targetOutTag) || 0) + items.length)
+
+      // Clean trailing _v6, _v4 suffix (e.g. 日本直出_v6 & 日本直出 -> 日本直出)
+      let rawName = first.sr.name || `线路 #${routeId}`
+      for (const item of items) {
+        if (item.sr.name && !item.sr.name.match(/[_ -]?(v6|v4)$/i)) {
+          rawName = item.sr.name
+          break
+        }
+      }
+      const cleanedTitle = rawName.replace(/[_ -]?(v6|v4)$/i, '').trim() || `线路 #${routeId}`
+
+      const boundRoutes = items.map((item) => ({
+        inboundId: item.inb.id,
+        gatewayTag: item.inb.tag,
+        subRoute: item.sr,
+      }))
+      const gatewayTagsStr = items.map((item) => item.inb.tag).join(', ')
+
+      const isAnyActive = items.some(
+        (item) => item.sr.enabled !== false && item.inb.enabled !== false,
+      )
+      const channelStatus: TopologyNode['status'] = !isAnyActive
+        ? 'paused'
+        : isBlocked
+          ? 'blocked'
+          : 'normal'
+
+      let totalClientCount = 0
+      for (const item of items) {
+        if (item.sr.allowedUsers && Array.isArray(item.sr.allowedUsers) && item.sr.allowedUsers.length > 0) {
+          totalClientCount += item.sr.allowedUsers.length
+        } else {
+          const inbNodeId = `inb-${item.inb.id || item.inb.tag}`
+          const matched = inboundNodes.find((n) => n.id === inbNodeId)
+          totalClientCount += matched?.metrics?.clientCount || 0
+        }
+      }
+
+      channelNodes.push({
+        id: chId,
+        type: 'channel',
+        category: 'subroute',
+        title: cleanedTitle,
+        tag: targetOutTag,
+        protocol: 'subroute',
+        status: channelStatus,
+        routeId,
+        gatewayTag: gatewayTagsStr,
+        outboundTag: targetOutTag,
+        inboundId: first.inb.id,
+        metrics: {
+          clientCount: totalClientCount,
+        },
+        raw: {
+          ...first.sr,
+          name: cleanedTitle,
+          boundRoutes,
+          inboundId: first.inb.id,
+          gatewayTag: gatewayTagsStr,
+        },
+      })
+
+      // Inbound -> Channel edges
+      for (const item of items) {
+        const inbNodeId = `inb-${item.inb.id || item.inb.tag}`
+        const isItemEnabled = item.sr.enabled !== false && item.inb.enabled !== false
+        const linkStatus: LinkStatus = !isItemEnabled
+          ? 'paused'
+          : isBlocked
+            ? 'blocked'
+            : 'active'
+        addEdge(inbNodeId, chId, linkStatus, 'subroute', `Route #${routeId}`)
+      }
+
+      // Channel -> Outbound edge
+      const outLinkStatus: LinkStatus = !isAnyActive
+        ? 'paused'
+        : isBlocked
+          ? 'blocked'
+          : 'active'
+      addEdge(chId, targetOutId, outLinkStatus, 'subroute', targetOutTag)
+    }
+
+    // Path 2: Routing rules (Scoped rules and Global rules)
+    const inboundsWithWholeSiteRule = new Set<string>()
+    const globalRulesList: any[] = []
+
     routingRules.forEach((rule: any, idx: number) => {
       const targetOutTag = rule.outboundTag || 'direct'
       const targetOutId = `out-${targetOutTag}`
       const isBlocked = targetOutTag === 'block' || targetOutTag === 'blackhole'
 
-      // Check for scoped inboundTag
       let ruleInboundTags: string[] = []
       if (rule.inboundTag) {
         if (Array.isArray(rule.inboundTag)) {
@@ -180,24 +261,40 @@ export function useTopologyGraph(
 
       if (ruleInboundTags.length > 0) {
         // Scoped Rule
+        const hasSpecificConditions =
+          (rule.domain && Array.isArray(rule.domain) && rule.domain.length > 0) ||
+          (rule.ip && Array.isArray(rule.ip) && rule.ip.length > 0) ||
+          !!rule.port ||
+          (rule.protocol && Array.isArray(rule.protocol) && rule.protocol.length > 0) ||
+          !!rule.network
+
         for (const inTag of ruleInboundTags) {
           const matchedInb = inbList.find((i) => i.tag === inTag)
           if (matchedInb) {
+            if (!hasSpecificConditions) {
+              inboundsWithWholeSiteRule.add(inTag)
+            }
+
             const inbNodeId = `inb-${matchedInb.id || matchedInb.tag}`
             const chId = `ch-rule-scoped-${matchedInb.tag}-${idx}`
-            const linkStatus: LinkStatus = matchedInb.enabled === false ? 'paused' : (isBlocked ? 'blocked' : 'active')
+            const linkStatus: LinkStatus =
+              matchedInb.enabled === false ? 'paused' : isBlocked ? 'blocked' : 'active'
 
             refCountMap.set(targetOutTag, (refCountMap.get(targetOutTag) || 0) + 1)
+
+            const ruleTitle = !hasSpecificConditions
+              ? `${inTag} 全流量直通`
+              : formatRuleSummary(rule)
 
             channelNodes.push({
               id: chId,
               type: 'channel',
               category: 'scoped_rule',
-              title: formatRuleSummary(rule),
-              subtitle: `入站 [${inTag}] 专属规则`,
+              title: ruleTitle,
+              subtitle: !hasSpecificConditions ? `专属直通 ➔ ${targetOutTag}` : `入站 [${inTag}] 专属规则`,
               tag: targetOutTag,
               protocol: 'rule',
-              status: matchedInb.enabled === false ? 'paused' : (isBlocked ? 'blocked' : 'normal'),
+              status: matchedInb.enabled === false ? 'paused' : isBlocked ? 'blocked' : 'normal',
               gatewayTag: inTag,
               outboundTag: targetOutTag,
               inboundId: matchedInb.id,
@@ -209,43 +306,105 @@ export function useTopologyGraph(
           }
         }
       } else {
-        // Global Rule (e.g. adblock / WARP / geoip routing)
-        // Connect to inbounds that don't have subroutes or general non-subroute inbounds
-        const nonSubInbounds = inbList.filter((i) => !i.subRoutes || i.subRoutes.length === 0)
-        const relevantInbounds = nonSubInbounds.length > 0 ? nonSubInbounds : inbList.slice(0, 2)
-
-        if (relevantInbounds.length > 0) {
-          const chId = `ch-rule-global-${idx}`
-          const linkStatus: LinkStatus = isBlocked ? 'blocked' : 'active'
-
-          refCountMap.set(targetOutTag, (refCountMap.get(targetOutTag) || 0) + 1)
-
-          channelNodes.push({
-            id: chId,
-            type: 'channel',
-            category: 'global_rule',
-            title: formatRuleSummary(rule),
-            subtitle: `全局分流策略`,
-            tag: targetOutTag,
-            protocol: 'global-rule',
-            status: isBlocked ? 'blocked' : 'normal',
-            outboundTag: targetOutTag,
-            raw: rule,
-          })
-
-          for (const inb of relevantInbounds) {
-            const inbNodeId = `inb-${inb.id || inb.tag}`
-            addEdge(inbNodeId, chId, linkStatus, 'global_rule', '全局规则')
-          }
-          addEdge(chId, targetOutId, linkStatus, 'global_rule', targetOutTag)
-        }
+        // Global Rule (collect for aggregated grouping)
+        globalRulesList.push(rule)
       }
     })
 
-    // Path 3: Default Fallback for Inbounds without subRoutes (ensures zero isolated inbounds)
+    // Path 2b: Aggregate Global Rules by targetOutTag
+    const globalRulesByTarget = new Map<string, any[]>()
+    for (const rule of globalRulesList) {
+      const targetOutTag = rule.outboundTag || 'direct'
+      refCountMap.set(targetOutTag, (refCountMap.get(targetOutTag) || 0) + 1)
+      if (!globalRulesByTarget.has(targetOutTag)) {
+        globalRulesByTarget.set(targetOutTag, [])
+      }
+      globalRulesByTarget.get(targetOutTag)!.push(rule)
+    }
+
+    let hiddenCount = 0
+    let totalCount = 0
+
+    for (const [targetOutTag, groupRules] of globalRulesByTarget.entries()) {
+      totalCount++
+      const isSystem = targetOutTag === 'direct' || targetOutTag === 'block' || targetOutTag === 'blackhole'
+      const isReferencedBySubRoute = subRouteTargetTags.has(targetOutTag)
+      // Auto-retain 1 aggregated capsule for non-system outbounds (e.g. warp-out) not referenced by SubRoute
+      const isAutoRetained = !isSystem && !isReferencedBySubRoute
+      const shouldDisplay = innerShowGlobalRules.value || isAutoRetained
+
+      if (!shouldDisplay) {
+        hiddenCount++
+        continue
+      }
+
+      const isBlocked = targetOutTag === 'block' || targetOutTag === 'blackhole'
+      const targetOutId = `out-${targetOutTag}`
+      const chId = `ch-global-agg-${targetOutTag}`
+      const linkStatus: LinkStatus = isBlocked ? 'blocked' : 'active'
+
+      // Summarize conditions
+      const tagsSet = new Set<string>()
+      for (const r of groupRules) {
+        if (Array.isArray(r.domain)) {
+          r.domain.forEach((d: string) => tagsSet.add(d.replace(/^(geosite:|domain:)/, '')))
+        }
+        if (Array.isArray(r.ip)) {
+          r.ip.forEach((i: string) => tagsSet.add(i.replace(/^geoip:/, '')))
+        }
+        if (r.port) tagsSet.add(String(r.port))
+        if (Array.isArray(r.protocol)) {
+          r.protocol.forEach((p: string) => tagsSet.add(p))
+        }
+      }
+      const tagsSummary = Array.from(tagsSet).slice(0, 3).join(', ')
+
+      let title = ''
+      let subtitle = ''
+      if (isBlocked) {
+        title = `全局拦截`
+        subtitle = `${groupRules.length}条拦截规则${tagsSummary ? ': ' + tagsSummary : ''}`
+      } else if (!isSystem) {
+        const hasCn = tagsSet.has('cn')
+        title = hasCn ? `CN 分流策略` : `全局分流`
+        subtitle = `${groupRules.length}条规则${tagsSummary ? ': ' + tagsSummary : ''}`
+      } else {
+        title = `全局直连`
+        subtitle = `${groupRules.length}条规则${tagsSummary ? ': ' + tagsSummary : ''}`
+      }
+
+      channelNodes.push({
+        id: chId,
+        type: 'channel',
+        category: 'global_rule',
+        title,
+        subtitle,
+        tag: targetOutTag,
+        protocol: 'global-rule',
+        status: isBlocked ? 'blocked' : 'normal',
+        outboundTag: targetOutTag,
+        metrics: {
+          referenceCount: groupRules.length,
+        },
+        raw: { rules: groupRules, targetOutTag },
+      })
+
+      const nonSubInbounds = inbList.filter((i) => !i.subRoutes || i.subRoutes.length === 0)
+      const relevantInbounds = nonSubInbounds.length > 0 ? nonSubInbounds : inbList.slice(0, 2)
+      for (const inb of relevantInbounds) {
+        const inbNodeId = `inb-${inb.id || inb.tag}`
+        addEdge(inbNodeId, chId, linkStatus, 'global_rule', '全局规则')
+      }
+      addEdge(chId, targetOutId, linkStatus, 'global_rule', targetOutTag)
+    }
+
+    hiddenGlobalGroupsCount.value = hiddenCount
+    totalGlobalGroupsCount.value = totalCount
+
+    // Path 3: Default Fallback for Inbounds without subRoutes AND without whole-site scoped rules
     for (const inb of inbList) {
       const srs: any[] = inb.subRoutes || []
-      if (srs.length === 0) {
+      if (srs.length === 0 && !inboundsWithWholeSiteRule.has(inb.tag)) {
         const inbNodeId = `inb-${inb.id || inb.tag}`
         const chId = `ch-${inb.tag}-fallback`
         const targetOutTag = obList[0]?.tag || 'direct'
@@ -259,8 +418,8 @@ export function useTopologyGraph(
           id: chId,
           type: 'channel',
           category: 'fallback',
-          title: inb.remark || `${inb.tag} 直连出站`,
-          subtitle: `缺省兜底直通`,
+          title: inb.remark || `${inb.tag} 直通出站`,
+          subtitle: `缺省直通`,
           tag: targetOutTag,
           protocol: 'direct',
           status: !isEnabled ? 'paused' : 'normal',
@@ -280,9 +439,9 @@ export function useTopologyGraph(
     const outboundNodes: TopologyNode[] = obList.map((ob) => {
       const tag = ob.tag
       const refCount = refCountMap.get(tag) || 0
-      const isSystemReserved = tag === 'direct' || tag === 'block'
+      const isSystemReserved = tag === 'direct' || tag === 'block' || tag === 'blackhole'
       const isIdle = !isSystemReserved && refCount === 0
-      const isBlocked = ob.protocol === 'blackhole' || tag === 'block'
+      const isBlocked = ob.protocol === 'blackhole' || tag === 'block' || tag === 'blackhole'
 
       return {
         id: `out-${tag}`,
@@ -458,5 +617,9 @@ export function useTopologyGraph(
     graph,
     streamPipelines,
     computeActiveSubgraph,
+    showGlobalRules: innerShowGlobalRules,
+    hiddenGlobalGroupsCount,
+    totalGlobalGroupsCount,
   }
 }
+

@@ -69,6 +69,9 @@
       :graph="graph"
       :stream-pipelines="streamPipelines"
       :compute-active-subgraph="computeActiveSubgraph"
+      :show-global-rules="showGlobalRules"
+      :hidden-global-rules-count="hiddenGlobalGroupsCount"
+      @toggle-global-rules="showGlobalRules = !showGlobalRules"
       @open-wizard="openWizard"
       @open-create-gateway="openCreateGatewayModal"
       @open-create-exit="openCreateExitModal"
@@ -128,13 +131,20 @@ const inbounds = ref<any[]>([])
 const outbounds = ref<any[]>([])
 const routing = ref<any>({ rules: [] })
 const usersList = ref<any[]>([])
+const showGlobalRules = ref(false)
 
 // Topology Graph Derivation Engine
-const { graph, streamPipelines, computeActiveSubgraph } = useTopologyGraph(
+const {
+  graph,
+  streamPipelines,
+  computeActiveSubgraph,
+  hiddenGlobalGroupsCount,
+} = useTopologyGraph(
   inbounds,
   outbounds,
   routing,
   usersList,
+  showGlobalRules,
 )
 
 // Aggregate channels for traditional pools view and nextRouteId
@@ -235,6 +245,39 @@ const deleteOutbound = async (tag: string) => {
 
 const toggleChannelStatus = async (item: any) => {
   try {
+    const boundRoutes = item.raw?.boundRoutes
+    if (boundRoutes && Array.isArray(boundRoutes) && boundRoutes.length > 0) {
+      // Aggregated SubRoute: toggle all bound routes across inbounds
+      const newEnabled = item.status === 'paused'
+      const routeId = item.routeId ?? item.raw?.routeId
+      const promises = []
+
+      for (const bound of boundRoutes) {
+        const targetGateway = inbounds.value.find(
+          (i) => i.id === bound.inboundId || i.tag === bound.gatewayTag,
+        )
+        if (targetGateway) {
+          const srs = targetGateway.subRoutes || []
+          for (const sr of srs) {
+            if (sr.routeId === (routeId ?? bound.subRoute?.routeId)) {
+              sr.enabled = newEnabled
+            }
+          }
+          promises.push(
+            api.put(`/inbounds/${targetGateway.id}`, {
+              ...targetGateway,
+              subRoutesJson: JSON.stringify(srs),
+            }),
+          )
+        }
+      }
+      await Promise.all(promises)
+      toast.success(newEnabled ? '线路已同步启用' : '线路已同步暂停')
+      await fetchAll()
+      return
+    }
+
+    // Single SubRoute or Fallback
     const routeId = item.routeId ?? item.raw?.routeId
     const inboundId = item.inboundId ?? item.raw?.inboundId
     const gatewayTag = item.gatewayTag ?? item.raw?.gatewayTag
@@ -271,11 +314,43 @@ const toggleChannelStatus = async (item: any) => {
 const deleteChannel = async (item: any) => {
   const isFallback = item.category === 'fallback' || !item.routeId || item.routeId <= 0
   const name = item.name || item.title || item.raw?.name || '线路'
+  const boundRoutes = item.raw?.boundRoutes
+  const isAggregated = boundRoutes && Array.isArray(boundRoutes) && boundRoutes.length > 0
+
   const confirmMsg = isFallback
     ? `确定删除接入网关 "${item.gatewayTag || name}" 及其直通链路吗？`
-    : `确定删除分流线路 "${name}" 吗？`
+    : isAggregated
+      ? `确定删除聚合分流线路 "${name}" 吗？将从所有关联入口中同步移除。`
+      : `确定删除分流线路 "${name}" 吗？`
   if (!confirm(confirmMsg)) return
+
   try {
+    if (isAggregated) {
+      const routeId = item.routeId ?? item.raw?.routeId
+      const promises = []
+
+      for (const bound of boundRoutes) {
+        const targetGateway = inbounds.value.find(
+          (i) => i.id === bound.inboundId || i.tag === bound.gatewayTag,
+        )
+        if (targetGateway) {
+          const srs = (targetGateway.subRoutes || []).filter(
+            (s: any) => s.routeId !== (routeId ?? bound.subRoute?.routeId),
+          )
+          promises.push(
+            api.put(`/inbounds/${targetGateway.id}`, {
+              ...targetGateway,
+              subRoutesJson: JSON.stringify(srs),
+            }),
+          )
+        }
+      }
+      await Promise.all(promises)
+      toast.success('聚合线路已从所有入口同步删除')
+      await fetchAll()
+      return
+    }
+
     const routeId = item.routeId ?? item.raw?.routeId
     const inboundId = item.inboundId ?? item.raw?.inboundId
     const gatewayTag = item.gatewayTag ?? item.raw?.gatewayTag

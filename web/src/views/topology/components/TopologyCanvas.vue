@@ -21,6 +21,18 @@
             {{ idleOutboundsCount }} 闲置
           </span>
         </span>
+
+        <!-- Global Rules Toggle Button -->
+        <button
+          type="button"
+          @click="$emit('toggleGlobalRules')"
+          class="px-2.5 py-1 rounded-md text-xs font-mono transition-colors flex items-center gap-1.5 border"
+          :class="showGlobalRules ? 'bg-sky-500/15 text-sky-300 border-sky-500/35 font-semibold' : 'bg-muted text-muted-foreground border-border hover:text-foreground'"
+          :title="showGlobalRules ? '收起全局分流规则' : '展开显示全部底层域名/IP分流规则'"
+        >
+          <Filter class="w-3 h-3" />
+          <span>{{ showGlobalRules ? '收起全局分流规则' : (hiddenGlobalRulesCount && hiddenGlobalRulesCount > 0 ? `显示全局分流规则 (${hiddenGlobalRulesCount}组)` : '显示全局分流规则') }}</span>
+        </button>
       </div>
 
       <!-- Canvas Legend (Visual Guide) -->
@@ -45,7 +57,7 @@
     </div>
 
     <!-- Desktop Three-Column Canvas with Animated SVG Layer -->
-    <div ref="canvasRef" class="relative hidden lg:block rounded-xl border border-border bg-neutral-950/40 p-6 min-h-[560px]">
+    <div ref="canvasRef" class="relative hidden lg:block rounded-xl border border-border bg-neutral-950/40 p-5 min-h-[360px]">
       <!-- SVG Connecting Curves Layer -->
       <svg
         class="absolute inset-0 w-full h-full pointer-events-none z-0 overflow-visible"
@@ -63,7 +75,7 @@
 
         <!-- Render All Computed Edges -->
         <g v-for="ce in computedEdges" :key="ce.edge.id">
-          <!-- 1. Underlying Baseline Path -->
+          <!-- 1. Underlying Baseline Path (Soft clear 0.45 when inactive, 1.0 when active, 0.08 dimmed) -->
           <path
             :id="`edge-path-${ce.edge.id}`"
             :d="ce.pathD"
@@ -71,7 +83,7 @@
             :stroke="getEdgeColor(ce)"
             stroke-dasharray="5 5"
             :stroke-width="ce.isActive ? 2.5 : 1.5"
-            :opacity="ce.isDimmed ? 0.08 : (ce.isActive ? 0.95 : 0.3)"
+            :opacity="ce.isDimmed ? 0.08 : (ce.isActive ? 1 : 0.45)"
             class="transition-all duration-200"
           />
 
@@ -83,7 +95,7 @@
             :stroke="getEdgeColor(ce)"
             stroke-dasharray="6 14"
             :stroke-width="ce.isActive ? 2.8 : 1.8"
-            :opacity="ce.isDimmed ? 0.05 : (ce.isActive ? 1 : 0.75)"
+            :opacity="ce.isDimmed ? 0.05 : (ce.isActive ? 1 : 0.65)"
             :class="ce.isActive ? 'flowing-dash-fast' : 'flowing-dash'"
             class="transition-all duration-200"
           />
@@ -95,7 +107,7 @@
             r="3"
             :fill="getEdgeColor(ce)"
             filter="url(#glow-pulse)"
-            :opacity="ce.isActive ? 1 : 0.8"
+            :opacity="ce.isActive ? 1 : 0.7"
           >
             <animateMotion
               :path="ce.pathD"
@@ -108,10 +120,10 @@
         </g>
       </svg>
 
-      <!-- 3-Column Nodes Grid -->
-      <div class="grid grid-cols-3 gap-12 relative z-10 items-start">
+      <!-- 3-Column Nodes Grid (Centered vertically to prevent slanted noodle lines) -->
+      <div class="grid grid-cols-3 gap-10 lg:gap-14 relative z-10 items-center">
         <!-- COLUMN 1: Inbound Gateways -->
-        <div class="space-y-4">
+        <div class="space-y-3">
           <div class="flex items-center justify-between pb-2 border-b border-border/80">
             <div class="flex items-center gap-2">
               <span class="w-2 h-2 rounded-full bg-cyan-400"></span>
@@ -127,7 +139,7 @@
             </button>
           </div>
 
-          <div class="space-y-3.5">
+          <div class="space-y-2.5">
             <InboundNodeCard
               v-for="inb in graph.inboundNodes"
               :key="inb.id"
@@ -144,7 +156,7 @@
         </div>
 
         <!-- COLUMN 2: Routing Pipeline & Channels -->
-        <div class="space-y-4">
+        <div class="space-y-3">
           <div class="flex items-center justify-between pb-2 border-b border-border/80">
             <div class="flex items-center gap-2">
               <span class="w-2 h-2 rounded-full bg-indigo-400"></span>
@@ -160,7 +172,7 @@
             </button>
           </div>
 
-          <div class="space-y-3.5">
+          <div class="space-y-2.5">
             <ChannelNodeCard
               v-for="ch in graph.channelNodes"
               :key="ch.id"
@@ -176,7 +188,7 @@
         </div>
 
         <!-- COLUMN 3: Exit Nodes -->
-        <div class="space-y-4">
+        <div class="space-y-3">
           <div class="flex items-center justify-between pb-2 border-b border-border/80">
             <div class="flex items-center gap-2">
               <span class="w-2 h-2 rounded-full bg-emerald-400"></span>
@@ -192,7 +204,7 @@
             </button>
           </div>
 
-          <div class="space-y-3.5">
+          <div class="space-y-2.5">
             <OutboundNodeCard
               v-for="ob in graph.outboundNodes"
               :key="ob.id"
@@ -282,6 +294,7 @@
 
 <script setup lang="ts">
 import { ref, computed } from 'vue'
+import { Filter } from 'lucide-vue-next'
 import type {
   TopologyGraph,
   TopologyNode,
@@ -301,6 +314,8 @@ interface Props {
     nodeId: string | null,
     edgeId: string | null,
   ) => HoverHighlightState
+  showGlobalRules?: boolean
+  hiddenGlobalRulesCount?: number
 }
 
 const props = defineProps<Props>()
@@ -316,6 +331,7 @@ defineEmits<{
   (e: 'logs', tag: string): void
   (e: 'editOutbound', ob: any): void
   (e: 'deleteOutbound', tag: string): void
+  (e: 'toggleGlobalRules'): void
 }>()
 
 const canvasRef = ref<HTMLElement | null>(null)

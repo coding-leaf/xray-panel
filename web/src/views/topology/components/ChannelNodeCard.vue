@@ -1,7 +1,7 @@
 <template>
   <div
     :data-node-id="node.id"
-    class="relative rounded-lg border bg-card p-4 transition-all duration-200 select-none group"
+    class="relative rounded-xl border bg-card px-3.5 py-2.5 transition-all duration-200 select-none group"
     :class="[
       isActive ? 'border-indigo-400/80 shadow-[0_0_15px_rgba(129,140,248,0.2)] ring-1 ring-indigo-400/50' : 'border-border hover:border-border/80',
       isDimmed ? 'opacity-25 grayscale-[30%]' : 'opacity-100',
@@ -12,118 +12,111 @@
     <!-- Left Receiving Anchor Dot -->
     <div
       data-anchor="left"
-      class="absolute -left-1.5 top-1/2 -translate-y-1/2 w-3 h-3 rounded-full bg-indigo-400 border-2 border-background shadow-[0_0_8px_rgba(129,140,248,0.8)] z-10 transition-transform group-hover:scale-125"
+      class="absolute -left-1.5 top-1/2 -translate-y-1/2 w-3 h-3 rounded-full bg-indigo-400 border-2 border-background shadow-[0_0_8px_rgba(129,140,248,0.8)] z-10 transition-transform group-hover:scale-125 pointer-events-none"
       title="接收来自接入网关的流量"
     />
 
     <!-- Right Emitting Anchor Dot -->
     <div
       data-anchor="right"
-      class="absolute -right-1.5 top-1/2 -translate-y-1/2 w-3 h-3 rounded-full bg-indigo-400 border-2 border-background shadow-[0_0_8px_rgba(129,140,248,0.8)] z-10 transition-transform group-hover:scale-125"
+      class="absolute -right-1.5 top-1/2 -translate-y-1/2 w-3 h-3 rounded-full bg-indigo-400 border-2 border-background shadow-[0_0_8px_rgba(129,140,248,0.8)] z-10 transition-transform group-hover:scale-125 pointer-events-none"
       title="输出至落地出口"
     />
 
-    <!-- Header: Badge & Status -->
-    <div class="flex items-center justify-between gap-2 mb-2">
-      <div class="flex items-center gap-1.5">
+    <!-- Line 1: Route Badge + Channel Name + Status Dot / Hover Actions -->
+    <div class="flex items-center justify-between gap-2">
+      <!-- Left part -->
+      <div class="flex items-center gap-1.5 min-w-0">
+        <!-- Badge -->
         <span
           v-if="node.category === 'subroute' && (node.routeId ?? 0) > 0"
-          class="px-2 py-0.5 rounded-md text-[10px] font-mono font-bold bg-indigo-950/60 text-indigo-300 border border-indigo-800/50"
+          class="px-1.5 py-0.5 rounded text-[10px] font-mono font-bold bg-indigo-950/70 text-indigo-300 border border-indigo-800/60 shrink-0"
         >
           Route #{{ node.routeId }}
         </span>
         <span
           v-else-if="node.category === 'scoped_rule'"
-          class="px-2 py-0.5 rounded-md text-[10px] font-mono font-bold bg-purple-950/60 text-purple-300 border border-purple-800/50"
+          class="px-1.5 py-0.5 rounded text-[10px] font-mono font-bold bg-purple-950/70 text-purple-300 border border-purple-800/60 shrink-0"
         >
-          专属规则
+          规则分流
         </span>
         <span
           v-else-if="node.category === 'global_rule'"
-          class="px-2 py-0.5 rounded-md text-[10px] font-mono font-bold bg-sky-950/60 text-sky-300 border border-sky-800/50"
+          class="px-1.5 py-0.5 rounded text-[10px] font-mono font-bold bg-sky-950/70 text-sky-300 border border-sky-800/60 shrink-0"
         >
-          全局规则
+          {{ node.status === 'blocked' ? '全局拦截' : '全局分流' }}
         </span>
         <span
           v-else
-          class="px-2 py-0.5 rounded-md text-[10px] font-mono font-bold bg-muted text-muted-foreground border border-border"
+          class="px-1.5 py-0.5 rounded text-[10px] font-mono font-bold bg-muted text-muted-foreground border border-border shrink-0"
         >
-          缺省直连
+          直通
         </span>
 
+        <!-- Channel Title -->
         <span
-          v-if="node.status === 'blocked'"
-          class="px-1.5 py-0.2 rounded text-[10px] bg-rose-500/15 text-rose-400 border border-rose-500/30 font-medium"
+          class="font-bold text-xs sm:text-sm text-foreground truncate max-w-[130px]"
+          :class="node.status === 'paused' ? 'line-through text-muted-foreground' : ''"
+          :title="node.title"
         >
-          拦截
+          {{ node.title }}
         </span>
       </div>
 
-      <span
-        class="text-[11px] font-mono font-medium"
-        :class="statusTextColor"
-      >
-        {{ statusText }}
+      <!-- Right part: Status Dot or Hover Action Buttons -->
+      <div class="flex items-center gap-1 shrink-0">
+        <!-- Hover Quick Actions for SubRoute & Fallback -->
+        <div
+          v-if="node.category === 'subroute' || node.category === 'fallback'"
+          class="opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-0.5"
+        >
+          <button
+            type="button"
+            @click.stop="$emit('toggleStatus', node)"
+            class="p-1 rounded text-muted-foreground hover:text-foreground hover:bg-muted/80 transition-colors"
+            :title="node.status === 'paused' ? '启用线路' : '暂停线路'"
+          >
+            <Play v-if="node.status === 'paused'" class="w-3.5 h-3.5 text-emerald-400" />
+            <Pause v-else class="w-3.5 h-3.5 text-amber-400" />
+          </button>
+          <button
+            type="button"
+            @click.stop="$emit('delete', node)"
+            class="p-1 rounded text-muted-foreground hover:text-rose-400 hover:bg-muted/80 transition-colors"
+            :title="node.category === 'fallback' ? '删除网关' : '删除线路'"
+          >
+            <Trash2 class="w-3.5 h-3.5" />
+          </button>
+        </div>
+
+        <!-- Status Dot (visible when not hovered) -->
+        <span
+          class="w-2 h-2 rounded-full shrink-0 group-hover:hidden"
+          :class="statusDotClass"
+          :title="statusText"
+        />
+      </div>
+    </div>
+
+    <!-- Line 2: Single-line Flow Summary (e.g. ipv4入口, ipv6入口 ➔ out-us2) -->
+    <div class="flex items-center gap-1.5 text-[11px] font-mono text-muted-foreground mt-1.5 pt-1 border-t border-border/40 truncate">
+      <span class="text-cyan-400/90 font-medium truncate max-w-[120px]" :title="node.gatewayTag || '通用入口'">
+        {{ node.gatewayTag || '通用入口' }}
       </span>
-    </div>
-
-    <!-- Title -->
-    <div class="mb-2">
-      <h4 class="text-sm font-bold text-foreground truncate tracking-tight" :title="node.title">
-        {{ node.title }}
-      </h4>
-      <p v-if="node.subtitle" class="text-[10px] text-muted-foreground truncate font-mono mt-0.5">
-        {{ node.subtitle }}
-      </p>
-    </div>
-
-    <!-- Routing Pipeline Flow Badge -->
-    <div class="bg-background p-2.5 rounded-md border border-border/80 space-y-1.5 text-[11px] font-mono">
-      <div class="flex items-center justify-between text-muted-foreground">
-        <span class="text-muted-foreground/70">源网关:</span>
-        <span class="text-cyan-400 font-semibold truncate max-w-[130px]">{{ node.gatewayTag || '通用入站' }}</span>
-      </div>
-      <div class="flex items-center justify-between text-muted-foreground">
-        <span class="text-muted-foreground/70">目标出口:</span>
-        <span class="text-indigo-300 font-semibold truncate max-w-[130px] flex items-center gap-1">
-          <span>{{ node.outboundTag }}</span>
-        </span>
-      </div>
-    </div>
-
-    <!-- Footer Actions (for manageable channels like SubRoute) -->
-    <div
-      v-if="node.category === 'subroute' || node.category === 'fallback'"
-      class="mt-3 pt-2.5 border-t border-border/60 flex items-center justify-between text-[11px]"
-    >
-      <button
-        type="button"
-        @click.stop="$emit('toggleStatus', node)"
-        class="text-muted-foreground hover:text-foreground font-medium transition-colors"
-      >
-        {{ node.category === 'fallback' ? (node.status === 'paused' ? '启用直通' : '暂停直通') : (node.status === 'paused' ? '启用线路' : '暂停线路') }}
-      </button>
-      <button
-        type="button"
-        @click.stop="$emit('delete', node)"
-        class="text-rose-400/90 hover:text-rose-300 transition-colors font-medium"
-      >
-        {{ node.category === 'fallback' ? '删除网关' : '删除线路' }}
-      </button>
-    </div>
-
-    <div
-      v-else
-      class="mt-3 pt-2.5 border-t border-border/60 flex items-center justify-between text-[10px] font-mono text-muted-foreground/80"
-    >
-      <span>路由分流引擎</span>
-      <span class="text-muted-foreground/60">内核规则匹配</span>
+      <span class="text-neutral-500 shrink-0">➔</span>
+      <span class="text-indigo-300 font-semibold truncate max-w-[100px]" :title="node.outboundTag">
+        {{ node.outboundTag }}
+      </span>
+      <span v-if="node.subtitle" class="text-neutral-500 text-[10px] truncate max-w-[100px]" :title="node.subtitle">
+        ({{ node.subtitle }})
+      </span>
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
 import { computed } from 'vue'
+import { Play, Pause, Trash2 } from 'lucide-vue-next'
 import type { TopologyNode } from '../types'
 
 interface Props {
@@ -141,15 +134,15 @@ defineEmits<{
   (e: 'delete', node: TopologyNode): void
 }>()
 
+const statusDotClass = computed(() => {
+  if (props.node.status === 'paused') return 'bg-neutral-500'
+  if (props.node.status === 'blocked') return 'bg-rose-500'
+  return 'bg-emerald-400'
+})
+
 const statusText = computed(() => {
   if (props.node.status === 'paused') return '已暂停'
   if (props.node.status === 'blocked') return '阻断'
-  return '已生效'
-})
-
-const statusTextColor = computed(() => {
-  if (props.node.status === 'paused') return 'text-muted-foreground line-through'
-  if (props.node.status === 'blocked') return 'text-rose-400'
-  return 'text-emerald-400'
+  return '正常运行'
 })
 </script>

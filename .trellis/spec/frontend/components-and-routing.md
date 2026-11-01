@@ -53,11 +53,11 @@
 ## 动态可视化拓扑画布规范 (Visual Pipeline Topology Canvas)
 
 - **全协议三栏路由流向推导 (`web/src/views/topology/composables/useTopologyGraph.ts`)**：
-  - 拓扑图必须同时消费 `/inbounds`、`/outbounds` 与 `/routing` 三个数据源，覆盖全部三条真实路由路径：
-    1. **Path 1 (`SubRoute` 单端口多出口)**：解析 `inbounds[].subRoutes`，生成 `Inbound -> SubRoute Channel -> Outbound` 链路；
-    2. **Path 2 (`Routing Rules` 路由规则匹配)**：解析 `routing.rules`（过滤内部 `api` 规则），对指定了 `inboundTag` 的专属规则与未限定入站的全局规则生成路由分流节点与对应边；
-    3. **Path 3 (`Default Fallback` 默认兜底出站)**：对任何未被锁死唯一出口的入站（含 `socks`、`trojan`、`shadowsocks` 等无 `SubRoute` 的普通入站），自动推导指向默认首出站（`outbounds[0]` / `direct`）的兜底通道，确保画布零孤岛入站；
-  - 右栏落地出口需统计入度引用计数（`referenceCount`），对零引用出口标记为 `闲置 (isIdle)` 并提供原位「⚡ 1步挂载为线路」快捷入口。
+  - 拓扑图必须同时消费 `/inbounds`、`/outbounds` 与 `/routing` 三个数据源，覆盖全部三条真实路由路径并严格去重收拢：
+    1. **Path 1 (`SubRoute` 单端口多出口与双栈聚合)**：解析 `inbounds[].subRoutes`，当多个入站（如 `ipv4入口` 与 `ipv6入口`）配置了相同的 `(routeId, outboundTag)` 时，自动聚合成单个共享 `SubRoute` 胶囊节点（自动剥离 `_v4`/`_v6` 后缀），左接全部源入站、右接目标出口，避免双栈重复卡片膨胀；
+    2. **Path 2 (`Routing Rules` 路由规则去重与聚合收拢)**：解析 `routing.rules`（过滤内部 `api` 入站/出站规则以及所有带 `vlessRoute` 的 `SubRoute` 编译影子规则）；对底层全局域名/IP/端口规则按目标 `outboundTag` 聚合成单胶囊，默认仅展示指向非系统出口（如 `warp-out`）的聚合分流胶囊，其余 `direct`/`block` 底层规则通过顶栏 `显示全局规则` 开关按需展开，彻底杜绝十余条防火墙规则刷屏；
+    3. **Path 3 (`Default Fallback` 默认兜底出站)**：对既无 `SubRoute`、也无整站无条件 `Scoped Rule` 的普通入站，自动推导指向默认首出站（`outbounds[0]` / `direct`）的兜底通道，确保画布零孤岛入站；
+  - 右栏落地出口需统计入度引用计数（`referenceCount`），对零引用出口标记为 `闲置 (isIdle)` 并提供原位「⚡ 挂载」快捷入口；三栏卡片统一采用两行紧凑胶囊布局并垂直居中对齐（`items-center`），实现一屏尽览。
 - **零第三方图形库依赖与 SVG SMIL 兼容约束 (`useSvgBezier.ts` & `TopologyCanvas.vue`)**：
   - 严禁引入大型第三方流程图/画布库（如 Vue Flow、G6、ECharts），统一使用原生 SVG 三次贝塞尔曲线（`M x1 y1 C cx1 cy1, cx2 cy2, x2 y2`）结合 DOM 相对坐标测量与 `ResizeObserver` + `requestAnimationFrame` 节流重绘；
   - 流动脉冲粒子 `<animateMotion>` 必须同时提供 `path` 属性与引用 `<path :id="..."><mpath :href="#..." />`，且外层 `<circle>` 需绑定包含 `edge.id + pathD + isActive` 的复合 `:key`，确保各浏览器内核在路径重算或悬停加速时正确重启 SMIL 动画；

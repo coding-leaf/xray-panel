@@ -512,7 +512,15 @@ type mockInboundRepo struct {
 }
 
 func (m *mockInboundRepo) Create(ctx context.Context, in *domain.Inbound) error { return nil }
-func (m *mockInboundRepo) Update(ctx context.Context, in *domain.Inbound) error { return nil }
+func (m *mockInboundRepo) Update(ctx context.Context, in *domain.Inbound) error {
+	for i := range m.inbounds {
+		if m.inbounds[i].ID == in.ID {
+			m.inbounds[i] = *in
+			return nil
+		}
+	}
+	return nil
+}
 func (m *mockInboundRepo) Delete(ctx context.Context, id uint) error            { return nil }
 func (m *mockInboundRepo) GetByID(ctx context.Context, id uint) (*domain.Inbound, error) {
 	for _, in := range m.inbounds {
@@ -1213,3 +1221,250 @@ func TestUserService_ZeroDowntimeAndAutoRestore(t *testing.T) {
 		}
 	})
 }
+
+func TestUserService_CustomCredentialsAndCascade(t *testing.T) {
+	t.Run("CreateUser with custom UUID, SubToken, Flow, Remark, ExpireTime", func(t *testing.T) {
+		repo := &mockUserRepo{}
+		mockXray := &mockXrayManager{}
+		mockCfg := &mockConfigSynchronizer{}
+		svc := NewUserService(repo, nil, nil, mockXray, mockCfg)
+
+		customUUID := "a1b2c3d4-e5f6-4a5b-8c9d-0e1f2a3b4c5d"
+		customToken := "my-secret-token-123"
+		targetExpireTime := time.Now().Add(48 * time.Hour).UnixMilli()
+
+		dto := CreateUserDTO{
+			Email:       "custom@example.com",
+			UUID:        customUUID,
+			SubToken:    customToken,
+			Flow:        "xtls-rprx-vision",
+			Remark:      "VIP Client",
+			InboundTags: []string{"vless-reality"},
+			ExpireTime:  targetExpireTime,
+		}
+
+		user, err := svc.CreateUser(context.Background(), dto)
+		if err != nil {
+			t.Fatalf("CreateUser failed: %v", err)
+		}
+		if user.UUID != customUUID {
+			t.Errorf("expected UUID %s, got %s", customUUID, user.UUID)
+		}
+		if user.SubToken != customToken {
+			t.Errorf("expected SubToken %s, got %s", customToken, user.SubToken)
+		}
+		if user.Flow != "xtls-rprx-vision" {
+			t.Errorf("expected Flow xtls-rprx-vision, got %s", user.Flow)
+		}
+		if user.Remark != "VIP Client" {
+			t.Errorf("expected Remark 'VIP Client', got %s", user.Remark)
+		}
+		if user.ExpireTime != targetExpireTime {
+			t.Errorf("expected ExpireTime %d, got %d", targetExpireTime, user.ExpireTime)
+		}
+	})
+
+	t.Run("CreateUser validates custom credentials and detects duplicates", func(t *testing.T) {
+		existingUser := domain.User{
+			ID:          1,
+			Email:       "exist@example.com",
+			UUID:        "11111111-1111-4111-8111-111111111111",
+			SubToken:    "existingtoken123",
+			InboundTags: "vless-reality",
+		}
+		repo := &mockUserRepo{users: []domain.User{existingUser}}
+		mockXray := &mockXrayManager{}
+		mockCfg := &mockConfigSynchronizer{}
+		svc := NewUserService(repo, nil, nil, mockXray, mockCfg)
+
+		// 1. Invalid UUID
+		_, err := svc.CreateUser(context.Background(), CreateUserDTO{
+			Email:       "u1@example.com",
+			UUID:        "invalid-not-a-uuid",
+			InboundTags: []string{"vless-reality"},
+		})
+		if err == nil {
+			t.Errorf("expected error for invalid UUID, got nil")
+		}
+
+		// 2. Duplicate UUID
+		_, err = svc.CreateUser(context.Background(), CreateUserDTO{
+			Email:       "u2@example.com",
+			UUID:        existingUser.UUID,
+			InboundTags: []string{"vless-reality"},
+		})
+		if err == nil || !errors.Is(err, domain.ErrAlreadyExists) {
+			t.Errorf("expected ErrAlreadyExists for duplicate UUID, got %v", err)
+		}
+
+		// 3. Short SubToken (<8 chars)
+		_, err = svc.CreateUser(context.Background(), CreateUserDTO{
+			Email:       "u3@example.com",
+			SubToken:    "short",
+			InboundTags: []string{"vless-reality"},
+		})
+		if err == nil {
+			t.Errorf("expected error for short subToken, got nil")
+		}
+
+		// 4. Duplicate SubToken
+		_, err = svc.CreateUser(context.Background(), CreateUserDTO{
+			Email:       "u4@example.com",
+			SubToken:    existingUser.SubToken,
+			InboundTags: []string{"vless-reality"},
+		})
+		if err == nil || !errors.Is(err, domain.ErrAlreadyExists) {
+			t.Errorf("expected ErrAlreadyExists for duplicate subToken, got %v", err)
+		}
+	})
+
+	t.Run("UpdateUser modifies credentials, cascades SubRoute allowedUsers, and cleans old Xray identity", func(t *testing.T) {
+		origUser := domain.User{
+			ID:          10,
+			Email:       "old-user@example.com",
+			UUID:        "10101010-1010-4010-8010-101010101010",
+			SubToken:    "oldtoken123456",
+			Flow:        "",
+			Remark:      "old remark",
+			InboundTags: "vless-reality",
+			Enabled:     true,
+		}
+		repo := &mockUserRepo{users: []domain.User{origUser}}
+
+		subRoutesJSON := `[{"id":"sr1","name":"Route 1","routeId":1,"outboundTag":"direct","enabled":true,"allowedUsers":["old-user@example.com","other@example.com"]}]`
+		inbRepo := &mockInboundRepo{
+			inbounds: []domain.Inbound{
+				{
+					ID:            1,
+					Tag:           "vless-reality",
+					Protocol:      "vless",
+					SubRoutesJson: subRoutesJSON,
+					Enabled:       true,
+				},
+			},
+		}
+
+		mockXray := &mockXrayManager{}
+		mockCfg := &mockConfigSynchronizer{}
+		svc := NewUserService(repo, inbRepo, nil, mockXray, mockCfg)
+
+		newUUID := "20202020-2020-4020-8020-202020202020"
+		newToken := "newtoken654321"
+		dto := domain.UpdateUserDTO{
+			Email:       "new-user@example.com",
+			UUID:        newUUID,
+			SubToken:    newToken,
+			Flow:        "none",
+			Remark:      "new updated remark",
+			InboundTags: []string{"vless-reality"},
+			ExpireTime:  0, // Set to never expire
+		}
+
+		updated, err := svc.UpdateUser(context.Background(), 10, dto)
+		if err != nil {
+			t.Fatalf("UpdateUser failed: %v", err)
+		}
+		if updated.Email != "new-user@example.com" {
+			t.Errorf("expected updated email new-user@example.com, got %s", updated.Email)
+		}
+		if updated.UUID != newUUID {
+			t.Errorf("expected updated UUID %s, got %s", newUUID, updated.UUID)
+		}
+		if updated.SubToken != newToken {
+			t.Errorf("expected updated SubToken %s, got %s", newToken, updated.SubToken)
+		}
+		if updated.Flow != "none" {
+			t.Errorf("expected Flow 'none', got %s", updated.Flow)
+		}
+		if updated.Remark != "new updated remark" {
+			t.Errorf("expected Remark 'new updated remark', got %s", updated.Remark)
+		}
+
+		// Verify XrayManager calls: must have called RemoveUser with old-user@example.com
+		var foundRemoveOld, foundAddNew bool
+		for _, c := range mockXray.calls {
+			if c.op == "remove" && c.email == "old-user@example.com" && c.tag == "vless-reality" {
+				foundRemoveOld = true
+			}
+			if c.op == "add" && c.email == "new-user@example.com" && c.tag == "vless-reality" {
+				foundAddNew = true
+			}
+		}
+		if !foundRemoveOld {
+			t.Errorf("expected XrayManager.RemoveUser with old-user@example.com, got calls: %+v", mockXray.calls)
+		}
+		if !foundAddNew {
+			t.Errorf("expected XrayManager.AddUser with new-user@example.com, got calls: %+v", mockXray.calls)
+		}
+
+		// Verify Inbounds SubRoute.AllowedUsers cascaded old-user -> new-user
+		inb, _ := inbRepo.GetByID(context.Background(), 1)
+		var routes []domain.SubRoute
+		_ = json.Unmarshal([]byte(inb.SubRoutesJson), &routes)
+		if len(routes) == 0 || len(routes[0].AllowedUsers) != 2 {
+			t.Fatalf("unexpected routes in inbound: %+v", routes)
+		}
+		if routes[0].AllowedUsers[0] != "new-user@example.com" {
+			t.Errorf("expected AllowedUsers[0] to be new-user@example.com, got %s", routes[0].AllowedUsers[0])
+		}
+	})
+
+	t.Run("UpdateUser triggers Saga compensation when Xray AddUser fails after Email change", func(t *testing.T) {
+		origUser := domain.User{
+			ID:          20,
+			Email:       "orig@example.com",
+			UUID:        "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+			SubToken:    "origtoken123",
+			InboundTags: "vless-reality",
+			Enabled:     true,
+		}
+		repo := &mockUserRepo{users: []domain.User{origUser}}
+		subRoutesJSON := `[{"id":"sr1","name":"Route 1","routeId":1,"outboundTag":"direct","enabled":true,"allowedUsers":["orig@example.com"]}]`
+		inbRepo := &mockInboundRepo{
+			inbounds: []domain.Inbound{
+				{
+					ID:            1,
+					Tag:           "vless-reality",
+					Protocol:      "vless",
+					SubRoutesJson: subRoutesJSON,
+					Enabled:       true,
+				},
+			},
+		}
+
+		mockXray := &mockXrayManager{
+			failAddUserTag: "vless-reality",
+			failAddUserErr: errors.New("simulated xray add error"),
+		}
+		mockCfg := &mockConfigSynchronizer{}
+		svc := NewUserService(repo, inbRepo, nil, mockXray, mockCfg)
+
+		dto := domain.UpdateUserDTO{
+			Email:       "mutated@example.com",
+			InboundTags: []string{"vless-reality"},
+		}
+
+		_, err := svc.UpdateUser(context.Background(), 20, dto)
+		if err == nil {
+			t.Fatalf("expected error from UpdateUser, got nil")
+		}
+
+		// 1. Verify User in repo was restored to orig@example.com
+		restored, err := repo.GetByID(context.Background(), 20)
+		if err != nil {
+			t.Fatalf("get restored user failed: %v", err)
+		}
+		if restored.Email != "orig@example.com" {
+			t.Errorf("expected user email rolled back to orig@example.com, got %s", restored.Email)
+		}
+
+		// 2. Verify SubRoute.AllowedUsers rolled back to orig@example.com
+		inb, _ := inbRepo.GetByID(context.Background(), 1)
+		var routes []domain.SubRoute
+		_ = json.Unmarshal([]byte(inb.SubRoutesJson), &routes)
+		if len(routes) == 0 || len(routes[0].AllowedUsers) == 0 || routes[0].AllowedUsers[0] != "orig@example.com" {
+			t.Errorf("expected SubRoute AllowedUsers rolled back to orig@example.com, got: %+v", routes)
+		}
+	})
+}
+

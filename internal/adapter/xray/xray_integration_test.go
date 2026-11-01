@@ -48,12 +48,20 @@ func FindXrayBinary() (string, error) {
 
 	// 2. Check common relative paths
 	candidates := []string{
+		"../../../temp/xray",
+		"../../temp/xray",
+		"../temp/xray",
+		"./temp/xray",
 		"../../../bin/xray",
 		"../../bin/xray",
 		"./bin/xray",
 	}
 	if runtime.GOOS == "windows" {
 		candidates = append(candidates,
+			"../../../temp/xray.exe",
+			"../../temp/xray.exe",
+			"../temp/xray.exe",
+			"./temp/xray.exe",
 			"../../../bin/xray.exe",
 			"../../bin/xray.exe",
 			"./bin/xray.exe",
@@ -64,9 +72,15 @@ func FindXrayBinary() (string, error) {
 	if wd, err := os.Getwd(); err == nil {
 		dir := wd
 		for {
-			candidates = append(candidates, filepath.Join(dir, "bin", "xray"))
+			candidates = append(candidates,
+				filepath.Join(dir, "temp", "xray"),
+				filepath.Join(dir, "bin", "xray"),
+			)
 			if runtime.GOOS == "windows" {
-				candidates = append(candidates, filepath.Join(dir, "bin", "xray.exe"))
+				candidates = append(candidates,
+					filepath.Join(dir, "temp", "xray.exe"),
+					filepath.Join(dir, "bin", "xray.exe"),
+				)
 			}
 			if _, err := os.Stat(filepath.Join(dir, "go.mod")); err == nil {
 				break
@@ -119,9 +133,9 @@ func TestXrayCore_GRPC_RealBinary(t *testing.T) {
 
 	grpcPort := getFreePort(t)
 	vlessPort := getFreePort(t)
-	for vlessPort == grpcPort {
-		vlessPort = getFreePort(t)
-	}
+	trojanPort := getFreePort(t)
+	ssPort := getFreePort(t)
+	vmessPort := getFreePort(t)
 
 	compiler := NewXrayCompiler(grpcPort)
 	inbounds := []domain.Inbound{
@@ -132,6 +146,28 @@ func TestXrayCore_GRPC_RealBinary(t *testing.T) {
 			Protocol:       "vless",
 			Enabled:        true,
 			StreamSettings: `{"network":"tcp"}`,
+		},
+		{
+			Tag:      "trojan-test",
+			Listen:   "127.0.0.1",
+			Port:     trojanPort,
+			Protocol: "trojan",
+			Enabled:  true,
+		},
+		{
+			Tag:          "ss-test",
+			Listen:       "127.0.0.1",
+			Port:         ssPort,
+			Protocol:     "shadowsocks",
+			SettingsJSON: `{"method":"aes-128-gcm","password":"test-password"}`,
+			Enabled:      true,
+		},
+		{
+			Tag:      "vmess-test",
+			Listen:   "127.0.0.1",
+			Port:     vmessPort,
+			Protocol: "vmess",
+			Enabled:  true,
 		},
 	}
 	outbounds := []domain.Outbound{
@@ -173,6 +209,7 @@ func TestXrayCore_GRPC_RealBinary(t *testing.T) {
 	defer cmdCancel()
 
 	cmd := exec.CommandContext(cmdCtx, xrayBin, "run", "-c", tmpConfigPath)
+	cmd.Env = append(os.Environ(), "XRAY_LOCATION_ASSET="+filepath.Dir(xrayBin))
 	var logBuf bytes.Buffer
 	cmd.Stdout = &logBuf
 	cmd.Stderr = &logBuf
@@ -229,15 +266,96 @@ func TestXrayCore_GRPC_RealBinary(t *testing.T) {
 		t.Fatalf("AddUser failed: %v\nxray logs:\n%s", err, logBuf.String())
 	}
 
-	// 2. QueryTrafficStats
+	trojanInbound := &domain.Inbound{
+		Tag:      "trojan-test",
+		Protocol: "trojan",
+		Port:     trojanPort,
+	}
+	trojanUser := &domain.User{
+		Email: "trojan@test.com",
+		UUID:  "password12345",
+	}
+	if err := client.AddUser(ctx, trojanInbound, trojanUser); err != nil {
+		t.Fatalf("AddUser trojan failed: %v\nxray logs:\n%s", err, logBuf.String())
+	}
+
+	ssInbound := &domain.Inbound{
+		Tag:          "ss-test",
+		Protocol:     "shadowsocks",
+		Port:         ssPort,
+		SettingsJSON: `{"method":"aes-128-gcm","password":"test-password"}`,
+	}
+	ssUser := &domain.User{
+		Email: "ss@test.com",
+		UUID:  "user-password-123",
+	}
+	if err := client.AddUser(ctx, ssInbound, ssUser); err != nil {
+		t.Fatalf("AddUser ss failed: %v\nxray logs:\n%s", err, logBuf.String())
+	}
+
+	vmessInbound := &domain.Inbound{
+		Tag:      "vmess-test",
+		Protocol: "vmess",
+		Port:     vmessPort,
+	}
+	vmessUser := &domain.User{
+		Email: "vmess@test.com",
+		UUID:  "c8402f1a-6df2-4217-a169-23114d640202",
+	}
+	if err := client.AddUser(ctx, vmessInbound, vmessUser); err != nil {
+		t.Fatalf("AddUser vmess failed: %v\nxray logs:\n%s", err, logBuf.String())
+	}
+
+	// 2. User Mutation Re-sync:
+	// Scenario A: Email update (Remove oldEmail -> Add newEmail with same UUID)
+	if err := client.RemoveUser(ctx, "vless-test", "integration@test.com"); err != nil {
+		t.Fatalf("Mutation Email RemoveUser failed: %v\nxray logs:\n%s", err, logBuf.String())
+	}
+	updatedEmailUser := &domain.User{
+		Email: "integration-updated@test.com",
+		UUID:  "c8402f1a-6df2-4217-a169-23114d640201",
+	}
+	if err := client.AddUser(ctx, testInbound, updatedEmailUser); err != nil {
+		t.Fatalf("Mutation Email AddUser failed: %v\nxray logs:\n%s", err, logBuf.String())
+	}
+
+	// Scenario B: UUID rotation (Remove current -> Add same email with new UUID)
+	if err := client.RemoveUser(ctx, "vless-test", "integration-updated@test.com"); err != nil {
+		t.Fatalf("Mutation UUID RemoveUser failed: %v\nxray logs:\n%s", err, logBuf.String())
+	}
+	rotatedUUIDUser := &domain.User{
+		Email: "integration-updated@test.com",
+		UUID:  "e1234567-89ab-4cde-8012-3456789abcde",
+	}
+	if err := client.AddUser(ctx, testInbound, rotatedUUIDUser); err != nil {
+		t.Fatalf("Mutation UUID AddUser failed: %v\nxray logs:\n%s", err, logBuf.String())
+	}
+
+	// 3. QueryTrafficStats
 	stats, err := client.QueryTrafficStats(ctx, false)
 	if err != nil {
 		t.Fatalf("QueryTrafficStats failed: %v\nxray logs:\n%s", err, logBuf.String())
 	}
 	t.Logf("QueryTrafficStats succeeded, record count: %d", len(stats))
 
-	// 3. RemoveUser
-	if err := client.RemoveUser(ctx, "vless-test", "integration@test.com"); err != nil {
-		t.Fatalf("RemoveUser failed: %v\nxray logs:\n%s", err, logBuf.String())
+	// 4. Teardown all users across protocols
+	if err := client.RemoveUser(ctx, "vless-test", rotatedUUIDUser.Email); err != nil {
+		t.Fatalf("Teardown vless RemoveUser failed: %v\nxray logs:\n%s", err, logBuf.String())
 	}
+	if err := client.RemoveUser(ctx, "trojan-test", trojanUser.Email); err != nil {
+		t.Fatalf("Teardown trojan RemoveUser failed: %v\nxray logs:\n%s", err, logBuf.String())
+	}
+	if err := client.RemoveUser(ctx, "ss-test", ssUser.Email); err != nil {
+		t.Fatalf("Teardown ss RemoveUser failed: %v\nxray logs:\n%s", err, logBuf.String())
+	}
+	if err := client.RemoveUser(ctx, "vmess-test", vmessUser.Email); err != nil {
+		t.Fatalf("Teardown vmess RemoveUser failed: %v\nxray logs:\n%s", err, logBuf.String())
+	}
+
+	// 5. Verify duplicate RemoveUser returns error (expected: user not found)
+	dupErr := client.RemoveUser(ctx, "vless-test", rotatedUUIDUser.Email)
+	if dupErr == nil {
+		t.Fatalf("expected error for duplicate RemoveUser, got nil")
+	}
+	t.Logf("Duplicate RemoveUser properly rejected: %v", dupErr)
 }

@@ -107,6 +107,23 @@
             />
           </FormField>
         </div>
+
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2 border-t border-border/40">
+          <FormField label="MTU (最大传输单元)">
+            <input
+              v-model.number="form.wgMtu"
+              type="number"
+              placeholder="1280"
+              class="w-full bg-neutral-950 border border-border rounded-md px-3 py-2 text-foreground font-mono focus:outline-none focus:ring-1 focus:ring-ring"
+            />
+          </FormField>
+          <div class="flex items-center pt-6">
+            <label class="flex items-center gap-2 cursor-pointer text-muted-foreground hover:text-foreground">
+              <input type="checkbox" v-model="form.wgNoKernelTun" class="rounded bg-neutral-950 border-border text-neutral-200" />
+              <span>禁用系统内核 TUN 模块 (NoKernelTun)</span>
+            </label>
+          </div>
+        </div>
       </SectionCard>
 
       <!-- DNS 专属配置 -->
@@ -314,6 +331,26 @@
           </FormField>
         </div>
 
+        <!-- HTTPUpgrade 专用参数 -->
+        <div v-if="['vless', 'vmess', 'trojan', 'shadowsocks'].includes(form.protocol) && form.streamNetwork === 'httpupgrade'" class="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2 border-t border-border/60">
+          <FormField label="HTTPUpgrade 路径 (Path)">
+            <input
+              v-model="form.httpupgradePath"
+              type="text"
+              placeholder="/httpupgrade"
+              class="w-full bg-neutral-950 border border-border rounded-md px-3 py-2 text-foreground font-mono focus:outline-none focus:ring-1 focus:ring-ring"
+            />
+          </FormField>
+          <FormField label="HTTPUpgrade Host 头部 (选填)">
+            <input
+              v-model="form.httpupgradeHost"
+              type="text"
+              placeholder="例如: example.com"
+              class="w-full bg-neutral-950 border border-border rounded-md px-3 py-2 text-foreground font-mono focus:outline-none focus:ring-1 focus:ring-ring"
+            />
+          </FormField>
+        </div>
+
         <!-- REALITY 专属连接参数 -->
         <div v-if="['vless', 'trojan'].includes(form.protocol) && form.streamSecurity === 'reality'" class="space-y-3 pt-2 border-t border-border/60 bg-neutral-950/60 p-3 rounded-md">
           <h4 class="text-xs font-bold text-cyan-400 font-mono">REALITY 握手伪装参数</h4>
@@ -336,9 +373,19 @@
                 <option value="safari">safari</option>
                 <option value="ios">ios</option>
                 <option value="edge">edge</option>
+                <option value="random">random</option>
+                <option value="randomized">randomized</option>
               </select>
             </FormField>
           </div>
+          <FormField label="SpiderX 爬虫路径匹配 (选填)">
+            <input
+              v-model="form.realitySpiderX"
+              type="text"
+              placeholder="例如: /"
+              class="w-full bg-neutral-950 border border-border rounded-md px-3 py-2 text-foreground font-mono focus:outline-none focus:ring-1 focus:ring-ring"
+            />
+          </FormField>
           <FormField label="Public Key (对端公钥 / pbk)">
             <input
               v-model="form.realityPublicKey"
@@ -358,15 +405,31 @@
         </div>
 
         <!-- TLS 专属连接参数 -->
-        <div v-if="['vless', 'vmess', 'trojan', 'shadowsocks'].includes(form.protocol) && form.streamSecurity === 'tls'" class="pt-2 border-t border-border/60 bg-neutral-950/60 p-3 rounded-md">
-          <FormField label="TLS SNI (ServerName)">
-            <input
-              v-model="form.tlsServerName"
-              type="text"
-              placeholder="example.com"
-              class="w-full bg-neutral-950 border border-border rounded-md px-3 py-2 text-foreground font-mono focus:outline-none focus:ring-1 focus:ring-ring"
-            />
-          </FormField>
+        <div v-if="['vless', 'vmess', 'trojan', 'shadowsocks'].includes(form.protocol) && form.streamSecurity === 'tls'" class="pt-2 border-t border-border/60 bg-neutral-950/60 p-3 rounded-md space-y-3">
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <FormField label="TLS SNI (ServerName)">
+              <input
+                v-model="form.tlsServerName"
+                type="text"
+                placeholder="example.com"
+                class="w-full bg-neutral-950 border border-border rounded-md px-3 py-2 text-foreground font-mono focus:outline-none focus:ring-1 focus:ring-ring"
+              />
+            </FormField>
+            <FormField label="TLS 指纹伪装 (Fingerprint)">
+              <select
+                v-model="form.tlsFingerprint"
+                class="w-full bg-neutral-950 border border-border rounded-md px-3 py-2 text-foreground focus:outline-none focus:ring-1 focus:ring-ring font-mono"
+              >
+                <option value="chrome">chrome</option>
+                <option value="firefox">firefox</option>
+                <option value="safari">safari</option>
+                <option value="ios">ios</option>
+                <option value="edge">edge</option>
+                <option value="random">random</option>
+                <option value="randomized">randomized</option>
+              </select>
+            </FormField>
+          </div>
         </div>
       </SectionCard>
     </form>

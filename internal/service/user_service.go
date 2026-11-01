@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -17,11 +18,15 @@ import (
 
 type CreateUserDTO struct {
 	Email       string   `json:"email" binding:"required"`
+	UUID        string   `json:"uuid"`
+	SubToken    string   `json:"subToken"`
+	Remark      string   `json:"remark"`
 	InboundTag  string   `json:"inboundTag"`
 	InboundTags []string `json:"inboundTags"`
 	Flow        string   `json:"flow"`
 	TotalBytes  int64    `json:"totalBytes"`
 	ExpireDays  int      `json:"expireDays"`
+	ExpireTime  int64    `json:"expireTime"`
 	ResetDay    int      `json:"resetDay"`
 	IPLimit     int      `json:"ipLimit"`
 }
@@ -75,6 +80,60 @@ func isXrayUserNotFoundError(err error) bool {
 	return isXrayIgnorableRemoveError(err)
 }
 
+func isValidSubToken(token string) bool {
+	if len(token) < 8 {
+		return false
+	}
+	for _, r := range token {
+		if !((r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == '-' || r == '_') {
+			return false
+		}
+	}
+	return true
+}
+
+func (s *UserService) cascadeUpdateSubRouteAllowedUsers(ctx context.Context, fromEmail, toEmail string) ([]domain.Inbound, error) {
+	if s.inboundRepo == nil {
+		return nil, nil
+	}
+	inbounds, err := s.inboundRepo.ListAll(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("list inbounds for subroute cascade failed: %w", err)
+	}
+
+	var modified []domain.Inbound
+	for _, inb := range inbounds {
+		if inb.SubRoutesJson == "" {
+			continue
+		}
+		var routes []domain.SubRoute
+		if err := json.Unmarshal([]byte(inb.SubRoutesJson), &routes); err != nil {
+			continue
+		}
+		inbChanged := false
+		for rIdx := range routes {
+			for uIdx := range routes[rIdx].AllowedUsers {
+				if routes[rIdx].AllowedUsers[uIdx] == fromEmail {
+					routes[rIdx].AllowedUsers[uIdx] = toEmail
+					inbChanged = true
+				}
+			}
+		}
+		if inbChanged {
+			rawJSON, err := json.Marshal(routes)
+			if err != nil {
+				return modified, fmt.Errorf("marshal updated subroutes for inbound %s failed: %w", inb.Tag, err)
+			}
+			inb.SubRoutesJson = string(rawJSON)
+			if err := s.inboundRepo.Update(ctx, &inb); err != nil {
+				return modified, fmt.Errorf("update inbound %s for subroute cascade failed: %w", inb.Tag, err)
+			}
+			modified = append(modified, inb)
+		}
+	}
+	return modified, nil
+}
+
 func createCompensatingContext(ctx context.Context, timeout time.Duration) (context.Context, context.CancelFunc) {
 	if ctx == nil {
 		ctx = context.Background()
@@ -99,16 +158,46 @@ func (s *UserService) CreateUser(ctx context.Context, dto CreateUserDTO) (*domai
 		return nil, fmt.Errorf("请至少选择一个归属的入站节点")
 	}
 
-	tokenBytes := make([]byte, 16)
-	if _, err := rand.Read(tokenBytes); err != nil {
-		return nil, fmt.Errorf("generate sub token failed: %w", err)
+	subToken := dto.SubToken
+	if subToken != "" {
+		if !isValidSubToken(subToken) {
+			return nil, fmt.Errorf("sub token must be at least 8 alphanumeric characters")
+		}
+		existingToken, err := s.userRepo.GetBySubToken(ctx, subToken)
+		if err != nil && !errors.Is(err, domain.ErrNotFound) {
+			return nil, fmt.Errorf("check existing sub token failed: %w", err)
+		}
+		if existingToken != nil {
+			return nil, fmt.Errorf("%w: 订阅 Token 已被占用", domain.ErrAlreadyExists)
+		}
+	} else {
+		tokenBytes := make([]byte, 16)
+		if _, err := rand.Read(tokenBytes); err != nil {
+			return nil, fmt.Errorf("generate sub token failed: %w", err)
+		}
+		subToken = hex.EncodeToString(tokenBytes)
 	}
-	subToken := hex.EncodeToString(tokenBytes)
 
-	userUUID := uuid.New().String()
+	userUUID := dto.UUID
+	if userUUID != "" {
+		if _, err := uuid.Parse(userUUID); err != nil {
+			return nil, fmt.Errorf("invalid uuid format: %w", err)
+		}
+		existingUUID, err := s.userRepo.GetByUUID(ctx, userUUID)
+		if err != nil && !errors.Is(err, domain.ErrNotFound) {
+			return nil, fmt.Errorf("check existing uuid failed: %w", err)
+		}
+		if existingUUID != nil {
+			return nil, fmt.Errorf("%w: UUID 已被占用", domain.ErrAlreadyExists)
+		}
+	} else {
+		userUUID = uuid.New().String()
+	}
 
 	var expireTime int64 = 0
-	if dto.ExpireDays > 0 {
+	if dto.ExpireTime > 0 {
+		expireTime = dto.ExpireTime
+	} else if dto.ExpireDays > 0 {
 		expireTime = time.Now().AddDate(0, 0, dto.ExpireDays).UnixMilli()
 	}
 
@@ -120,6 +209,7 @@ func (s *UserService) CreateUser(ctx context.Context, dto CreateUserDTO) (*domai
 		InboundTags: tagsStr,
 		Flow:        dto.Flow,
 		SubToken:    subToken,
+		Remark:      dto.Remark,
 		TotalBytes:  dto.TotalBytes,
 		ExpireTime:  expireTime,
 		ResetDay:    dto.ResetDay,
@@ -187,12 +277,60 @@ func (s *UserService) UpdateUser(ctx context.Context, id uint, dto domain.Update
 		return nil, domain.ErrNotFound
 	}
 
+	// 1. 字段前瞻校验与唯一性检查
+	if dto.Email != "" && dto.Email != oldUser.Email {
+		existing, err := s.userRepo.GetByEmail(ctx, dto.Email)
+		if err != nil && !errors.Is(err, domain.ErrNotFound) {
+			return nil, fmt.Errorf("check existing email failed: %w", err)
+		}
+		if existing != nil && existing.ID != oldUser.ID {
+			return nil, fmt.Errorf("%w: 用户名/邮箱已被占用", domain.ErrAlreadyExists)
+		}
+	}
+
+	if dto.UUID != "" && dto.UUID != oldUser.UUID {
+		if _, err := uuid.Parse(dto.UUID); err != nil {
+			return nil, fmt.Errorf("invalid uuid format: %w", err)
+		}
+		existing, err := s.userRepo.GetByUUID(ctx, dto.UUID)
+		if err != nil && !errors.Is(err, domain.ErrNotFound) {
+			return nil, fmt.Errorf("check existing uuid failed: %w", err)
+		}
+		if existing != nil && existing.ID != oldUser.ID {
+			return nil, fmt.Errorf("%w: UUID 已被占用", domain.ErrAlreadyExists)
+		}
+	}
+
+	if dto.SubToken != "" && dto.SubToken != oldUser.SubToken {
+		if !isValidSubToken(dto.SubToken) {
+			return nil, fmt.Errorf("sub token must be at least 8 alphanumeric characters")
+		}
+		existing, err := s.userRepo.GetBySubToken(ctx, dto.SubToken)
+		if err != nil && !errors.Is(err, domain.ErrNotFound) {
+			return nil, fmt.Errorf("check existing sub token failed: %w", err)
+		}
+		if existing != nil && existing.ID != oldUser.ID {
+			return nil, fmt.Errorf("%w: 订阅 Token 已被占用", domain.ErrAlreadyExists)
+		}
+	}
+
 	// 制作前置状态深拷贝快照，用于故障时触发 Saga 反向补偿
 	oldSnapshot := *oldUser
 	oldTags := oldSnapshot.GetInboundTagList()
 
-	// 仅合并允许修改的业务字段，严格保留 UpBytes、DownBytes、UUID、SubToken、CreatedAt
+	// 合并允许修改的业务字段与凭证字段
 	updatedUser := *oldUser
+	if dto.Email != "" {
+		updatedUser.Email = dto.Email
+	}
+	if dto.UUID != "" {
+		updatedUser.UUID = dto.UUID
+	}
+	if dto.SubToken != "" {
+		updatedUser.SubToken = dto.SubToken
+	}
+	updatedUser.Remark = dto.Remark
+
 	tags := dto.InboundTags
 	if len(tags) == 0 && dto.InboundTag != "" {
 		tags = []string{dto.InboundTag}
@@ -216,13 +354,14 @@ func (s *UserService) UpdateUser(ctx context.Context, id uint, dto domain.Update
 	updatedUser.UpdatedAt = time.Now()
 
 	newTags := updatedUser.GetInboundTagList()
+	emailChanged := oldSnapshot.Email != updatedUser.Email
 
-	// 1. 更新数据库
+	// 2. 更新数据库
 	if err := s.userRepo.Update(ctx, &updatedUser); err != nil {
 		return nil, fmt.Errorf("update user in db failed: %w", err)
 	}
 
-	// 定义 Saga 补偿逻辑：恢复 Xray 内存至旧快照并回滚数据库
+	// 定义 Saga 补偿逻辑：恢复 Xray 内存至旧快照、恢复 SubRoute 引用并回滚数据库
 	rollback := func() {
 		compCtx, cancel := createCompensatingContext(ctx, 15*time.Second)
 		defer cancel()
@@ -243,37 +382,57 @@ func (s *UserService) UpdateUser(ctx context.Context, id uint, dto domain.Update
 				}
 			}
 		}
+		if emailChanged && s.inboundRepo != nil {
+			_, _ = s.cascadeUpdateSubRouteAllowedUsers(compCtx, updatedUser.Email, oldSnapshot.Email)
+		}
 		if err := s.userRepo.Update(compCtx, &oldSnapshot); err != nil {
 			slog.Error("compensation: failed to restore user snapshot in db during update rollback", slog.Uint64("user_id", uint64(oldSnapshot.ID)), slog.Any("error", err))
 		}
+		if s.configSvc != nil {
+			_ = s.configSvc.SyncUserToFile(compCtx, oldTags, &oldSnapshot, false)
+		}
 	}
 
-	// 2. 刷新 Xray 内存
+	// 3. 若 Email 发生变更，级联更新所有 SubRoute 授权白名单
+	if emailChanged && s.inboundRepo != nil {
+		if _, err := s.cascadeUpdateSubRouteAllowedUsers(ctx, oldSnapshot.Email, updatedUser.Email); err != nil {
+			rollback()
+			return nil, fmt.Errorf("cascade update subroute allowed users failed: %w", err)
+		}
+	}
+
+	// 4. 刷新 Xray 内存
 	if s.xrayManager != nil {
 		newTagSet := make(map[string]bool, len(newTags))
 		for _, t := range newTags {
 			newTagSet[t] = true
 		}
-		// 找出需要移除的旧节点
+		// 找出需要移除的旧节点，必须以 oldSnapshot.Email 索引进行匹配注销
 		for _, oldT := range oldTags {
 			if !newTagSet[oldT] {
-				if err := s.xrayManager.RemoveUser(ctx, oldT, updatedUser.Email); err != nil {
+				if err := s.xrayManager.RemoveUser(ctx, oldT, oldSnapshot.Email); err != nil {
 					if !isXrayIgnorableRemoveError(err) {
 						rollback()
 						return nil, fmt.Errorf("remove user from old xray inbound %s failed: %w", oldT, err)
 					}
 					slog.InfoContext(ctx, "ignored harmless error removing user from absent or clean inbound",
-						slog.String("inbound", oldT), slog.String("email", updatedUser.Email), slog.Any("error", err))
+						slog.String("inbound", oldT), slog.String("email", oldSnapshot.Email), slog.Any("error", err))
+				}
+				if emailChanged {
+					_ = s.xrayManager.RemoveUser(ctx, oldT, updatedUser.Email)
 				}
 			}
 		}
 
 		if updatedUser.IsActive() {
 			for _, newT := range newTags {
-				// 针对现有节点先 RemoveUser 再 AddUser 以避免冲突
-				if err := s.xrayManager.RemoveUser(ctx, newT, updatedUser.Email); err != nil && !isXrayIgnorableRemoveError(err) {
+				// 针对现有节点先使用 oldSnapshot.Email RemoveUser 再以新身份 AddUser 以避免冲突
+				if err := s.xrayManager.RemoveUser(ctx, newT, oldSnapshot.Email); err != nil && !isXrayIgnorableRemoveError(err) {
 					rollback()
 					return nil, fmt.Errorf("remove existing user before update from xray inbound %s failed: %w", newT, err)
+				}
+				if emailChanged {
+					_ = s.xrayManager.RemoveUser(ctx, newT, updatedUser.Email)
 				}
 				if err := s.xrayManager.AddUser(ctx, newT, &updatedUser); err != nil {
 					rollback()
@@ -282,24 +441,32 @@ func (s *UserService) UpdateUser(ctx context.Context, id uint, dto domain.Update
 			}
 		} else {
 			for _, newT := range newTags {
-				if err := s.xrayManager.RemoveUser(ctx, newT, updatedUser.Email); err != nil {
+				if err := s.xrayManager.RemoveUser(ctx, newT, oldSnapshot.Email); err != nil {
 					if !isXrayIgnorableRemoveError(err) {
 						rollback()
 						return nil, fmt.Errorf("remove inactive user from xray inbound %s failed: %w", newT, err)
 					}
 					slog.InfoContext(ctx, "ignored harmless error removing inactive user from absent or clean inbound",
-						slog.String("inbound", newT), slog.String("email", updatedUser.Email), slog.Any("error", err))
+						slog.String("inbound", newT), slog.String("email", oldSnapshot.Email), slog.Any("error", err))
+				}
+				if emailChanged {
+					_ = s.xrayManager.RemoveUser(ctx, newT, updatedUser.Email)
 				}
 			}
 		}
 	}
 
-	// 3. 落盘持久化到物理文件
+	// 5. 落盘持久化到物理文件
 	if s.configSvc != nil {
 		if err := s.configSvc.SyncUserToFile(ctx, newTags, &updatedUser, false); err != nil {
 			rollback()
 			return nil, fmt.Errorf("sync updated user to config file failed: %w", err)
 		}
+	}
+
+	// 6. 若邮箱变更，清理旧邮箱在内存中的运行时速率监控对象
+	if emailChanged {
+		domain.RemoveUserRuntimeSpeed(oldSnapshot.Email)
 	}
 
 	return &updatedUser, nil

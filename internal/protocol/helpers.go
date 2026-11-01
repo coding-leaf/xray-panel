@@ -5,6 +5,12 @@ import (
 	"strings"
 )
 
+// EscapeRemark 对 URI #fragment 节点别名进行 RFC 3986 百分号编码，将空格编码为 %20 而非表单的 +，
+// 防止 v2rayNG / NekoBox 等客户端按 RFC 3986 解码时将空格原样展示为 + 号。
+func EscapeRemark(remark string) string {
+	return strings.ReplaceAll(url.QueryEscape(remark), "+", "%20")
+}
+
 // ValidateBaseNode 统一验证基础节点配置完整性
 func ValidateBaseNode(node *NodeConfig) error {
 	if node == nil {

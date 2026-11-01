@@ -113,6 +113,13 @@ func (f *VlessFormatter) FormatLink(node *NodeConfig) (string, error) {
 		if h := node.GetParam("host"); h != "" {
 			v.Set("host", h)
 		}
+	case "kcp", "mkcp":
+		if ht := node.GetParam("headerType"); ht != "" {
+			v.Set("headerType", ht)
+		}
+		if s := node.GetParam("seed"); s != "" {
+			v.Set("seed", s)
+		}
 	default:
 		// CDN 回源或自定义参数兜底
 		if h := node.GetParam("host"); h != "" && v.Get("host") == "" {
@@ -135,7 +142,7 @@ func (f *VlessFormatter) FormatLink(node *NodeConfig) (string, error) {
 
 	targetHost := node.FormattedHost()
 	remark := node.Name
-	return fmt.Sprintf("vless://%s@%s:%d?%s#%s", node.UUID, targetHost, node.Port, v.Encode(), url.QueryEscape(remark)), nil
+	return fmt.Sprintf("vless://%s@%s:%d?%s#%s", node.UUID, targetHost, node.Port, v.Encode(), EscapeRemark(remark)), nil
 }
 
 // ToClash 将 VLESS 节点转为 Clash / Mihomo proxy map

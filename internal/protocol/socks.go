@@ -41,7 +41,7 @@ func (f *SocksFormatter) FormatLink(node *NodeConfig) (string, error) {
 	}
 
 	targetHost := node.FormattedHost()
-	remark := url.QueryEscape(node.Name)
+	remark := EscapeRemark(node.Name)
 
 	username := node.GetParam("user", node.GetParam("username"))
 	password := node.GetParam("pass", node.GetParam("password"))

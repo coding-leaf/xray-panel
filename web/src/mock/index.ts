@@ -120,6 +120,7 @@ export async function handleMockRequest(url: string, method: string, data?: any)
       active: true,
       subState: 'running',
       version: 'Xray 26.3.27 (gRPC Runtime) Linux/amd64',
+      panelVersion: 'v2.6.7',
     })
   }
 
@@ -300,11 +301,19 @@ export async function handleMockRequest(url: string, method: string, data?: any)
 
   if (cleanUrl.endsWith('/users') && method === 'POST') {
     const newId = state.users.reduce((max, u) => Math.max(max, u.id || 0), 0) + 1
-    const subToken = Math.random().toString(36).substring(2, 18) + Math.random().toString(36).substring(2, 18)
+    const subToken = data.subToken || (Math.random().toString(36).substring(2, 18) + Math.random().toString(36).substring(2, 18))
+    const uuid = data.uuid || ('7117295b-4362-4260-a133-' + Math.random().toString(16).substring(2, 14))
+    let expireTime = 0
+    if (data.expireTime !== undefined) {
+      expireTime = data.expireTime
+    } else if (data.expireDays > 0) {
+      expireTime = Date.now() + data.expireDays * 86400000
+    }
     const user = {
       id: newId,
       email: data.email,
-      uuid: '7117295b-4362-4260-a133-' + Math.random().toString(16).substring(2, 14),
+      uuid,
+      remark: data.remark || '',
       inboundTag: Array.isArray(data.inboundTags) ? data.inboundTags[0] : data.inboundTag,
       inboundTags: Array.isArray(data.inboundTags) ? data.inboundTags.join(',') : (data.inboundTags || data.inboundTag),
       flow: data.flow || '',
@@ -312,7 +321,7 @@ export async function handleMockRequest(url: string, method: string, data?: any)
       upBytes: 1024 * 1024 * Math.floor(Math.random() * 50),
       downBytes: 1024 * 1024 * Math.floor(Math.random() * 200),
       totalBytes: data.totalBytes || 0,
-      expireTime: data.expireDays > 0 ? Date.now() + data.expireDays * 86400000 : 0,
+      expireTime,
       resetDay: data.resetDay || 0,
       ipLimit: data.ipLimit || 0,
       enabled: data.enabled !== false,
@@ -371,15 +380,18 @@ export async function handleMockRequest(url: string, method: string, data?: any)
     if (method === 'PUT') {
       const idx = state.users.findIndex((u) => u.id === id)
       if (idx !== -1) {
-        // 模拟 UpdateUserDTO：绝不覆盖已累加的流量与关键系统字段
+        // 模拟 UpdateUserDTO：允许更新 email, uuid, subToken, remark, expireTime 等可变凭据
         const current = state.users[idx]
         state.users[idx] = {
           ...current,
           ...data,
+          email: data.email || current.email,
+          uuid: data.uuid || current.uuid,
+          subToken: data.subToken || current.subToken,
+          remark: data.remark !== undefined ? data.remark : (current.remark || ''),
+          expireTime: data.expireTime !== undefined ? data.expireTime : current.expireTime,
           upBytes: current.upBytes,
           downBytes: current.downBytes,
-          uuid: current.uuid,
-          subToken: current.subToken,
           createdAt: current.createdAt,
         }
         saveMockState(state)

@@ -29,7 +29,7 @@ import (
 )
 
 var (
-	Version   = "v2.6.6"
+	Version   = "v2.6.7"
 	Commit    = "dev"
 	BuildTime = "unknown"
 )
@@ -40,7 +40,7 @@ func main() {
 	logger.Init(cfg.LogLevel, cfg.LogJSON)
 
 	slog.Info("Starting Xray Decoupled Panel",
-		slog.String("version", Version),
+		slog.String("version", cfg.PanelVersion),
 		slog.String("port", cfg.ListenPort),
 		slog.String("xray_grpc", cfg.XrayGRPCAddr),
 		slog.String("db_path", cfg.DBPath),
@@ -150,7 +150,7 @@ func main() {
 	monitorSvc := service.NewMonitorService(hostMonitor, xrayManager, userRepo, inboundRepo)
 	alertSvc := service.NewAlertService(botAdapter, userRepo, hostMonitor, configMgr)
 	logSvc := service.NewLogService(configMgr)
-	geoSvc := service.NewGeoDataService(cfg.XrayBinPath, xrayManager)
+	geoSvc := service.NewGeoDataService(cfg.XrayBinPath, xrayManager, settingRepo)
 	ticketSvc := service.NewTicketService(ticketRepo, userRepo, subSvc, settingRepo)
 	auditLogSvc := service.NewAuditLogService(auditLogRepo)
 	authSvc := service.NewAuthService(adminRepo, cfg.JWTSecret, auditLogSvc)
@@ -163,7 +163,7 @@ func main() {
 	// 5. 初始化 HTTP API 处理器
 	handlers := &deliveryHTTP.Handlers{
 		Auth:      deliveryHTTP.NewAuthHandler(authSvc),
-		Dashboard: deliveryHTTP.NewDashboardHandler(monitorSvc),
+		Dashboard: deliveryHTTP.NewDashboardHandler(monitorSvc, cfg.PanelVersion, cfg.Commit, cfg.BuildTime),
 		User:      deliveryHTTP.NewUserHandler(userSvc, subSvc, auditLogSvc),
 		Inbound:   deliveryHTTP.NewInboundHandler(configSvc, auditLogSvc, realityMonitorSvc),
 		Outbound:  deliveryHTTP.NewOutboundHandler(configSvc, auditLogSvc),

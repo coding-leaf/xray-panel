@@ -122,10 +122,18 @@ func (c *XrayCompiler) Compile(
 		if qStrategy == "" {
 			qStrategy = "UseIP"
 		}
+		tag := dns.Tag
+		if tag == "" {
+			tag = "dns-in"
+		}
 		cfg.DNS = &XrayDNSConfig{
-			Servers:       servers,
-			QueryStrategy: qStrategy,
-			Tag:           "dns-in",
+			Tag:             tag,
+			ClientIP:        dns.ClientIP,
+			QueryStrategy:   qStrategy,
+			DisableCache:    dns.DisableCache,
+			DisableFallback: dns.DisableFallback,
+			Servers:         servers,
+			Hosts:           dns.Hosts,
 		}
 	}
 
@@ -276,6 +284,9 @@ func (c *XrayCompiler) compileInbound(inb *domain.Inbound, users []domain.User) 
 
 	// 服务端 Inbound REALITY 字段规范化清洗与严格校验 (杜绝 Xray 内核 non-empty serverName 报错及假兜底)
 	if streamSettings != nil {
+		if streamSettings.TLSSettings != nil {
+			streamSettings.TLSSettings.Fingerprint = "" // 服务端入站严禁包含客户端 uTLS fingerprint
+		}
 		if strings.EqualFold(streamSettings.Security, "reality") {
 			if streamSettings.RealitySettings == nil {
 				return nil, fmt.Errorf("%w: realitySettings is required when security is reality", domain.ErrInvalidInput)

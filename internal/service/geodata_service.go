@@ -8,8 +8,11 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"sync"
 	"time"
+
+	"panel/internal/domain"
 )
 
 type CoreController interface {
@@ -43,14 +46,16 @@ type GeoDataProgress struct {
 type GeoDataService struct {
 	xrayBinPath string
 	manager     CoreController
+	settingRepo domain.SettingRepository
 	progressMu  sync.RWMutex
 	progress    GeoDataProgress
 }
 
-func NewGeoDataService(xrayBinPath string, manager CoreController) *GeoDataService {
+func NewGeoDataService(xrayBinPath string, manager CoreController, settingRepo domain.SettingRepository) *GeoDataService {
 	return &GeoDataService{
 		xrayBinPath: xrayBinPath,
 		manager:     manager,
+		settingRepo: settingRepo,
 		progress: GeoDataProgress{
 			Step:       "idle",
 			Percentage: 0,
@@ -59,7 +64,15 @@ func NewGeoDataService(xrayBinPath string, manager CoreController) *GeoDataServi
 	}
 }
 
-func (s *GeoDataService) getGeoDataDir() string {
+func (s *GeoDataService) getGeoDataDir(ctx context.Context) string {
+	if s.settingRepo != nil && ctx != nil {
+		if customDir, err := s.settingRepo.Get(ctx, "xray_geodata_dir"); err == nil {
+			customDir = strings.TrimSpace(customDir)
+			if customDir != "" {
+				return customDir
+			}
+		}
+	}
 	dir := filepath.Dir(s.xrayBinPath)
 	if runtime.GOOS == "linux" {
 		if _, err := os.Stat("/usr/local/share/xray"); err == nil {
@@ -70,7 +83,7 @@ func (s *GeoDataService) getGeoDataDir() string {
 }
 
 func (s *GeoDataService) GetStatus(ctx context.Context) (*GeoDataStatus, error) {
-	dataDir := s.getGeoDataDir()
+	dataDir := s.getGeoDataDir(ctx)
 	status := &GeoDataStatus{
 		TargetDirectory: dataDir,
 		Platform:        runtime.GOOS + "/" + runtime.GOARCH,
@@ -129,7 +142,7 @@ func (s *GeoDataService) TriggerUpdate() error {
 }
 
 func (s *GeoDataService) runUpdateWorker() {
-	dataDir := s.getGeoDataDir()
+	dataDir := s.getGeoDataDir(context.Background())
 	_ = os.MkdirAll(dataDir, 0755)
 
 	client := &http.Client{Timeout: 120 * time.Second}

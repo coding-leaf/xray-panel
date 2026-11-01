@@ -2,6 +2,7 @@ export interface SubRouteItem {
   id: string
   name: string
   routeId: number
+  sortOrder?: number
   outboundTag: string
   enabled: boolean
   allowedUsers?: string[]
@@ -21,6 +22,7 @@ export interface InboundItem {
   externalPort?: number
   externalHost?: string
   routeId?: number
+  sortOrder?: number
   subRoutesJson?: string
   subRoutes?: SubRouteItem[]
   boundUserEmail?: string
@@ -36,11 +38,13 @@ export interface InboundItem {
 export interface InboundFormData {
   id: number
   tag: string
+  remark: string
   listen: string
   port: number
   externalPort: number
   externalHost: string
   routeId: number
+  sortOrder: number
   subRoutes: SubRouteItem[]
   boundUserEmail: string
   protocol: string
@@ -52,6 +56,15 @@ export interface InboundFormData {
   xhttpMode: string
   wsPath: string
   grpcService: string
+  httpupgradePath: string
+  httpupgradeHost: string
+  kcpHeaderType: string
+  kcpSeed: string
+  kcpMtu: number
+  kcpTti: number
+  kcpUplinkCapacity: number
+  kcpDownlinkCapacity: number
+  kcpCongestion: boolean
   realityTarget: string
   realityServerNames: string
   realityPrivateKey: string
@@ -60,9 +73,12 @@ export interface InboundFormData {
   tlsServerName: string
   tlsCertFile: string
   tlsKeyFile: string
+  tlsAlpn: string
   fallbacksEnabled: boolean
   fallbackDest: string
   fallbackXver: number
+  fallbackAlpn: string
+  fallbackPath: string
   socksAuth: string
   socksUdp: boolean
   socksUsername: string
@@ -76,15 +92,18 @@ export interface InboundFormData {
   ssPassword: string
   sniffingEnabled: boolean
   sniffingRouteOnly: boolean
+  sniffingDestOverride: string[]
 }
 
 export interface InboundPayload {
   id: number
   tag: string
+  remark?: string
   port: number
   externalPort: number
   externalHost: string
   routeId: number
+  sortOrder: number
   subRoutesJson: string
   boundUserEmail: string
   listen: string
@@ -99,13 +118,15 @@ export function getDefaultInboundFormData(usersList: any[] = []): InboundFormDat
   return {
     id: 0,
     tag: 'vless-tcp',
+    remark: '',
     listen: '0.0.0.0',
     port: 443,
     externalPort: 443,
     externalHost: '',
     routeId: 0,
+    sortOrder: 0,
     subRoutes: [
-      { id: '1', name: '🇯🇵 日本原生直连', routeId: 1, outboundTag: 'direct', enabled: true, allowedUsers: [] },
+      { id: '1', name: '🇯🇵 日本原生直连', routeId: 1, sortOrder: 0, outboundTag: 'direct', enabled: true, allowedUsers: [] },
     ],
     boundUserEmail: '',
     protocol: 'vless',
@@ -117,6 +138,15 @@ export function getDefaultInboundFormData(usersList: any[] = []): InboundFormDat
     xhttpMode: 'auto',
     wsPath: '/ws',
     grpcService: 'xray-grpc',
+    httpupgradePath: '/httpupgrade',
+    httpupgradeHost: '',
+    kcpHeaderType: 'none',
+    kcpSeed: '',
+    kcpMtu: 1350,
+    kcpTti: 50,
+    kcpUplinkCapacity: 5,
+    kcpDownlinkCapacity: 20,
+    kcpCongestion: false,
     realityTarget: '',
     realityServerNames: '',
     realityPrivateKey: '',
@@ -125,9 +155,12 @@ export function getDefaultInboundFormData(usersList: any[] = []): InboundFormDat
     tlsServerName: '',
     tlsCertFile: '',
     tlsKeyFile: '',
+    tlsAlpn: '',
     fallbacksEnabled: false,
     fallbackDest: '80',
     fallbackXver: 0,
+    fallbackAlpn: '',
+    fallbackPath: '',
     socksAuth: 'noauth',
     socksUdp: true,
     socksUsername: '',
@@ -141,6 +174,7 @@ export function getDefaultInboundFormData(usersList: any[] = []): InboundFormDat
     ssPassword: '',
     sniffingEnabled: true,
     sniffingRouteOnly: true,
+    sniffingDestOverride: ['http', 'tls', 'quic'],
   }
 }
 
@@ -151,17 +185,22 @@ export function sanitizeInboundPayload(raw: InboundFormData): InboundFormData {
   const clean: InboundFormData = {
     id: raw.id,
     tag: (raw.tag || '').trim(),
+    remark: (raw.remark || '').trim(),
     listen: (raw.listen || '0.0.0.0').trim(),
     port: raw.port || 443,
     externalPort: raw.externalPort || 0,
     externalHost: (raw.externalHost || '').trim(),
     routeId: raw.routeId || 0,
+    sortOrder: Number(raw.sortOrder || 0),
     boundUserEmail: (raw.boundUserEmail || '').trim(),
     protocol: raw.protocol || 'vless',
     network: raw.network || 'tcp',
     security: raw.security || 'none',
     sniffingEnabled: raw.sniffingEnabled !== false,
     sniffingRouteOnly: raw.sniffingRouteOnly === true,
+    sniffingDestOverride: Array.isArray(raw.sniffingDestOverride) && raw.sniffingDestOverride.length > 0
+      ? [...raw.sniffingDestOverride]
+      : ['http', 'tls', 'quic'],
     subRoutes: [],
     vlessFlow: '',
     selectedUserEmails: [],
@@ -169,6 +208,15 @@ export function sanitizeInboundPayload(raw: InboundFormData): InboundFormData {
     xhttpMode: 'auto',
     wsPath: '',
     grpcService: '',
+    httpupgradePath: '',
+    httpupgradeHost: '',
+    kcpHeaderType: 'none',
+    kcpSeed: '',
+    kcpMtu: 1350,
+    kcpTti: 50,
+    kcpUplinkCapacity: 5,
+    kcpDownlinkCapacity: 20,
+    kcpCongestion: false,
     realityTarget: '',
     realityServerNames: '',
     realityPrivateKey: '',
@@ -177,9 +225,12 @@ export function sanitizeInboundPayload(raw: InboundFormData): InboundFormData {
     tlsServerName: '',
     tlsCertFile: '',
     tlsKeyFile: '',
+    tlsAlpn: '',
     fallbacksEnabled: false,
     fallbackDest: '',
     fallbackXver: 0,
+    fallbackAlpn: '',
+    fallbackPath: '',
     socksAuth: 'noauth',
     socksUdp: true,
     socksUsername: '',
@@ -195,11 +246,18 @@ export function sanitizeInboundPayload(raw: InboundFormData): InboundFormData {
 
   // 1. 协议特定清洗与安全/传输约束
   if (clean.protocol === 'vless') {
-    clean.subRoutes = Array.isArray(raw.subRoutes) ? [...raw.subRoutes] : []
+    clean.subRoutes = (Array.isArray(raw.subRoutes) ? raw.subRoutes : []).map((sr: any) => ({
+      ...sr,
+      sortOrder: Number(sr.sortOrder || 0),
+    }))
     clean.selectedUserEmails = Array.isArray(raw.selectedUserEmails) ? [...raw.selectedUserEmails] : []
     clean.fallbacksEnabled = Boolean(raw.fallbacksEnabled)
     clean.fallbackDest = raw.fallbackDest || '80'
     clean.fallbackXver = raw.fallbackXver || 0
+    if (clean.fallbacksEnabled) {
+      clean.fallbackAlpn = (raw.fallbackAlpn || '').trim()
+      clean.fallbackPath = (raw.fallbackPath || '').trim()
+    }
     if (clean.network === 'tcp' && ['reality', 'tls'].includes(clean.security)) {
       if (raw.vlessFlow === 'none' || raw.vlessFlow === '') {
         clean.vlessFlow = 'none'
@@ -222,6 +280,10 @@ export function sanitizeInboundPayload(raw: InboundFormData): InboundFormData {
     clean.fallbacksEnabled = Boolean(raw.fallbacksEnabled)
     clean.fallbackDest = raw.fallbackDest || '80'
     clean.fallbackXver = raw.fallbackXver || 0
+    if (clean.fallbacksEnabled) {
+      clean.fallbackAlpn = (raw.fallbackAlpn || '').trim()
+      clean.fallbackPath = (raw.fallbackPath || '').trim()
+    }
     clean.vlessFlow = ''
   } else if (clean.protocol === 'shadowsocks') {
     clean.ssMethod = raw.ssMethod || '2022-blake3-aes-128-gcm'
@@ -261,6 +323,17 @@ export function sanitizeInboundPayload(raw: InboundFormData): InboundFormData {
       clean.wsPath = raw.wsPath || '/ws'
     } else if (clean.network === 'grpc') {
       clean.grpcService = raw.grpcService || 'xray-grpc'
+    } else if (clean.network === 'httpupgrade') {
+      clean.httpupgradePath = raw.httpupgradePath || '/httpupgrade'
+      clean.httpupgradeHost = (raw.httpupgradeHost || '').trim()
+    } else if (clean.network === 'mkcp') {
+      clean.kcpHeaderType = raw.kcpHeaderType || 'none'
+      clean.kcpSeed = (raw.kcpSeed || '').trim()
+      clean.kcpMtu = raw.kcpMtu || 1350
+      clean.kcpTti = raw.kcpTti || 50
+      clean.kcpUplinkCapacity = raw.kcpUplinkCapacity || 5
+      clean.kcpDownlinkCapacity = raw.kcpDownlinkCapacity || 20
+      clean.kcpCongestion = Boolean(raw.kcpCongestion)
     }
   }
 
@@ -276,6 +349,7 @@ export function sanitizeInboundPayload(raw: InboundFormData): InboundFormData {
       clean.tlsServerName = raw.tlsServerName || ''
       clean.tlsCertFile = raw.tlsCertFile || ''
       clean.tlsKeyFile = raw.tlsKeyFile || ''
+      clean.tlsAlpn = (raw.tlsAlpn || '').trim()
     }
   }
 
@@ -360,12 +434,17 @@ export function buildSettingsJSON(clean: InboundFormData, usersList: any[] = [])
     }
     settings.clients = clients
     if (clean.fallbacksEnabled && clean.fallbackDest) {
-      settings.fallbacks = [
-        {
-          dest: clean.fallbackDest,
-          xver: clean.fallbackXver || 0,
-        },
-      ]
+      const fb: any = {
+        dest: clean.fallbackDest,
+        xver: clean.fallbackXver || 0,
+      }
+      if (clean.fallbackAlpn) {
+        fb.alpn = clean.fallbackAlpn
+      }
+      if (clean.fallbackPath) {
+        fb.path = clean.fallbackPath
+      }
+      settings.fallbacks = [fb]
     }
     return JSON.stringify(settings, null, 2)
   }
@@ -413,12 +492,17 @@ export function buildSettingsJSON(clean: InboundFormData, usersList: any[] = [])
   settings.clients = clients
 
   if (clean.fallbacksEnabled && clean.fallbackDest) {
-    settings.fallbacks = [
-      {
-        dest: clean.fallbackDest,
-        xver: clean.fallbackXver || 0,
-      },
-    ]
+    const fb: any = {
+      dest: clean.fallbackDest,
+      xver: clean.fallbackXver || 0,
+    }
+    if (clean.fallbackAlpn) {
+      fb.alpn = clean.fallbackAlpn
+    }
+    if (clean.fallbackPath) {
+      fb.path = clean.fallbackPath
+    }
+    settings.fallbacks = [fb]
   }
 
   return JSON.stringify(settings, null, 2)
@@ -452,6 +536,29 @@ export function buildStreamSettingsJSON(clean: InboundFormData): string {
     stream.grpcSettings = {
       serviceName: clean.grpcService || 'xray-grpc',
     }
+  } else if (clean.network === 'httpupgrade') {
+    const hu: any = {
+      path: clean.httpupgradePath || '/httpupgrade',
+    }
+    if (clean.httpupgradeHost) {
+      hu.host = clean.httpupgradeHost
+    }
+    stream.httpupgradeSettings = hu
+  } else if (clean.network === 'mkcp') {
+    const kcp: any = {
+      mtu: clean.kcpMtu || 1350,
+      tti: clean.kcpTti || 50,
+      uplinkCapacity: clean.kcpUplinkCapacity || 5,
+      downlinkCapacity: clean.kcpDownlinkCapacity || 20,
+      congestion: Boolean(clean.kcpCongestion),
+      header: {
+        type: clean.kcpHeaderType || 'none',
+      },
+    }
+    if (clean.kcpSeed) {
+      kcp.seed = clean.kcpSeed
+    }
+    stream.kcpSettings = kcp
   }
 
   if (clean.security === 'reality') {
@@ -477,20 +584,30 @@ export function buildStreamSettingsJSON(clean: InboundFormData): string {
         keyFile: clean.tlsKeyFile?.trim() || '',
       })
     }
-    stream.tlsSettings = {
+    const tlsObj: any = {
       serverName: clean.tlsServerName || '',
       ...(certs.length > 0 ? { certificates: certs } : {}),
     }
+    if (clean.tlsAlpn) {
+      const alpnList = clean.tlsAlpn.split(',').map((s: string) => s.trim()).filter(Boolean)
+      if (alpnList.length > 0) {
+        tlsObj.alpn = alpnList
+      }
+    }
+    stream.tlsSettings = tlsObj
   }
 
   return JSON.stringify(stream, null, 2)
 }
 
 export function buildSniffingJSON(clean: InboundFormData): string {
+  const destOverride = (clean.sniffingDestOverride && clean.sniffingDestOverride.length > 0)
+    ? clean.sniffingDestOverride
+    : ['http', 'tls', 'quic']
   return JSON.stringify(
     {
       enabled: clean.sniffingEnabled,
-      destOverride: ['http', 'tls', 'quic'],
+      destOverride,
       routeOnly: clean.sniffingRouteOnly,
     },
     null,
@@ -503,15 +620,18 @@ export function buildInboundPayload(raw: InboundFormData, usersList: any[] = [])
   return {
     id: clean.id,
     tag: clean.tag,
+    remark: clean.remark || '',
     port: clean.port,
     externalPort: clean.externalPort || 0,
     externalHost: clean.externalHost || '',
     routeId: clean.routeId || 0,
+    sortOrder: clean.sortOrder || 0,
     subRoutesJson: JSON.stringify(
       (clean.subRoutes || []).map((sr: any) => ({
         id: String(sr.id || Math.random().toString(36).substring(2, 9)),
         name: sr.name || '',
         routeId: Number(sr.routeId || 0),
+        sortOrder: Number(sr.sortOrder || 0),
         outboundTag: sr.outboundTag || 'direct',
         enabled: Boolean(sr.enabled),
         allowedUsers: Array.isArray(sr.allowedUsers) && sr.allowedUsers.length > 0 ? sr.allowedUsers : undefined,

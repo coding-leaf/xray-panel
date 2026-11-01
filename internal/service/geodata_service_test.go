@@ -22,7 +22,7 @@ func TestGeoDataService_GetStatus(t *testing.T) {
 	tmpDir := t.TempDir()
 	mockCtrl := &mockCoreController{version: "Xray 1.8.24"}
 
-	svc := NewGeoDataService(tmpDir+"/xray", mockCtrl)
+	svc := NewGeoDataService(tmpDir+"/xray", mockCtrl, nil)
 
 	status, err := svc.GetStatus(context.Background())
 	if err != nil {
@@ -36,5 +36,27 @@ func TestGeoDataService_GetStatus(t *testing.T) {
 	prog := svc.GetProgress()
 	if prog.IsUpdating {
 		t.Errorf("expected IsUpdating to be false initially")
+	}
+}
+
+func TestGeoDataService_CustomGeoDataDirFromSettings(t *testing.T) {
+	tmpDir := t.TempDir()
+	customDir := tmpDir + "/custom_geodata"
+	mockCtrl := &mockCoreController{version: "Xray 1.8.24"}
+	repo := &mockSettingRepo{
+		data: map[string]string{
+			"xray_geodata_dir": customDir,
+		},
+	}
+
+	svc := NewGeoDataService(tmpDir+"/xray", mockCtrl, repo)
+
+	status, err := svc.GetStatus(context.Background())
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if status.TargetDirectory != customDir {
+		t.Errorf("expected TargetDirectory to be %q, got %q", customDir, status.TargetDirectory)
 	}
 }

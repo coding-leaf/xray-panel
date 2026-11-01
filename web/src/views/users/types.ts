@@ -6,6 +6,7 @@ export interface UserItem {
   inboundTags?: string
   inboundTag?: string
   flow?: string
+  remark?: string
   totalBytes: number
   upBytes: number
   downBytes: number
@@ -22,6 +23,10 @@ export interface UserItem {
 export interface UserFormData {
   id?: number
   email: string
+  uuid?: string
+  subToken?: string
+  remark?: string
+  expireTime?: number
   selectedTags: string[]
   flow: string
   totalGB: number
@@ -66,36 +71,33 @@ export function sanitizeUserPayload(
 ): Record<string, any> {
   const totalBytes = form.totalGB > 0 ? Math.round(form.totalGB * 1073741824) : 0
 
-  if (isEditing && existingUser) {
-    let expireTime = existingUser.expireTime || 0
+  let expireTime = form.expireTime ?? (existingUser ? existingUser.expireTime || 0 : 0)
+  if (isEditing) {
     if (form.extendDays > 0) {
       const now = Date.now()
-      expireTime = (!expireTime || expireTime < now)
-        ? now + form.extendDays * 86400000
-        : expireTime + form.extendDays * 86400000
-    }
-    return {
-      email: form.email,
-      inboundTags: form.selectedTags.join(','),
-      inboundTag: form.selectedTags[0] || '',
-      flow: form.flow,
-      totalBytes,
-      expireTime,
-      resetDay: form.resetDay,
-      ipLimit: form.ipLimit,
-      enabled: form.enabled,
+      const base = (!expireTime || expireTime < now) ? now : expireTime
+      expireTime = base + form.extendDays * 86400000
     }
   }
 
-  return {
+  const payload: Record<string, any> = {
     email: form.email,
-    inboundTags: form.selectedTags,
+    uuid: form.uuid ? form.uuid.trim() : undefined,
+    subToken: form.subToken ? form.subToken.trim() : undefined,
+    remark: form.remark ? form.remark.trim() : '',
+    inboundTags: isEditing ? form.selectedTags.join(',') : form.selectedTags,
     inboundTag: form.selectedTags[0] || '',
     flow: form.flow,
     totalBytes,
-    expireDays: form.expireDays,
+    expireTime,
     resetDay: form.resetDay,
     ipLimit: form.ipLimit,
     enabled: form.enabled,
   }
+
+  if (!isEditing && form.expireDays > 0 && (!form.expireTime || form.expireTime <= 0)) {
+    payload.expireDays = form.expireDays
+  }
+
+  return payload
 }

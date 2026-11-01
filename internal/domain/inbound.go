@@ -15,6 +15,7 @@ type Inbound struct {
 	StreamSettings string    `gorm:"type:text" json:"streamSettings"`
 	SniffingJSON   string    `gorm:"type:text" json:"sniffingJson"`
 	Remark         string    `gorm:"type:varchar(128)" json:"remark"`
+	SortOrder      int       `gorm:"default:0" json:"sortOrder"`                                                 // 显示排序权重 (越小越靠前)
 	ExternalPort   int       `gorm:"column:external_port;default:0" json:"externalPort"`                         // 外部公开端口 (如 Nginx 443)，0表示使用全局设置
 	ExternalHost   string    `gorm:"column:external_host;type:varchar(255);default:''" json:"externalHost"`      // 外部连接域名/IP，留空使用全局域名
 	RouteID        uint16    `gorm:"column:route_id;default:0" json:"routeId"`                                   // VLESS 协议级 16 位路由编号 (0 为默认不替换)
@@ -39,6 +40,7 @@ type SubRoute struct {
 	OutboundTag  string   `json:"outboundTag"`            // 目标出站标签 (如 "direct", "us-test", "warp-out")
 	Enabled      bool     `json:"enabled"`                // 是否启用
 	AllowedUsers []string `json:"allowedUsers,omitempty"` // 允许访问的用户 Email 列表（为空表示全员开放）
+	SortOrder    int      `json:"sortOrder"`                      // 排序权重 (越小越靠前)
 }
 
 // CanAccess 校验指定用户是否有权访问此分流线路

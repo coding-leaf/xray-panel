@@ -216,10 +216,13 @@
 
             <!-- 2. Target Outbound -->
             <td class="p-3 align-middle font-mono">
-              <div class="flex items-center gap-1.5">
+              <div class="flex items-center gap-1.5 flex-wrap">
                 <Badge :variant="getOutboundBadgeVariant(rule.outboundTag)">
                   {{ rule.outboundTag }}
                 </Badge>
+                <span v-if="rule.tag" class="px-1.5 py-0.5 rounded bg-neutral-800 text-neutral-300 border border-neutral-700 text-[10px]">
+                  {{ rule.tag }}
+                </span>
                 <span v-if="!isKnownOutbound(rule.outboundTag)" class="text-amber-400 text-[10px] font-semibold" title="系统中未配置该出站标签">
                   ⚠️ 未知出站
                 </span>
@@ -240,6 +243,9 @@
                 <span v-if="rule.vlessRoute" class="px-1.5 py-0.5 rounded bg-indigo-950/60 text-indigo-300 border border-indigo-800/50">
                   vlessRoute: {{ rule.vlessRoute }}
                 </span>
+                <span v-if="rule.user?.length" class="px-1.5 py-0.5 rounded bg-emerald-950/60 text-emerald-300 border border-emerald-800/50">
+                  用户: {{ rule.user.join(', ') }}
+                </span>
                 <span v-if="rule.domain?.length" class="px-1.5 py-0.5 rounded bg-blue-950/60 text-blue-300 border border-blue-800/50">
                   域名: {{ rule.domain.join(', ') }}
                 </span>
@@ -255,7 +261,7 @@
                 <span v-if="rule.network" class="px-1.5 py-0.5 rounded bg-neutral-900 text-neutral-300 border border-border">
                   网络: {{ rule.network }}
                 </span>
-                <span v-if="!rule.vlessRoute && !rule.domain?.length && !rule.ip?.length && !rule.protocol?.length && !rule.port && !rule.network" class="text-muted-foreground text-xs font-sans">
+                <span v-if="!rule.vlessRoute && !rule.user?.length && !rule.domain?.length && !rule.ip?.length && !rule.protocol?.length && !rule.port && !rule.network" class="text-muted-foreground text-xs font-sans">
                   无额外限制 (匹配任意流量)
                 </span>
               </div>
@@ -355,6 +361,12 @@
                 {{ rule.outboundTag }}
               </Badge>
               <span
+                v-if="rule.tag"
+                class="px-1.5 py-0.5 rounded bg-neutral-800 text-neutral-300 border border-neutral-700 text-[10px] shrink-0"
+              >
+                {{ rule.tag }}
+              </span>
+              <span
                 v-if="!isKnownOutbound(rule.outboundTag)"
                 class="text-amber-400 text-[10px] font-semibold shrink-0"
                 title="系统中未配置该出站标签"
@@ -422,6 +434,12 @@
               vlessRoute: {{ rule.vlessRoute }}
             </span>
             <span
+              v-if="rule.user?.length"
+              class="px-1.5 py-0.5 rounded bg-emerald-950/60 text-emerald-300 border border-emerald-800/50 break-all"
+            >
+              用户: {{ rule.user.join(', ') }}
+            </span>
+            <span
               v-if="rule.domain?.length"
               class="px-1.5 py-0.5 rounded bg-blue-950/60 text-blue-300 border border-blue-800/50 break-all"
             >
@@ -452,7 +470,7 @@
               网络: {{ rule.network }}
             </span>
             <span
-              v-if="!rule.vlessRoute && !rule.domain?.length && !rule.ip?.length && !rule.protocol?.length && !rule.port && !rule.network"
+              v-if="!rule.vlessRoute && !rule.user?.length && !rule.domain?.length && !rule.ip?.length && !rule.protocol?.length && !rule.port && !rule.network"
               class="text-muted-foreground text-[11px] font-sans"
             >
               无额外限制 (匹配任意流量)
@@ -478,6 +496,17 @@
       width="w-full sm:max-w-xl md:max-w-2xl"
     >
       <form id="rule-form" @submit.prevent="saveRuleInDrawer" class="space-y-4 text-xs">
+        <div>
+          <label class="block text-foreground mb-1 font-medium">规则标识 / 备注 (Tag，可选)</label>
+          <input
+            v-model="ruleForm.tag"
+            type="text"
+            placeholder="例如: block-ads, proxy-google, route-vip"
+            class="w-full bg-neutral-950 border border-border rounded-md px-3 py-2 text-foreground font-mono text-[11px] focus:outline-none focus:ring-1 focus:ring-ring"
+          />
+          <p class="text-[10px] text-muted-foreground mt-0.5">为该规则指定便于识别的标识或备注信息</p>
+        </div>
+
         <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <!-- 动态 OutboundTag 下拉选择 -->
           <div>
@@ -536,6 +565,19 @@
             class="w-full bg-neutral-950 border border-border rounded-md px-3 py-2 text-foreground font-mono text-[11px] focus:outline-none focus:ring-1 focus:ring-ring"
           />
           <p class="text-[10px] text-muted-foreground mt-0.5">Xray 官方 VLESS 协议级多节点路由分流条件，支持单值、列表或范围匹配</p>
+        </div>
+
+        <div>
+          <label class="block text-foreground mb-1 font-medium">
+            用户匹配列表 (User，可选，多个用逗号或换行隔开)
+          </label>
+          <input
+            v-model="ruleForm.userStr"
+            type="text"
+            placeholder="user1@example.com, user2@example.com (匹配指定用户的 Email 分流)"
+            class="w-full bg-neutral-950 border border-border rounded-md px-3 py-2 text-foreground font-mono text-[11px] focus:outline-none focus:ring-1 focus:ring-ring"
+          />
+          <p class="text-[10px] text-muted-foreground mt-0.5">按用户 Email 进行分流（支持多用户分流至指定出口）</p>
         </div>
 
         <div>
@@ -818,10 +860,13 @@ const presetData = ref<any>({
 })
 
 const ruleForm = ref<any>({
+  tag: '',
   outboundTag: 'direct',
   customOutboundTag: '',
   selectedInboundTag: '',
   inboundTagsStr: '',
+  vlessRoute: '',
+  userStr: '',
   domainStr: '',
   ipStr: '',
   port: '',
@@ -864,11 +909,13 @@ const openAddRuleDrawer = () => {
   editingIndex.value = -1
   const defaultOutbound = availableOutboundTags.value.includes('block') ? 'block' : (availableOutboundTags.value[0] || 'direct')
   ruleForm.value = {
+    tag: '',
     outboundTag: defaultOutbound,
     customOutboundTag: '',
     selectedInboundTag: '',
     inboundTagsStr: '',
     vlessRoute: '',
+    userStr: '',
     domainStr: '',
     ipStr: '',
     port: '',
@@ -895,11 +942,13 @@ const editRule = (idx: number) => {
   const isCustom = !availableOutboundTags.value.includes(r.outboundTag)
 
   ruleForm.value = {
+    tag: r.tag || '',
     outboundTag: isCustom ? '__custom__' : r.outboundTag,
     customOutboundTag: isCustom ? r.outboundTag : '',
     selectedInboundTag: '',
     inboundTagsStr: (r.inboundTag || []).join(', '),
     vlessRoute: r.vlessRoute || '',
+    userStr: (r.user || []).join(', '),
     domainStr: (r.domain || []).join(',\n'),
     ipStr: (r.ip || []).join(',\n'),
     port: r.port || '',
@@ -927,9 +976,15 @@ const saveRuleInDrawer = () => {
   const newRule: any = {
     outboundTag: targetOutbound,
   }
+  if (ruleForm.value.tag && ruleForm.value.tag.trim()) {
+    newRule.tag = ruleForm.value.tag.trim()
+  }
   if (ruleForm.value.vlessRoute && ruleForm.value.vlessRoute.trim()) {
     newRule.vlessRoute = ruleForm.value.vlessRoute.trim()
   }
+
+  const users = parseArray(ruleForm.value.userStr)
+  if (users) newRule.user = users
 
   const inbounds = parseArray(ruleForm.value.inboundTagsStr)
   if (inbounds) newRule.inboundTag = inbounds
@@ -1122,7 +1177,9 @@ const confirmInjectPreset = () => {
 }
 
 const formatRuleSummary = (rule: any) => {
+  if (rule.tag) return `[${rule.tag}]`
   if (rule.vlessRoute) return `vlessRoute: ${rule.vlessRoute}`
+  if (rule.user) return `用户: ${rule.user.join(', ')}`
   if (rule.domain) return `域名: ${rule.domain.join(', ')}`
   if (rule.ip) return `IP: ${rule.ip.join(', ')}`
   if (rule.protocol) return `协议: ${rule.protocol.join(', ')}`

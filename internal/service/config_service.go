@@ -229,11 +229,44 @@ func (s *ConfigService) syncFromRawJSON(ctx context.Context, rawJSON []byte) err
 				listen, _ := ib["listen"].(string)
 				protocol, _ := ib["protocol"].(string)
 
+				existing, _ := s.inboundRepo.GetByTag(ctx, tag)
+				if strings.EqualFold(protocol, "vless") {
+					if settingsMap, ok := ib["settings"].(map[string]interface{}); ok {
+						rawFlow, _ := settingsMap["flow"].(string)
+						if strings.TrimSpace(rawFlow) == "" {
+							preserveNone := false
+							if existing != nil {
+								var prevSettings map[string]interface{}
+								if err := json.Unmarshal([]byte(existing.SettingsJSON), &prevSettings); err == nil {
+									if pf, ok := prevSettings["flow"].(string); ok && strings.EqualFold(strings.TrimSpace(pf), "none") {
+										preserveNone = true
+									}
+								}
+							}
+							hasClientWithFlow := false
+							hasAnyClient := false
+							if clientsRaw, ok := settingsMap["clients"].([]interface{}); ok && len(clientsRaw) > 0 {
+								hasAnyClient = true
+								for _, cRaw := range clientsRaw {
+									if cMap, ok := cRaw.(map[string]interface{}); ok {
+										if cf, _ := cMap["flow"].(string); strings.TrimSpace(cf) != "" {
+											hasClientWithFlow = true
+											break
+										}
+									}
+								}
+							}
+							if (preserveNone && !hasClientWithFlow) || (hasAnyClient && !hasClientWithFlow) {
+								settingsMap["flow"] = "none"
+							}
+						}
+					}
+				}
+
 				settingsBytes, _ := json.Marshal(ib["settings"])
 				streamBytes, _ := json.Marshal(ib["streamSettings"])
 				sniffingBytes, _ := json.Marshal(ib["sniffing"])
 
-				existing, _ := s.inboundRepo.GetByTag(ctx, tag)
 				if existing != nil {
 					existing.Port = port
 					existing.Listen = listen
@@ -281,7 +314,6 @@ func (s *ConfigService) syncFromRawJSON(ctx context.Context, rawJSON []byte) err
 							existingUser, _ := s.userRepo.GetByEmail(ctx, email)
 							if existingUser != nil {
 								existingUser.UUID = uuidStr
-								existingUser.Flow = flow
 								tags := existingUser.GetInboundTagList()
 								if !existingUser.HasInbound(tag) {
 									tags = append(tags, tag)
@@ -574,10 +606,62 @@ func (s *ConfigService) SaveRoutingConfig(ctx context.Context, cfg *domain.Routi
 	return s.supervisor.Reload(ctx)
 }
 
+func isPureSubRouteFallbackRule(r domain.RoutingRule) bool {
+	return len(r.Domain) == 0 &&
+		len(r.IP) == 0 &&
+		r.Port == "" &&
+		r.Network == "" &&
+		len(r.Protocol) == 0 &&
+		r.Attrs == "" &&
+		r.Tag == ""
+}
+
 func (s *ConfigService) ensureSubRouteRules(routing *domain.RoutingConfig, inbounds []domain.Inbound) {
 	if routing == nil {
 		return
 	}
+
+	// 1. 建立受管入站及其启用 SubRoute 的权威索引: inboundTag -> (routeIDStr -> SubRoute)
+	managedInbounds := make(map[string]map[string]domain.SubRoute, len(inbounds))
+	for _, inb := range inbounds {
+		activeMap := make(map[string]domain.SubRoute)
+		if inb.Enabled {
+			for _, sr := range inb.GetSubRoutes() {
+				if !sr.Enabled || sr.RouteID <= 0 || sr.OutboundTag == "" {
+					continue
+				}
+				routeIDStr := fmt.Sprintf("%d", sr.RouteID)
+				activeMap[routeIDStr] = sr
+			}
+		}
+		managedInbounds[inb.Tag] = activeMap
+	}
+
+	// 2. 清理已删除/改号的僵尸 SubRoute 纯兜底规则，并就地同步已修改的 OutboundTag 与 AllowedUsers
+	var reconciled []domain.RoutingRule
+	for _, r := range routing.Rules {
+		if r.VlessRoute != "" && len(r.InboundTag) == 1 && isPureSubRouteFallbackRule(r) {
+			inbTag := r.InboundTag[0]
+			if activeMap, isManaged := managedInbounds[inbTag]; isManaged {
+				sr, stillExists := activeMap[r.VlessRoute]
+				if !stillExists {
+					// 该 SubRoute ID 已在入站中被删除、停用或改号，移除残留僵尸规则
+					continue
+				}
+				// 就地同步最新的目标出站与授权用户白名单
+				r.OutboundTag = sr.OutboundTag
+				if len(sr.AllowedUsers) > 0 {
+					r.User = sr.AllowedUsers
+				} else {
+					r.User = nil
+				}
+			}
+		}
+		reconciled = append(reconciled, r)
+	}
+	routing.Rules = reconciled
+
+	// 3. 补齐尚未存在于 routing.Rules 中的新增 SubRoute 兜底规则
 	for _, inb := range inbounds {
 		if !inb.Enabled {
 			continue
@@ -590,7 +674,7 @@ func (s *ConfigService) ensureSubRouteRules(routing *domain.RoutingConfig, inbou
 
 			matched := false
 			for _, r := range routing.Rules {
-				if r.VlessRoute == routeIDStr {
+				if r.VlessRoute == routeIDStr && isPureSubRouteFallbackRule(r) {
 					if len(r.InboundTag) == 0 || sliceContains(r.InboundTag, inb.Tag) {
 						matched = true
 						break

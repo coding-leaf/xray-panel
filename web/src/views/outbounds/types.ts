@@ -35,6 +35,11 @@ export interface OutboundFormState {
   realityShortId: string
   tlsServerName: string
   tlsFingerprint: string
+  realitySpiderX: string
+  wgMtu: number
+  wgNoKernelTun: boolean
+  httpupgradePath: string
+  httpupgradeHost: string
 }
 
 export interface OutboundPayload {
@@ -75,6 +80,11 @@ export function createDefaultOutboundForm(): OutboundFormState {
     realityShortId: '0123456789abcdef',
     tlsServerName: '',
     tlsFingerprint: 'chrome',
+    realitySpiderX: '',
+    wgMtu: 1280,
+    wgNoKernelTun: true,
+    httpupgradePath: '/httpupgrade',
+    httpupgradeHost: '',
   }
 }
 
@@ -126,15 +136,22 @@ export function populateOutboundForm(ob: OutboundItem): OutboundFormState {
     form.realityPublicKey = str.realitySettings.publicKey || ''
     form.realityShortId = str.realitySettings.shortId || ''
     form.realityFingerprint = str.realitySettings.fingerprint || 'chrome'
+    form.realitySpiderX = str.realitySettings.spiderX || ''
   }
   if (str.tlsSettings) {
     form.tlsServerName = str.tlsSettings.serverName || ''
     form.tlsFingerprint = str.tlsSettings.fingerprint || 'chrome'
   }
+  if (str.httpupgradeSettings) {
+    form.httpupgradePath = str.httpupgradeSettings.path || '/httpupgrade'
+    form.httpupgradeHost = str.httpupgradeSettings.host || ''
+  }
 
   if (ob.protocol === 'wireguard') {
     form.wgSecretKey = s.secretKey || ''
     form.wgAddress = (s.address || ['172.16.0.2/32'])[0]
+    form.wgMtu = s.mtu !== undefined ? s.mtu : 1280
+    form.wgNoKernelTun = s.noKernelTun !== undefined ? s.noKernelTun : true
     if (s.peers?.length > 0) {
       form.wgEndpoint = s.peers[0].endpoint || ''
       form.wgPeerPublicKey = s.peers[0].publicKey || ''
@@ -203,8 +220,8 @@ export function buildSettingsJSON(form: OutboundFormState): string {
     return JSON.stringify({
       secretKey: form.wgSecretKey,
       address: [form.wgAddress || '172.16.0.2/32'],
-      noKernelTun: true,
-      mtu: 1280,
+      noKernelTun: form.wgNoKernelTun !== false,
+      mtu: form.wgMtu || 1280,
       peers: [
         {
           endpoint: form.wgEndpoint,
@@ -325,15 +342,27 @@ export function buildStreamSettingsJSON(form: OutboundFormState): string {
     stream.grpcSettings = {
       serviceName: form.grpcServiceName || 'xray-grpc',
     }
+  } else if (form.streamNetwork === 'httpupgrade') {
+    const hu: Record<string, any> = {
+      path: form.httpupgradePath || '/httpupgrade',
+    }
+    if (form.httpupgradeHost) {
+      hu.host = form.httpupgradeHost
+    }
+    stream.httpupgradeSettings = hu
   }
 
   if (form.streamSecurity === 'reality') {
-    stream.realitySettings = {
+    const r: Record<string, any> = {
       serverName: form.realityServerName || '',
       publicKey: form.realityPublicKey || '',
       shortId: form.realityShortId || '',
       fingerprint: form.realityFingerprint || 'chrome',
     }
+    if (form.realitySpiderX) {
+      r.spiderX = form.realitySpiderX
+    }
+    stream.realitySettings = r
   } else if (form.streamSecurity === 'tls') {
     stream.tlsSettings = {
       serverName: form.tlsServerName || '',

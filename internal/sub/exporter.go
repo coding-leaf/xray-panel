@@ -80,10 +80,19 @@ func init() {
 }
 
 // ExportSubscription 统一导出多节点订阅配置 (基于策略模式分发)
-func ExportSubscription(nodes []*protocol.NodeConfig, format string) (string, error) {
+func ExportSubscription(nodes []*protocol.NodeConfig, format string, opts ...interface{}) (string, error) {
 	fmtLower := strings.ToLower(strings.TrimSpace(format))
 	if fmtLower == "" {
 		fmtLower = FormatBase64
+	}
+
+	// 针对定制 Clash 参数的特殊分发
+	if fmtLower == FormatClash || fmtLower == "clash-meta" || fmtLower == "mihomo" {
+		for _, opt := range opts {
+			if cp, ok := opt.(ClashParams); ok {
+				return ExportClashWithParams(nodes, cp)
+			}
+		}
 	}
 
 	globalExporters.mu.RLock()

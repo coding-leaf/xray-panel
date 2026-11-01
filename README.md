@@ -1,7 +1,7 @@
 # Xray Decoupled Panel
 
 <p align="center">
-  <img src="https://img.shields.io/badge/Version-v2.6.6-indigo?style=flat-square" alt="Version">
+  <img src="https://img.shields.io/badge/Version-v2.6.7-indigo?style=flat-square" alt="Version">
   <img src="https://img.shields.io/badge/Go-1.26+-00ADD8?style=flat-square&logo=go" alt="Go Version">
   <img src="https://img.shields.io/badge/Vue-3.4+-4FC08D?style=flat-square&logo=vue.js" alt="Vue Version">
   <img src="https://img.shields.io/badge/License-MIT-green.svg?style=flat-square" alt="License">
@@ -24,6 +24,7 @@
 
 - **控制面与数据面解耦**：通过自研轻量 gRPC 契约包与 Xray API 直接交互，用户启停与凭证变更实时生效，长连接不中断；仅在入站、出站、全局路由分流规则变更时执行平滑内核重载。
 - **入站分流与用户隔离**：支持单入站端口多出口分流线路（VLESS 16-bit routeId 机制），可按分流线路配置用户授权白名单，实现订阅节点动态下发与内核级路由匹配隔离。
+- **高可定制用户与客户端订阅编排**：支持用户全生命周期属性编辑（Email/UUID/SubToken 热同步、用户级 Flow 覆盖、多模式到期时间与备注检索）；支持入站与子线路客户端展示排序权重 (`SortOrder`)、自定义节点命名模板、顶部流量/到期虚拟状态节点与置顶公告节点。
 - **多协议适配与聚合订阅**：支持 VLESS (Vision/Reality)、VMess、Trojan、Shadowsocks 等协议，提供 Base64、Clash / Mihomo、Sing-box 订阅格式聚合导出与二维码扫码。
 - **全方位系统可观测性**：采集主机 CPU、内存、磁盘与真实网卡吞吐（自动过滤回环及虚拟网卡）；支持用户瞬时速率统计与月度自适应流量重置；内置零堆分配 Xray 访问与错误日志快速检索。
 - **可靠事务与单二进制交付**：SQLite 嵌入式存储（WAL 模式）作为业务真相源，具备 Saga 逆向补偿机制保障数据库、Xray 内存与物理配置文件三态一致；前端产物通过 Go embed 打包进单二进制，无外部运行依赖。
@@ -81,6 +82,7 @@ sudo bash deploy/install.sh
 | `-log-level` | `LOG_LEVEL` | `info` | 日志输出级别（`debug`/`info`/`warn`/`error`） |
 | `-service` | `SERVICE_NAME` | `xray` | Xray 守护进程 systemd 服务名 |
 | `-public-url` | `PUBLIC_URL` | `http://127.0.0.1:9000` | 用于生成订阅链接的面板公网访问地址 |
+| `-panel-version` | `PANEL_VERSION` | 编译期注入版本 (`v2.6.7`) | 动态覆盖面板展示版本号（同时支持 `-v` / `-version` 打印版本） |
 
 ---
 

@@ -165,12 +165,155 @@
       </div>
     </div>
 
-    <!-- 3. Telegram 机器人运维与告警设置 -->
+    <!-- 3. 订阅导出与客户端展示配置 -->
+    <div class="p-4 rounded-lg bg-card border border-border space-y-4">
+      <div class="flex items-center justify-between">
+        <h2 class="text-xs font-semibold text-foreground uppercase tracking-wider font-mono flex items-center gap-1.5">
+          <Sliders class="w-3.5 h-3.5 text-emerald-400" />
+          <span>③ 订阅导出与客户端展示配置</span>
+        </h2>
+        <Badge variant="outline" class="text-[10px] font-mono">
+          多端格式规范适配
+        </Badge>
+      </div>
+      <p class="text-xs text-muted-foreground">
+        定制订阅下发时的顶部虚拟提示节点、自定义节点命名规则、HTTP 响应元信息以及 Clash / Sing-box 等客户端配置参数。
+      </p>
+
+      <!-- 虚拟提示节点与置顶公告 -->
+      <div class="p-3 rounded-md bg-neutral-950 border border-border/80 space-y-3">
+        <div class="flex items-center justify-between">
+          <div>
+            <label class="text-xs font-medium text-foreground block">聚合订阅顶部虚拟状态提示节点</label>
+            <p class="text-[10px] text-muted-foreground mt-0.5">
+              在客户端节点列表最顶端前置插入剩余流量与账号有效期提示项（兼容 Base64 / Clash / Sing-box，不影响实际代理连接）
+            </p>
+          </div>
+          <input
+            type="checkbox"
+            v-model="settings.sub_show_info_nodes"
+            class="rounded bg-neutral-900 border-border text-foreground focus:ring-0 cursor-pointer h-4 w-4"
+          />
+        </div>
+
+        <div v-if="settings.sub_show_info_nodes" class="pt-2 border-t border-border/40">
+          <label class="block text-muted-foreground text-xs font-medium mb-1">置顶自定义公告内容 (选填)</label>
+          <input
+            v-model="settings.sub_custom_announcement"
+            type="text"
+            placeholder="例如：📢 欢迎使用，客服 TG 群: @yourgroup"
+            class="w-full bg-neutral-900 border border-border rounded-md px-2.5 py-1.5 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-ring"
+          />
+          <p class="text-[10px] text-muted-foreground mt-1">
+            若填写，将在流量提示项上方生成 <code>📢 公告: &lt;内容&gt;</code> 虚拟展示节点；留空则不生成公告。
+          </p>
+        </div>
+      </div>
+
+      <!-- 命名模板与 HTTP 响应元信息 -->
+      <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
+        <div>
+          <label class="block text-muted-foreground font-medium mb-1">节点命名模板 (Node Name Template)</label>
+          <input
+            v-model="settings.sub_node_name_template"
+            type="text"
+            placeholder="{remark}"
+            class="w-full bg-neutral-950 border border-border rounded-md px-2.5 py-1.5 text-foreground font-mono focus:outline-none focus:ring-1 focus:ring-ring"
+          />
+          <p class="text-[10px] text-muted-foreground mt-1">
+            支持变量: <code>{remark}</code> (线路备注), <code>{tag}</code> (入站Tag), <code>{protocol}</code> (协议大写), <code>{port}</code>, <code>{index}</code>。例如: <code>{remark} [{protocol}]</code>
+          </p>
+        </div>
+
+        <div>
+          <label class="block text-muted-foreground font-medium mb-1">客户端默认 uTLS 指纹 (Fingerprint)</label>
+          <select
+            v-model="settings.sub_default_fingerprint"
+            class="w-full bg-neutral-950 border border-border rounded-md px-2.5 py-1.5 text-foreground font-mono focus:outline-none focus:ring-1 focus:ring-ring cursor-pointer"
+          >
+            <option value="chrome">chrome (推荐)</option>
+            <option value="firefox">firefox</option>
+            <option value="safari">safari</option>
+            <option value="random">random (随机)</option>
+            <option value="ios">ios</option>
+            <option value="android">android</option>
+            <option value="edge">edge</option>
+          </select>
+          <p class="text-[10px] text-muted-foreground mt-1">TLS / REALITY 客户端握手伪装指纹缺省值</p>
+        </div>
+
+        <div>
+          <label class="block text-muted-foreground font-medium mb-1">订阅合集名称 (Profile-Title)</label>
+          <input
+            v-model="settings.sub_profile_title"
+            type="text"
+            placeholder="Xray Panel"
+            class="w-full bg-neutral-950 border border-border rounded-md px-2.5 py-1.5 text-foreground font-mono focus:outline-none focus:ring-1 focus:ring-ring"
+          />
+          <p class="text-[10px] text-muted-foreground mt-1">注入至 HTTP 响应头 <code>Profile-Title</code>，客户端显示的订阅组名称</p>
+        </div>
+
+        <div>
+          <label class="block text-muted-foreground font-medium mb-1">自动更新间隔 (Profile-Update-Interval 小时)</label>
+          <input
+            v-model.number="settings.sub_update_interval"
+            type="number"
+            min="1"
+            placeholder="24"
+            class="w-full bg-neutral-950 border border-border rounded-md px-2.5 py-1.5 text-foreground font-mono focus:outline-none focus:ring-1 focus:ring-ring"
+          />
+          <p class="text-[10px] text-muted-foreground mt-1">注入至 HTTP 响应头，指示客户端按周期自动拉取更新 (默认 24 小时)</p>
+        </div>
+      </div>
+
+      <!-- Clash 客户端导出高级参数 -->
+      <div class="pt-2 border-t border-border/40 space-y-3">
+        <h3 class="text-xs font-semibold text-foreground font-mono">Clash 客户端导出参数 (Clash Overwrite)</h3>
+        <div class="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">
+          <div>
+            <label class="block text-muted-foreground font-medium mb-1">混合监听端口 (mixed-port)</label>
+            <input
+              v-model.number="settings.sub_clash_mixed_port"
+              type="number"
+              placeholder="7890"
+              class="w-full bg-neutral-950 border border-border rounded-md px-2.5 py-1.5 text-foreground font-mono focus:outline-none focus:ring-1 focus:ring-ring"
+            />
+            <p class="text-[10px] text-muted-foreground mt-1">Clash 本地混合代理监听端口</p>
+          </div>
+
+          <div>
+            <label class="block text-muted-foreground font-medium mb-1">运行模式 (mode)</label>
+            <select
+              v-model="settings.sub_clash_mode"
+              class="w-full bg-neutral-950 border border-border rounded-md px-2.5 py-1.5 text-foreground font-mono focus:outline-none focus:ring-1 focus:ring-ring cursor-pointer"
+            >
+              <option value="rule">rule (规则路由分流 - 推荐)</option>
+              <option value="global">global (全局代理)</option>
+              <option value="direct">direct (全部直连)</option>
+            </select>
+            <p class="text-[10px] text-muted-foreground mt-1">Clash 启动时的默认分流模式</p>
+          </div>
+
+          <div class="flex items-center pt-5 sm:pt-6">
+            <label class="flex items-center gap-2 cursor-pointer text-muted-foreground hover:text-foreground">
+              <input
+                type="checkbox"
+                v-model="settings.sub_clash_allow_lan"
+                class="rounded bg-neutral-900 border-border text-foreground focus:ring-0 cursor-pointer h-4 w-4"
+              />
+              <span class="text-xs text-foreground font-medium">允许局域网连接 (allow-lan)</span>
+            </label>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 4. Telegram 机器人运维与告警设置 -->
     <div class="p-4 rounded-lg bg-card border border-border space-y-3">
       <div class="flex items-center justify-between">
         <h2 class="text-xs font-semibold text-foreground uppercase tracking-wider font-mono flex items-center gap-1.5">
           <Send class="w-3.5 h-3.5 text-indigo-400" />
-          <span>③ Telegram 机器人运维与告警配置</span>
+          <span>④ Telegram 机器人运维与告警配置</span>
         </h2>
         <Button
           variant="secondary"
@@ -210,11 +353,11 @@
       </div>
     </div>
 
-    <!-- 4. 管理员密码修改 -->
+    <!-- 5. 管理员密码修改 -->
     <div class="p-4 rounded-lg bg-card border border-border space-y-3">
       <h2 class="text-xs font-semibold text-foreground uppercase tracking-wider font-mono flex items-center gap-1.5">
         <Lock class="w-3.5 h-3.5 text-purple-400" />
-        <span>④ 管理员密码安全修改</span>
+        <span>⑤ 管理员密码安全修改</span>
       </h2>
 
       <form @submit.prevent="changePassword" class="space-y-3 max-w-md text-xs">
@@ -251,12 +394,12 @@
       </form>
     </div>
 
-    <!-- 5. TOTP 双因素认证 (2FA) 安全加固 -->
+    <!-- 6. TOTP 双因素认证 (2FA) 安全加固 -->
     <div class="p-4 rounded-lg bg-card border border-border space-y-3">
       <div class="flex items-center justify-between">
         <h2 class="text-xs font-semibold text-foreground uppercase tracking-wider font-mono flex items-center gap-1.5">
           <ShieldCheck class="w-3.5 h-3.5 text-emerald-400" />
-          <span>⑤ TOTP 双因素身份认证 (2FA)</span>
+          <span>⑥ TOTP 双因素身份认证 (2FA)</span>
         </h2>
         <Badge
           :variant="totpEnabled ? 'default' : 'secondary'"
@@ -399,7 +542,7 @@
 
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
-import { Send, Globe, Lock, Cpu, Save, ShieldCheck, ShieldAlert, QrCode } from 'lucide-vue-next'
+import { Send, Globe, Lock, Cpu, Save, ShieldCheck, ShieldAlert, QrCode, Sliders } from 'lucide-vue-next'
 import QrcodeVue from 'qrcode.vue'
 import Button from '../components/ui/Button.vue'
 import Badge from '../components/ui/Badge.vue'
@@ -419,6 +562,15 @@ const settings = ref<any>({
   public_port: 443,
   tg_bot_token: '',
   tg_admin_chat_id: '',
+  sub_show_info_nodes: true,
+  sub_custom_announcement: '',
+  sub_node_name_template: '{remark}',
+  sub_profile_title: 'Xray Panel',
+  sub_update_interval: 24,
+  sub_default_fingerprint: 'chrome',
+  sub_clash_mixed_port: 7890,
+  sub_clash_allow_lan: false,
+  sub_clash_mode: 'rule',
 })
 
 const saving = ref(false)
@@ -457,6 +609,18 @@ const fetchSettings = async () => {
       settings.value = {
         ...settings.value,
         ...res,
+      }
+      if (res.sub_show_info_nodes !== undefined) {
+        settings.value.sub_show_info_nodes = res.sub_show_info_nodes === true || res.sub_show_info_nodes === 'true' || res.sub_show_info_nodes === '1'
+      }
+      if (res.sub_clash_allow_lan !== undefined) {
+        settings.value.sub_clash_allow_lan = res.sub_clash_allow_lan === true || res.sub_clash_allow_lan === 'true' || res.sub_clash_allow_lan === '1'
+      }
+      if (res.sub_update_interval !== undefined) {
+        settings.value.sub_update_interval = Number(res.sub_update_interval) || 24
+      }
+      if (res.sub_clash_mixed_port !== undefined) {
+        settings.value.sub_clash_mixed_port = Number(res.sub_clash_mixed_port) || 7890
       }
     }
     // 若未配置 public_url 或仍为默认 127.0.0.1，自动根据当前浏览器地址推荐

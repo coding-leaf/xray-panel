@@ -2,6 +2,7 @@ package sub
 
 import (
 	"fmt"
+	"strings"
 
 	"panel/internal/protocol"
 
@@ -10,8 +11,9 @@ import (
 
 // ClashConfig Clash / Mihomo 标准配置结构
 type ClashConfig struct {
-	Port        int                      `yaml:"port"`
-	SocksPort   int                      `yaml:"socks-port"`
+	Port        int                      `yaml:"port,omitempty"`
+	SocksPort   int                      `yaml:"socks-port,omitempty"`
+	MixedPort   int                      `yaml:"mixed-port,omitempty"`
 	AllowLan    bool                     `yaml:"allow-lan"`
 	Mode        string                   `yaml:"mode"`
 	LogLevel    string                   `yaml:"log-level"`
@@ -20,8 +22,15 @@ type ClashConfig struct {
 	Rules       []string                 `yaml:"rules"`
 }
 
-// ExportClash 将多节点配置转换为 Clash / Mihomo YAML 订阅 (基于 protocol.Registry 策略模式)
-func ExportClash(nodes []*protocol.NodeConfig) (string, error) {
+// ClashParams 定义 Clash 导出可定制参数
+type ClashParams struct {
+	MixedPort int    `yaml:"mixed-port"`
+	AllowLan  bool   `yaml:"allow-lan"`
+	Mode      string `yaml:"mode"`
+}
+
+// ExportClashWithParams 将多节点配置转换为带定制参数的 Clash / Mihomo YAML 订阅
+func ExportClashWithParams(nodes []*protocol.NodeConfig, params ClashParams) (string, error) {
 	proxies := make([]map[string]interface{}, 0, len(nodes))
 	proxyNames := make([]string, 0, len(nodes))
 
@@ -50,11 +59,21 @@ func ExportClash(nodes []*protocol.NodeConfig) (string, error) {
 		fallbackProxies = []string{"DIRECT"}
 	}
 
+	mixedPort := params.MixedPort
+	if mixedPort <= 0 {
+		mixedPort = 7890
+	}
+	mode := strings.ToLower(strings.TrimSpace(params.Mode))
+	if mode == "" {
+		mode = "rule"
+	}
+
 	cfg := ClashConfig{
-		Port:      7890,
-		SocksPort: 7891,
-		AllowLan:  false,
-		Mode:      "rule",
+		Port:      mixedPort,
+		SocksPort: mixedPort + 1,
+		MixedPort: mixedPort,
+		AllowLan:  params.AllowLan,
+		Mode:      mode,
 		LogLevel:  "info",
 		Proxies:   proxies,
 		ProxyGroups: []map[string]interface{}{
@@ -82,4 +101,13 @@ func ExportClash(nodes []*protocol.NodeConfig) (string, error) {
 	}
 
 	return string(data), nil
+}
+
+// ExportClash 将多节点配置转换为 Clash / Mihomo YAML 订阅 (基于 protocol.Registry 策略模式)
+func ExportClash(nodes []*protocol.NodeConfig) (string, error) {
+	return ExportClashWithParams(nodes, ClashParams{
+		MixedPort: 7890,
+		AllowLan:  false,
+		Mode:      "rule",
+	})
 }

@@ -27,6 +27,7 @@ const DEFAULT_RAW_STATE: MockState = {
       externalPort: 443,
       externalHost: 'demo.example.com',
       routeId: 0,
+      sortOrder: 0,
       protocol: 'vless',
       settingsJson: JSON.stringify({
         decryption: 'none',
@@ -51,18 +52,21 @@ const DEFAULT_RAW_STATE: MockState = {
       subRoutesJson: JSON.stringify([
         {
           routeId: 1,
+          sortOrder: 1,
           name: '🇯🇵 日本东京原生 (直连出口)',
           outboundTag: 'direct',
           enabled: true,
         },
         {
           routeId: 2,
+          sortOrder: 2,
           name: '🇭🇰 香港低延迟 (落地节点)',
           outboundTag: 'hk-landing',
           enabled: true,
         },
         {
           routeId: 3,
+          sortOrder: 3,
           name: '🇺🇸 美国西海岸 (WARP 解锁)',
           outboundTag: 'warp-out',
           enabled: true,
@@ -526,6 +530,15 @@ const DEFAULT_RAW_STATE: MockState = {
     tg_bot_token: '123456789:ABCdefGHIjklMNOpqrSTUvwxYZ',
     tg_admin_chat_id: '987654321',
     totpEnabled: false,
+    sub_show_info_nodes: true,
+    sub_custom_announcement: '',
+    sub_node_name_template: '{remark}',
+    sub_profile_title: 'Xray Panel',
+    sub_update_interval: 24,
+    sub_default_fingerprint: 'chrome',
+    sub_clash_mixed_port: 7890,
+    sub_clash_allow_lan: false,
+    sub_clash_mode: 'rule',
   },
   snapshots: [
     {

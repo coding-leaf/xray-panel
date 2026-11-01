@@ -3,7 +3,7 @@
     :model-value="modelValue"
     @update:model-value="emit('update:modelValue', $event)"
     :title="`用户巡检: ${user?.email || ''}`"
-    :description="`UUID: ${user?.uuid || '未分配'} · 独立 Token 聚合订阅`"
+    :description="`UUID: ${user?.uuid || '未分配'} · 独立 Token 聚合订阅${user?.remark ? ' · 备注: ' + user.remark : ''}`"
     width="w-full sm:max-w-xl md:max-w-2xl"
   >
     <div v-if="user" class="space-y-4 text-xs">
@@ -58,6 +58,11 @@
           >
             <span>{{ user.enabled ? '停用账号' : '启用账号' }}</span>
           </Button>
+        </div>
+
+        <div v-if="user.remark" class="pt-2 border-t border-border/40 flex items-start gap-2">
+          <span class="text-[10px] text-muted-foreground uppercase font-mono shrink-0 pt-0.5">用户备注:</span>
+          <span class="text-xs text-foreground font-medium select-all">{{ user.remark }}</span>
         </div>
       </div>
 
@@ -225,6 +230,24 @@
               <Button variant="secondary" size="sm" class="h-7 px-2" @click="copyText(UserSubscriptionService.getDirectTokenSubUrl(user))">
                 <Copy class="w-3 h-3" />
               </Button>
+            </div>
+          </div>
+
+          <div>
+            <label class="text-[10px] text-muted-foreground uppercase block mb-1">流控策略 (Flow)</label>
+            <div class="flex items-center gap-2">
+              <Badge v-if="user.flow === 'xtls-rprx-vision'" variant="outline" class="text-xs text-cyan-400 border-cyan-500/30 font-mono">
+                xtls-rprx-vision (强制启用 Vision)
+              </Badge>
+              <Badge v-else-if="user.flow === 'none'" variant="outline" class="text-xs text-neutral-400 border-neutral-700 font-mono">
+                none (显式禁用流控)
+              </Badge>
+              <Badge v-else-if="user.flow" variant="outline" class="text-xs font-mono">
+                {{ user.flow }}
+              </Badge>
+              <span v-else class="text-xs text-muted-foreground font-mono">
+                跟随节点默认策略
+              </span>
             </div>
           </div>
         </div>

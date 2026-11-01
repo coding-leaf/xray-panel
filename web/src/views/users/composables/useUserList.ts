@@ -91,10 +91,11 @@ export function useUserList() {
       const emailMatch = user.email?.toLowerCase().includes(query)
       const uuidMatch = user.uuid?.toLowerCase().includes(query)
       const subTokenMatch = user.subToken?.toLowerCase().includes(query)
+      const remarkMatch = user.remark?.toLowerCase().includes(query)
       const inboundMatch = UserSubscriptionService.getNodeTags(user, availableInbounds.value).some((tag) =>
         tag.toLowerCase().includes(query)
       )
-      return emailMatch || uuidMatch || subTokenMatch || inboundMatch
+      return emailMatch || uuidMatch || subTokenMatch || remarkMatch || inboundMatch
     })
   })
 

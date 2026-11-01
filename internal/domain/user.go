@@ -14,6 +14,7 @@ type User struct {
 	InboundTags string    `gorm:"type:text" json:"inboundTags"`              // 授权的 Inbound Tags (逗号隔开)
 	Flow        string    `gorm:"type:varchar(32)" json:"flow"`
 	SubToken    string    `gorm:"type:varchar(64);uniqueIndex" json:"subToken"`
+	Remark      string    `gorm:"type:varchar(255)" json:"remark"`
 	TotalBytes  int64     `gorm:"default:0" json:"totalBytes"` // 0 为不限制
 	UpBytes     int64     `gorm:"default:0" json:"upBytes"`
 	DownBytes   int64     `gorm:"default:0" json:"downBytes"`
@@ -104,6 +105,10 @@ type UserShareResponse struct {
 }
 
 type UpdateUserDTO struct {
+	Email       string   `json:"email"`
+	UUID        string   `json:"uuid"`
+	SubToken    string   `json:"subToken"`
+	Remark      string   `json:"remark"`
 	InboundTags []string `json:"inboundTags"`
 	InboundTag  string   `json:"inboundTag"`
 	Flow        string   `json:"flow"`

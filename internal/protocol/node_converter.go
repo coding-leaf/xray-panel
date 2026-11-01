@@ -4,11 +4,36 @@ import (
 	"encoding/json"
 	"fmt"
 	"net"
+	"sort"
 	"strings"
+	"sync"
 
 	"panel/internal/domain"
 	"panel/internal/pkg/crypto"
 )
+
+var (
+	defaultFpMu        sync.RWMutex
+	defaultFingerprint = "chrome"
+)
+
+// SetDefaultFingerprint 设置全局默认 TLS/REALITY 伪装指纹
+func SetDefaultFingerprint(fp string) {
+	defaultFpMu.Lock()
+	defer defaultFpMu.Unlock()
+	if strings.TrimSpace(fp) != "" {
+		defaultFingerprint = strings.TrimSpace(fp)
+	} else {
+		defaultFingerprint = "chrome"
+	}
+}
+
+// GetDefaultFingerprint 获取全局默认 TLS/REALITY 伪装指纹
+func GetDefaultFingerprint() string {
+	defaultFpMu.RLock()
+	defer defaultFpMu.RUnlock()
+	return defaultFingerprint
+}
 
 type RealityKeyPair = crypto.RealityKeyPair
 
@@ -81,6 +106,17 @@ type inboundRawStream struct {
 		ServiceName string `json:"serviceName"`
 		MultiMode   bool   `json:"multiMode"`
 	} `json:"grpcSettings"`
+	HTTPUpgradeSettings *struct {
+		Path    string            `json:"path"`
+		Host    string            `json:"host"`
+		Headers map[string]string `json:"headers"`
+	} `json:"httpupgradeSettings"`
+	KCPSettings *struct {
+		Header *struct {
+			Type string `json:"type"`
+		} `json:"header"`
+		Seed string `json:"seed"`
+	} `json:"kcpSettings"`
 }
 
 // InboundToNodeConfig 将 domain.Inbound 与 domain.User 转换为通用的 protocol.NodeConfig
@@ -136,6 +172,8 @@ func InboundToNodeConfig(inbound *domain.Inbound, user *domain.User, hostDomain 
 	}
 
 	node := NewNodeConfig(remark, inbound.Protocol, targetHost, targetPort, effectiveUUID)
+	node.SetParam("tag", inbound.Tag)
+	node.SetParam("remark", inbound.Remark)
 	node.SetParam("type", network)
 	node.SetParam("security", security)
 
@@ -146,6 +184,9 @@ func InboundToNodeConfig(inbound *domain.Inbound, user *domain.User, hostDomain 
 		}
 		if len(rawStream.TLSSettings.ALPN) > 0 {
 			node.SetParam("alpn", strings.Join(rawStream.TLSSettings.ALPN, ","))
+		}
+		if node.GetParam("fp") == "" {
+			node.SetParam("fp", GetDefaultFingerprint())
 		}
 	}
 
@@ -179,7 +220,7 @@ func InboundToNodeConfig(inbound *domain.Inbound, user *domain.User, hostDomain 
 		if r.Fingerprint != "" {
 			node.SetParam("fp", r.Fingerprint)
 		} else {
-			node.SetParam("fp", "chrome")
+			node.SetParam("fp", GetDefaultFingerprint())
 		}
 	}
 
@@ -229,6 +270,32 @@ func InboundToNodeConfig(inbound *domain.Inbound, user *domain.User, hostDomain 
 				node.SetParam("host", host)
 			}
 		}
+	case "httpupgrade":
+		if rawStream.HTTPUpgradeSettings != nil {
+			if rawStream.HTTPUpgradeSettings.Path != "" {
+				node.SetParam("path", rawStream.HTTPUpgradeSettings.Path)
+			}
+			host := rawStream.HTTPUpgradeSettings.Host
+			if host == "" && rawStream.HTTPUpgradeSettings.Headers != nil {
+				if h, ok := rawStream.HTTPUpgradeSettings.Headers["Host"]; ok && h != "" {
+					host = h
+				} else if h, ok := rawStream.HTTPUpgradeSettings.Headers["host"]; ok && h != "" {
+					host = h
+				}
+			}
+			if host != "" {
+				node.SetParam("host", host)
+			}
+		}
+	case "kcp", "mkcp":
+		if rawStream.KCPSettings != nil {
+			if rawStream.KCPSettings.Header != nil && rawStream.KCPSettings.Header.Type != "" {
+				node.SetParam("headerType", rawStream.KCPSettings.Header.Type)
+			}
+			if rawStream.KCPSettings.Seed != "" {
+				node.SetParam("seed", rawStream.KCPSettings.Seed)
+			}
+		}
 	}
 
 	// 4. 流控参数 (XTLS Vision)
@@ -243,16 +310,14 @@ func InboundToNodeConfig(inbound *domain.Inbound, user *domain.User, hostDomain 
 					customFlow = strings.TrimSpace(f)
 				}
 			}
-			if strings.EqualFold(customFlow, "none") {
+			if strings.EqualFold(customFlow, "none") || strings.EqualFold(user.Flow, "none") {
 				flow = ""
+			} else if user.Flow != "" {
+				flow = user.Flow
 			} else if customFlow != "" {
 				flow = customFlow
 			} else {
-				if user.Flow != "" && !strings.EqualFold(user.Flow, "none") {
-					flow = user.Flow
-				} else if user.Flow == "" {
-					flow = "xtls-rprx-vision"
-				}
+				flow = "xtls-rprx-vision"
 			}
 		}
 		if flow != "" {
@@ -303,8 +368,17 @@ func InboundsToNodeConfigs(inbounds []domain.Inbound, user *domain.User, hostDom
 		targetRoute = routeFilter[0]
 	}
 
+	sortedInbounds := make([]domain.Inbound, len(inbounds))
+	copy(sortedInbounds, inbounds)
+	sort.SliceStable(sortedInbounds, func(i, j int) bool {
+		if sortedInbounds[i].SortOrder != sortedInbounds[j].SortOrder {
+			return sortedInbounds[i].SortOrder < sortedInbounds[j].SortOrder
+		}
+		return sortedInbounds[i].ID < sortedInbounds[j].ID
+	})
+
 	var nodes []*NodeConfig
-	for _, in := range inbounds {
+	for _, in := range sortedInbounds {
 		if !in.Enabled || !user.HasInbound(in.Tag) {
 			continue
 		}
@@ -325,6 +399,11 @@ func InboundsToNodeConfigs(inbounds []domain.Inbound, user *domain.User, hostDom
 			}
 			continue
 		}
+
+		// 对 SubRoutes 按 SortOrder ASC 确定性排序
+		sort.SliceStable(subRoutes, func(i, j int) bool {
+			return subRoutes[i].SortOrder < subRoutes[j].SortOrder
+		})
 
 		baseName := in.Remark
 		if baseName == "" {
@@ -349,11 +428,54 @@ func InboundsToNodeConfigs(inbounds []domain.Inbound, user *domain.User, hostDom
 			}
 			tempInbound.RouteID = sr.RouteID
 			if node := InboundToNodeConfig(&tempInbound, user, hostDomain, defaultPort); node != nil {
+				if sr.Name != "" {
+					node.SetParam("remark", sr.Name)
+				}
 				nodes = append(nodes, node)
 			}
 		}
 	}
 	return nodes
+}
+
+// RenderNodeName 根据模板渲染单个节点名称
+// 支持占位符: {remark}, {tag}, {protocol}, {port}, {index}
+func RenderNodeName(template string, node *NodeConfig, index int) string {
+	if template == "" {
+		template = "{remark}"
+	}
+	remark := node.GetParam("remark", node.Name)
+	tag := node.GetParam("tag")
+	if remark == "" {
+		remark = tag
+	}
+	if tag == "" {
+		tag = remark
+	}
+	protoUpper := strings.ToUpper(node.Protocol)
+	portStr := fmt.Sprintf("%d", node.Port)
+	indexStr := fmt.Sprintf("%d", index)
+
+	res := template
+	res = strings.ReplaceAll(res, "{remark}", remark)
+	res = strings.ReplaceAll(res, "{tag}", tag)
+	res = strings.ReplaceAll(res, "{protocol}", protoUpper)
+	res = strings.ReplaceAll(res, "{port}", portStr)
+	res = strings.ReplaceAll(res, "{index}", indexStr)
+	return res
+}
+
+// ApplyNodeNameTemplate 批量将模板应用到节点列表名称
+func ApplyNodeNameTemplate(nodes []*NodeConfig, template string) {
+	if template == "" || template == "{remark}" {
+		return
+	}
+	for i, node := range nodes {
+		if node == nil {
+			continue
+		}
+		node.Name = RenderNodeName(template, node, i+1)
+	}
 }
 
 // BuildShareLink 生成标准 Xray 分享链接 (基于 protocol.Registry 策略模式)

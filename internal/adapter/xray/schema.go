@@ -73,14 +73,38 @@ type XraySniffingConfig struct {
 }
 
 type XrayStreamSettings struct {
-	Network         string               `json:"network,omitempty"`  // tcp, xhttp, ws, grpc
-	Security        string               `json:"security,omitempty"` // reality, tls, none
-	RealitySettings *XrayRealitySettings `json:"realitySettings,omitempty"`
-	TLSSettings     *XrayTLSSettings     `json:"tlsSettings,omitempty"`
-	XHTTPSettings   *XrayXHTTPSettings   `json:"xhttpSettings,omitempty"`
-	WSSettings      *XrayWSSettings      `json:"wsSettings,omitempty"`
-	GRPCSettings    *XrayGRPCSettings    `json:"grpcSettings,omitempty"`
-	Sockopt         *XraySockopt         `json:"sockopt,omitempty"`
+	Network             string                   `json:"network,omitempty"`  // tcp, xhttp, ws, grpc, httpupgrade, mkcp
+	Security            string                   `json:"security,omitempty"` // reality, tls, none
+	RealitySettings     *XrayRealitySettings     `json:"realitySettings,omitempty"`
+	TLSSettings         *XrayTLSSettings         `json:"tlsSettings,omitempty"`
+	XHTTPSettings       *XrayXHTTPSettings       `json:"xhttpSettings,omitempty"`
+	WSSettings          *XrayWSSettings          `json:"wsSettings,omitempty"`
+	GRPCSettings        *XrayGRPCSettings        `json:"grpcSettings,omitempty"`
+	HTTPUpgradeSettings *XrayHTTPUpgradeSettings `json:"httpupgradeSettings,omitempty"`
+	KCPSettings         *XrayKCPSettings         `json:"kcpSettings,omitempty"`
+	Sockopt             *XraySockopt             `json:"sockopt,omitempty"`
+}
+
+type XrayHTTPUpgradeSettings struct {
+	Path    string            `json:"path,omitempty"`
+	Host    string            `json:"host,omitempty"`
+	Headers map[string]string `json:"headers,omitempty"`
+}
+
+type XrayKCPSettings struct {
+	Mtu              int            `json:"mtu,omitempty"`
+	Tti              int            `json:"tti,omitempty"`
+	UplinkCapacity   int            `json:"uplinkCapacity,omitempty"`
+	DownlinkCapacity int            `json:"downlinkCapacity,omitempty"`
+	Congestion       bool           `json:"congestion,omitempty"`
+	ReadBufferSize   int            `json:"readBufferSize,omitempty"`
+	WriteBufferSize  int            `json:"writeBufferSize,omitempty"`
+	Header           *XrayKCPHeader `json:"header,omitempty"`
+	Seed             string         `json:"seed,omitempty"`
+}
+
+type XrayKCPHeader struct {
+	Type string `json:"type,omitempty"` // none, srtp, utp, wechat-video, dtls, wireguard
 }
 
 type XrayRealitySettings struct {
@@ -105,6 +129,7 @@ type XrayTLSSettings struct {
 	ServerName   string            `json:"serverName,omitempty"`
 	Certificates []XrayCertificate `json:"certificates,omitempty"`
 	ALPN         []string          `json:"alpn,omitempty"`
+	Fingerprint  string            `json:"fingerprint,omitempty"`
 }
 
 type XrayCertificate struct {
@@ -172,7 +197,11 @@ type XrayRoutingConfig struct {
 }
 
 type XrayDNSConfig struct {
-	Servers       []interface{} `json:"servers,omitempty"`
-	QueryStrategy string        `json:"queryStrategy,omitempty"`
-	Tag           string        `json:"tag,omitempty"`
+	Tag             string                 `json:"tag,omitempty"`
+	ClientIP        string                 `json:"clientIp,omitempty"`
+	QueryStrategy   string                 `json:"queryStrategy,omitempty"`
+	DisableCache    bool                   `json:"disableCache,omitempty"`
+	DisableFallback bool                   `json:"disableFallback,omitempty"`
+	Servers         []interface{}          `json:"servers,omitempty"`
+	Hosts           map[string]interface{} `json:"hosts,omitempty"`
 }

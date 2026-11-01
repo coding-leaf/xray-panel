@@ -527,3 +527,146 @@ func TestInboundsToNodeConfigs_RouteFilter(t *testing.T) {
 		t.Fatalf("expected 0 nodes matching route 99, got %d", len(nodesNone))
 	}
 }
+
+func TestInboundToNodeConfig_HttpUpgradeAndKCP(t *testing.T) {
+	user := &domain.User{
+		UUID:  "11111111-2222-3333-4444-555555555555",
+		Email: "test@example.com",
+	}
+
+	t.Run("httpupgrade transport extraction", func(t *testing.T) {
+		inbound := &domain.Inbound{
+			Tag:            "vless-httpupgrade-in",
+			Protocol:       "vless",
+			Port:           8443,
+			Listen:         "127.0.0.1",
+			Remark:         "VLESS-HTTPUpgrade",
+			StreamSettings: `{"network":"httpupgrade","security":"none","httpupgradeSettings":{"path":"/up","host":"up.test.com"}}`,
+		}
+
+		node := protocol.InboundToNodeConfig(inbound, user, "", 0)
+		if node == nil {
+			t.Fatalf("expected non-nil node")
+		}
+		if node.GetParam("type") != "httpupgrade" {
+			t.Errorf("expected type httpupgrade, got %s", node.GetParam("type"))
+		}
+		if node.GetParam("path") != "/up" {
+			t.Errorf("expected path /up, got %s", node.GetParam("path"))
+		}
+		if node.GetParam("host") != "up.test.com" {
+			t.Errorf("expected host up.test.com, got %s", node.GetParam("host"))
+		}
+	})
+
+	t.Run("mkcp transport extraction", func(t *testing.T) {
+		inbound := &domain.Inbound{
+			Tag:            "vless-mkcp-in",
+			Protocol:       "vless",
+			Port:           8443,
+			Listen:         "127.0.0.1",
+			Remark:         "VLESS-MKCP",
+			StreamSettings: `{"network":"mkcp","security":"none","kcpSettings":{"header":{"type":"wechat-video"},"seed":"kcp-seed-123"}}`,
+		}
+
+		node := protocol.InboundToNodeConfig(inbound, user, "", 0)
+		if node == nil {
+			t.Fatalf("expected non-nil node")
+		}
+		if node.GetParam("type") != "mkcp" {
+			t.Errorf("expected type mkcp, got %s", node.GetParam("type"))
+		}
+		if node.GetParam("headerType") != "wechat-video" {
+			t.Errorf("expected headerType wechat-video, got %s", node.GetParam("headerType"))
+		}
+		if node.GetParam("seed") != "kcp-seed-123" {
+			t.Errorf("expected seed kcp-seed-123, got %s", node.GetParam("seed"))
+		}
+	})
+}
+
+func TestFlowResolutionAndNodeNamingTemplate(t *testing.T) {
+	tcpRealityInbound := &domain.Inbound{
+		Tag:            "vless-reality-in",
+		Protocol:       "vless",
+		Port:           443,
+		Listen:         "127.0.0.1",
+		Remark:         "Tokyo Node",
+		StreamSettings: `{"network":"tcp","security":"reality","realitySettings":{"publicKey":"test-pbk","serverName":"example.com"}}`,
+		SettingsJSON:   `{"flow":"xtls-rprx-vision"}`,
+	}
+
+	wsInbound := &domain.Inbound{
+		Tag:            "vless-ws-in",
+		Protocol:       "vless",
+		Port:           443,
+		Listen:         "127.0.0.1",
+		Remark:         "WS Node",
+		StreamSettings: `{"network":"ws","security":"tls","tlsSettings":{"serverName":"ws.example.com"}}`,
+	}
+
+	t.Run("user Flow none explicitly disables flow on TCP Reality node", func(t *testing.T) {
+		user := &domain.User{
+			UUID:  "11111111-2222-3333-4444-555555555555",
+			Email: "noflow@example.com",
+			Flow:  "none",
+		}
+		node := protocol.InboundToNodeConfig(tcpRealityInbound, user, "", 0)
+		if node.GetParam("flow") != "" {
+			t.Errorf("expected empty flow for user.Flow=none, got %q", node.GetParam("flow"))
+		}
+	})
+
+	t.Run("user Flow xtls-rprx-vision applied on compatible node", func(t *testing.T) {
+		user := &domain.User{
+			UUID:  "11111111-2222-3333-4444-555555555555",
+			Email: "vision@example.com",
+			Flow:  "xtls-rprx-vision",
+		}
+		node := protocol.InboundToNodeConfig(tcpRealityInbound, user, "", 0)
+		if node.GetParam("flow") != "xtls-rprx-vision" {
+			t.Errorf("expected xtls-rprx-vision flow, got %q", node.GetParam("flow"))
+		}
+	})
+
+	t.Run("user Flow empty follows node default xtls-rprx-vision", func(t *testing.T) {
+		user := &domain.User{
+			UUID:  "11111111-2222-3333-4444-555555555555",
+			Email: "defaultflow@example.com",
+			Flow:  "",
+		}
+		node := protocol.InboundToNodeConfig(tcpRealityInbound, user, "", 0)
+		if node.GetParam("flow") != "xtls-rprx-vision" {
+			t.Errorf("expected xtls-rprx-vision flow, got %q", node.GetParam("flow"))
+		}
+	})
+
+	t.Run("user Flow on incompatible transport (WS) is stripped", func(t *testing.T) {
+		user := &domain.User{
+			UUID:  "11111111-2222-3333-4444-555555555555",
+			Email: "wsuser@example.com",
+			Flow:  "xtls-rprx-vision",
+		}
+		node := protocol.InboundToNodeConfig(wsInbound, user, "", 0)
+		if node.GetParam("flow") != "" {
+			t.Errorf("expected empty flow on WS transport, got %q", node.GetParam("flow"))
+		}
+	})
+
+	t.Run("RenderNodeName template placeholders", func(t *testing.T) {
+		user := &domain.User{
+			UUID:  "11111111-2222-3333-4444-555555555555",
+			Email: "tmpl@example.com",
+		}
+		node := protocol.InboundToNodeConfig(tcpRealityInbound, user, "", 0)
+
+		tmpl := "{remark} [{protocol}] #{index} (: {port})"
+		rendered := protocol.RenderNodeName(tmpl, node, 1)
+		expected := "Tokyo Node [VLESS] #1 (: 443)"
+		if rendered != expected {
+			t.Errorf("expected %q, got %q", expected, rendered)
+		}
+	})
+}
+
+

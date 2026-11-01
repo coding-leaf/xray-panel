@@ -3,7 +3,10 @@ package service
 import (
 	"context"
 	"fmt"
+	"sort"
+	"strconv"
 	"strings"
+	"time"
 
 	"panel/internal/domain"
 	"panel/internal/protocol"
@@ -21,6 +24,55 @@ func NewSubService(userRepo domain.UserRepository, inboundRepo domain.InboundRep
 		userRepo:    userRepo,
 		inboundRepo: inboundRepo,
 		settingRepo: settingRepo,
+	}
+}
+
+func buildVirtualInfoNodes(user *domain.User, announcement string) []*protocol.NodeConfig {
+	var nodes []*protocol.NodeConfig
+
+	// 1. 公告节点 (可选，配置时前置展示在最顶部)
+	ann := strings.TrimSpace(announcement)
+	if ann != "" {
+		nodes = append(nodes, createVirtualTrojanNode(fmt.Sprintf("📢 公告: %s", ann)))
+	}
+
+	// 2. 流量状态节点
+	var trafficName string
+	used := user.UpBytes + user.DownBytes
+	if user.TotalBytes > 0 {
+		remaining := user.TotalBytes - used
+		if remaining < 0 {
+			remaining = 0
+		}
+		trafficName = fmt.Sprintf("📊 剩余流量: %.2f GB / %.2f GB", float64(remaining)/1073741824, float64(user.TotalBytes)/1073741824)
+	} else {
+		trafficName = fmt.Sprintf("📊 已用流量: %.2f GB (不限配额)", float64(used)/1073741824)
+	}
+	nodes = append(nodes, createVirtualTrojanNode(trafficName))
+
+	// 3. 到期状态节点
+	var expireName string
+	if user.ExpireTime > 0 {
+		expireName = fmt.Sprintf("⏳ 到期时间: %s", time.UnixMilli(user.ExpireTime).Format("2006-01-02"))
+	} else {
+		expireName = "⏳ 到期时间: 长期有效"
+	}
+	nodes = append(nodes, createVirtualTrojanNode(expireName))
+
+	return nodes
+}
+
+func createVirtualTrojanNode(name string) *protocol.NodeConfig {
+	return &protocol.NodeConfig{
+		Name:     name,
+		Protocol: "trojan",
+		Address:  "127.0.0.1",
+		Port:     10000,
+		UUID:     "00000000-0000-0000-0000-000000000000",
+		Params: map[string]string{
+			"type":     "tcp",
+			"security": "none",
+		},
 	}
 }
 
@@ -70,6 +122,46 @@ func (s *SubService) resolveSubscriptionNodes(ctx context.Context, token string,
 	}
 
 	nodes := protocol.InboundsToNodeConfigs(inbounds, user, hostDomain, defaultPort, tagFilter, routeFilter...)
+
+	// 应用默认 TLS 指纹回退
+	if s.settingRepo != nil {
+		if fp, err := s.settingRepo.Get(ctx, "sub_default_fingerprint"); err == nil && fp != "" {
+			for _, n := range nodes {
+				sec := n.GetParam("security")
+				if sec == "reality" || sec == "tls" {
+					if n.GetParam("fp") == "" || n.GetParam("fp") == "chrome" {
+						n.SetParam("fp", fp)
+					}
+				}
+			}
+		}
+	}
+
+	// 应用节点命名模板 (仅作用于真实节点)
+	if s.settingRepo != nil {
+		if tmpl, err := s.settingRepo.Get(ctx, "sub_node_name_template"); err == nil && tmpl != "" {
+			protocol.ApplyNodeNameTemplate(nodes, tmpl)
+		}
+	}
+
+	// 全量聚合订阅顶部虚拟信息节点注入 (流量、到期时间、公告)
+	isFullSub := tagFilter == "" && len(routeFilter) == 0
+	showInfoNodes := false
+	announcement := ""
+	if s.settingRepo != nil {
+		showInfoNodes = true
+		if val, err := s.settingRepo.Get(ctx, "sub_show_info_nodes"); err == nil && (strings.EqualFold(val, "false") || val == "0") {
+			showInfoNodes = false
+		}
+		ann, _ := s.settingRepo.Get(ctx, "sub_custom_announcement")
+		announcement = ann
+	}
+
+	if isFullSub && showInfoNodes {
+		infoNodes := buildVirtualInfoNodes(user, announcement)
+		nodes = append(infoNodes, nodes...)
+	}
+
 	return user, nodes, nil
 }
 
@@ -128,6 +220,34 @@ func (s *SubService) ExportUserSubscription(ctx context.Context, token string, t
 		}
 	}
 
+	profileTitle := "Xray Panel"
+	updateInterval := 24
+	clashMixedPort := 7890
+	clashAllowLan := false
+	clashMode := "rule"
+
+	if s.settingRepo != nil {
+		if t, err := s.settingRepo.Get(ctx, "sub_profile_title"); err == nil && t != "" {
+			profileTitle = t
+		}
+		if intStr, err := s.settingRepo.Get(ctx, "sub_update_interval"); err == nil && intStr != "" {
+			if val, err := strconv.Atoi(intStr); err == nil && val > 0 {
+				updateInterval = val
+			}
+		}
+		if pStr, err := s.settingRepo.Get(ctx, "sub_clash_mixed_port"); err == nil && pStr != "" {
+			if val, err := strconv.Atoi(pStr); err == nil && val > 0 {
+				clashMixedPort = val
+			}
+		}
+		if lanStr, err := s.settingRepo.Get(ctx, "sub_clash_allow_lan"); err == nil && lanStr != "" {
+			clashAllowLan = strings.EqualFold(lanStr, "true") || lanStr == "1"
+		}
+		if m, err := s.settingRepo.Get(ctx, "sub_clash_mode"); err == nil && m != "" {
+			clashMode = m
+		}
+	}
+
 	payload := &domain.SubscriptionPayload{
 		NodesRaw:       rawText,
 		Base64Data:     base64Output,
@@ -137,6 +257,8 @@ func (s *SubService) ExportUserSubscription(ctx context.Context, token string, t
 		TotalBytes:     user.TotalBytes,
 		RemainingBytes: remainingBytes,
 		ExpireTime:     user.ExpireTime,
+		ProfileTitle:   profileTitle,
+		UpdateInterval: updateInterval,
 	}
 
 	fmtLower := strings.ToLower(strings.TrimSpace(format))
@@ -147,7 +269,13 @@ func (s *SubService) ExportUserSubscription(ctx context.Context, token string, t
 		return payload, payload.NodesRaw, nil
 	}
 
-	exported, err := sub.ExportSubscription(nodes, format)
+	clashParams := sub.ClashParams{
+		MixedPort: clashMixedPort,
+		AllowLan:  clashAllowLan,
+		Mode:      clashMode,
+	}
+
+	exported, err := sub.ExportSubscription(nodes, format, clashParams)
 	if err != nil {
 		return nil, "", err
 	}
@@ -193,6 +321,13 @@ func (s *SubService) GetUserShareInfo(ctx context.Context, userID uint, baseURL 
 		Nodes:     make([]domain.NodeShareInfo, 0),
 	}
 
+	sort.SliceStable(inbounds, func(i, j int) bool {
+		if inbounds[i].SortOrder != inbounds[j].SortOrder {
+			return inbounds[i].SortOrder < inbounds[j].SortOrder
+		}
+		return inbounds[i].ID < inbounds[j].ID
+	})
+
 	for _, in := range inbounds {
 		if !in.Enabled || !user.HasInbound(in.Tag) {
 			continue
@@ -214,6 +349,10 @@ func (s *SubService) GetUserShareInfo(ctx context.Context, userID uint, baseURL 
 			})
 			continue
 		}
+
+		sort.SliceStable(subRoutes, func(i, j int) bool {
+			return subRoutes[i].SortOrder < subRoutes[j].SortOrder
+		})
 
 		baseName := in.Remark
 		if baseName == "" {

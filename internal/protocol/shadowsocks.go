@@ -3,7 +3,6 @@ package protocol
 import (
 	"encoding/base64"
 	"fmt"
-	"net/url"
 	"strings"
 )
 
@@ -56,7 +55,7 @@ func (f *ShadowsocksFormatter) FormatLink(node *NodeConfig) (string, error) {
 	encodedAuth := base64.URLEncoding.EncodeToString([]byte(auth))
 
 	targetHost := node.FormattedHost()
-	remark := url.QueryEscape(node.Name)
+	remark := EscapeRemark(node.Name)
 	return fmt.Sprintf("ss://%s@%s:%d#%s", encodedAuth, targetHost, node.Port, remark), nil
 }
 

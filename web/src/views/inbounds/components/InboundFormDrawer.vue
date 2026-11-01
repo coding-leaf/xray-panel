@@ -19,6 +19,14 @@
             />
           </FormField>
 
+          <FormField label="节点备注 (Remark)" hint="订阅时展示的节点名称">
+            <Input
+              v-model="form.remark"
+              type="text"
+              placeholder="例如：🇭🇰 香港 01 BGP"
+            />
+          </FormField>
+
           <FormField label="监听 IP">
             <Input
               v-model="form.listen"
@@ -36,15 +44,21 @@
             />
           </FormField>
 
-          <div>
-            <FormField label="外部公网端口 (External Port)" hint="前置 Nginx 反代或端口映射端口">
-              <Input
-                v-model.number="form.externalPort"
-                type="number"
-                placeholder="443 (默认443)"
-              />
-            </FormField>
-          </div>
+          <FormField label="外部公网端口 (External Port)" hint="前置 Nginx 反代或映射端口">
+            <Input
+              v-model.number="form.externalPort"
+              type="number"
+              placeholder="443 (默认443)"
+            />
+          </FormField>
+
+          <FormField label="显示排序权重 (Sort Order)" hint="数值越小越靠前 (默认 0)">
+            <Input
+              v-model.number="form.sortOrder"
+              type="number"
+              placeholder="0"
+            />
+          </FormField>
 
           <div class="sm:col-span-2">
             <FormField label="外部域名/IP (External Host)" hint="客户端订阅下发的主机地址">
@@ -167,6 +181,55 @@
           <FormField label="gRPC 服务名">
             <Input v-model="form.grpcService" placeholder="xray-grpc" />
           </FormField>
+        </div>
+
+        <!-- HTTPUpgrade options -->
+        <div v-if="!['socks', 'http', 'dokodemo-door'].includes(form.protocol) && form.network === 'httpupgrade'" class="pt-2 border-t border-border/40 grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <FormField label="HTTPUpgrade 路径 (Path)">
+            <Input v-model="form.httpupgradePath" placeholder="/httpupgrade" />
+          </FormField>
+          <FormField label="HTTPUpgrade 主机 (Host)">
+            <Input v-model="form.httpupgradeHost" placeholder="留空或域名" />
+          </FormField>
+        </div>
+
+        <!-- mKCP options -->
+        <div v-if="!['socks', 'http', 'dokodemo-door'].includes(form.protocol) && form.network === 'mkcp'" class="pt-2 border-t border-border/40 space-y-3">
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <FormField label="头部伪装类型 (Header Type)">
+              <select v-model="form.kcpHeaderType" class="w-full bg-neutral-950 border border-border rounded-md px-3 h-9 text-foreground font-mono focus:outline-none focus:ring-1 focus:ring-ring">
+                <option value="none">none (无伪装)</option>
+                <option value="srtp">srtp (伪装视频通话)</option>
+                <option value="utp">utp (伪装 BT 下载)</option>
+                <option value="wechat-video">wechat-video (伪装微信视频)</option>
+                <option value="dtls">dtls (伪装 DTLS 1.2)</option>
+                <option value="wireguard">wireguard (伪装 WireGuard)</option>
+              </select>
+            </FormField>
+            <FormField label="混淆密码 (Seed)">
+              <Input v-model="form.kcpSeed" placeholder="留空或自定义混淆密钥" />
+            </FormField>
+          </div>
+          <div class="grid grid-cols-2 sm:grid-cols-4 gap-3">
+            <FormField label="MTU (最大传输单元)">
+              <Input v-model.number="form.kcpMtu" type="number" placeholder="1350" />
+            </FormField>
+            <FormField label="TTI (传输间隔 ms)">
+              <Input v-model.number="form.kcpTti" type="number" placeholder="50" />
+            </FormField>
+            <FormField label="上行容量 (MB/s)">
+              <Input v-model.number="form.kcpUplinkCapacity" type="number" placeholder="5" />
+            </FormField>
+            <FormField label="下行容量 (MB/s)">
+              <Input v-model.number="form.kcpDownlinkCapacity" type="number" placeholder="20" />
+            </FormField>
+          </div>
+          <div class="flex items-center">
+            <label class="flex items-center gap-2 cursor-pointer text-muted-foreground hover:text-foreground">
+              <input type="checkbox" v-model="form.kcpCongestion" class="rounded bg-neutral-950 border-border text-neutral-200" />
+              <span>启用拥塞控制 (Congestion Control)</span>
+            </label>
+          </div>
         </div>
       </SectionCard>
 
@@ -317,6 +380,9 @@
             <Input v-model="form.tlsKeyFile" placeholder="/etc/ssl/key.pem" />
           </FormField>
         </div>
+        <FormField label="ALPN 协商列表 (逗号隔开)" hint="例如：h2,http/1.1">
+          <Input v-model="form.tlsAlpn" placeholder="h2,http/1.1" />
+        </FormField>
       </SectionCard>
 
       <!-- 4. 回落与嗅探设置 -->
@@ -346,6 +412,31 @@
               <option :value="2">2 (v2)</option>
             </select>
           </FormField>
+          <FormField label="回落 ALPN 匹配 (可选)" hint="例如：h2">
+            <Input v-model="form.fallbackAlpn" placeholder="h2" />
+          </FormField>
+          <FormField label="回落 HTTP 路径匹配 (可选)" hint="例如：/ray">
+            <Input v-model="form.fallbackPath" placeholder="/ray" />
+          </FormField>
+        </div>
+
+        <div v-if="form.sniffingEnabled" class="pt-2 border-t border-border/40 space-y-3">
+          <div class="flex items-center justify-between">
+            <label class="flex items-center gap-2 cursor-pointer text-muted-foreground hover:text-foreground">
+              <input type="checkbox" v-model="form.sniffingRouteOnly" class="rounded bg-neutral-950 border-border text-neutral-200" />
+              <span>仅限路由 (RouteOnly)</span>
+            </label>
+            <span class="text-[10px] text-muted-foreground">嗅探域名仅用于路由分流决策，不修改目标连接目标地址</span>
+          </div>
+          <div>
+            <label class="block text-muted-foreground font-mono text-[11px] mb-1.5">探测目标协议 (DestOverride)</label>
+            <div class="flex flex-wrap gap-4">
+              <label v-for="dest in ['http', 'tls', 'quic', 'fakedns']" :key="dest" class="flex items-center gap-1.5 cursor-pointer text-muted-foreground hover:text-foreground">
+                <input type="checkbox" :value="dest" v-model="form.sniffingDestOverride" class="rounded bg-neutral-950 border-border text-neutral-200" />
+                <span class="font-mono text-xs uppercase">{{ dest }}</span>
+              </label>
+            </div>
+          </div>
         </div>
       </SectionCard>
 
@@ -388,6 +479,18 @@
                   type="number"
                   min="1"
                   class="w-full bg-neutral-900 border border-border rounded px-2 h-8 text-foreground font-mono text-xs focus:outline-none focus:ring-1 focus:ring-ring text-center"
+                />
+              </div>
+
+              <!-- 排序 SortOrder -->
+              <div class="w-full sm:w-14 shrink-0">
+                <label class="block text-[10px] text-muted-foreground font-mono mb-1 truncate" title="显示排序权重 (数值越小越靠前)">排序</label>
+                <input
+                  v-model.number="sr.sortOrder"
+                  type="number"
+                  placeholder="0"
+                  class="w-full bg-neutral-900 border border-border rounded px-2 h-8 text-foreground font-mono text-xs focus:outline-none focus:ring-1 focus:ring-ring text-center"
+                  title="显示排序权重 (数值越小越靠前)"
                 />
               </div>
 
@@ -857,6 +960,7 @@ const addSubRoute = () => {
     id: Math.random().toString(36).substring(2, 9),
     name: `分流线路 #${nextId}`,
     routeId: nextId,
+    sortOrder: 0,
     outboundTag: props.availableOutbounds[0] || 'direct',
     enabled: true,
     allowedUsers: [],
@@ -890,11 +994,13 @@ const initFormData = () => {
     const inb = props.initialData
     form.value.id = inb.id
     form.value.tag = inb.tag
+    form.value.remark = inb.remark || ''
     form.value.listen = inb.listen || '0.0.0.0'
     form.value.port = inb.port
     form.value.externalPort = inb.externalPort || 0
     form.value.externalHost = inb.externalHost || ''
     form.value.routeId = inb.routeId || 0
+    form.value.sortOrder = inb.sortOrder || 0
     form.value.boundUserEmail = inb.boundUserEmail || ''
     form.value.protocol = inb.protocol
 
@@ -905,6 +1011,7 @@ const initFormData = () => {
     form.value.subRoutes = srs.length > 0 ? srs.map((r: any) => ({
       ...r,
       name: r.name || r.remark || '',
+      sortOrder: Number(r.sortOrder || 0),
       allowedUsers: Array.isArray(r.allowedUsers) ? r.allowedUsers : [],
     })) : []
 
@@ -946,8 +1053,14 @@ const initFormData = () => {
       form.value.fallbacksEnabled = true
       form.value.fallbackDest = settings.fallbacks[0].dest || '80'
       form.value.fallbackXver = settings.fallbacks[0].xver || 0
+      form.value.fallbackAlpn = settings.fallbacks[0].alpn || ''
+      form.value.fallbackPath = settings.fallbacks[0].path || ''
     } else {
       form.value.fallbacksEnabled = false
+      form.value.fallbackDest = '80'
+      form.value.fallbackXver = 0
+      form.value.fallbackAlpn = ''
+      form.value.fallbackPath = ''
     }
 
     if (inb.protocol === 'socks') {
@@ -1005,6 +1118,30 @@ const initFormData = () => {
     if (stream.grpcSettings) {
       form.value.grpcService = stream.grpcSettings.serviceName || ''
     }
+    if (stream.httpupgradeSettings) {
+      form.value.httpupgradePath = stream.httpupgradeSettings.path || '/httpupgrade'
+      form.value.httpupgradeHost = stream.httpupgradeSettings.host || ''
+    } else {
+      form.value.httpupgradePath = '/httpupgrade'
+      form.value.httpupgradeHost = ''
+    }
+    if (stream.kcpSettings) {
+      form.value.kcpHeaderType = stream.kcpSettings.header?.type || 'none'
+      form.value.kcpSeed = stream.kcpSettings.seed || ''
+      form.value.kcpMtu = stream.kcpSettings.mtu || 1350
+      form.value.kcpTti = stream.kcpSettings.tti || 50
+      form.value.kcpUplinkCapacity = stream.kcpSettings.uplinkCapacity || 5
+      form.value.kcpDownlinkCapacity = stream.kcpSettings.downlinkCapacity || 20
+      form.value.kcpCongestion = stream.kcpSettings.congestion === true
+    } else {
+      form.value.kcpHeaderType = 'none'
+      form.value.kcpSeed = ''
+      form.value.kcpMtu = 1350
+      form.value.kcpTti = 50
+      form.value.kcpUplinkCapacity = 5
+      form.value.kcpDownlinkCapacity = 20
+      form.value.kcpCongestion = false
+    }
     if (stream.realitySettings) {
       form.value.realityTarget = stream.realitySettings.dest || stream.realitySettings.target || ''
       form.value.realityServerNames = (stream.realitySettings.serverNames || []).join(', ')
@@ -1013,6 +1150,7 @@ const initFormData = () => {
     }
     if (stream.tlsSettings) {
       form.value.tlsServerName = stream.tlsSettings.serverName || ''
+      form.value.tlsAlpn = Array.isArray(stream.tlsSettings.alpn) ? stream.tlsSettings.alpn.join(', ') : ''
       if (stream.tlsSettings.certificates?.length > 0) {
         form.value.tlsCertFile = stream.tlsSettings.certificates[0].certificateFile || ''
         form.value.tlsKeyFile = stream.tlsSettings.certificates[0].keyFile || ''
@@ -1022,6 +1160,7 @@ const initFormData = () => {
       }
     } else {
       form.value.tlsServerName = ''
+      form.value.tlsAlpn = ''
       form.value.tlsCertFile = ''
       form.value.tlsKeyFile = ''
     }
@@ -1032,6 +1171,9 @@ const initFormData = () => {
     } catch (e) {}
     form.value.sniffingEnabled = sniff.enabled !== false
     form.value.sniffingRouteOnly = sniff.routeOnly === true
+    form.value.sniffingDestOverride = Array.isArray(sniff.destOverride) && sniff.destOverride.length > 0
+      ? sniff.destOverride
+      : ['http', 'tls', 'quic']
   } else {
     form.value = getDefaultInboundFormData(props.usersList)
     generateRealityKey()

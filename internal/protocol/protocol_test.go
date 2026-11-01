@@ -194,7 +194,7 @@ func TestVlessFormatter_FullCombinations(t *testing.T) {
 	if q.Get("flow") != "xtls-rprx-vision" {
 		t.Errorf("expected default flow xtls-rprx-vision, got: %s", q.Get("flow"))
 	}
-	if !strings.HasSuffix(link, "#"+url.QueryEscape(nodeReality.Name)) {
+	if !strings.HasSuffix(link, "#"+protocol.EscapeRemark(nodeReality.Name)) {
 		t.Errorf("link does not end with escaped name: %s", link)
 	}
 
@@ -465,7 +465,7 @@ func (w *mockWireguardFormatter) Protocol() string {
 }
 
 func (w *mockWireguardFormatter) FormatLink(node *protocol.NodeConfig) (string, error) {
-	return fmt.Sprintf("wireguard://%s@%s:%d#%s", node.UUID, node.FormattedHost(), node.Port, url.QueryEscape(node.Name)), nil
+	return fmt.Sprintf("wireguard://%s@%s:%d#%s", node.UUID, node.FormattedHost(), node.Port, protocol.EscapeRemark(node.Name)), nil
 }
 
 func (w *mockWireguardFormatter) ToClash(node *protocol.NodeConfig) (map[string]interface{}, error) {

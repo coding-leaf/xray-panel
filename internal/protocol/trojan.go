@@ -89,7 +89,7 @@ func (f *TrojanFormatter) FormatLink(node *NodeConfig) (string, error) {
 
 	targetHost := node.FormattedHost()
 	remark := node.Name
-	return fmt.Sprintf("trojan://%s@%s:%d?%s#%s", node.UUID, targetHost, node.Port, v.Encode(), url.QueryEscape(remark)), nil
+	return fmt.Sprintf("trojan://%s@%s:%d?%s#%s", node.UUID, targetHost, node.Port, v.Encode(), EscapeRemark(remark)), nil
 }
 
 // ToClash 将 Trojan 节点转为 Clash / Mihomo proxy map

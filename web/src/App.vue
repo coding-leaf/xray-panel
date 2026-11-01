@@ -17,7 +17,7 @@
           </div>
           <div class="flex items-center gap-1.5">
             <span class="font-mono font-semibold tracking-tight text-xs text-foreground">XRAY PANEL</span>
-            <span class="text-[9px] font-mono px-1 py-0.2 bg-muted text-muted-foreground rounded border border-border/60">v2.6</span>
+            <span class="text-[9px] font-mono px-1 py-0.2 bg-muted text-muted-foreground rounded border border-border/60">{{ panelVersion }}</span>
           </div>
         </div>
 
@@ -85,6 +85,7 @@
                 <Radio class="w-3.5 h-3.5 text-neutral-200" />
               </div>
               <span class="font-mono font-semibold text-xs text-foreground">XRAY PANEL</span>
+              <span class="text-[9px] font-mono px-1 py-0.2 bg-muted text-muted-foreground rounded border border-border/60">{{ panelVersion }}</span>
             </div>
             <button
               @click="isMobileDrawerOpen = false"
@@ -312,6 +313,7 @@ import ToastContainer from './components/ToastContainer.vue'
 import { toast } from './utils/toast'
 import api from './api'
 import { isMockMode, resetMockState } from './mock'
+import pkg from '../package.json'
 
 const route = useRoute()
 const router = useRouter()
@@ -403,9 +405,17 @@ const currentViewName = computed(() => {
   return cur ? cur.name : '控制面板'
 })
 
-const coreStatus = ref<{ active: boolean; version?: string }>({
+const fallbackVersion = (import.meta as any).env?.VITE_APP_VERSION || `v${pkg.version}` || 'v2.6.7'
+const panelVersion = computed(() => coreStatus.value.panelVersion || fallbackVersion)
+
+const coreStatus = ref<{
+  active: boolean
+  version?: string
+  panelVersion?: string
+}>({
   active: true,
   version: '',
+  panelVersion: '',
 })
 let statusTimer: any = null
 
@@ -417,6 +427,7 @@ const fetchCoreStatus = async () => {
       coreStatus.value = {
         active: !!res.active,
         version: res.version || '',
+        panelVersion: res.panelVersion || coreStatus.value.panelVersion,
       }
     }
   } catch (e) {

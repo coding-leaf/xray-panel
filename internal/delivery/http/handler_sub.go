@@ -65,7 +65,14 @@ func (h *SubHandler) GetSubscription(c *gin.Context) {
 		c.Header("Content-Type", "text/plain; charset=utf-8")
 	}
 
-	c.Header("Profile-Update-Interval", "24")
+	interval := 24
+	if payload.UpdateInterval > 0 {
+		interval = payload.UpdateInterval
+	}
+	c.Header("Profile-Update-Interval", strconv.Itoa(interval))
+	if payload.ProfileTitle != "" {
+		c.Header("Profile-Title", payload.ProfileTitle)
+	}
 	c.Header("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0")
 	c.Header("Pragma", "no-cache")
 	c.Header("Expires", "0")

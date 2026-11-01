@@ -259,3 +259,216 @@ func TestConfigService_EnsureSubRoutes_AppendsToTailWithoutDuplicate(t *testing.
 		t.Fatalf("Expected strictly 3 rules on second call (no duplicate explosion), got %d", len(routing2.Rules))
 	}
 }
+
+func TestConfigService_EnsureSubRoutes_CleansOrphanedAndSyncsUpdatedSubRoutes(t *testing.T) {
+	// 模拟 config.json 中残留了旧的 vlessRoute: "6" 和 "999" 僵尸规则，以及旧出站的 vlessRoute: "2" -> "old-out"
+	rawJSON := []byte(`{
+		"routing": {
+			"domainStrategy": "IPIfNonMatch",
+			"rules": [
+				{"type": "field", "inboundTag": ["ipv4入口"], "vlessRoute": "1", "outboundTag": "direct"},
+				{"type": "field", "inboundTag": ["ipv4入口"], "vlessRoute": "2", "outboundTag": "old-out"},
+				{"type": "field", "inboundTag": ["ipv4入口"], "vlessRoute": "999", "outboundTag": "direct"},
+				{"type": "field", "inboundTag": ["ipv4入口"], "vlessRoute": "6", "outboundTag": "out-us2"}
+			]
+		}
+	}`)
+	cfgStorage := &mockConfigStorageWithContent{content: rawJSON}
+	inboundRepo := &mockInboundRepoWithList{
+		inbounds: []domain.Inbound{
+			{
+				Tag:     "ipv4入口",
+				Enabled: true,
+				SubRoutesJson: `[
+					{"routeId": 1, "name": "日本直连", "outboundTag": "direct", "enabled": true},
+					{"routeId": 2, "name": "休斯顿解锁", "outboundTag": "out-us2", "enabled": true},
+					{"routeId": 3, "name": "洛杉矶速度", "outboundTag": "out-us", "enabled": true},
+					{"routeId": 4, "name": "土耳其特殊", "outboundTag": "Out-TR", "enabled": true}
+				]`,
+			},
+		},
+	}
+	svc := service.NewConfigService(cfgStorage, nil, inboundRepo, nil, nil, nil)
+
+	routing, err := svc.GetRoutingConfig(context.Background())
+	if err != nil {
+		t.Fatalf("GetRoutingConfig failed: %v", err)
+	}
+
+	// 僵尸规则 999 和 6 应被清除，只剩 1, 2, 3, 4 共 4 条规则，且 vlessRoute 2 的出站更新为 out-us2
+	if len(routing.Rules) != 4 {
+		t.Fatalf("Expected 4 rules (1,2,3,4 without zombie 6/999), got %d: %+v", len(routing.Rules), routing.Rules)
+	}
+	expected := map[string]string{
+		"1": "direct",
+		"2": "out-us2",
+		"3": "out-us",
+		"4": "Out-TR",
+	}
+	for _, r := range routing.Rules {
+		wantOut, ok := expected[r.VlessRoute]
+		if !ok {
+			t.Errorf("Unexpected vlessRoute %q still present in rules: %+v", r.VlessRoute, r)
+			continue
+		}
+		if r.OutboundTag != wantOut {
+			t.Errorf("vlessRoute %s expected outboundTag %q, got %q", r.VlessRoute, wantOut, r.OutboundTag)
+		}
+	}
+}
+
+type mockStatefulInboundRepo struct {
+	domain.InboundRepository
+	byTag map[string]*domain.Inbound
+}
+
+func (m *mockStatefulInboundRepo) GetByTag(ctx context.Context, tag string) (*domain.Inbound, error) {
+	if in, ok := m.byTag[tag]; ok {
+		cp := *in
+		return &cp, nil
+	}
+	return nil, domain.ErrNotFound
+}
+
+func (m *mockStatefulInboundRepo) Update(ctx context.Context, inbound *domain.Inbound) error {
+	cp := *inbound
+	m.byTag[inbound.Tag] = &cp
+	return nil
+}
+
+func (m *mockStatefulInboundRepo) ListAll(ctx context.Context) ([]domain.Inbound, error) {
+	var list []domain.Inbound
+	for _, in := range m.byTag {
+		list = append(list, *in)
+	}
+	return list, nil
+}
+
+type mockStatefulUserRepo struct {
+	domain.UserRepository
+	byEmail map[string]*domain.User
+}
+
+func (m *mockStatefulUserRepo) GetByEmail(ctx context.Context, email string) (*domain.User, error) {
+	if u, ok := m.byEmail[email]; ok {
+		cp := *u
+		return &cp, nil
+	}
+	return nil, domain.ErrNotFound
+}
+
+func (m *mockStatefulUserRepo) Update(ctx context.Context, user *domain.User) error {
+	cp := *user
+	m.byEmail[user.Email] = &cp
+	return nil
+}
+
+func (m *mockStatefulUserRepo) ListAll(ctx context.Context) ([]domain.User, error) {
+	var list []domain.User
+	for _, u := range m.byEmail {
+		list = append(list, *u)
+	}
+	return list, nil
+}
+
+func TestConfigService_SyncFromFile_PreservesEmptyFlowAcrossRestart(t *testing.T) {
+	ctx := context.Background()
+
+	// 1. 初始状态：VLESS + TCP + Reality 入站在面板被显式设为无流控 ("flow": "none")，
+	//    同时有用户 user-none@test.com 显式设置 Flow: "none"，user-follow@test.com 设置 Flow: "" (跟随节点)。
+	inboundRepo := &mockStatefulInboundRepo{
+		byTag: map[string]*domain.Inbound{
+			"vless-reality-noflow": {
+				ID:             1,
+				Tag:            "vless-reality-noflow",
+				Port:           443,
+				Listen:         "0.0.0.0",
+				Protocol:       "vless",
+				Enabled:        true,
+				SettingsJSON:   `{"decryption":"none","flow":"none"}`,
+				StreamSettings: `{"network":"tcp","security":"reality","realitySettings":{"dest":"www.microsoft.com:443","serverNames":["www.microsoft.com"],"privateKey":"priv","shortIds":[""]}}`,
+			},
+		},
+	}
+	userRepo := &mockStatefulUserRepo{
+		byEmail: map[string]*domain.User{
+			"user-follow@test.com": {
+				ID:          1,
+				Email:       "user-follow@test.com",
+				UUID:        "11111111-1111-4111-8111-111111111111",
+				InboundTags: "vless-reality-noflow",
+				Flow:        "",
+				Enabled:     true,
+			},
+			"user-none@test.com": {
+				ID:          2,
+				Email:       "user-none@test.com",
+				UUID:        "22222222-2222-4222-8222-222222222222",
+				InboundTags: "vless-reality-noflow",
+				Flow:        "none",
+				Enabled:     true,
+			},
+		},
+	}
+
+	cfgStorage := &mockConfigStorageWithContent{
+		content: []byte(`{"inbounds":[],"outbounds":[{"tag":"direct","protocol":"freedom"}]}`),
+	}
+	compiler := xray.NewXrayCompiler(10085)
+	svc := service.NewConfigService(cfgStorage, nil, inboundRepo, userRepo, nil, compiler)
+
+	// 2. 首次编译落盘 (模拟用户在面板保存无流控配置)
+	if err := svc.RecompileAndApply(ctx, "保存无流控入站"); err != nil {
+		t.Fatalf("First RecompileAndApply failed: %v", err)
+	}
+
+	// 3. 模拟面板重启：main.go 依次调用 SyncFromFile -> RecompileAndApply
+	if err := svc.SyncFromFile(ctx); err != nil {
+		t.Fatalf("SyncFromFile failed: %v", err)
+	}
+	if err := svc.RecompileAndApply(ctx, "面板启动自动同步与编译配置"); err != nil {
+		t.Fatalf("Restart RecompileAndApply failed: %v", err)
+	}
+
+	// 4. 断言重启后 DB 中的 Inbound SettingsJSON 仍然保持 flow="none"，绝不能丢失
+	afterInbound, _ := inboundRepo.GetByTag(ctx, "vless-reality-noflow")
+	var settingsMap map[string]interface{}
+	_ = json.Unmarshal([]byte(afterInbound.SettingsJSON), &settingsMap)
+	if settingsMap["flow"] != "none" {
+		t.Errorf("Expected inbound SettingsJSON flow to remain 'none' after restart, got %v (SettingsJSON=%s)", settingsMap["flow"], afterInbound.SettingsJSON)
+	}
+
+	// 5. 断言重启后 DB 中的 User Flow 策略未被篡改
+	uNone, _ := userRepo.GetByEmail(ctx, "user-none@test.com")
+	if uNone.Flow != "none" {
+		t.Errorf("Expected user-none Flow to remain 'none' after restart, got %q", uNone.Flow)
+	}
+
+	// 6. 断言重启后重新编译出的 config.json 中，clients 的 flow 依然为空，绝不能自动复活为 xtls-rprx-vision
+	var compiledRoot struct {
+		Inbounds []struct {
+			Tag      string `json:"tag"`
+			Settings struct {
+				Clients []struct {
+					Email string `json:"email"`
+					Flow  string `json:"flow"`
+				} `json:"clients"`
+			} `json:"settings"`
+		} `json:"inbounds"`
+	}
+	if err := json.Unmarshal(cfgStorage.content, &compiledRoot); err != nil {
+		t.Fatalf("Failed to unmarshal compiled config: %v", err)
+	}
+	for _, ib := range compiledRoot.Inbounds {
+		if ib.Tag != "vless-reality-noflow" {
+			continue
+		}
+		for _, c := range ib.Settings.Clients {
+			if c.Flow != "" {
+				t.Errorf("Client %s flow resurrected to %q after restart! Expected empty flow", c.Email, c.Flow)
+			}
+		}
+	}
+}
+
+

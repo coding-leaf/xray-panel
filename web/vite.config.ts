@@ -1,10 +1,14 @@
 import { defineConfig } from 'vite'
 import vue from '@vitejs/plugin-vue'
 import { resolve } from 'path'
+import packageJson from './package.json'
 
 export default defineConfig({
   base: './',
   plugins: [vue()],
+  define: {
+    'import.meta.env.VITE_APP_VERSION': JSON.stringify(`v${packageJson.version}`),
+  },
   resolve: {
     alias: {
       '@': resolve(__dirname, 'src'),

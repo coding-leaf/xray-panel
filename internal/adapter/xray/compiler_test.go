@@ -1,10 +1,19 @@
 package xray_test
 
 import (
+	"crypto/ecdsa"
+	"crypto/elliptic"
+	"crypto/rand"
+	"crypto/x509"
+	"crypto/x509/pkix"
 	"encoding/json"
+	"encoding/pem"
 	"errors"
+	"fmt"
+	"math/big"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -12,6 +21,56 @@ import (
 	xproto "panel/internal/adapter/xray/proto"
 	"panel/internal/domain"
 )
+
+func createTempCertAndKey(t *testing.T) (certFile, keyFile string) {
+	t.Helper()
+	priv, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatalf("failed to generate private key: %v", err)
+	}
+
+	template := x509.Certificate{
+		SerialNumber: big.NewInt(1),
+		Subject: pkix.Name{
+			Organization: []string{"Xray Test"},
+		},
+		NotBefore:             time.Now().Add(-1 * time.Hour),
+		NotAfter:              time.Now().Add(24 * time.Hour),
+		KeyUsage:              x509.KeyUsageKeyEncipherment | x509.KeyUsageDigitalSignature,
+		ExtKeyUsage:           []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
+		BasicConstraintsValid: true,
+		DNSNames:              []string{"127.0.0.1", "localhost", "example.com"},
+	}
+
+	derBytes, err := x509.CreateCertificate(rand.Reader, &template, &template, &priv.PublicKey, priv)
+	if err != nil {
+		t.Fatalf("failed to create certificate: %v", err)
+	}
+
+	certOut, err := os.CreateTemp("", "xray-test-cert-*.pem")
+	if err != nil {
+		t.Fatalf("failed to create temp cert file: %v", err)
+	}
+	defer certOut.Close()
+	if err := pem.Encode(certOut, &pem.Block{Type: "CERTIFICATE", Bytes: derBytes}); err != nil {
+		t.Fatalf("failed to write data to cert.pem: %v", err)
+	}
+
+	b, err := x509.MarshalECPrivateKey(priv)
+	if err != nil {
+		t.Fatalf("unable to marshal ECDSA private key: %v", err)
+	}
+	keyOut, err := os.CreateTemp("", "xray-test-key-*.pem")
+	if err != nil {
+		t.Fatalf("failed to create temp key file: %v", err)
+	}
+	defer keyOut.Close()
+	if err := pem.Encode(keyOut, &pem.Block{Type: "EC PRIVATE KEY", Bytes: b}); err != nil {
+		t.Fatalf("failed to write data to key.pem: %v", err)
+	}
+
+	return certOut.Name(), keyOut.Name()
+}
 
 func validateWithXrayCore(t *testing.T, jsonBytes []byte) {
 	t.Helper()
@@ -46,6 +105,7 @@ func validateWithXrayCore(t *testing.T, jsonBytes []byte) {
 	_ = tmpFile.Close()
 
 	cmd := exec.Command(xrayBin, "run", "-test", "-c", tmpPath)
+	cmd.Env = append(os.Environ(), "XRAY_LOCATION_ASSET="+filepath.Dir(xrayBin))
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		t.Fatalf("Xray-core validation failed on compiled config: %v\nOutput: %s\nConfig:\n%s", err, string(output), string(jsonBytes))
@@ -1232,3 +1292,334 @@ func TestCompiler_IdempotentCompile(t *testing.T) {
 		}
 	}
 }
+
+func TestCompileDNS_PreservesAllFields(t *testing.T) {
+	compiler := xray.NewXrayCompiler()
+
+	dnsCfg := &domain.DNSConfig{
+		Tag:             "dns-custom",
+		ClientIP:        "1.2.3.4",
+		QueryStrategy:   "UseIPv4",
+		DisableCache:    true,
+		DisableFallback: true,
+		Servers: []interface{}{
+			"8.8.8.8",
+			map[string]interface{}{
+				"address": "1.1.1.1",
+				"port":    53,
+				"domains": []interface{}{"domain:google.com"},
+			},
+		},
+		Hosts: map[string]interface{}{
+			"example.com": "1.1.1.1",
+		},
+	}
+
+	jsonBytes, err := compiler.CompileToJSON(nil, nil, nil, dnsCfg, nil)
+	if err != nil {
+		t.Fatalf("compiler.CompileToJSON failed: %v", err)
+	}
+
+	var root struct {
+		DNS struct {
+			Tag             string                 `json:"tag"`
+			ClientIP        string                 `json:"clientIp"`
+			QueryStrategy   string                 `json:"queryStrategy"`
+			DisableCache    bool                   `json:"disableCache"`
+			DisableFallback bool                   `json:"disableFallback"`
+			Servers         []interface{}          `json:"servers"`
+			Hosts           map[string]interface{} `json:"hosts"`
+		} `json:"dns"`
+	}
+	if err := json.Unmarshal(jsonBytes, &root); err != nil {
+		t.Fatalf("unmarshal compiled json failed: %v", err)
+	}
+
+	if root.DNS.Tag != "dns-custom" {
+		t.Errorf("expected Tag 'dns-custom', got %q", root.DNS.Tag)
+	}
+	if root.DNS.ClientIP != "1.2.3.4" {
+		t.Errorf("expected ClientIP '1.2.3.4', got %q", root.DNS.ClientIP)
+	}
+	if root.DNS.DisableCache != true {
+		t.Errorf("expected DisableCache true, got %v", root.DNS.DisableCache)
+	}
+	if root.DNS.DisableFallback != true {
+		t.Errorf("expected DisableFallback true, got %v", root.DNS.DisableFallback)
+	}
+	if root.DNS.Hosts == nil || root.DNS.Hosts["example.com"] != "1.1.1.1" {
+		t.Errorf("expected Hosts['example.com'] == '1.1.1.1', got %v", root.DNS.Hosts)
+	}
+	validateWithXrayCore(t, jsonBytes)
+}
+
+func TestXrayCompiler_RealBinaryAcceptanceMatrix(t *testing.T) {
+	t.Run("Inbound Sniffing with routeOnly and destOverride", func(t *testing.T) {
+		compiler := xray.NewXrayCompiler()
+		inbounds := []domain.Inbound{
+			{
+				Tag:          "dokodemo-sniff-routeonly",
+				Port:         10081,
+				Listen:       "127.0.0.1",
+				Protocol:     "dokodemo-door",
+				SettingsJSON: `{"address":"127.0.0.1","port":80}`,
+				SniffingJSON: `{"enabled":true,"destOverride":["http","tls","quic","fakedns"],"routeOnly":true}`,
+				Enabled:      true,
+			},
+			{
+				Tag:          "dokodemo-sniff-regular",
+				Port:         10082,
+				Listen:       "127.0.0.1",
+				Protocol:     "dokodemo-door",
+				SettingsJSON: `{"address":"127.0.0.1","port":80}`,
+				SniffingJSON: `{"enabled":true,"destOverride":["http","tls"],"routeOnly":false}`,
+				Enabled:      true,
+			},
+		}
+		outbounds := []domain.Outbound{{Tag: "direct", Protocol: "freedom"}}
+		jsonBytes, err := compiler.CompileToJSON(inbounds, outbounds, nil, nil, nil)
+		if err != nil {
+			t.Fatalf("CompileToJSON failed: %v", err)
+		}
+		validateWithXrayCore(t, jsonBytes)
+	})
+
+	t.Run("DNS complete configuration", func(t *testing.T) {
+		compiler := xray.NewXrayCompiler()
+		dnsCfg := &domain.DNSConfig{
+			Tag:             "dns-main",
+			ClientIP:        "1.2.3.4",
+			QueryStrategy:   "UseIPv4",
+			DisableCache:    true,
+			DisableFallback: true,
+			Servers: []interface{}{
+				"8.8.8.8",
+				map[string]interface{}{
+					"address": "1.1.1.1",
+					"port":    53,
+					"domains": []interface{}{"domain:google.com"},
+				},
+			},
+			Hosts: map[string]interface{}{
+				"example.com":       "127.0.0.1",
+				"domain:google.com": "8.8.8.8",
+			},
+		}
+		outbounds := []domain.Outbound{{Tag: "direct", Protocol: "freedom"}}
+		jsonBytes, err := compiler.CompileToJSON(nil, outbounds, nil, dnsCfg, nil)
+		if err != nil {
+			t.Fatalf("CompileToJSON failed: %v", err)
+		}
+		validateWithXrayCore(t, jsonBytes)
+	})
+
+	t.Run("StreamSettings with httpupgrade, mkcp, TLS alpn, and fallbacks", func(t *testing.T) {
+		certFile, keyFile := createTempCertAndKey(t)
+		defer os.Remove(certFile)
+		defer os.Remove(keyFile)
+
+		compiler := xray.NewXrayCompiler()
+		// Clean windows backslashes in JSON strings
+		cleanCert := filepath.ToSlash(certFile)
+		cleanKey := filepath.ToSlash(keyFile)
+
+		inbounds := []domain.Inbound{
+			{
+				Tag:            "vless-httpupgrade",
+				Port:           10083,
+				Listen:         "127.0.0.1",
+				Protocol:       "vless",
+				StreamSettings: `{"network":"httpupgrade","httpupgradeSettings":{"path":"/up","host":"example.com"}}`,
+				SettingsJSON:   `{"decryption":"none","clients":[{"id":"c8402f1a-6df2-4217-a169-23114d640201"}]}`,
+				Enabled:        true,
+			},
+			{
+				Tag:            "vless-mkcp",
+				Port:           10084,
+				Listen:         "127.0.0.1",
+				Protocol:       "vless",
+				StreamSettings: `{"network":"mkcp","kcpSettings":{"mtu":1350,"tti":50,"uplinkCapacity":12,"downlinkCapacity":100,"congestion":true,"readBufferSize":2,"writeBufferSize":2,"header":{"type":"srtp"}}}`,
+				SettingsJSON:   `{"decryption":"none","clients":[{"id":"c8402f1a-6df2-4217-a169-23114d640201"}]}`,
+				Enabled:        true,
+			},
+			{
+				Tag:            "vless-tls-fallbacks",
+				Port:           10085,
+				Listen:         "127.0.0.1",
+				Protocol:       "vless",
+				StreamSettings: fmt.Sprintf(`{"network":"tcp","security":"tls","tlsSettings":{"alpn":["h2","http/1.1"],"certificates":[{"certificateFile":%q,"keyFile":%q}]}}`, cleanCert, cleanKey),
+				SettingsJSON:   `{"decryption":"none","clients":[{"id":"c8402f1a-6df2-4217-a169-23114d640201"}],"fallbacks":[{"alpn":"h2","path":"/fallback","dest":"127.0.0.1:8080"}]}`,
+				Enabled:        true,
+			},
+		}
+		outbounds := []domain.Outbound{{Tag: "direct", Protocol: "freedom"}}
+		jsonBytes, err := compiler.CompileToJSON(inbounds, outbounds, nil, nil, nil)
+		if err != nil {
+			t.Fatalf("CompileToJSON failed: %v", err)
+		}
+		validateWithXrayCore(t, jsonBytes)
+	})
+
+	t.Run("Outbound enhancements with TLS fingerprint, Reality spiderX, and WireGuard", func(t *testing.T) {
+		compiler := xray.NewXrayCompiler()
+		outbounds := []domain.Outbound{
+			{
+				Tag:          "out-tls-fingerprint",
+				Protocol:     "vless",
+				SettingsJSON: `{"vnext":[{"address":"example.com","port":443,"users":[{"id":"c8402f1a-6df2-4217-a169-23114d640201","encryption":"none"}]}]}`,
+				StreamSettings: `{"network":"tcp","security":"tls","tlsSettings":{"serverName":"example.com","fingerprint":"chrome","alpn":["h2","http/1.1"]}}`,
+			},
+			{
+				Tag:          "out-reality-spiderx",
+				Protocol:     "vless",
+				SettingsJSON: `{"vnext":[{"address":"example.com","port":443,"users":[{"id":"c8402f1a-6df2-4217-a169-23114d640201","encryption":"none","flow":"xtls-rprx-vision"}]}]}`,
+				StreamSettings: `{"network":"tcp","security":"reality","realitySettings":{"serverName":"example.com","publicKey":"n154-lbu-6lS92LFtV_GdzdjXVWgnSGTFKIG-OXOMlM","shortId":"0123456789abcdef","spiderX":"/random_path","fingerprint":"firefox"}}`,
+			},
+			{
+				Tag:          "out-wireguard",
+				Protocol:     "wireguard",
+				SettingsJSON: `{"secretKey":"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=","address":["10.0.0.2/32"],"peers":[{"publicKey":"BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB=","endpoint":"127.0.0.1:51820"}],"mtu":1420,"noKernelTun":true}`,
+			},
+			{
+				Tag:      "direct",
+				Protocol: "freedom",
+			},
+		}
+		inbounds := []domain.Inbound{
+			{
+				Tag:          "in-dummy",
+				Port:         10086,
+				Listen:       "127.0.0.1",
+				Protocol:     "dokodemo-door",
+				SettingsJSON: `{"address":"127.0.0.1","port":80}`,
+				Enabled:      true,
+			},
+		}
+		jsonBytes, err := compiler.CompileToJSON(inbounds, outbounds, nil, nil, nil)
+		if err != nil {
+			t.Fatalf("CompileToJSON failed: %v", err)
+		}
+		validateWithXrayCore(t, jsonBytes)
+	})
+
+	t.Run("Routing rules with user, vlessRoute, and tag", func(t *testing.T) {
+		compiler := xray.NewXrayCompiler()
+		inbounds := []domain.Inbound{
+			{
+				Tag:          "in-dummy",
+				Port:         10087,
+				Listen:       "127.0.0.1",
+				Protocol:     "dokodemo-door",
+				SettingsJSON: `{"address":"127.0.0.1","port":80}`,
+				Enabled:      true,
+			},
+		}
+		outbounds := []domain.Outbound{
+			{Tag: "direct", Protocol: "freedom"},
+			{Tag: "block", Protocol: "blackhole"},
+			{Tag: "jp-direct", Protocol: "freedom"},
+		}
+		routing := &domain.RoutingConfig{
+			DomainStrategy: "IPIfNonMatch",
+			Rules: []domain.RoutingRule{
+				{
+					Tag:         "rule-user-direct",
+					User:        []string{"alice@test.com", "bob@test.com"},
+					OutboundTag: "direct",
+				},
+				{
+					Tag:         "rule-vless-tunnel",
+					VlessRoute:  "1",
+					OutboundTag: "jp-direct",
+				},
+				{
+					Tag:         "rule-composite",
+					Domain:      []string{"geosite:google"},
+					IP:          []string{"geoip:cn"},
+					InboundTag:  []string{"in-dummy"},
+					OutboundTag: "block",
+				},
+			},
+		}
+		jsonBytes, err := compiler.CompileToJSON(inbounds, outbounds, routing, nil, nil)
+		if err != nil {
+			t.Fatalf("CompileToJSON failed: %v", err)
+		}
+		validateWithXrayCore(t, jsonBytes)
+	})
+
+	t.Run("User Flow variations for Vision and non-Vision protocols", func(t *testing.T) {
+		compiler := xray.NewXrayCompiler()
+		inbounds := []domain.Inbound{
+			{
+				Tag:            "vless-tcp-reality-vision",
+				Port:           10088,
+				Listen:         "127.0.0.1",
+				Protocol:       "vless",
+				StreamSettings: `{"network":"tcp","security":"reality","realitySettings":{"dest":"apple.com:443","serverNames":["apple.com"],"privateKey":"SL552CAJYk9fBNX_MvMJCaFmDQ-LHhugYSHYZ4bZXU8","shortIds":["0123456789abcdef"]}}`,
+				Enabled:        true,
+			},
+			{
+				Tag:            "vless-ws-noflow",
+				Port:           10089,
+				Listen:         "127.0.0.1",
+				Protocol:       "vless",
+				StreamSettings: `{"network":"ws","wsSettings":{"path":"/ws"}}`,
+				Enabled:        true,
+			},
+			{
+				Tag:            "vless-xhttp-noflow",
+				Port:           10090,
+				Listen:         "127.0.0.1",
+				Protocol:       "vless",
+				StreamSettings: `{"network":"xhttp","xhttpSettings":{"path":"/xh","mode":"auto"}}`,
+				Enabled:        true,
+			},
+			{
+				Tag:            "vless-grpc-noflow",
+				Port:           10091,
+				Listen:         "127.0.0.1",
+				Protocol:       "vless",
+				StreamSettings: `{"network":"grpc","grpcSettings":{"serviceName":"testservice"}}`,
+				Enabled:        true,
+			},
+		}
+		users := []domain.User{
+			{
+				Email:       "vision-user@test.com",
+				UUID:        "c8402f1a-6df2-4217-a169-23114d640201",
+				Flow:        "xtls-rprx-vision",
+				Enabled:     true,
+				InboundTags: "vless-tcp-reality-vision",
+			},
+			{
+				Email:       "ws-user@test.com",
+				UUID:        "c8402f1a-6df2-4217-a169-23114d640202",
+				Flow:        "",
+				Enabled:     true,
+				InboundTags: "vless-ws-noflow",
+			},
+			{
+				Email:       "xhttp-user@test.com",
+				UUID:        "c8402f1a-6df2-4217-a169-23114d640203",
+				Flow:        "",
+				Enabled:     true,
+				InboundTags: "vless-xhttp-noflow",
+			},
+			{
+				Email:       "grpc-user@test.com",
+				UUID:        "c8402f1a-6df2-4217-a169-23114d640204",
+				Flow:        "",
+				Enabled:     true,
+				InboundTags: "vless-grpc-noflow",
+			},
+		}
+		outbounds := []domain.Outbound{{Tag: "direct", Protocol: "freedom"}}
+		jsonBytes, err := compiler.CompileToJSON(inbounds, outbounds, nil, nil, users)
+		if err != nil {
+			t.Fatalf("CompileToJSON failed: %v", err)
+		}
+		validateWithXrayCore(t, jsonBytes)
+	})
+}
+

@@ -81,7 +81,7 @@
             :value="searchQuery"
             @input="onSearchInput"
             type="text"
-            placeholder="搜索用户名 / 邮箱 / UUID / Token / 节点..."
+            placeholder="搜索用户名 / 邮箱 / 备注 / UUID / Token / 节点..."
             class="w-full bg-neutral-950 border border-border text-foreground text-xs rounded-md pl-8 pr-3 h-8 placeholder:text-muted-foreground font-mono focus:outline-none focus:ring-1 focus:ring-ring"
           />
         </div>
@@ -237,10 +237,16 @@
               />
             </TableCell>
 
-            <!-- Username & Email & SubToken -->
+            <!-- Username & Email & SubToken & Remark & Flow -->
             <TableCell>
-              <div class="font-mono font-medium text-foreground text-xs truncate max-w-[220px]">
-                {{ user.email }}
+              <div class="flex items-center gap-1.5 max-w-[220px]">
+                <span class="font-mono font-medium text-foreground text-xs truncate" :title="user.email">{{ user.email }}</span>
+                <Badge v-if="user.flow === 'xtls-rprx-vision'" variant="outline" class="text-[9px] px-1 py-0 text-cyan-400 border-cyan-500/30 font-mono shrink-0">Vision</Badge>
+                <Badge v-else-if="user.flow === 'none'" variant="outline" class="text-[9px] px-1 py-0 text-neutral-400 border-neutral-700 font-mono shrink-0">无流控</Badge>
+                <Badge v-else-if="user.flow" variant="outline" class="text-[9px] px-1 py-0 font-mono shrink-0">{{ user.flow }}</Badge>
+              </div>
+              <div v-if="user.remark" class="text-[10px] text-neutral-300 truncate max-w-[220px] mt-0.5" :title="user.remark">
+                {{ user.remark }}
               </div>
               <div class="text-[10px] text-muted-foreground font-mono flex items-center gap-1.5 mt-0.5">
                 <span v-if="user.ipLimit > 0" class="text-amber-400 font-semibold">限 {{ user.ipLimit }} IP</span>
@@ -420,8 +426,16 @@
               class="mt-0.5 rounded bg-neutral-900 border-border text-foreground focus:ring-0 cursor-pointer shrink-0"
             />
             <div class="min-w-0 flex-1">
-              <div class="font-mono font-medium text-foreground text-xs truncate" :title="user.email">
-                {{ user.email }}
+              <div class="flex items-center gap-1.5">
+                <span class="font-mono font-medium text-foreground text-xs truncate" :title="user.email">
+                  {{ user.email }}
+                </span>
+                <Badge v-if="user.flow === 'xtls-rprx-vision'" variant="outline" class="text-[9px] px-1 py-0 text-cyan-400 border-cyan-500/30 font-mono shrink-0">Vision</Badge>
+                <Badge v-else-if="user.flow === 'none'" variant="outline" class="text-[9px] px-1 py-0 text-neutral-400 border-neutral-700 font-mono shrink-0">无流控</Badge>
+                <Badge v-else-if="user.flow" variant="outline" class="text-[9px] px-1 py-0 font-mono shrink-0">{{ user.flow }}</Badge>
+              </div>
+              <div v-if="user.remark" class="text-[10px] text-neutral-300 truncate mt-0.5" :title="user.remark">
+                {{ user.remark }}
               </div>
               <div class="text-[10px] text-muted-foreground font-mono flex items-center gap-1.5 mt-0.5">
                 <span v-if="user.ipLimit > 0" class="text-amber-400 font-semibold">限 {{ user.ipLimit }} IP</span>

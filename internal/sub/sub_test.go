@@ -397,3 +397,40 @@ func TestExportSubscription_IPv6InClashAndSingBox(t *testing.T) {
 		t.Errorf("raw share link should have bracketed IPv6: %s", raw)
 	}
 }
+
+func TestExportSubscription_ClashCustomParameters(t *testing.T) {
+	nodes := createSampleNodes()
+
+	customParams := sub.ClashParams{
+		MixedPort: 8888,
+		AllowLan:  true,
+		Mode:      "global",
+	}
+
+	clashYAML, err := sub.ExportSubscription(nodes, "clash", customParams)
+	if err != nil {
+		t.Fatalf("export clash with custom params failed: %v", err)
+	}
+
+	var parsed struct {
+		Port      int    `yaml:"port"`
+		MixedPort int    `yaml:"mixed-port"`
+		AllowLan  bool   `yaml:"allow-lan"`
+		Mode      string `yaml:"mode"`
+	}
+
+	if err := yaml.Unmarshal([]byte(clashYAML), &parsed); err != nil {
+		t.Fatalf("failed to unmarshal yaml: %v", err)
+	}
+
+	if parsed.MixedPort != 8888 && parsed.Port != 8888 {
+		t.Errorf("expected port or mixed-port 8888, got port=%d mixed-port=%d", parsed.Port, parsed.MixedPort)
+	}
+	if !parsed.AllowLan {
+		t.Errorf("expected allow-lan true, got false")
+	}
+	if parsed.Mode != "global" {
+		t.Errorf("expected mode global, got %s", parsed.Mode)
+	}
+}
+

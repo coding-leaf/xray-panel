@@ -27,4 +27,6 @@ type SubscriptionPayload struct {
 	TotalBytes     int64  `json:"totalBytes"`
 	RemainingBytes int64  `json:"remainingBytes"`
 	ExpireTime     int64  `json:"expireTime"`
+	ProfileTitle   string `json:"profileTitle,omitempty"`
+	UpdateInterval int    `json:"updateInterval,omitempty"`
 }

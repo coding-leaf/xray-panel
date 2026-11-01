@@ -4,6 +4,7 @@ import (
 	"context"
 	"strings"
 	"testing"
+	"time"
 
 	"panel/internal/domain"
 )
@@ -81,9 +82,145 @@ func TestSubService_OnlySubTokenAllowed(t *testing.T) {
 	}
 }
 
+type mockSubSettingRepo struct {
+	settings map[string]string
+}
+
+func (m *mockSubSettingRepo) Get(ctx context.Context, key string) (string, error) {
+	if m.settings == nil {
+		return "", domain.ErrNotFound
+	}
+	if v, ok := m.settings[key]; ok {
+		return v, nil
+	}
+	return "", domain.ErrNotFound
+}
+func (m *mockSubSettingRepo) Set(ctx context.Context, key, value string) error {
+	if m.settings == nil {
+		m.settings = make(map[string]string)
+	}
+	m.settings[key] = value
+	return nil
+}
+func (m *mockSubSettingRepo) GetAll(ctx context.Context) (map[string]string, error) {
+	return m.settings, nil
+}
+
 type mockSubInboundRepo struct {
 	inbounds []domain.Inbound
 }
+
+func TestSubService_NodeSortingAndTopInfoNodes(t *testing.T) {
+	targetExpire := time.Date(2027, 1, 1, 0, 0, 0, 0, time.UTC).UnixMilli()
+	user := &domain.User{
+		ID:          1,
+		Email:       "user@example.com",
+		UUID:        "11111111-1111-4111-8111-111111111111",
+		SubToken:    "token-sort-test",
+		InboundTags: "inb-b,inb-a",
+		TotalBytes:  100 * 1073741824, // 100 GB
+		UpBytes:     10 * 1073741824,  // 10 GB
+		DownBytes:   20 * 1073741824,  // 20 GB -> 70 GB remaining
+		ExpireTime:  targetExpire,
+		Enabled:     true,
+	}
+	userRepo := &mockSubUserRepo{user: user}
+
+	inboundB := domain.Inbound{
+		ID:            2,
+		Tag:           "inb-b",
+		Remark:        "Node B",
+		Protocol:      "vless",
+		Port:          443,
+		SortOrder:     20,
+		Enabled:       true,
+		StreamSettings: `{"network":"tcp","security":"none"}`,
+	}
+	inboundA := domain.Inbound{
+		ID:        1,
+		Tag:       "inb-a",
+		Remark:    "Node A",
+		Protocol:  "vless",
+		Port:      443,
+		SortOrder: 10,
+		Enabled:   true,
+		SubRoutesJson: `[
+			{"id":"sr2","name":"Route A2","routeId":2,"outboundTag":"direct","sortOrder":2,"enabled":true},
+			{"id":"sr1","name":"Route A1","routeId":1,"outboundTag":"direct","sortOrder":1,"enabled":true}
+		]`,
+		StreamSettings: `{"network":"tcp","security":"none"}`,
+	}
+
+	inboundRepo := &mockSubInboundRepo{
+		inbounds: []domain.Inbound{inboundB, inboundA},
+	}
+
+	t.Run("nodes sorted by Inbound.SortOrder ASC, ID ASC, SubRoute.SortOrder ASC", func(t *testing.T) {
+		settingRepo := &mockSubSettingRepo{
+			settings: map[string]string{
+				"sub_show_info_nodes": "false",
+			},
+		}
+		svc := NewSubService(userRepo, inboundRepo, settingRepo)
+
+		_, output, err := svc.ExportUserSubscription(context.Background(), user.SubToken, "", "", "raw")
+		if err != nil {
+			t.Fatalf("ExportUserSubscription failed: %v", err)
+		}
+
+		lines := strings.Split(strings.TrimSpace(output), "\n")
+		if len(lines) != 3 {
+			t.Fatalf("expected 3 lines, got %d: %v", len(lines), lines)
+		}
+		// Line 1: Route A1 (Inbound A sortOrder=10, Route sortOrder=1)
+		// Line 2: Route A2 (Inbound A sortOrder=10, Route sortOrder=2)
+		// Line 3: Node B   (Inbound B sortOrder=20)
+		if !strings.Contains(lines[0], "Route+A1") && !strings.Contains(lines[0], "Route A1") {
+			t.Errorf("expected line 1 to be Route A1, got %s", lines[0])
+		}
+		if !strings.Contains(lines[1], "Route+A2") && !strings.Contains(lines[1], "Route A2") {
+			t.Errorf("expected line 2 to be Route A2, got %s", lines[1])
+		}
+		if !strings.Contains(lines[2], "Node+B") && !strings.Contains(lines[2], "Node B") {
+			t.Errorf("expected line 3 to be Node B, got %s", lines[2])
+		}
+	})
+
+	t.Run("top info nodes prepended when sub_show_info_nodes is true", func(t *testing.T) {
+		settingRepo := &mockSubSettingRepo{
+			settings: map[string]string{
+				"sub_show_info_nodes":     "true",
+				"sub_custom_announcement": "Important Maintenance Notice",
+			},
+		}
+		svc := NewSubService(userRepo, inboundRepo, settingRepo)
+
+		_, output, err := svc.ExportUserSubscription(context.Background(), user.SubToken, "", "", "raw")
+		if err != nil {
+			t.Fatalf("ExportUserSubscription failed: %v", err)
+		}
+
+		lines := strings.Split(strings.TrimSpace(output), "\n")
+		// Top 3 should be info nodes: Announcement, Traffic, Expire, followed by real nodes
+		if len(lines) < 6 {
+			t.Fatalf("expected at least 6 lines (3 info + 3 real), got %d", len(lines))
+		}
+
+		// Node 1: Announcement
+		if !strings.Contains(lines[0], "Important%20Maintenance%20Notice") {
+			t.Errorf("expected line 1 to contain RFC3986-encoded announcement, got: %s", lines[0])
+		}
+		// Node 2: Traffic
+		if !strings.Contains(lines[1], "70.00%20GB") {
+			t.Errorf("expected line 2 to contain remaining traffic 70.00%%20GB, got: %s", lines[1])
+		}
+		// Node 3: Expire
+		if !strings.Contains(lines[2], "2027-01-01") {
+			t.Errorf("expected line 3 to contain expire date 2027-01-01, got: %s", lines[2])
+		}
+	})
+}
+
 
 func (m *mockSubInboundRepo) Create(ctx context.Context, in *domain.Inbound) error { return nil }
 func (m *mockSubInboundRepo) Update(ctx context.Context, in *domain.Inbound) error { return nil }

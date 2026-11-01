@@ -111,3 +111,31 @@ func TestBuildNodeQueryParams(t *testing.T) {
 		t.Errorf("ignored_custom should be filtered by extraReserved")
 	}
 }
+
+func TestFormatLink_RemarkSpaceEncodedAsPercent20(t *testing.T) {
+	remark := "📊 剩余流量: 156.17 GB / 200.00 GB"
+	protocols := []string{"trojan", "vless", "shadowsocks", "hysteria2", "socks"}
+
+	for _, proto := range protocols {
+		node := protocol.NewNodeConfig(remark, proto, "127.0.0.1", 10000, "00000000-0000-0000-0000-000000000000")
+		link, err := protocol.FormatLink(node)
+		if err != nil {
+			t.Fatalf("[%s] FormatLink failed: %v", proto, err)
+		}
+		idx := len(link) - 1
+		for idx >= 0 && link[idx] != '#' {
+			idx--
+		}
+		if idx < 0 {
+			t.Fatalf("[%s] missing #fragment in link: %s", proto, link)
+		}
+		frag := link[idx+1:]
+		for i := 0; i < len(frag); i++ {
+			if frag[i] == '+' {
+				t.Errorf("[%s] fragment contains '+' instead of '%%20' for spaces: %s", proto, frag)
+				break
+			}
+		}
+	}
+}
+

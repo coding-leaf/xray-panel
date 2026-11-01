@@ -91,7 +91,7 @@ func (f *Hysteria2Formatter) FormatLink(node *NodeConfig) (string, error) {
 	}
 
 	remark := node.Name
-	return fmt.Sprintf("hysteria2://%s@%s:%d%s#%s", node.UUID, targetHost, node.Port, queryStr, url.QueryEscape(remark)), nil
+	return fmt.Sprintf("hysteria2://%s@%s:%d%s#%s", node.UUID, targetHost, node.Port, queryStr, EscapeRemark(remark)), nil
 }
 
 // ToClash 将 Hysteria2 节点转为 Clash / Mihomo proxy map

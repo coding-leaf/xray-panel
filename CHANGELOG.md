@@ -4,6 +4,30 @@
 
 ---
 
+## v2.6.7 (2026-11) - 用户与订阅高可定制化、全链路动态版本号、前后端配置对齐与陈年隐患根治
+
+- **用户全字段自由定制与热重载安全同步 (User Full Customizability & Hot-Reload Sync)**：
+  - 解除编辑用户时的 `Email` 只读限制，支持直接修改用户标识、自定义或一键随机生成 `UUID` 与 `SubToken`；
+  - 当用户的 `Email` 或 `UUID` 变更时，`UserService.UpdateUser` 先以旧快照调用 `RemoveUser(oldEmail)` 精确卸载 Xray 内存态旧凭据，再注入新凭据，并自动联动刷新所有 Inbound `SubRoute.AllowedUsers` 白名单，实现零孤儿凭据残留；
+  - 新增用户级 `Flow` 策略（`""` 跟随节点默认、`xtls-rprx-vision` 强制开启、`none` 显式禁用流控）及用户备注 (`Remark`) 字段，支持列表徽标展示与关键字搜索；
+  - 到期时间支持「设为永不过期」、「按相对天数顺延 (+30/+90/+365天)」与「指定绝对到期日期」三种模式。
+- **客户端订阅节点排序、置顶公告与导出参数定制 (Subscription Display & Export Controls)**：
+  - `domain.Inbound` 与 `domain.SubRoute` 新增 `SortOrder` 排序权重（数值越小越靠前），确保客户端拉取订阅时节点顺序严格按权重确定性排列；
+  - 支持在订阅列表最顶端自动注入虚拟状态提示节点（`📢 公告`、`📊 剩余流量`、`⏳ 到期时间`），支持在「系统设置」中一键开关或配置自定义置顶公告；
+  - 支持自定义节点命名模板（`{remark}`, `{tag}`, `{protocol}`, `{port}`, `{index}`）、订阅显示名称 (`Profile-Title`)、更新间隔、全局默认 TLS 指纹、Clash 端口 (`mixed-port`) 与 `allow-lan` 开关；
+  - 修复全协议分享链接 `#` 锚点后缀（URI Fragment）使用 `url.QueryEscape` 将空格编码为 `+` 号导致 v2rayNG / NekoBox 等客户端显示加号的问题，统一改为符合 RFC 3986 的 `%20` 百分号编码。
+- **面板版本号全链路动态绑定 (Dynamic Panel Version)**：
+  - 新增 `-panel-version` 命令行参数、`PANEL_VERSION` 环境变量及 `-v` / `-version` 版本打印指令，优先级为 `CLI Flag > ENV > ldflags/默认版本`；
+  - `/api/service/status` 响应新增 `panelVersion`、`commit`、`buildTime` 字段，移除前端顶栏 `v2.6` 硬编码，桌面端侧边栏与移动端抽屉实时绑定后端版本号。
+- **前后端配置失配修复与陈年 Bug 根治 (Config Compiler & Legacy Bug Fixes)**：
+  - **修复重启面板后空 Flow (`none`) 自动死灰复燃为 `xtls-rprx-vision` 的陈年缺陷**：修复 `syncFromRawJSON` 在启动同步 `config.json` 时抹除数据库 `inbound.SettingsJSON` 中的 `"flow": "none"` 标记及覆盖 `existingUser.Flow` 策略的问题；
+  - **修复删除或改号后 `vlessRoute` 僵尸规则残留问题**：重构 `ensureSubRouteRules`，自动清理已删除/停用/改号的旧 `vlessRoute` 兜底规则，并就地同步最新的 `OutboundTag` 与 `AllowedUsers`；
+  - **补齐入站/出站/路由/DNS 缺失配置**：入站抽屉补齐嗅探 `仅限路由 (RouteOnly)` 开关与 `destOverride` 多选框、`httpupgrade` / `mkcp` 传输层表单、TLS `alpn` 与 Fallback `alpn/path`；出站抽屉补齐 TLS `Fingerprint`、Reality `spiderX`、WireGuard `MTU` / `noKernelTun`；路由抽屉补齐按用户 (`User`) 分流与规则标识 (`Tag`)；
+  - **修复 DNS 与 GeoData 配置丢失**：补齐 `XrayDNSConfig` 的 `clientIp`、`disableCache`、`disableFallback`、`hosts` 编译映射；`GeoDataService` 动态读取系统设置中的 `xray_geodata_dir`；
+  - **Xray 真实二进制契约验收**：引入官方 Xray-core 真实二进制执行矩阵，验证全协议、传输层、DNS、路由与 gRPC 动态热操作 100% 零报错通过。
+
+---
+
 ## v2.6.6 (2026-10) - 修复用户保存异常与虚拟节点转化规范、新增出站日志过滤与核心日志等级、移动端全量响应式适配
 
 - **用户保存与失效 Inbound 移除容错治理 (Idempotent Node Removal)**：

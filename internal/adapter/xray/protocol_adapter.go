@@ -132,14 +132,27 @@ func (a *VLESSAdapter) Protocol() string {
 	return "vless"
 }
 
-func (a *VLESSAdapter) CompileClients(inbound *domain.Inbound, users []domain.User, accessor *InboundStreamAccessor) ([]XrayClient, error) {
+func resolveVLESSClientFlow(inbound *domain.Inbound, accessor *InboundStreamAccessor, userFlow string) string {
 	inboundFlow := accessor.ResolveVisionFlow(inbound.Protocol)
+	if inboundFlow == "" {
+		return ""
+	}
+	if strings.EqualFold(userFlow, "none") {
+		return ""
+	}
+	if userFlow != "" {
+		return userFlow
+	}
+	return inboundFlow
+}
+
+func (a *VLESSAdapter) CompileClients(inbound *domain.Inbound, users []domain.User, accessor *InboundStreamAccessor) ([]XrayClient, error) {
 	activeUsers := filterActiveUsersForInbound(inbound, users)
 	clients := make([]XrayClient, 0, len(activeUsers))
 	for _, u := range activeUsers {
 		clients = append(clients, XrayClient{
 			ID:    u.UUID,
-			Flow:  inboundFlow,
+			Flow:  resolveVLESSClientFlow(inbound, accessor, u.Flow),
 			Email: u.Email,
 			Level: 0,
 		})
@@ -148,7 +161,7 @@ func (a *VLESSAdapter) CompileClients(inbound *domain.Inbound, users []domain.Us
 }
 
 func (a *VLESSAdapter) BuildAccount(inbound *domain.Inbound, user *domain.User, accessor *InboundStreamAccessor) (*proto.TypedMessage, error) {
-	flow := accessor.ResolveVisionFlow(inbound.Protocol)
+	flow := resolveVLESSClientFlow(inbound, accessor, user.Flow)
 	return proto.ToTypedMessage(&proto.VLESSAccount{
 		Id:   user.UUID,
 		Flow: flow,

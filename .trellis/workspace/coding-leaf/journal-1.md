@@ -652,3 +652,25 @@
 ### Status
 
 [OK] **Completed**
+
+
+## Session 29: 重构线路与拓扑中心为三栏动态脉冲连线可视化拓扑画布
+<!-- trellis-session: v=2 fp=9bf442a5f9680c32 -->
+
+**Date**: 2026-11-02
+**Task**: 重构线路与拓扑中心为三栏动态脉冲连线可视化拓扑画布
+**Branch**: `master`
+
+### Summary
+
+完成 11-02-visual-pipeline-topology 任务：将 TopologyView 重构为三栏动态脉冲连线拓扑图（接入网关 -> 分流通道/路由策略 -> 落地出口），实现全协议路由流向推导引擎（SubRoute、Scoped/Global路由规则、Default Fallback兜底）、SVG三次贝塞尔曲线与流动脉冲粒子动画、BFS双向悬停链路高亮与原位操作，并沉淀前端拓扑规范至 .trellis/spec。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `f671448` | feat(topology): 重构线路与拓扑中心为三栏动态脉冲连线可视化拓扑画布 |
+
+### Status
+
+[OK] **Completed**

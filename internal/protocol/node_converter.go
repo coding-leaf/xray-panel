@@ -88,8 +88,9 @@ type inboundRawStream struct {
 		SpiderX     string   `json:"spiderX"`
 	} `json:"realitySettings"`
 	TLSSettings *struct {
-		ServerName string   `json:"serverName"`
-		ALPN       []string `json:"alpn"`
+		ServerName  string   `json:"serverName"`
+		ALPN        []string `json:"alpn"`
+		Fingerprint string   `json:"fingerprint"`
 	} `json:"tlsSettings"`
 	XHTTPSettings *struct {
 		Path    string            `json:"path"`
@@ -121,7 +122,10 @@ type inboundRawStream struct {
 
 // InboundToNodeConfig 将 domain.Inbound 与 domain.User 转换为通用的 protocol.NodeConfig
 func InboundToNodeConfig(inbound *domain.Inbound, user *domain.User, hostDomain string, defaultPort int) *NodeConfig {
-	if inbound == nil || user == nil {
+	if inbound == nil || strings.EqualFold(inbound.Protocol, "dokodemo-door") {
+		return nil
+	}
+	if user == nil && !strings.EqualFold(inbound.Protocol, "trojan") {
 		return nil
 	}
 
@@ -161,9 +165,20 @@ func InboundToNodeConfig(inbound *domain.Inbound, user *domain.User, hostDomain 
 		security = "none"
 	}
 
-	effectiveUUID := user.UUID
-	if inbound.RouteID > 0 && (inbound.Protocol == "" || strings.EqualFold(inbound.Protocol, "vless")) {
+	effectiveUUID := ""
+	if user != nil {
+		effectiveUUID = user.UUID
+	}
+	if strings.EqualFold(inbound.Protocol, "trojan") {
+		if pwd, ok := settingsMap["password"].(string); ok && strings.TrimSpace(pwd) != "" {
+			effectiveUUID = strings.TrimSpace(pwd)
+		}
+	}
+	if inbound.RouteID > 0 && (inbound.Protocol == "" || strings.EqualFold(inbound.Protocol, "vless")) && user != nil {
 		effectiveUUID = ApplyVlessRouteToUUID(user.UUID, inbound.RouteID)
+	}
+	if effectiveUUID == "" {
+		return nil
 	}
 
 	remark := inbound.Remark
@@ -185,7 +200,9 @@ func InboundToNodeConfig(inbound *domain.Inbound, user *domain.User, hostDomain 
 		if len(rawStream.TLSSettings.ALPN) > 0 {
 			node.SetParam("alpn", strings.Join(rawStream.TLSSettings.ALPN, ","))
 		}
-		if node.GetParam("fp") == "" {
+		if rawStream.TLSSettings.Fingerprint != "" {
+			node.SetParam("fp", rawStream.TLSSettings.Fingerprint)
+		} else {
 			node.SetParam("fp", GetDefaultFingerprint())
 		}
 	}
@@ -379,7 +396,7 @@ func InboundsToNodeConfigs(inbounds []domain.Inbound, user *domain.User, hostDom
 
 	var nodes []*NodeConfig
 	for _, in := range sortedInbounds {
-		if !in.Enabled || !user.HasInbound(in.Tag) {
+		if !in.Enabled || !user.HasInbound(in.Tag) || strings.EqualFold(in.Protocol, "dokodemo-door") {
 			continue
 		}
 		if tagFilter != "" && in.Tag != tagFilter {

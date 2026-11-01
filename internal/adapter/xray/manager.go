@@ -2,6 +2,8 @@ package xray
 
 import (
 	"context"
+	"log/slog"
+	"strings"
 
 	"panel/internal/domain"
 )
@@ -22,16 +24,45 @@ func NewManager(grpcClient *GRPCClient, configMgr *ConfigManager, supervisor *Sy
 	}
 }
 
+func isIgnorableUserManagerError(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "not a usermanager") ||
+		strings.Contains(msg, "does not support dynamic account operations")
+}
+
 func (m *Manager) AddUser(ctx context.Context, inboundTag string, user *domain.User) error {
 	inbound, err := m.inboundRepo.GetByTag(ctx, inboundTag)
 	if err != nil {
 		return err
 	}
-	return m.grpcClient.AddUser(ctx, inbound, user)
+	if !domain.SupportsDynamicUser(inbound.Protocol) {
+		slog.Debug("skip AddUser: inbound does not support dynamic user management", "protocol", inbound.Protocol, "tag", inboundTag)
+		return nil
+	}
+	err = m.grpcClient.AddUser(ctx, inbound, user)
+	if err != nil && isIgnorableUserManagerError(err) {
+		slog.Debug("ignoring dynamic user error on AddUser", "protocol", inbound.Protocol, "tag", inboundTag, "error", err)
+		return nil
+	}
+	return err
 }
 
 func (m *Manager) RemoveUser(ctx context.Context, inboundTag string, email string) error {
-	return m.grpcClient.RemoveUser(ctx, inboundTag, email)
+	if m.inboundRepo != nil {
+		if inbound, err := m.inboundRepo.GetByTag(ctx, inboundTag); err == nil && inbound != nil {
+			if !domain.SupportsDynamicUser(inbound.Protocol) {
+				return nil
+			}
+		}
+	}
+	err := m.grpcClient.RemoveUser(ctx, inboundTag, email)
+	if err != nil && isIgnorableUserManagerError(err) {
+		return nil
+	}
+	return err
 }
 
 func (m *Manager) QueryTrafficStats(ctx context.Context, reset bool) ([]domain.TrafficStat, error) {

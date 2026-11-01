@@ -459,3 +459,101 @@ func TestSubService_GetUserShareInfo_UserIsolation(t *testing.T) {
 		t.Fatalf("expected 0 nodes for unauthorized user, got %d", len(respUnauth.Nodes))
 	}
 }
+
+func TestSubService_FingerprintAndDokodemoDoor(t *testing.T) {
+	user := &domain.User{
+		ID:          1,
+		Email:       "user@example.com",
+		UUID:        "11111111-2222-3333-4444-555555555555",
+		SubToken:    "token_fingerprint_test",
+		InboundTags: "tls-node,reality-explicit,doko-node",
+		Enabled:     true,
+	}
+
+	inbounds := []domain.Inbound{
+		{
+			ID:             1,
+			Tag:            "tls-node",
+			Protocol:       "vless",
+			Port:           443,
+			ExternalHost:   "tls.example.com",
+			Enabled:        true,
+			StreamSettings: `{"network":"tcp","security":"tls","tlsSettings":{"serverName":"tls.example.com"}}`,
+		},
+		{
+			ID:             2,
+			Tag:            "reality-explicit",
+			Protocol:       "vless",
+			Port:           443,
+			ExternalHost:   "reality.example.com",
+			Enabled:        true,
+			StreamSettings: `{"network":"tcp","security":"reality","realitySettings":{"dest":"1.1.1.1:443","serverNames":["reality.example.com"],"privateKey":"dGVzdA==","publicKey":"dGVzdA==","fingerprint":"firefox"}}`,
+		},
+		{
+			ID:             3,
+			Tag:            "doko-node",
+			Protocol:       "dokodemo-door",
+			Port:           53,
+			ExternalHost:   "doko.example.com",
+			Enabled:        true,
+			StreamSettings: `{"network":"tcp","security":"none"}`,
+		},
+	}
+
+	settingRepo := &mockSubSettingRepo{
+		settings: map[string]string{
+			"sub_default_fingerprint": "safari",
+		},
+	}
+
+	svc := NewSubService(&mockSubUserRepo{user: user}, &mockSubInboundRepo{inbounds: inbounds}, settingRepo)
+
+	// 1. GetUserShareInfo: doko-node should be skipped, tls-node should have fp=safari, reality-explicit should have fp=firefox
+	shareInfo, err := svc.GetUserShareInfo(context.Background(), 1, "https://panel.example.com")
+	if err != nil {
+		t.Fatalf("GetUserShareInfo failed: %v", err)
+	}
+	if len(shareInfo.Nodes) != 2 {
+		t.Fatalf("expected 2 nodes (doko skipped), got %d", len(shareInfo.Nodes))
+	}
+
+	for _, n := range shareInfo.Nodes {
+		if n.Tag == "doko-node" {
+			t.Errorf("dokodemo-door inbound should not be present in share nodes")
+		}
+		if n.Tag == "tls-node" {
+			if !strings.Contains(n.ShareLink, "fp=safari") {
+				t.Errorf("expected tls-node share link to contain fp=safari, got %s", n.ShareLink)
+			}
+		}
+		if n.Tag == "reality-explicit" {
+			if !strings.Contains(n.ShareLink, "fp=firefox") {
+				t.Errorf("expected reality-explicit share link to contain fp=firefox, got %s", n.ShareLink)
+			}
+		}
+	}
+
+	// 2. GetSubscriptionByToken: doko-node should be skipped, tls-node should have safari, reality-explicit should have firefox
+	payload, err := svc.GetSubscriptionByToken(context.Background(), "token_fingerprint_test", "", "")
+	if err != nil {
+		t.Fatalf("GetSubscriptionByToken failed: %v", err)
+	}
+	lines := strings.Split(strings.TrimSpace(payload.NodesRaw), "\n")
+	// Count non-info lines
+	proxyLines := 0
+	for _, l := range lines {
+		l = strings.TrimSpace(l)
+		if strings.HasPrefix(l, "vless://") {
+			proxyLines++
+			if strings.Contains(l, "tls.example.com") && !strings.Contains(l, "fp=safari") {
+				t.Errorf("expected tls subscription node to have fp=safari, got %s", l)
+			}
+			if strings.Contains(l, "reality.example.com") && !strings.Contains(l, "fp=firefox") {
+				t.Errorf("expected reality subscription node to have fp=firefox, got %s", l)
+			}
+		}
+	}
+	if proxyLines != 2 {
+		t.Errorf("expected 2 proxy lines in subscription (doko excluded), got %d", proxyLines)
+	}
+}

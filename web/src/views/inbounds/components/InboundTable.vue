@@ -42,7 +42,7 @@
                 <Badge :variant="getProtocolBadgeVariant(inb.protocol)">
                   {{ inb.protocol?.toUpperCase() }}
                 </Badge>
-                <span v-if="getNodeFlow(inb) !== 'none'" class="text-[10px] font-mono px-1.5 py-0.5 rounded bg-neutral-900 text-neutral-300 border border-neutral-800">
+                <span v-if="inb.protocol === 'vless' && getNodeFlow(inb) !== 'none'" class="text-[10px] font-mono px-1.5 py-0.5 rounded bg-neutral-900 text-neutral-300 border border-neutral-800">
                   {{ getNodeFlow(inb) }}
                 </span>
               </div>
@@ -192,7 +192,7 @@
             <Badge :variant="getProtocolBadgeVariant(inb.protocol)" class="shrink-0 text-[10px]">
               {{ inb.protocol?.toUpperCase() }}
             </Badge>
-            <span v-if="getNodeFlow(inb) !== 'none'" class="text-[10px] font-mono px-1.5 py-0.2 rounded bg-neutral-900 text-neutral-300 border border-neutral-800 shrink-0">
+            <span v-if="inb.protocol === 'vless' && getNodeFlow(inb) !== 'none'" class="text-[10px] font-mono px-1.5 py-0.2 rounded bg-neutral-900 text-neutral-300 border border-neutral-800 shrink-0">
               {{ getNodeFlow(inb) }}
             </span>
           </div>

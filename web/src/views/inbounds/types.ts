@@ -1,3 +1,17 @@
+export const CLIENT_FINGERPRINT_OPTIONS = [
+  { label: '跟随系统默认设置 (推荐)', value: '' },
+  { label: 'chrome', value: 'chrome' },
+  { label: 'firefox', value: 'firefox' },
+  { label: 'safari', value: 'safari' },
+  { label: 'ios', value: 'ios' },
+  { label: 'android', value: 'android' },
+  { label: 'edge', value: 'edge' },
+  { label: '360', value: '360' },
+  { label: 'qq', value: 'qq' },
+  { label: 'random', value: 'random' },
+  { label: 'randomized', value: 'randomized' },
+]
+
 export interface SubRouteItem {
   id: string
   name: string
@@ -93,6 +107,17 @@ export interface InboundFormData {
   sniffingEnabled: boolean
   sniffingRouteOnly: boolean
   sniffingDestOverride: string[]
+  clientFingerprint: string
+  vmessAlterId: number
+  vmessDisableInsecure: boolean
+  trojanPassword: string
+  ssNetwork: 'tcp,udp' | 'tcp' | 'udp'
+  ssIvCheck: boolean
+  socksIp: string
+  httpAllowTransparent: boolean
+  httpTimeout: number
+  dokoFollowRedirect: boolean
+  dokoTimeout: number
 }
 
 export interface InboundPayload {
@@ -175,6 +200,17 @@ export function getDefaultInboundFormData(usersList: any[] = []): InboundFormDat
     sniffingEnabled: true,
     sniffingRouteOnly: true,
     sniffingDestOverride: ['http', 'tls', 'quic'],
+    clientFingerprint: '',
+    vmessAlterId: 0,
+    vmessDisableInsecure: false,
+    trojanPassword: '',
+    ssNetwork: 'tcp,udp',
+    ssIvCheck: false,
+    socksIp: '127.0.0.1',
+    httpAllowTransparent: false,
+    httpTimeout: 300,
+    dokoFollowRedirect: false,
+    dokoTimeout: 300,
   }
 }
 
@@ -242,6 +278,17 @@ export function sanitizeInboundPayload(raw: InboundFormData): InboundFormData {
     dokoNetwork: 'tcp,udp',
     ssMethod: '2022-blake3-aes-128-gcm',
     ssPassword: '',
+    clientFingerprint: '',
+    vmessAlterId: 0,
+    vmessDisableInsecure: false,
+    trojanPassword: '',
+    ssNetwork: 'tcp,udp',
+    ssIvCheck: false,
+    socksIp: '127.0.0.1',
+    httpAllowTransparent: false,
+    httpTimeout: 300,
+    dokoFollowRedirect: false,
+    dokoTimeout: 300,
   }
 
   // 1. 协议特定清洗与安全/传输约束
@@ -272,11 +319,14 @@ export function sanitizeInboundPayload(raw: InboundFormData): InboundFormData {
   } else if (clean.protocol === 'vmess') {
     clean.selectedUserEmails = Array.isArray(raw.selectedUserEmails) ? [...raw.selectedUserEmails] : []
     clean.vlessFlow = ''
+    clean.vmessAlterId = Number(raw.vmessAlterId) || 0
+    clean.vmessDisableInsecure = Boolean(raw.vmessDisableInsecure)
     if (clean.security === 'reality') {
       clean.security = 'tls'
     }
   } else if (clean.protocol === 'trojan') {
     clean.selectedUserEmails = Array.isArray(raw.selectedUserEmails) ? [...raw.selectedUserEmails] : []
+    clean.trojanPassword = (raw.trojanPassword || '').trim()
     clean.fallbacksEnabled = Boolean(raw.fallbacksEnabled)
     clean.fallbackDest = raw.fallbackDest || '80'
     clean.fallbackXver = raw.fallbackXver || 0
@@ -288,6 +338,8 @@ export function sanitizeInboundPayload(raw: InboundFormData): InboundFormData {
   } else if (clean.protocol === 'shadowsocks') {
     clean.ssMethod = raw.ssMethod || '2022-blake3-aes-128-gcm'
     clean.ssPassword = raw.ssPassword || ''
+    clean.ssNetwork = raw.ssNetwork || 'tcp,udp'
+    clean.ssIvCheck = Boolean(raw.ssIvCheck)
     clean.selectedUserEmails = Array.isArray(raw.selectedUserEmails) ? [...raw.selectedUserEmails] : []
     clean.security = 'none'
     clean.vlessFlow = ''
@@ -296,12 +348,15 @@ export function sanitizeInboundPayload(raw: InboundFormData): InboundFormData {
     clean.socksUdp = raw.socksUdp !== false
     clean.socksUsername = raw.socksUsername || ''
     clean.socksPassword = raw.socksPassword || ''
+    clean.socksIp = (raw.socksIp || '127.0.0.1').trim()
     clean.network = 'tcp'
     clean.security = 'none'
     clean.vlessFlow = ''
   } else if (clean.protocol === 'http') {
     clean.httpUsername = raw.httpUsername || ''
     clean.httpPassword = raw.httpPassword || ''
+    clean.httpAllowTransparent = Boolean(raw.httpAllowTransparent)
+    clean.httpTimeout = Number(raw.httpTimeout) || 300
     clean.network = 'tcp'
     clean.security = 'none'
     clean.vlessFlow = ''
@@ -309,6 +364,8 @@ export function sanitizeInboundPayload(raw: InboundFormData): InboundFormData {
     clean.dokoAddress = raw.dokoAddress || '127.0.0.1'
     clean.dokoPort = raw.dokoPort || 53
     clean.dokoNetwork = raw.dokoNetwork || 'tcp,udp'
+    clean.dokoFollowRedirect = Boolean(raw.dokoFollowRedirect)
+    clean.dokoTimeout = Number(raw.dokoTimeout) || 300
     clean.network = 'tcp'
     clean.security = 'none'
     clean.vlessFlow = ''
@@ -345,11 +402,13 @@ export function sanitizeInboundPayload(raw: InboundFormData): InboundFormData {
       clean.realityPrivateKey = raw.realityPrivateKey || ''
       clean.realityPublicKey = raw.realityPublicKey || ''
       clean.realityShortIds = raw.realityShortIds || '0123456789abcdef'
+      clean.clientFingerprint = (raw.clientFingerprint || '').trim()
     } else if (clean.security === 'tls') {
       clean.tlsServerName = raw.tlsServerName || ''
       clean.tlsCertFile = raw.tlsCertFile || ''
       clean.tlsKeyFile = raw.tlsKeyFile || ''
       clean.tlsAlpn = (raw.tlsAlpn || '').trim()
+      clean.clientFingerprint = (raw.clientFingerprint || '').trim()
     }
   }
 
@@ -362,6 +421,7 @@ export function buildSettingsJSON(clean: InboundFormData, usersList: any[] = [])
   if (clean.protocol === 'socks') {
     settings.auth = clean.socksAuth || 'noauth'
     settings.udp = clean.socksUdp !== false
+    settings.ip = (clean.socksIp || '').trim() || '127.0.0.1'
     if (clean.socksAuth === 'password' && (clean.socksUsername || clean.socksPassword)) {
       settings.accounts = [
         {
@@ -374,6 +434,8 @@ export function buildSettingsJSON(clean: InboundFormData, usersList: any[] = [])
   }
 
   if (clean.protocol === 'http') {
+    settings.allowTransparent = !!clean.httpAllowTransparent
+    settings.timeout = Number(clean.httpTimeout) || 300
     if (clean.httpUsername || clean.httpPassword) {
       settings.accounts = [
         {
@@ -389,12 +451,15 @@ export function buildSettingsJSON(clean: InboundFormData, usersList: any[] = [])
     settings.address = clean.dokoAddress || '127.0.0.1'
     settings.port = clean.dokoPort || 53
     settings.network = clean.dokoNetwork || 'tcp,udp'
+    settings.followRedirect = !!clean.dokoFollowRedirect
+    settings.timeout = Number(clean.dokoTimeout) || 300
     return JSON.stringify(settings, null, 2)
   }
 
   if (clean.protocol === 'shadowsocks') {
     settings.method = clean.ssMethod || '2022-blake3-aes-128-gcm'
-    settings.network = 'tcp,udp'
+    settings.network = clean.ssNetwork || 'tcp,udp'
+    settings.ivCheck = !!clean.ssIvCheck
     if (clean.ssPassword) {
       settings.password = clean.ssPassword
     }
@@ -421,6 +486,9 @@ export function buildSettingsJSON(clean: InboundFormData, usersList: any[] = [])
   }
 
   if (clean.protocol === 'trojan') {
+    if (clean.trojanPassword?.trim()) {
+      settings.password = clean.trojanPassword.trim()
+    }
     const clients: any[] = []
     for (const email of clean.selectedUserEmails) {
       const userObj = usersList.find((u: any) => u.email === email)
@@ -450,6 +518,8 @@ export function buildSettingsJSON(clean: InboundFormData, usersList: any[] = [])
   }
 
   if (clean.protocol === 'vmess') {
+    settings.default = { alterId: Number(clean.vmessAlterId) || 0 }
+    settings.disableInsecureEncryption = !!clean.vmessDisableInsecure
     const clients: any[] = []
     for (const email of clean.selectedUserEmails) {
       const userObj = usersList.find((u: any) => u.email === email)
@@ -575,6 +645,7 @@ export function buildStreamSettingsJSON(clean: InboundFormData): string {
       serverNames: sNames,
       privateKey: clean.realityPrivateKey,
       shortIds: sIds,
+      ...(clean.clientFingerprint ? { fingerprint: clean.clientFingerprint } : {}),
     }
   } else if (clean.security === 'tls') {
     const certs: any[] = []
@@ -587,6 +658,7 @@ export function buildStreamSettingsJSON(clean: InboundFormData): string {
     const tlsObj: any = {
       serverName: clean.tlsServerName || '',
       ...(certs.length > 0 ? { certificates: certs } : {}),
+      ...(clean.clientFingerprint ? { fingerprint: clean.clientFingerprint } : {}),
     }
     if (clean.tlsAlpn) {
       const alpnList = clean.tlsAlpn.split(',').map((s: string) => s.trim()).filter(Boolean)

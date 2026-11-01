@@ -669,4 +669,133 @@ func TestFlowResolutionAndNodeNamingTemplate(t *testing.T) {
 	})
 }
 
+func TestNodeConverter_DokodemoDoorSkipped(t *testing.T) {
+	dokoInbound := &domain.Inbound{
+		Tag:      "doko-in",
+		Protocol: "dokodemo-door",
+		Port:     53,
+		Enabled:  true,
+	}
+	user := &domain.User{
+		Email:       "test@example.com",
+		UUID:        "11111111-2222-3333-4444-555555555555",
+		InboundTags: "doko-in",
+		Enabled:     true,
+	}
+
+	node := protocol.InboundToNodeConfig(dokoInbound, user, "", 0)
+	if node != nil {
+		t.Errorf("expected InboundToNodeConfig for dokodemo-door to be nil, got %+v", node)
+	}
+
+	nodes := protocol.InboundsToNodeConfigs([]domain.Inbound{*dokoInbound}, user, "127.0.0.1", 443, "")
+	if len(nodes) != 0 {
+		t.Errorf("expected InboundsToNodeConfigs to skip dokodemo-door, got %d nodes", len(nodes))
+	}
+}
+
+func TestNodeConverter_Fingerprint(t *testing.T) {
+	protocol.SetDefaultFingerprint("safari")
+	defer protocol.SetDefaultFingerprint("chrome")
+
+	user := &domain.User{
+		Email: "fp@example.com",
+		UUID:  "11111111-2222-3333-4444-555555555555",
+	}
+
+	// 1. TLS node with explicit fingerprint "firefox"
+	tlsExplicitInbound := &domain.Inbound{
+		Tag:            "tls-firefox",
+		Protocol:       "vless",
+		Port:           443,
+		StreamSettings: `{"network":"tcp","security":"tls","tlsSettings":{"serverName":"example.com","fingerprint":"firefox"}}`,
+		Enabled:        true,
+	}
+	node1 := protocol.InboundToNodeConfig(tlsExplicitInbound, user, "", 0)
+	if node1.GetParam("fp") != "firefox" {
+		t.Errorf("expected fp='firefox', got %q", node1.GetParam("fp"))
+	}
+
+	// 2. TLS node without fingerprint -> falls back to defaultFingerprint ("safari")
+	tlsDefaultInbound := &domain.Inbound{
+		Tag:            "tls-default",
+		Protocol:       "vless",
+		Port:           443,
+		StreamSettings: `{"network":"tcp","security":"tls","tlsSettings":{"serverName":"example.com"}}`,
+		Enabled:        true,
+	}
+	node2 := protocol.InboundToNodeConfig(tlsDefaultInbound, user, "", 0)
+	if node2.GetParam("fp") != "safari" {
+		t.Errorf("expected fp='safari', got %q", node2.GetParam("fp"))
+	}
+
+	// 3. REALITY node with explicit fingerprint "qq"
+	realityExplicitInbound := &domain.Inbound{
+		Tag:            "reality-qq",
+		Protocol:       "vless",
+		Port:           443,
+		StreamSettings: `{"network":"tcp","security":"reality","realitySettings":{"dest":"1.1.1.1:443","serverNames":["example.com"],"privateKey":"dGVzdA==","publicKey":"dGVzdA==","fingerprint":"qq"}}`,
+		Enabled:        true,
+	}
+	node3 := protocol.InboundToNodeConfig(realityExplicitInbound, user, "", 0)
+	if node3.GetParam("fp") != "qq" {
+		t.Errorf("expected fp='qq', got %q", node3.GetParam("fp"))
+	}
+
+	// 4. REALITY node without fingerprint -> falls back to defaultFingerprint ("safari")
+	realityDefaultInbound := &domain.Inbound{
+		Tag:            "reality-default",
+		Protocol:       "vless",
+		Port:           443,
+		StreamSettings: `{"network":"tcp","security":"reality","realitySettings":{"dest":"1.1.1.1:443","serverNames":["example.com"],"privateKey":"dGVzdA==","publicKey":"dGVzdA=="}}`,
+		Enabled:        true,
+	}
+	node4 := protocol.InboundToNodeConfig(realityDefaultInbound, user, "", 0)
+	if node4.GetParam("fp") != "safari" {
+		t.Errorf("expected fp='safari', got %q", node4.GetParam("fp"))
+	}
+}
+
+func TestNodeConverter_TrojanFixedPassword(t *testing.T) {
+	user := &domain.User{
+		Email: "trojan-user@example.com",
+		UUID:  "11111111-2222-3333-4444-555555555555",
+	}
+
+	inboundWithFixedPwd := &domain.Inbound{
+		Tag:            "trojan-fixed",
+		Protocol:       "trojan",
+		Port:           443,
+		SettingsJSON:   `{"password":"my-secret-fixed-password"}`,
+		StreamSettings: `{"network":"tcp","security":"tls","tlsSettings":{"serverName":"trojan.example.com"}}`,
+		Enabled:        true,
+	}
+
+	node := protocol.InboundToNodeConfig(inboundWithFixedPwd, user, "", 0)
+	if node == nil {
+		t.Fatalf("expected node to be generated")
+	}
+	if node.UUID != "my-secret-fixed-password" {
+		t.Errorf("expected node.UUID to be fixed password 'my-secret-fixed-password', got %q", node.UUID)
+	}
+
+	// Inbound without fixed password should use user.UUID
+	inboundDefault := &domain.Inbound{
+		Tag:            "trojan-default",
+		Protocol:       "trojan",
+		Port:           443,
+		SettingsJSON:   `{}`,
+		StreamSettings: `{"network":"tcp","security":"tls","tlsSettings":{"serverName":"trojan.example.com"}}`,
+		Enabled:        true,
+	}
+	nodeDef := protocol.InboundToNodeConfig(inboundDefault, user, "", 0)
+	if nodeDef == nil {
+		t.Fatalf("expected node to be generated")
+	}
+	if nodeDef.UUID != user.UUID {
+		t.Errorf("expected node.UUID to be user.UUID %q, got %q", user.UUID, nodeDef.UUID)
+	}
+}
+
+
 

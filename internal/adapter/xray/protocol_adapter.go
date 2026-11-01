@@ -1,6 +1,7 @@
 package xray
 
 import (
+	"encoding/json"
 	"fmt"
 	"strings"
 	"sync"
@@ -8,6 +9,11 @@ import (
 	"panel/internal/adapter/xray/proto"
 	"panel/internal/domain"
 )
+
+// SupportsDynamicUserManagement 辅助函数：判断协议是否支持动态用户热拔插
+func SupportsDynamicUserManagement(protocol string) bool {
+	return domain.SupportsDynamicUser(protocol)
+}
 
 // ProtocolAdapter 统一协议适配器接口，覆盖静态 clients 编译、动态 gRPC 账户构建与 settings 规范化调整
 type ProtocolAdapter interface {
@@ -52,6 +58,8 @@ func (r *ProtocolRegistry) registerBuiltins() {
 	r.Register(&ShadowsocksAdapter{})
 	r.Register(&Shadowsocks2022Adapter{})
 	r.Register(&SocksAdapter{})
+	r.Register(&HTTPAdapter{})
+	r.Register(&DokodemoDoorAdapter{})
 }
 
 var defaultProtocolRegistry = NewProtocolRegistry()
@@ -223,13 +231,35 @@ func (a *TrojanAdapter) Protocol() string {
 
 func (a *TrojanAdapter) CompileClients(inbound *domain.Inbound, users []domain.User, accessor *InboundStreamAccessor) ([]XrayClient, error) {
 	activeUsers := filterActiveUsersForInbound(inbound, users)
-	clients := make([]XrayClient, 0, len(activeUsers))
+	clients := make([]XrayClient, 0, len(activeUsers)+1)
 	for _, u := range activeUsers {
 		clients = append(clients, XrayClient{
 			Password: u.UUID,
 			Email:    u.Email,
 			Level:    0,
 		})
+	}
+
+	var settingsMap map[string]interface{}
+	if s := strings.TrimSpace(inbound.SettingsJSON); s != "" && s != "null" && s != "{}" {
+		_ = json.Unmarshal([]byte(s), &settingsMap)
+	}
+	if pwd, ok := settingsMap["password"].(string); ok && strings.TrimSpace(pwd) != "" {
+		fixedPwd := strings.TrimSpace(pwd)
+		hasFixed := false
+		for _, c := range clients {
+			if c.Password == fixedPwd {
+				hasFixed = true
+				break
+			}
+		}
+		if !hasFixed {
+			clients = append(clients, XrayClient{
+				Password: fixedPwd,
+				Email:    inbound.Tag + "@trojan.local",
+				Level:    0,
+			})
+		}
 	}
 	return clients, nil
 }
@@ -365,5 +395,53 @@ func (a *SocksAdapter) DecorateSettings(inbound *domain.Inbound, settingsMap map
 	}
 	if _, ok := settingsMap["auth"]; !ok {
 		settingsMap["auth"] = "noauth"
+	}
+}
+
+// HTTPAdapter HTTP 协议适配器
+type HTTPAdapter struct{}
+
+func (a *HTTPAdapter) Protocol() string {
+	return "http"
+}
+
+func (a *HTTPAdapter) CompileClients(inbound *domain.Inbound, users []domain.User, accessor *InboundStreamAccessor) ([]XrayClient, error) {
+	return nil, nil
+}
+
+func (a *HTTPAdapter) BuildAccount(inbound *domain.Inbound, user *domain.User, accessor *InboundStreamAccessor) (*proto.TypedMessage, error) {
+	return nil, fmt.Errorf("%w: http protocol does not support dynamic account operations", domain.ErrInvalidInput)
+}
+
+func (a *HTTPAdapter) DecorateSettings(inbound *domain.Inbound, settingsMap map[string]interface{}) {
+	if _, ok := settingsMap["allowTransparent"]; !ok {
+		settingsMap["allowTransparent"] = false
+	}
+	if _, ok := settingsMap["timeout"]; !ok {
+		settingsMap["timeout"] = 300
+	}
+}
+
+// DokodemoDoorAdapter Dokodemo-door (任意门) 协议适配器
+type DokodemoDoorAdapter struct{}
+
+func (a *DokodemoDoorAdapter) Protocol() string {
+	return "dokodemo-door"
+}
+
+func (a *DokodemoDoorAdapter) CompileClients(inbound *domain.Inbound, users []domain.User, accessor *InboundStreamAccessor) ([]XrayClient, error) {
+	return nil, nil
+}
+
+func (a *DokodemoDoorAdapter) BuildAccount(inbound *domain.Inbound, user *domain.User, accessor *InboundStreamAccessor) (*proto.TypedMessage, error) {
+	return nil, fmt.Errorf("%w: dokodemo-door protocol does not support dynamic account operations", domain.ErrInvalidInput)
+}
+
+func (a *DokodemoDoorAdapter) DecorateSettings(inbound *domain.Inbound, settingsMap map[string]interface{}) {
+	if _, ok := settingsMap["followRedirect"]; !ok {
+		settingsMap["followRedirect"] = false
+	}
+	if _, ok := settingsMap["timeout"]; !ok {
+		settingsMap["timeout"] = 300
 	}
 }

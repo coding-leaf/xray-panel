@@ -1468,3 +1468,51 @@ func TestUserService_CustomCredentialsAndCascade(t *testing.T) {
 	})
 }
 
+func TestUserService_IgnorableDynamicUserManagerErrors(t *testing.T) {
+	t.Run("CreateUser ignores not a UserManager and does not support dynamic account operations", func(t *testing.T) {
+		repo := &mockUserRepo{users: []domain.User{}}
+		mockXray := &mockXrayManager{
+			failAddUserTag: "socks-local",
+			failAddUserErr: errors.New("handler error: proxy is not a UserManager"),
+		}
+		mockCfg := &mockConfigSynchronizer{}
+		svc := NewUserService(repo, nil, nil, mockXray, mockCfg)
+
+		dto := CreateUserDTO{
+			Email:       "socks_user@example.com",
+			InboundTags: []string{"vless-in", "socks-local"},
+		}
+
+		user, err := svc.CreateUser(context.Background(), dto)
+		if err != nil {
+			t.Fatalf("expected CreateUser to succeed ignoring not a UserManager error, got: %v", err)
+		}
+		if user == nil {
+			t.Fatalf("expected created user not to be nil")
+		}
+	})
+
+	t.Run("UpdateUser and DeleteUser ignore not a UserManager error on remove", func(t *testing.T) {
+		origUser := domain.User{
+			ID:          30,
+			Email:       "socks_orig@example.com",
+			UUID:        "33333333-3333-3333-3333-333333333333",
+			InboundTags: "socks-local",
+			Enabled:     true,
+		}
+		repo := &mockUserRepo{users: []domain.User{origUser}}
+		mockXray := &mockXrayManager{
+			failRemoveUserErr: errors.New("xray error: handler is not a usermanager"),
+		}
+		mockCfg := &mockConfigSynchronizer{}
+		svc := NewUserService(repo, nil, nil, mockXray, mockCfg)
+
+		// DeleteUser should succeed ignoring the remove error
+		err := svc.DeleteUser(context.Background(), 30)
+		if err != nil {
+			t.Fatalf("expected DeleteUser to succeed ignoring not a usermanager error, got: %v", err)
+		}
+	})
+}
+
+

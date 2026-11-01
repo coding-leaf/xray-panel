@@ -45,3 +45,19 @@ func TestSubRoute_CanAccess(t *testing.T) {
 		}
 	})
 }
+
+func TestSupportsDynamicUser(t *testing.T) {
+	supported := []string{"vless", "VLESS", "vmess", "VMess", "trojan", "Trojan", "shadowsocks", "shadowsocks-2022", "ss", "ss-2022", "ss2022"}
+	for _, p := range supported {
+		if !domain.SupportsDynamicUser(p) {
+			t.Errorf("expected SupportsDynamicUser(%q) to be true", p)
+		}
+	}
+
+	unsupported := []string{"socks", "http", "dokodemo-door", "freedom", "blackhole", "wireguard", ""}
+	for _, p := range unsupported {
+		if domain.SupportsDynamicUser(p) {
+			t.Errorf("expected SupportsDynamicUser(%q) to be false", p)
+		}
+	}
+}

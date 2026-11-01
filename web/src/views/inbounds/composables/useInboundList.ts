@@ -61,6 +61,9 @@ export function getSecurityBadgeVariant(sec?: string) {
 }
 
 export function getNodeFlow(inb: any): string {
+  if (inb?.protocol?.toLowerCase() !== 'vless') {
+    return 'none'
+  }
   try {
     const s = JSON.parse(inb.settingsJson || '{}')
     if (s.flow !== undefined) return s.flow || 'none'

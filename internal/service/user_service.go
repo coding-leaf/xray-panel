@@ -73,7 +73,18 @@ func isXrayIgnorableRemoveError(err error) bool {
 	return strings.Contains(msg, "handler not found") ||
 		strings.Contains(msg, "failed to get handler") ||
 		strings.Contains(msg, "not found") ||
-		strings.Contains(msg, "not exist")
+		strings.Contains(msg, "not exist") ||
+		strings.Contains(msg, "not a usermanager") ||
+		strings.Contains(msg, "does not support dynamic account operations")
+}
+
+func isXrayIgnorableAddUserError(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "not a usermanager") ||
+		strings.Contains(msg, "does not support dynamic account operations")
 }
 
 func isXrayUserNotFoundError(err error) bool {
@@ -228,6 +239,9 @@ func (s *UserService) CreateUser(ctx context.Context, dto CreateUserDTO) (*domai
 	if s.xrayManager != nil {
 		for _, t := range tags {
 			if err := s.xrayManager.AddUser(ctx, t, user); err != nil {
+				if isXrayIgnorableAddUserError(err) {
+					continue
+				}
 				// 触发 Saga 反向补偿：逆序撤销已注入节点并清理 DB 孤儿记录
 				compCtx, cancel := createCompensatingContext(ctx, 15*time.Second)
 				defer cancel()
@@ -376,7 +390,7 @@ func (s *UserService) UpdateUser(ctx context.Context, id uint, dto domain.Update
 					if err := s.xrayManager.RemoveUser(compCtx, t, oldSnapshot.Email); err != nil && !isXrayIgnorableRemoveError(err) {
 						slog.Warn("compensation: failed to remove user before restoring snapshot", slog.String("inbound", t), slog.String("email", oldSnapshot.Email), slog.Any("error", err))
 					}
-					if err := s.xrayManager.AddUser(compCtx, t, &oldSnapshot); err != nil {
+					if err := s.xrayManager.AddUser(compCtx, t, &oldSnapshot); err != nil && !isXrayIgnorableAddUserError(err) {
 						slog.Error("compensation: failed to re-add old snapshot to xray", slog.String("inbound", t), slog.String("email", oldSnapshot.Email), slog.Any("error", err))
 					}
 				}
@@ -435,8 +449,10 @@ func (s *UserService) UpdateUser(ctx context.Context, id uint, dto domain.Update
 					_ = s.xrayManager.RemoveUser(ctx, newT, updatedUser.Email)
 				}
 				if err := s.xrayManager.AddUser(ctx, newT, &updatedUser); err != nil {
-					rollback()
-					return nil, fmt.Errorf("add updated user to xray inbound %s failed: %w", newT, err)
+					if !isXrayIgnorableAddUserError(err) {
+						rollback()
+						return nil, fmt.Errorf("add updated user to xray inbound %s failed: %w", newT, err)
+					}
 				}
 			}
 		} else {
@@ -491,7 +507,7 @@ func (s *UserService) DeleteUser(ctx context.Context, id uint) error {
 		defer cancel()
 		if s.xrayManager != nil && oldSnapshot.IsActive() {
 			for _, t := range removedTags {
-				if err := s.xrayManager.AddUser(compCtx, t, &oldSnapshot); err != nil {
+				if err := s.xrayManager.AddUser(compCtx, t, &oldSnapshot); err != nil && !isXrayIgnorableAddUserError(err) {
 					slog.Error("compensation: failed to re-add user to xray during delete rollback",
 						slog.String("inbound", t), slog.String("email", oldSnapshot.Email), slog.Any("error", err))
 				}
@@ -584,7 +600,7 @@ func (s *UserService) ResetTraffic(ctx context.Context, id uint) error {
 	if user.IsActive() {
 		if s.xrayManager != nil {
 			for _, t := range user.GetInboundTagList() {
-				if err := s.xrayManager.AddUser(ctx, t, user); err != nil {
+				if err := s.xrayManager.AddUser(ctx, t, user); err != nil && !isXrayIgnorableAddUserError(err) {
 					return fmt.Errorf("add user to xray inbound %s on reset traffic failed: %w", t, err)
 				}
 			}
@@ -644,7 +660,7 @@ func (s *UserService) ResetSubToken(ctx context.Context, id uint) (*domain.User,
 				if err := s.xrayManager.RemoveUser(compCtx, t, user.Email); err != nil && !isXrayIgnorableRemoveError(err) {
 					slog.Warn("compensation: failed to remove user before restoring credentials in xray", slog.String("inbound", t), slog.String("email", user.Email), slog.Any("error", err))
 				}
-				if err := s.xrayManager.AddUser(compCtx, t, &oldSnapshot); err != nil {
+				if err := s.xrayManager.AddUser(compCtx, t, &oldSnapshot); err != nil && !isXrayIgnorableAddUserError(err) {
 					slog.Error("compensation: failed to re-add user with original credentials in xray", slog.String("inbound", t), slog.String("email", oldSnapshot.Email), slog.Any("error", err))
 				}
 			}
@@ -658,7 +674,7 @@ func (s *UserService) ResetSubToken(ctx context.Context, id uint) (*domain.User,
 				rollback()
 				return nil, fmt.Errorf("remove old user credentials from xray inbound %s failed: %w", t, err)
 			}
-			if err := s.xrayManager.AddUser(ctx, t, user); err != nil {
+			if err := s.xrayManager.AddUser(ctx, t, user); err != nil && !isXrayIgnorableAddUserError(err) {
 				rollback()
 				return nil, fmt.Errorf("register reset token in xray inbound %s failed: %w", t, err)
 			}
@@ -793,7 +809,7 @@ func (s *UserService) CheckAndResetMonthlyTraffic(ctx context.Context) error {
 			if u.IsActive() {
 				if s.xrayManager != nil {
 					for _, t := range u.GetInboundTagList() {
-						if err := s.xrayManager.AddUser(ctx, t, &u); err != nil {
+						if err := s.xrayManager.AddUser(ctx, t, &u); err != nil && !isXrayIgnorableAddUserError(err) {
 							errs = append(errs, fmt.Errorf("add user %d to xray %s failed: %w", u.ID, t, err))
 						}
 					}

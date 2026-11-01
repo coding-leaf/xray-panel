@@ -121,17 +121,25 @@ func (s *SubService) resolveSubscriptionNodes(ctx context.Context, token string,
 		}
 	}
 
+	var defaultFP string
+	if s.settingRepo != nil {
+		if fp, err := s.settingRepo.Get(ctx, "sub_default_fingerprint"); err == nil && strings.TrimSpace(fp) != "" {
+			defaultFP = strings.TrimSpace(fp)
+			protocol.SetDefaultFingerprint(defaultFP)
+		} else {
+			protocol.SetDefaultFingerprint("chrome")
+		}
+	}
+
 	nodes := protocol.InboundsToNodeConfigs(inbounds, user, hostDomain, defaultPort, tagFilter, routeFilter...)
 
 	// 应用默认 TLS 指纹回退
-	if s.settingRepo != nil {
-		if fp, err := s.settingRepo.Get(ctx, "sub_default_fingerprint"); err == nil && fp != "" {
-			for _, n := range nodes {
-				sec := n.GetParam("security")
-				if sec == "reality" || sec == "tls" {
-					if n.GetParam("fp") == "" || n.GetParam("fp") == "chrome" {
-						n.SetParam("fp", fp)
-					}
+	if defaultFP != "" {
+		for _, n := range nodes {
+			sec := n.GetParam("security")
+			if sec == "reality" || sec == "tls" {
+				if n.GetParam("fp") == "" || n.GetParam("fp") == "chrome" {
+					n.SetParam("fp", defaultFP)
 				}
 			}
 		}
@@ -313,6 +321,14 @@ func (s *SubService) GetUserShareInfo(ctx context.Context, userID uint, baseURL 
 		}
 	}
 
+	defaultFP := "chrome"
+	if s.settingRepo != nil {
+		if fp, err := s.settingRepo.Get(ctx, "sub_default_fingerprint"); err == nil && strings.TrimSpace(fp) != "" {
+			defaultFP = strings.TrimSpace(fp)
+		}
+	}
+	protocol.SetDefaultFingerprint(defaultFP)
+
 	resp := &domain.UserShareResponse{
 		UserID:    user.ID,
 		Email:     user.Email,
@@ -329,7 +345,7 @@ func (s *SubService) GetUserShareInfo(ctx context.Context, userID uint, baseURL 
 	})
 
 	for _, in := range inbounds {
-		if !in.Enabled || !user.HasInbound(in.Tag) {
+		if !in.Enabled || !user.HasInbound(in.Tag) || strings.EqualFold(in.Protocol, "dokodemo-door") {
 			continue
 		}
 		isVless := in.Protocol == "" || strings.EqualFold(in.Protocol, "vless")

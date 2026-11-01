@@ -117,12 +117,22 @@ func FindXrayBinary() (string, error) {
 }
 
 func getFreePort(t *testing.T) int {
-	l, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatalf("failed to listen on free port: %v", err)
+	for i := 0; i < 50; i++ {
+		l, err := net.Listen("tcp", "127.0.0.1:0")
+		if err != nil {
+			t.Fatalf("failed to listen on free port: %v", err)
+		}
+		port := l.Addr().(*net.TCPAddr).Port
+		u, err := net.ListenUDP("udp", &net.UDPAddr{IP: net.ParseIP("127.0.0.1"), Port: port})
+		if err == nil {
+			_ = u.Close()
+			_ = l.Close()
+			return port
+		}
+		_ = l.Close()
 	}
-	defer l.Close()
-	return l.Addr().(*net.TCPAddr).Port
+	t.Fatalf("failed to find a port free for both TCP and UDP")
+	return 0
 }
 
 func TestXrayCore_GRPC_RealBinary(t *testing.T) {

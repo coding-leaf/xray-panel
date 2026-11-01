@@ -230,3 +230,111 @@ func TestShadowsocks2022Adapter_CompileClients(t *testing.T) {
 		}
 	})
 }
+
+func TestTrojanAdapter_CompileClients_FixedPassword(t *testing.T) {
+	adapter := &TrojanAdapter{}
+	users := []domain.User{
+		{
+			Email:       "u1@example.com",
+			UUID:        "11111111-2222-3333-4444-555555555555",
+			InboundTags: "trojan-in",
+			Enabled:     true,
+		},
+	}
+
+	t.Run("with active users and fixed password", func(t *testing.T) {
+		inb := &domain.Inbound{
+			Tag:          "trojan-in",
+			Protocol:     "trojan",
+			SettingsJSON: `{"password":"fixed-secret-pwd"}`,
+		}
+		clients, err := adapter.CompileClients(inb, users, nil)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if len(clients) != 2 {
+			t.Fatalf("expected 2 clients (1 user + 1 fixed), got %d", len(clients))
+		}
+		hasFixed := false
+		for _, c := range clients {
+			if c.Password == "fixed-secret-pwd" {
+				hasFixed = true
+			}
+		}
+		if !hasFixed {
+			t.Errorf("expected client with fixed password")
+		}
+	})
+
+	t.Run("without active users but has fixed password", func(t *testing.T) {
+		inb := &domain.Inbound{
+			Tag:          "trojan-in",
+			Protocol:     "trojan",
+			SettingsJSON: `{"password":"fixed-secret-pwd"}`,
+		}
+		clients, err := adapter.CompileClients(inb, nil, nil)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if len(clients) != 1 {
+			t.Fatalf("expected 1 client (fixed password), got %d", len(clients))
+		}
+		if clients[0].Password != "fixed-secret-pwd" {
+			t.Errorf("expected password 'fixed-secret-pwd', got %s", clients[0].Password)
+		}
+	})
+}
+
+func TestHTTPAndDokodemoDoorAdapters(t *testing.T) {
+	reg := DefaultProtocolRegistry()
+
+	t.Run("HTTPAdapter registered and decorates", func(t *testing.T) {
+		a, ok := reg.Get("http")
+		if !ok || a == nil {
+			t.Fatalf("expected HTTP adapter to be registered")
+		}
+		settings := make(map[string]interface{})
+		a.DecorateSettings(&domain.Inbound{Protocol: "http"}, settings)
+		if settings["allowTransparent"] != false {
+			t.Errorf("expected allowTransparent=false, got %v", settings["allowTransparent"])
+		}
+		if settings["timeout"] != 300 {
+			t.Errorf("expected timeout=300, got %v", settings["timeout"])
+		}
+		_, err := a.BuildAccount(&domain.Inbound{Protocol: "http"}, &domain.User{}, nil)
+		if err == nil {
+			t.Errorf("expected error from BuildAccount on HTTP")
+		}
+	})
+
+	t.Run("DokodemoDoorAdapter registered and decorates", func(t *testing.T) {
+		a, ok := reg.Get("dokodemo-door")
+		if !ok || a == nil {
+			t.Fatalf("expected DokodemoDoor adapter to be registered")
+		}
+		settings := make(map[string]interface{})
+		a.DecorateSettings(&domain.Inbound{Protocol: "dokodemo-door"}, settings)
+		if settings["followRedirect"] != false {
+			t.Errorf("expected followRedirect=false, got %v", settings["followRedirect"])
+		}
+		if settings["timeout"] != 300 {
+			t.Errorf("expected timeout=300, got %v", settings["timeout"])
+		}
+		_, err := a.BuildAccount(&domain.Inbound{Protocol: "dokodemo-door"}, &domain.User{}, nil)
+		if err == nil {
+			t.Errorf("expected error from BuildAccount on dokodemo-door")
+		}
+	})
+
+	t.Run("SupportsDynamicUserManagement helper", func(t *testing.T) {
+		if !SupportsDynamicUserManagement("vless") {
+			t.Errorf("expected vless supported")
+		}
+		if SupportsDynamicUserManagement("socks") {
+			t.Errorf("expected socks not supported")
+		}
+		if SupportsDynamicUserManagement("dokodemo-door") {
+			t.Errorf("expected dokodemo-door not supported")
+		}
+	})
+}

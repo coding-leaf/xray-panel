@@ -42,7 +42,7 @@
             <span class="block text-[10px] text-muted-foreground">安全协议 (Security)</span>
             <span class="text-neutral-300 uppercase">{{ getSecurityType(inbound) }}</span>
           </div>
-          <div>
+          <div v-if="inbound.protocol === 'vless'">
             <span class="block text-[10px] text-muted-foreground">节点流控 (Flow)</span>
             <span class="text-neutral-300">{{ getNodeFlow(inbound) }}</span>
           </div>

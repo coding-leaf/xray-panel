@@ -450,9 +450,19 @@ const addDaysToDateInput = (days: number) => {
   expireDateInput.value = formatDatetimeLocal(target)
 }
 
+const MULTI_USER_PROTOCOLS = ['vless', 'vmess', 'trojan', 'shadowsocks', 'shadowsocks-2022']
+const isMultiUserInbound = (inb: any) => MULTI_USER_PROTOCOLS.includes((inb?.protocol || '').toLowerCase())
+
 const generateUUID = () => {
-  if (typeof crypto !== 'undefined' && crypto.randomUUID) {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
     form.value.uuid = crypto.randomUUID()
+  } else if (typeof crypto !== 'undefined' && crypto.getRandomValues) {
+    const bytes = new Uint8Array(16)
+    crypto.getRandomValues(bytes)
+    bytes[6] = (bytes[6] & 0x0f) | 0x40
+    bytes[8] = (bytes[8] & 0x3f) | 0x80
+    const hex = Array.from(bytes, (b) => b.toString(16).padStart(2, '0'))
+    form.value.uuid = `${hex.slice(0, 4).join('')}-${hex.slice(4, 6).join('')}-${hex.slice(6, 8).join('')}-${hex.slice(8, 10).join('')}-${hex.slice(10, 16).join('')}`
   } else {
     form.value.uuid = 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
       const r = (Math.random() * 16) | 0
@@ -463,20 +473,18 @@ const generateUUID = () => {
 }
 
 const generateSubToken = () => {
-  const chars = 'abcdefghijklmnopqrstuvwxyz0123456789'
-  let token = ''
   if (typeof crypto !== 'undefined' && crypto.getRandomValues) {
     const bytes = new Uint8Array(16)
     crypto.getRandomValues(bytes)
-    for (let i = 0; i < 16; i++) {
-      token += chars[bytes[i] % chars.length]
-    }
+    form.value.subToken = Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('')
   } else {
-    for (let i = 0; i < 16; i++) {
+    const chars = '0123456789abcdef'
+    let token = ''
+    for (let i = 0; i < 32; i++) {
       token += chars.charAt(Math.floor(Math.random() * chars.length))
     }
+    form.value.subToken = token
   }
-  form.value.subToken = token
 }
 
 const resetForm = () => {
@@ -511,7 +519,7 @@ const resetForm = () => {
       uuid: '',
       subToken: '',
       remark: '',
-      selectedTags: props.availableInbounds.map((i) => i.tag),
+      selectedTags: props.availableInbounds.filter(isMultiUserInbound).map((i) => i.tag),
       flow: '',
       totalGB: 0,
       expireTime: undefined,
@@ -534,16 +542,20 @@ watch(
   { immediate: true }
 )
 
+const multiUserInbounds = computed(() =>
+  props.availableInbounds.filter(isMultiUserInbound)
+)
+
 const isAllInboundsSelected = computed(() => {
-  if (!props.availableInbounds.length) return false
-  return form.value.selectedTags.length === props.availableInbounds.length
+  if (!multiUserInbounds.value.length) return false
+  return multiUserInbounds.value.every((i) => form.value.selectedTags.includes(i.tag))
 })
 
 const toggleSelectAllInbounds = () => {
   if (isAllInboundsSelected.value) {
     form.value.selectedTags = []
   } else {
-    form.value.selectedTags = props.availableInbounds.map((i) => i.tag)
+    form.value.selectedTags = multiUserInbounds.value.map((i) => i.tag)
   }
 }
 

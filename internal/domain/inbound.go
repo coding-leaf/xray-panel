@@ -2,6 +2,7 @@ package domain
 
 import (
 	"encoding/json"
+	"strings"
 	"time"
 )
 
@@ -66,4 +67,21 @@ func (in *Inbound) GetSubRoutes() []SubRoute {
 		return nil
 	}
 	return routes
+}
+
+// TLSSettings 定义 TLS 传输安全层结构
+type TLSSettings struct {
+	ServerName  string   `json:"serverName,omitempty"`
+	ALPN        []string `json:"alpn,omitempty"`
+	Fingerprint string   `json:"fingerprint,omitempty"`
+}
+
+// SupportsDynamicUser 检查协议是否支持 Xray UserManager 动态热拔插 (AddUser / RemoveUser)
+func SupportsDynamicUser(protocol string) bool {
+	switch strings.ToLower(strings.TrimSpace(protocol)) {
+	case "vless", "vmess", "trojan", "shadowsocks", "shadowsocks-2022", "ss", "ss-2022", "ss2022":
+		return true
+	default:
+		return false
+	}
 }

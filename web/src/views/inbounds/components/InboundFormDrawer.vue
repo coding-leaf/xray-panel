@@ -235,7 +235,7 @@
 
       <!-- Socks 专属参数 -->
       <SectionCard v-if="form.protocol === 'socks'" title="Socks 专属参数">
-        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
           <FormField label="认证方式 (Auth)">
             <select
               v-model="form.socksAuth"
@@ -244,6 +244,10 @@
               <option value="noauth">noauth (无需认证)</option>
               <option value="password">password (用户名密码认证)</option>
             </select>
+          </FormField>
+
+          <FormField label="UDP 绑定本地 IP (UDP Local IP)" hint="仅当开启 UDP 转发时生效">
+            <Input v-model="form.socksIp" placeholder="127.0.0.1" />
           </FormField>
 
           <div class="flex items-center pt-6">
@@ -273,6 +277,15 @@
           <FormField label="HTTP 认证密码 (选填)">
             <Input v-model="form.httpPassword" type="password" placeholder="留空为无认证" />
           </FormField>
+          <FormField label="空闲连接超时 (Timeout 秒)">
+            <Input v-model.number="form.httpTimeout" type="number" min="0" placeholder="300" />
+          </FormField>
+          <div class="flex items-center pt-6">
+            <label class="flex items-center gap-2 cursor-pointer text-muted-foreground hover:text-foreground">
+              <input type="checkbox" v-model="form.httpAllowTransparent" class="rounded bg-neutral-950 border-border text-neutral-200" />
+              <span>允许透明代理 (AllowTransparent)</span>
+            </label>
+          </div>
         </div>
       </SectionCard>
 
@@ -295,6 +308,15 @@
               <option value="udp">udp</option>
             </select>
           </FormField>
+          <FormField label="连接空闲超时 (Timeout 秒)">
+            <Input v-model.number="form.dokoTimeout" type="number" min="0" placeholder="300" />
+          </FormField>
+          <div class="flex items-center pt-6 sm:col-span-2">
+            <label class="flex items-center gap-2 cursor-pointer text-muted-foreground hover:text-foreground">
+              <input type="checkbox" v-model="form.dokoFollowRedirect" class="rounded bg-neutral-950 border-border text-neutral-200" />
+              <span>跟随透明代理重定向 (FollowRedirect - TProxy/Redirect 必选)</span>
+            </label>
+          </div>
         </div>
       </SectionCard>
 
@@ -318,7 +340,50 @@
           <FormField label="服务密码 (Password / 单用户模式)" hint="若留空且关联下方授权用户，则由用户 Sub-Key 派生">
             <Input v-model="form.ssPassword" placeholder="留空则使用下方关联用户的密钥" />
           </FormField>
+
+          <FormField label="转发网络 (Network)">
+            <select
+              v-model="form.ssNetwork"
+              class="w-full bg-neutral-950 border border-border rounded-md px-3 h-9 text-foreground font-mono focus:outline-none focus:ring-1 focus:ring-ring"
+            >
+              <option value="tcp,udp">tcp,udp (TCP + UDP 推荐)</option>
+              <option value="tcp">tcp (仅 TCP)</option>
+              <option value="udp">udp (仅 UDP)</option>
+            </select>
+          </FormField>
+
+          <div class="flex items-center pt-6">
+            <label class="flex items-center gap-2 cursor-pointer text-muted-foreground hover:text-foreground">
+              <input type="checkbox" v-model="form.ssIvCheck" class="rounded bg-neutral-950 border-border text-neutral-200" />
+              <span>启用重放攻击防护 (IV Check)</span>
+            </label>
+          </div>
         </div>
+      </SectionCard>
+
+      <!-- VMess 专属参数 -->
+      <SectionCard v-if="form.protocol === 'vmess'" title="VMess 协议参数">
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <FormField label="AlterId (额外ID)" hint="0 为启用 AEAD 认证 (推荐)">
+            <Input v-model.number="form.vmessAlterId" type="number" min="0" max="65535" placeholder="0" />
+          </FormField>
+          <div class="flex items-center pt-6">
+            <label class="flex items-center gap-2 cursor-pointer text-muted-foreground hover:text-foreground">
+              <input type="checkbox" v-model="form.vmessDisableInsecure" class="rounded bg-neutral-950 border-border text-neutral-200" />
+              <span>禁止不安全加密算法 (DisableInsecureEncryption)</span>
+            </label>
+          </div>
+        </div>
+      </SectionCard>
+
+      <!-- Trojan 专属参数 -->
+      <SectionCard v-if="form.protocol === 'trojan'" title="Trojan 协议参数">
+        <FormField
+          label="单用户独立连接密码 (可选)"
+          hint="若留空，则自动使用下方关联授权用户的 UUID 作为 Trojan 密码；若填写，则作为该节点的固定连接密码"
+        >
+          <Input v-model="form.trojanPassword" placeholder="留空则使用下方关联用户的 UUID" />
+        </FormField>
       </SectionCard>
 
       <!-- 3. REALITY 伪装与安全配置 -->
@@ -362,6 +427,17 @@
         <FormField label="Short IDs (多个逗号隔开)">
           <Input v-model="form.realityShortIds" placeholder="0123456789abcdef" />
         </FormField>
+
+        <FormField label="客户端 uTLS 指纹 (Client Fingerprint)">
+          <select
+            v-model="form.clientFingerprint"
+            class="w-full bg-neutral-950 border border-border rounded-md px-3 h-9 text-foreground font-mono focus:outline-none focus:ring-1 focus:ring-ring"
+          >
+            <option v-for="opt in CLIENT_FINGERPRINT_OPTIONS" :key="opt.value" :value="opt.value">
+              {{ opt.label }}
+            </option>
+          </select>
+        </FormField>
       </SectionCard>
 
       <!-- TLS 配置 -->
@@ -382,6 +458,16 @@
         </div>
         <FormField label="ALPN 协商列表 (逗号隔开)" hint="例如：h2,http/1.1">
           <Input v-model="form.tlsAlpn" placeholder="h2,http/1.1" />
+        </FormField>
+        <FormField label="客户端 uTLS 指纹 (Client Fingerprint)">
+          <select
+            v-model="form.clientFingerprint"
+            class="w-full bg-neutral-950 border border-border rounded-md px-3 h-9 text-foreground font-mono focus:outline-none focus:ring-1 focus:ring-ring"
+          >
+            <option v-for="opt in CLIENT_FINGERPRINT_OPTIONS" :key="opt.value" :value="opt.value">
+              {{ opt.label }}
+            </option>
+          </select>
         </FormField>
       </SectionCard>
 
@@ -782,6 +868,7 @@ import {
   type InboundItem,
   type InboundFormData,
   type SubRouteItem,
+  CLIENT_FINGERPRINT_OPTIONS,
   getDefaultInboundFormData,
   buildInboundPayload,
 } from '../types'
@@ -1066,6 +1153,7 @@ const initFormData = () => {
     if (inb.protocol === 'socks') {
       form.value.socksAuth = settings.auth || 'noauth'
       form.value.socksUdp = settings.udp !== false
+      form.value.socksIp = settings.ip || '127.0.0.1'
       if (settings.accounts?.length > 0) {
         form.value.socksUsername = settings.accounts[0].user || ''
         form.value.socksPassword = settings.accounts[0].pass || ''
@@ -1078,9 +1166,12 @@ const initFormData = () => {
       form.value.socksUdp = true
       form.value.socksUsername = ''
       form.value.socksPassword = ''
+      form.value.socksIp = '127.0.0.1'
     }
 
     if (inb.protocol === 'http') {
+      form.value.httpAllowTransparent = settings.allowTransparent === true
+      form.value.httpTimeout = settings.timeout !== undefined ? Number(settings.timeout) : 300
       if (settings.accounts?.length > 0) {
         form.value.httpUsername = settings.accounts[0].user || ''
         form.value.httpPassword = settings.accounts[0].pass || ''
@@ -1091,19 +1182,41 @@ const initFormData = () => {
     } else {
       form.value.httpUsername = ''
       form.value.httpPassword = ''
+      form.value.httpAllowTransparent = false
+      form.value.httpTimeout = 300
     }
 
     if (inb.protocol === 'shadowsocks') {
       form.value.ssMethod = settings.method || '2022-blake3-aes-128-gcm'
       form.value.ssPassword = settings.password || ''
+      form.value.ssNetwork = settings.network || 'tcp,udp'
+      form.value.ssIvCheck = settings.ivCheck === true
     } else {
       form.value.ssMethod = '2022-blake3-aes-128-gcm'
       form.value.ssPassword = ''
+      form.value.ssNetwork = 'tcp,udp'
+      form.value.ssIvCheck = false
+    }
+
+    if (inb.protocol === 'vmess') {
+      form.value.vmessAlterId = settings.default?.alterId !== undefined ? Number(settings.default.alterId) : 0
+      form.value.vmessDisableInsecure = settings.disableInsecureEncryption === true
+    } else {
+      form.value.vmessAlterId = 0
+      form.value.vmessDisableInsecure = false
+    }
+
+    if (inb.protocol === 'trojan') {
+      form.value.trojanPassword = settings.password || ''
+    } else {
+      form.value.trojanPassword = ''
     }
 
     form.value.dokoAddress = settings.address || '127.0.0.1'
     form.value.dokoPort = settings.port || 53
     form.value.dokoNetwork = settings.network || 'tcp,udp'
+    form.value.dokoFollowRedirect = settings.followRedirect === true
+    form.value.dokoTimeout = settings.timeout !== undefined ? Number(settings.timeout) : 300
 
     form.value.network = stream.network || 'tcp'
     form.value.security = stream.security || 'none'
@@ -1148,6 +1261,7 @@ const initFormData = () => {
       form.value.realityPrivateKey = stream.realitySettings.privateKey || ''
       form.value.realityShortIds = (stream.realitySettings.shortIds || []).join(', ')
     }
+    form.value.clientFingerprint = stream.realitySettings?.fingerprint || stream.tlsSettings?.fingerprint || ''
     if (stream.tlsSettings) {
       form.value.tlsServerName = stream.tlsSettings.serverName || ''
       form.value.tlsAlpn = Array.isArray(stream.tlsSettings.alpn) ? stream.tlsSettings.alpn.join(', ') : ''

@@ -32,8 +32,9 @@ type RealitySettingsDTO struct {
 }
 
 type TLSSettingsDTO struct {
-	ServerName string   `json:"serverName,omitempty"`
-	ALPN       []string `json:"alpn,omitempty"`
+	ServerName  string   `json:"serverName,omitempty"`
+	ALPN        []string `json:"alpn,omitempty"`
+	Fingerprint string   `json:"fingerprint,omitempty"`
 }
 
 type XHTTPSettingsDTO struct {

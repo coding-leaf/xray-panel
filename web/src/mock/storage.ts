@@ -259,10 +259,10 @@ const DEFAULT_RAW_STATE: MockState = {
         peers: [
           {
             endpoint: 'engage.cloudflareclient.com:2408',
-            publicKey: 'bmXOC+F1FxEMF9dyiK2H5/1SUtzH0JuVo51h2wPfgyo=',
+            publicKey: 'DEMO_WARP_PEER_PUBLIC_KEY_PLACEHOLDER_00000=',
           },
         ],
-        secretKey: 'APHekUQCpV3neCk1BnXOXgte7eLCBNfB2iZ8yVyQs0s=',
+        secretKey: 'DEMO_WARP_SECRET_KEY_PLACEHOLDER_0000000000=',
       }),
       streamSettings: '{}',
     },

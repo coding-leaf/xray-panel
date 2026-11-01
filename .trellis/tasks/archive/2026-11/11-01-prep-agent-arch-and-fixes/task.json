@@ -1,0 +1,31 @@
+{
+  "id": "prep-agent-arch-and-fixes",
+  "name": "prep-agent-arch-and-fixes",
+  "title": "Agent多架构前置修复与可配置性增强",
+  "description": "修复前后端配置失配与编译丢数据、面板版本动态绑定、增强用户与订阅自定义能力及Xray真实验收",
+  "status": "completed",
+  "dev_type": null,
+  "scope": null,
+  "package": null,
+  "priority": "P2",
+  "creator": "coding-leaf",
+  "assignee": "coding-leaf",
+  "createdAt": "2026-11-01",
+  "completedAt": "2026-11-02",
+  "branch": null,
+  "base_branch": "master",
+  "worktree_path": null,
+  "commit": null,
+  "pr_url": null,
+  "subtasks": [],
+  "children": [
+    "11-01-fix-config-ui-and-compiler",
+    "11-01-feat-dynamic-panel-version",
+    "11-01-enhance-user-and-sub-customizability",
+    "11-01-verify-xray-real-binary-acceptance"
+  ],
+  "parent": null,
+  "relatedFiles": [],
+  "notes": "",
+  "meta": {}
+}

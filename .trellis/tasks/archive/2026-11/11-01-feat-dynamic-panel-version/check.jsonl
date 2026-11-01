@@ -1,0 +1,2 @@
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "单元测试与无回归验证门禁"}
+{"file": ".trellis/spec/frontend/quality-guidelines.md", "reason": "前端构建与 TypeScript 静态检查门禁"}

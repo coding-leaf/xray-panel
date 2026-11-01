@@ -1,0 +1,2 @@
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "验证Xray真实二进制与门禁100%通过"}
+{"file": ".trellis/spec/guides/review-3pass-guide.md", "reason": "三层审查代码与验收测试完整性"}

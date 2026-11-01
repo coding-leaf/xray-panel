@@ -1,0 +1,5 @@
+{"file": ".trellis/spec/backend/index.md", "reason": "Backend architecture layering and version source of truth"}
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "Concurrency safety, KISS principles, and error handling rules"}
+{"file": ".trellis/spec/frontend/index.md", "reason": "Vue 3 + Tailwind CSS + Vite frontend conventions"}
+{"file": ".trellis/spec/frontend/components-and-routing.md", "reason": "SFC conventions, modal/drawer patterns, and styling rules"}
+{"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "Cross-layer data flow between frontend forms, DTOs, domain models, and Xray compiler"}

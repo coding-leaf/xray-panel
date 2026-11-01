@@ -1,0 +1,2 @@
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "质量门禁与单元测试要求"}
+{"file": ".trellis/spec/frontend/quality-guidelines.md", "reason": "前端构建与类型验证门禁"}

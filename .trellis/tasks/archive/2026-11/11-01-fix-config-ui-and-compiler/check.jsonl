@@ -1,0 +1,3 @@
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "Backend quality and test verification rules"}
+{"file": ".trellis/spec/frontend/quality-guidelines.md", "reason": "Frontend build and type check quality gates"}
+{"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "Verify end-to-end field preservation across frontend, API, domain, and compiler"}

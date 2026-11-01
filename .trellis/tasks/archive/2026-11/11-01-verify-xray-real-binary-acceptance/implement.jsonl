@@ -1,0 +1,2 @@
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "后端质量门禁与真实二进制测试规范"}
+{"file": ".trellis/spec/backend/directory-structure.md", "reason": "adapter分层与测试隔离契约规范"}

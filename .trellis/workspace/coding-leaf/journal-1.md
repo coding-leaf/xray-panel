@@ -674,3 +674,27 @@
 ### Status
 
 [OK] **Completed**
+
+
+## Session 30: Outbound Mux 支持与 Xray 配置参数完整性对齐
+<!-- trellis-session: v=2 fp=b936d6e0fe5bb5e5 -->
+
+**Date**: 2026-11-03
+**Task**: Outbound Mux 支持与 Xray 配置参数完整性对齐
+**Branch**: `master`
+
+### Summary
+
+补齐 Outbound Mux/XUDP、sendThrough、targetStrategy、sockopt.dialerProxy、acceptProxyProtocol、Sniffing 排除项及 Routing 源地址规则的前后端全链路编解码、Vision 互斥保护与真机校验，并沉淀至 Trellis Spec。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `d66a0f6` | feat(xray): 补齐Outbound Mux编解码与Xray核心Schema全链路无损重编译支持 |
+| `ea56676` | feat(web): 新增出站Mux/XUDP、dialerProxy链式代理及入站反代嗅探与路由源地址配置 |
+| `ae19c1b` | docs(spec): 沉淀Outbound Mux与Xray Schema无损重编译及sockopt非破坏性合并契约 |
+
+### Status
+
+[OK] **Completed**

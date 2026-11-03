@@ -1,0 +1,8 @@
+{"file":".trellis/spec/frontend/index.md","reason":"Vue 3 + Tailwind CSS + Vite frontend conventions"}
+{"file":".trellis/spec/frontend/directory-structure.md","reason":"Frontend directory layout and state conventions"}
+{"file":".trellis/spec/frontend/api-and-dataflow.md","reason":"API payload contracts and error handling"}
+{"file":".trellis/spec/frontend/components-and-routing.md","reason":"SFC structure and UI styling conventions"}
+{"file":".trellis/spec/frontend/quality-guidelines.md","reason":"vue-tsc typechecking and Vite build gates"}
+{"file":".trellis/spec/guides/cross-layer-thinking-guide.md","reason":"Cross-layer field consistency between Go DTOs and TypeScript interfaces"}
+{"file":".trellis/tasks/11-03-feat-outbound-mux-and-xray-config-alignment/research/codebase-and-xray-binary-audit.md","reason":"Exact frontend component and types.ts audit"}
+{"file":".trellis/tasks/11-03-feat-outbound-mux-and-xray-config-alignment/research/xray-official-config-reference.md","reason":"Official Xray-core Mux, Sockopt, Sniffing, and Routing parameter rules"}

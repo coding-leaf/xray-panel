@@ -1,0 +1,9 @@
+{"file":".trellis/spec/backend/index.md","reason":"Backend architecture and layering boundaries"}
+{"file":".trellis/spec/backend/directory-structure.md","reason":"Module responsibilities and call-chain rules"}
+{"file":".trellis/spec/backend/error-handling.md","reason":"Explicit error propagation and no silent swallowing"}
+{"file":".trellis/spec/backend/quality-guidelines.md","reason":"Concurrency safety, KISS, and compiler invariants"}
+{"file":".trellis/spec/guides/cross-layer-thinking-guide.md","reason":"Cross-layer data flow from JSON -> Service -> Domain -> Compiler -> UI"}
+{"file":".trellis/tasks/11-03-feat-outbound-mux-and-xray-config-alignment/research/codebase-and-xray-binary-audit.md","reason":"Exact file:line audit and ./temp/xray.exe 26.10.31 test findings"}
+{"file":".trellis/tasks/11-03-feat-outbound-mux-and-xray-config-alignment/research/xray-official-config-reference.md","reason":"Official Xray-core infra/conf struct definitions and field semantics"}
+{"file":".trellis/spec/frontend/index.md","reason":"Frontend architecture index"}
+{"file":".trellis/spec/frontend/quality-guidelines.md","reason":"Frontend build and typecheck gate"}

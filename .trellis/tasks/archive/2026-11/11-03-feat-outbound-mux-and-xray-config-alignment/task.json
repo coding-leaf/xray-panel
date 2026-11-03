@@ -1,0 +1,30 @@
+{
+  "id": "feat-outbound-mux-and-xray-config-alignment",
+  "name": "feat-outbound-mux-and-xray-config-alignment",
+  "title": "Outbound Mux 支持与 Xray 配置参数完整性对齐",
+  "description": "支持 Outbound Mux 读写编译与前端配置，并对标最新 Xray.exe/官方文档排查补齐面板缺失或易被丢弃的配置参数",
+  "status": "completed",
+  "dev_type": null,
+  "scope": null,
+  "package": null,
+  "priority": "P2",
+  "creator": "coding-leaf",
+  "assignee": "coding-leaf",
+  "createdAt": "2026-11-03",
+  "completedAt": "2026-11-03",
+  "branch": "master",
+  "base_branch": "master",
+  "worktree_path": null,
+  "commit": null,
+  "pr_url": null,
+  "subtasks": [],
+  "children": [
+    "11-03-sub-1-backend-xray-schema-and-mux-compiler",
+    "11-03-sub-2-frontend-outbound-and-topology-mux",
+    "11-03-sub-3-frontend-inbound-and-routing-alignment"
+  ],
+  "parent": null,
+  "relatedFiles": [],
+  "notes": "",
+  "meta": {}
+}

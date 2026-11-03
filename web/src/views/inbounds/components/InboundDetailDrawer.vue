@@ -46,6 +46,12 @@
             <span class="block text-[10px] text-muted-foreground">节点流控 (Flow)</span>
             <span class="text-neutral-300">{{ getNodeFlow(inbound) }}</span>
           </div>
+          <div v-if="!['socks', 'http', 'dokodemo-door'].includes(inbound.protocol)">
+            <span class="block text-[10px] text-muted-foreground">PROXY Protocol</span>
+            <span :class="hasProxyProtocol(inbound) ? 'text-indigo-400 font-semibold' : 'text-neutral-500'">
+              {{ hasProxyProtocol(inbound) ? '已开启 (透传 IP)' : '已关闭' }}
+            </span>
+          </div>
           <div>
             <span class="block text-[10px] text-muted-foreground">累计上传 (Up)</span>
             <span class="text-neutral-300 font-semibold">↑ {{ formatBytes(inbound.upBytes || 0) }}</span>
@@ -216,6 +222,36 @@
         </div>
       </div>
 
+      <!-- Sniffing 嗅探配置卡片 -->
+      <div v-if="parsedSniffing && parsedSniffing.enabled" class="rounded-lg border border-border bg-card p-4 space-y-3 font-mono text-xs">
+        <div class="flex items-center justify-between border-b border-border/60 pb-2">
+          <span class="font-semibold text-foreground uppercase tracking-wider">流量嗅探 (Sniffing)</span>
+          <div class="flex items-center gap-1.5">
+            <Badge variant="outline" class="text-[10px]">
+              {{ parsedSniffing.routeOnly ? '仅限路由 (RouteOnly)' : '覆写连接目标' }}
+            </Badge>
+            <Badge v-if="parsedSniffing.metadataOnly" variant="secondary" class="text-[10px] bg-cyan-950/40 text-cyan-400 border-cyan-800/40">
+              MetadataOnly
+            </Badge>
+          </div>
+        </div>
+
+        <div class="space-y-2 text-[11px]">
+          <div>
+            <span class="block text-[10px] text-muted-foreground">嗅探目标协议 (DestOverride)</span>
+            <span class="text-foreground uppercase">{{ (parsedSniffing.destOverride || []).join(', ') || 'HTTP, TLS, QUIC' }}</span>
+          </div>
+          <div v-if="parsedSniffing.domainsExcluded?.length">
+            <span class="block text-[10px] text-muted-foreground">排除覆写域名 (DomainsExcluded)</span>
+            <span class="text-foreground break-all">{{ parsedSniffing.domainsExcluded.join(', ') }}</span>
+          </div>
+          <div v-if="parsedSniffing.ipsExcluded?.length">
+            <span class="block text-[10px] text-muted-foreground">排除覆写 IP (IPsExcluded)</span>
+            <span class="text-foreground break-all">{{ parsedSniffing.ipsExcluded.join(', ') }}</span>
+          </div>
+        </div>
+      </div>
+
       <!-- 3. SubRoutes (单端口多出口) -->
       <div v-if="inbound.subRoutes?.length" class="rounded-lg border border-border bg-card p-4 space-y-3">
         <div class="flex items-center justify-between border-b border-border/60 pb-2">
@@ -322,6 +358,8 @@ import {
   getStreamNetwork,
   getSecurityType,
   isReality,
+  hasProxyProtocol,
+  getSniffingConfig,
   getClientCount,
   getInboundRealityOverallStatus,
   getInboundRealityField,
@@ -356,5 +394,9 @@ const parsedSettings = computed(() => {
   } catch {
     return {}
   }
+})
+
+const parsedSniffing = computed(() => {
+  return getSniffingConfig(props.inbound)
 })
 </script>

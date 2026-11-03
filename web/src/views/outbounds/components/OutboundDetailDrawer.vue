@@ -29,6 +29,14 @@
             <span class="text-muted-foreground block text-[11px]">目标端点</span>
             <span class="text-foreground font-semibold">{{ getTargetEndpoint(outbound) }}</span>
           </div>
+          <div v-if="outbound.sendThrough">
+            <span class="text-muted-foreground block text-[11px]">绑定源 IP (sendThrough)</span>
+            <span class="text-foreground font-semibold">{{ outbound.sendThrough }}</span>
+          </div>
+          <div v-if="outbound.targetStrategy">
+            <span class="text-muted-foreground block text-[11px]">目标解析策略 (targetStrategy)</span>
+            <span class="text-foreground font-semibold">{{ outbound.targetStrategy }}</span>
+          </div>
         </div>
       </div>
 
@@ -109,6 +117,72 @@
         </div>
         <pre class="bg-neutral-950 p-3 rounded border border-border text-[11px] font-mono text-muted-foreground overflow-x-auto max-h-48 leading-relaxed">{{ formatJsonPretty(outbound.streamSettings) }}</pre>
       </div>
+
+      <!-- Mux & XUDP details -->
+      <div v-if="parseMuxConfig(outbound.mux)" class="p-4 rounded-lg bg-card border border-border space-y-3">
+        <h4 class="text-xs font-semibold text-purple-400 font-mono flex items-center gap-1.5">
+          <Shuffle class="w-3.5 h-3.5" />
+          <span>连接多路复用 (Mux & XUDP)</span>
+        </h4>
+        <div class="space-y-2 text-xs font-mono">
+          <div class="flex justify-between py-1 border-b border-border/40">
+            <span class="text-muted-foreground">多路复用状态</span>
+            <span class="text-purple-300 font-semibold">已启用 (Enabled)</span>
+          </div>
+          <div class="flex justify-between py-1 border-b border-border/40">
+            <span class="text-muted-foreground">TCP 最大并发 (concurrency)</span>
+            <span class="text-foreground">{{ parseMuxConfig(outbound.mux)!.concurrency === -1 ? '关闭 TCP 复用 (-1)' : parseMuxConfig(outbound.mux)!.concurrency }}</span>
+          </div>
+          <div class="flex justify-between py-1 border-b border-border/40">
+            <span class="text-muted-foreground">XUDP 最大并发 (xudpConcurrency)</span>
+            <span class="text-foreground">{{
+              parseMuxConfig(outbound.mux)!.xudpConcurrency === -1
+                ? '关闭 UDP 复用 (-1)'
+                : parseMuxConfig(outbound.mux)!.xudpConcurrency === 0
+                  ? '与 TCP 共享连接 (0)'
+                  : parseMuxConfig(outbound.mux)!.xudpConcurrency
+            }}</span>
+          </div>
+          <div class="flex justify-between py-1 border-b border-border/40">
+            <span class="text-muted-foreground">UDP 443 (QUIC) 策略</span>
+            <span class="text-foreground font-semibold">{{ parseMuxConfig(outbound.mux)!.xudpProxyUDP443 }}</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Advanced Relay / Chaining details -->
+      <div v-if="parseDialerProxy(outbound.streamSettings) || outbound.sendThrough || outbound.targetStrategy" class="p-4 rounded-lg bg-card border border-border space-y-3">
+        <h4 class="text-xs font-semibold text-amber-400 font-mono flex items-center gap-1.5">
+          <Link2 class="w-3.5 h-3.5" />
+          <span>高级路由与链式代理 (Sockopt & Relay)</span>
+        </h4>
+        <div class="space-y-2 text-xs font-mono">
+          <div v-if="parseDialerProxy(outbound.streamSettings)" class="flex justify-between py-1 border-b border-border/40">
+            <span class="text-muted-foreground">前置链式代理 Tag (dialerProxy)</span>
+            <span class="text-amber-300 font-semibold">🔗 {{ parseDialerProxy(outbound.streamSettings) }}</span>
+          </div>
+          <div v-if="outbound.sendThrough" class="flex justify-between py-1 border-b border-border/40">
+            <span class="text-muted-foreground">出口绑定源 IP (sendThrough)</span>
+            <span class="text-foreground font-semibold">{{ outbound.sendThrough }}</span>
+          </div>
+          <div v-if="outbound.targetStrategy" class="flex justify-between py-1 border-b border-border/40">
+            <span class="text-muted-foreground">目标域名解析策略 (targetStrategy)</span>
+            <span class="text-foreground font-semibold">{{ outbound.targetStrategy }}</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Raw Mux JSON if exists -->
+      <div v-if="outbound.mux && outbound.mux !== '{}'" class="p-4 rounded-lg bg-card border border-border space-y-2">
+        <div class="flex items-center justify-between">
+          <h4 class="text-xs font-semibold text-muted-foreground font-mono">多路复用配置 JSON (mux)</h4>
+          <Button variant="ghost" size="sm" class="h-6 px-2 text-[11px]" @click="copyText(outbound.mux || '')">
+            <Copy class="w-3 h-3 mr-1" />
+            <span>复制</span>
+          </Button>
+        </div>
+        <pre class="bg-neutral-950 p-3 rounded border border-border text-[11px] font-mono text-muted-foreground overflow-x-auto max-h-48 leading-relaxed">{{ formatJsonPretty(outbound.mux) }}</pre>
+      </div>
     </div>
 
     <template #footer>
@@ -139,7 +213,7 @@
 
 <script setup lang="ts">
 import { computed } from 'vue'
-import { ShieldCheck, Layers, Copy, Trash2, Edit3 } from 'lucide-vue-next'
+import { ShieldCheck, Layers, Copy, Trash2, Edit3, Shuffle, Link2 } from 'lucide-vue-next'
 import Drawer from '../../../components/ui/Drawer.vue'
 import Button from '../../../components/ui/Button.vue'
 import Badge from '../../../components/ui/Badge.vue'
@@ -152,6 +226,8 @@ import {
   getParsedSettings,
   getOutboundStreamInfo,
   formatJsonPretty,
+  parseMuxConfig,
+  parseDialerProxy,
 } from '../types'
 
 const props = defineProps<{

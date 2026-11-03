@@ -54,6 +54,19 @@
           <div v-if="parsedExitTag" class="text-[11px] text-cyan-400 font-mono">
             ✓ 解析成功: 出口标识将设为 <span class="font-bold text-foreground">{{ parsedExitTag }}</span> ({{ parsedProtocol }})
           </div>
+          <div v-if="parsedExitTag" class="pt-2 border-t border-border/40">
+            <label class="flex items-center gap-2 cursor-pointer text-xs" :class="{ 'opacity-60 cursor-not-allowed': isVisionNode }">
+              <input
+                type="checkbox"
+                v-model="enableMux"
+                :disabled="isVisionNode"
+                class="rounded bg-background border-border text-foreground focus:ring-ring"
+              />
+              <span class="font-medium text-foreground">启用跨洋连接复用 (Mux + XUDP)</span>
+              <span v-if="isVisionNode" class="text-[10px] text-amber-400 font-mono">(与 XTLS Vision 互斥，已自动禁用)</span>
+              <span v-else class="text-[10px] text-muted-foreground font-mono">(加速高延迟网络并发，默认并发 8 / XUDP 16)</span>
+            </label>
+          </div>
         </div>
 
         <!-- 模式 2: 从现有出口选择 -->
@@ -155,6 +168,8 @@ const wizardSubmitting = ref(false)
 const parsedExitTag = ref('')
 const parsedProtocol = ref('')
 const parsedOutboundPayload = ref<any>(null)
+const enableMux = ref(true)
+const isVisionNode = ref(false)
 
 const wizardForm = ref({
   channelName: '',
@@ -174,6 +189,8 @@ watch(
       parsedExitTag.value = ''
       parsedProtocol.value = ''
       parsedOutboundPayload.value = null
+      enableMux.value = true
+      isVisionNode.value = false
 
       if (props.initialExitTag) {
         wizardMode.value = 'manual'
@@ -200,6 +217,8 @@ const parseImportLink = () => {
   if (!link) {
     parsedExitTag.value = ''
     parsedOutboundPayload.value = null
+    isVisionNode.value = false
+    enableMux.value = true
     return
   }
 
@@ -218,6 +237,13 @@ const parseImportLink = () => {
       const network = params.get('type') || 'tcp'
       const security = params.get('security') || 'none'
       const flow = params.get('flow') || ''
+      if (flow.includes('vision')) {
+        isVisionNode.value = true
+        enableMux.value = false
+      } else {
+        isVisionNode.value = false
+        enableMux.value = true
+      }
       const sni = params.get('sni') || ''
       const pbk = params.get('pbk') || ''
       const sid = params.get('sid') || ''
@@ -278,6 +304,8 @@ const parseImportLink = () => {
         streamSettings: JSON.stringify(stream),
       }
     } else if (link.startsWith('trojan://')) {
+      isVisionNode.value = false
+      enableMux.value = true
       const u = new URL(link)
       const cleanHost = u.hostname.replace(/[^a-zA-Z0-9]/g, '') || 'node'
       const tag = `out-trojan-${cleanHost}-${Math.random().toString(36).substring(2, 6)}`
@@ -317,6 +345,8 @@ const parseImportLink = () => {
         streamSettings: JSON.stringify(stream),
       }
     } else if (link.startsWith('ss://')) {
+      isVisionNode.value = false
+      enableMux.value = true
       const clean = link.replace('ss://', '')
       const parts = clean.split('#')
       const mainPart = parts[0]
@@ -373,6 +403,11 @@ const parseImportLink = () => {
     }
   } catch (e) {
     console.error('Parse link failed', e)
+    parsedExitTag.value = ''
+    parsedProtocol.value = ''
+    parsedOutboundPayload.value = null
+    isVisionNode.value = false
+    enableMux.value = true
   }
 }
 
@@ -389,7 +424,18 @@ const submitWizard = async () => {
       targetOutboundTag = parsedOutboundPayload.value.tag
       const existingOb = props.outbounds.find((o) => o.tag === targetOutboundTag)
       if (!existingOb) {
-        await api.post('/outbounds', parsedOutboundPayload.value)
+        const payload = { ...parsedOutboundPayload.value }
+        if (enableMux.value && !isVisionNode.value) {
+          payload.mux = JSON.stringify({
+            enabled: true,
+            concurrency: 8,
+            xudpConcurrency: 16,
+            xudpProxyUDP443: 'reject',
+          })
+        } else {
+          payload.mux = '{}'
+        }
+        await api.post('/outbounds', payload)
       }
     }
 

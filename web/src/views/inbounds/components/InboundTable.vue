@@ -54,6 +54,13 @@
                 <span class="text-foreground">:{{ inb.externalPort || inb.port }}</span>
                 <span class="text-neutral-600">/</span>
                 <span class="text-neutral-400 text-[11px] uppercase">{{ getStreamNetwork(inb) }}</span>
+                <span
+                  v-if="hasProxyProtocol(inb)"
+                  class="px-1 py-0.2 rounded text-[10px] font-mono bg-indigo-500/10 text-indigo-400 border border-indigo-500/20"
+                  title="接收 PROXY Protocol 反代 IP 透传"
+                >
+                  PROXY
+                </span>
                 <span v-if="(inb.externalPort || inb.port) !== 443 && isReality(inb)" class="text-amber-400 text-[10px]" title="非443端口Reality存在阻断风险">
                   ⚠️
                 </span>
@@ -217,6 +224,13 @@
               <span>:{{ inb.externalPort || inb.port }}</span>
               <span class="text-neutral-600">/</span>
               <span class="text-neutral-400 text-[11px] uppercase">{{ getStreamNetwork(inb) }}</span>
+              <span
+                v-if="hasProxyProtocol(inb)"
+                class="px-1 py-0.2 rounded text-[10px] font-mono bg-indigo-500/10 text-indigo-400 border border-indigo-500/20"
+                title="接收 PROXY Protocol 反代 IP 透传"
+              >
+                PROXY
+              </span>
               <span v-if="(inb.externalPort || inb.port) !== 443 && isReality(inb)" class="text-amber-400 text-[10px]" title="非443端口Reality存在阻断风险">
                 ⚠️
               </span>
@@ -321,6 +335,7 @@ import {
   getStreamNetwork,
   getSecurityType,
   isReality,
+  hasProxyProtocol,
   getClientCount,
   getInboundRealityOverallStatus,
   getRealityBadgeClass,

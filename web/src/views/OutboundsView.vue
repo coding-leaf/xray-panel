@@ -23,6 +23,7 @@
       v-if="showFormDrawer"
       v-model="showFormDrawer"
       :editing-outbound="editingOutbound"
+      :outbounds="outbounds"
       :saving="saving"
       @save="saveOutbound"
     />

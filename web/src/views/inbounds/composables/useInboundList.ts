@@ -95,6 +95,35 @@ export function isReality(inb: any): boolean {
   return getSecurityType(inb) === 'reality'
 }
 
+export function hasProxyProtocol(inb: any): boolean {
+  try {
+    const raw = inb?.streamSettingsJson || inb?.streamSettings
+    if (!raw) return false
+    const s = typeof raw === 'string' ? JSON.parse(raw) : raw
+    return s?.sockopt?.acceptProxyProtocol === true
+  } catch {
+    return false
+  }
+}
+
+export function getSniffingConfig(inb: any): {
+  enabled: boolean
+  routeOnly?: boolean
+  metadataOnly?: boolean
+  destOverride?: string[]
+  domainsExcluded?: string[]
+  ipsExcluded?: string[]
+} | null {
+  try {
+    const raw = inb?.sniffingJson || inb?.sniffing
+    if (!raw) return null
+    const s = typeof raw === 'string' ? JSON.parse(raw) : raw
+    return s && typeof s === 'object' ? s : null
+  } catch {
+    return null
+  }
+}
+
 export function getClientCount(inb: any, usersList: any[] = []): number {
   if (['socks', 'http', 'dokodemo-door'].includes(inb.protocol)) {
     return 0

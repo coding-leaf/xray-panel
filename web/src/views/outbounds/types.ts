@@ -1,8 +1,11 @@
 export interface OutboundItem {
   tag: string
   protocol: string // freedom, blackhole, wireguard, vless, vmess, trojan, shadowsocks, socks, http, dns
+  sendThrough?: string
+  targetStrategy?: string
   settingsJson?: string
   streamSettings?: string
+  mux?: string
 }
 
 export interface OutboundFormState {
@@ -40,6 +43,14 @@ export interface OutboundFormState {
   wgNoKernelTun: boolean
   httpupgradePath: string
   httpupgradeHost: string
+  muxEnabled: boolean
+  muxConcurrency: number
+  muxXudpConcurrency: number
+  muxXudpProxyUDP443: 'reject' | 'allow' | 'skip'
+  sendThrough: string
+  targetStrategy: string
+  dialerProxy: string
+  rawSockopt?: Record<string, any>
 }
 
 export interface OutboundPayload {
@@ -47,6 +58,64 @@ export interface OutboundPayload {
   protocol: string
   settingsJson: string
   streamSettings: string
+  sendThrough?: string
+  targetStrategy?: string
+  mux?: string
+}
+
+export interface MuxConfig {
+  enabled: boolean
+  concurrency: number
+  xudpConcurrency: number
+  xudpProxyUDP443: 'reject' | 'allow' | 'skip'
+}
+
+export function parseConcurrency(val: unknown, fallback: number): number {
+  if (val === undefined || val === null || val === '') return fallback
+  const n = Number(val)
+  return isNaN(n) ? fallback : n
+}
+
+export function parseMuxConfig(muxStr?: string): MuxConfig | null {
+  if (!muxStr || muxStr === '{}' || muxStr === 'null') return null
+  try {
+    const m = typeof muxStr === 'string' ? JSON.parse(muxStr) : muxStr
+    if (!m || m.enabled !== true) return null
+    let concurrency = parseConcurrency(m.concurrency, 8)
+    if (concurrency === 0) concurrency = 8
+    const xudpConcurrency = parseConcurrency(m.xudpConcurrency, 16)
+    return {
+      enabled: true,
+      concurrency,
+      xudpConcurrency,
+      xudpProxyUDP443: m.xudpProxyUDP443 || 'reject',
+    }
+  } catch {
+    return null
+  }
+}
+
+export function parseMuxSummary(muxStr?: string): string {
+  const m = parseMuxConfig(muxStr)
+  if (!m) return ''
+  const tcpText = m.concurrency === -1 ? 'TCP 关闭' : `TCP ${m.concurrency}`
+  let xudpText = `XUDP ${m.xudpConcurrency}`
+  if (m.xudpConcurrency === -1) {
+    xudpText = 'XUDP 关闭'
+  } else if (m.xudpConcurrency === 0) {
+    xudpText = 'XUDP 共享 TCP'
+  }
+  return `${tcpText} / ${xudpText}`
+}
+
+export function parseDialerProxy(streamSettingsStr?: string): string {
+  if (!streamSettingsStr) return ''
+  try {
+    const s = typeof streamSettingsStr === 'string' ? JSON.parse(streamSettingsStr) : streamSettingsStr
+    return s.sockopt?.dialerProxy || ''
+  } catch {
+    return ''
+  }
 }
 
 export function createDefaultOutboundForm(): OutboundFormState {
@@ -85,6 +154,14 @@ export function createDefaultOutboundForm(): OutboundFormState {
     wgNoKernelTun: true,
     httpupgradePath: '/httpupgrade',
     httpupgradeHost: '',
+    muxEnabled: false,
+    muxConcurrency: 8,
+    muxXudpConcurrency: 16,
+    muxXudpProxyUDP443: 'reject',
+    sendThrough: '',
+    targetStrategy: '',
+    dialerProxy: '',
+    rawSockopt: undefined,
   }
 }
 
@@ -92,6 +169,27 @@ export function populateOutboundForm(ob: OutboundItem): OutboundFormState {
   const form = createDefaultOutboundForm()
   form.tag = ob.tag || ''
   form.protocol = ob.protocol || 'vless'
+  form.sendThrough = ob.sendThrough || ''
+  form.targetStrategy = ob.targetStrategy || ''
+
+  if (ob.mux) {
+    try {
+      const m = typeof ob.mux === 'string' ? JSON.parse(ob.mux) : ob.mux
+      if (m && typeof m === 'object') {
+        form.muxEnabled = m.enabled === true
+        if (m.concurrency !== undefined) {
+          const c = parseConcurrency(m.concurrency, 8)
+          form.muxConcurrency = c === 0 ? 8 : c
+        }
+        if (m.xudpConcurrency !== undefined) {
+          form.muxXudpConcurrency = parseConcurrency(m.xudpConcurrency, 16)
+        }
+        if (m.xudpProxyUDP443) form.muxXudpProxyUDP443 = m.xudpProxyUDP443
+      }
+    } catch {
+      form.muxEnabled = false
+    }
+  }
 
   let s: Record<string, any> = {}
   try {
@@ -105,6 +203,15 @@ export function populateOutboundForm(ob: OutboundItem): OutboundFormState {
     str = JSON.parse(ob.streamSettings || '{}')
   } catch {
     str = {}
+  }
+
+  if (str.sockopt && typeof str.sockopt === 'object') {
+    const { dialerProxy, ...restSockopt } = str.sockopt
+    form.dialerProxy = dialerProxy || ''
+    form.rawSockopt = Object.keys(restSockopt).length > 0 ? restSockopt : undefined
+  } else {
+    form.dialerProxy = ''
+    form.rawSockopt = undefined
   }
 
   form.streamNetwork = str.network || 'tcp'
@@ -251,7 +358,7 @@ export function buildSettingsJSON(form: OutboundFormState): string {
         },
       ],
     }
-    if (flowVal) {
+    if (flowVal && flowVal !== 'none') {
       settings.flow = flowVal
     }
     return JSON.stringify(settings)
@@ -315,9 +422,26 @@ export function buildSettingsJSON(form: OutboundFormState): string {
 }
 
 export function buildStreamSettingsJSON(form: OutboundFormState): string {
-  if (['freedom', 'blackhole', 'wireguard', 'socks', 'http', 'dns'].includes(form.protocol)) {
+  const sockopt: Record<string, any> = { ...(form.rawSockopt || {}) }
+  const trimmedDialer = form.dialerProxy?.trim()
+  if (trimmedDialer) {
+    sockopt.dialerProxy = trimmedDialer
+  } else {
+    delete sockopt.dialerProxy
+  }
+  const hasSockopt = Object.keys(sockopt).length > 0
+
+  if (['blackhole', 'dns'].includes(form.protocol)) {
     return ''
   }
+
+  if (['freedom', 'wireguard', 'socks', 'http'].includes(form.protocol)) {
+    if (!hasSockopt) {
+      return ''
+    }
+    return JSON.stringify({ sockopt }, null, 2)
+  }
+
   const stream: Record<string, any> = {
     network: form.streamNetwork,
     security: form.streamSecurity,
@@ -370,15 +494,38 @@ export function buildStreamSettingsJSON(form: OutboundFormState): string {
     }
   }
 
+  if (hasSockopt) {
+    stream.sockopt = sockopt
+  }
+
   return JSON.stringify(stream, null, 2)
 }
 
 export function sanitizeOutboundPayload(form: OutboundFormState): OutboundPayload {
+  const supportsMux = ['vless', 'vmess', 'trojan', 'shadowsocks', 'socks', 'http'].includes(form.protocol)
+  const isVision = form.protocol === 'vless' && (form.vlessFlow === 'xtls-rprx-vision' || form.vlessFlow === 'xtls-rprx-vision-udp443')
+
+  let muxStr = '{}'
+  if (supportsMux && form.muxEnabled && !isVision) {
+    let concurrency = parseConcurrency(form.muxConcurrency, 8)
+    if (concurrency === 0) concurrency = 8
+    const xudpConcurrency = parseConcurrency(form.muxXudpConcurrency, 16)
+    muxStr = JSON.stringify({
+      enabled: true,
+      concurrency,
+      xudpConcurrency,
+      xudpProxyUDP443: form.muxXudpProxyUDP443 || 'reject',
+    })
+  }
+
   return {
     tag: form.tag.trim(),
     protocol: form.protocol,
+    sendThrough: form.sendThrough?.trim() || '',
+    targetStrategy: form.targetStrategy?.trim() || '',
     settingsJson: buildSettingsJSON(form),
     streamSettings: buildStreamSettingsJSON(form),
+    mux: muxStr,
   }
 }
 
@@ -450,19 +597,43 @@ export function getParsedSettings(ob: OutboundItem): Record<string, any> {
 }
 
 export function formatSettingsSummary(ob: OutboundItem): string {
-  if (ob.protocol === 'dns') return '内置 DNS 路由解析'
-  if (!ob.settingsJson || ob.settingsJson === '{}') return '默认系统策略'
-  try {
-    const s = JSON.parse(ob.settingsJson)
-    if (s.domainStrategy) return `解析策略: ${s.domainStrategy}`
-    if (s.peers?.length > 0) return `WARP Endpoint: ${s.peers[0].endpoint}`
-    if (s.response?.type) return `拦截类型: ${s.response.type}`
-    if (s.vnext?.length > 0) return `上游代理: ${s.vnext[0].address}:${s.vnext[0].port}`
-    if (s.servers?.length > 0) return `代理服务器: ${s.servers[0].address}:${s.servers[0].port}`
-    return JSON.stringify(s)
-  } catch {
-    return ob.settingsJson
+  let baseSummary = ''
+  if (ob.protocol === 'dns') baseSummary = '内置 DNS 路由解析'
+  else if (!ob.settingsJson || ob.settingsJson === '{}') baseSummary = '默认系统策略'
+  else {
+    try {
+      const s = JSON.parse(ob.settingsJson)
+      if (s.domainStrategy) baseSummary = `解析策略: ${s.domainStrategy}`
+      else if (s.peers?.length > 0) baseSummary = `WARP Endpoint: ${s.peers[0].endpoint}`
+      else if (s.response?.type) baseSummary = `拦截类型: ${s.response.type}`
+      else if (s.vnext?.length > 0) baseSummary = `上游代理: ${s.vnext[0].address}:${s.vnext[0].port}`
+      else if (s.servers?.length > 0) baseSummary = `代理服务器: ${s.servers[0].address}:${s.servers[0].port}`
+      else baseSummary = JSON.stringify(s)
+    } catch {
+      baseSummary = ob.settingsJson
+    }
   }
+
+  const extras: string[] = []
+  const dialer = parseDialerProxy(ob.streamSettings)
+  if (dialer) {
+    extras.push(`前置: ${dialer}`)
+  }
+  const muxSummary = parseMuxSummary(ob.mux)
+  if (muxSummary) {
+    extras.push(`MUX (${muxSummary})`)
+  }
+  if (ob.targetStrategy) {
+    extras.push(`解析: ${ob.targetStrategy}`)
+  }
+  if (ob.sendThrough) {
+    extras.push(`绑定IP: ${ob.sendThrough}`)
+  }
+
+  if (extras.length > 0) {
+    return `${baseSummary} [${extras.join(' | ')}]`
+  }
+  return baseSummary
 }
 
 export function formatJsonPretty(str?: string): string {

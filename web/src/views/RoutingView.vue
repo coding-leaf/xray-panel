@@ -170,7 +170,7 @@
         <thead class="border-b border-border bg-neutral-900 font-mono text-[11px]">
           <tr>
             <th class="h-9 px-3 text-center align-middle font-medium text-muted-foreground uppercase tracking-wider w-24">次序</th>
-            <th class="h-9 px-3 text-left align-middle font-medium text-muted-foreground uppercase tracking-wider">目标出站 (OutboundTag)</th>
+            <th class="h-9 px-3 text-left align-middle font-medium text-muted-foreground uppercase tracking-wider">路由目标 (Target)</th>
             <th class="h-9 px-3 text-left align-middle font-medium text-muted-foreground uppercase tracking-wider">来源入站 (Inbounds)</th>
             <th class="h-9 px-3 text-left align-middle font-medium text-muted-foreground uppercase tracking-wider">匹配条件矩阵</th>
             <th class="h-9 px-3 text-right align-middle font-medium text-muted-foreground uppercase tracking-wider w-44 whitespace-nowrap">操作</th>
@@ -214,16 +214,19 @@
               </div>
             </td>
 
-            <!-- 2. Target Outbound -->
+            <!-- 2. Target Outbound / Balancer -->
             <td class="p-3 align-middle font-mono">
               <div class="flex items-center gap-1.5 flex-wrap">
-                <Badge :variant="getOutboundBadgeVariant(rule.outboundTag)">
+                <Badge v-if="rule.balancerTag" variant="secondary" class="bg-cyan-950/50 text-cyan-400 border border-cyan-800/60">
+                  LB: {{ rule.balancerTag }}
+                </Badge>
+                <Badge v-else :variant="getOutboundBadgeVariant(rule.outboundTag || '')">
                   {{ rule.outboundTag }}
                 </Badge>
                 <span v-if="rule.tag" class="px-1.5 py-0.5 rounded bg-neutral-800 text-neutral-300 border border-neutral-700 text-[10px]">
                   {{ rule.tag }}
                 </span>
-                <span v-if="!isKnownOutbound(rule.outboundTag)" class="text-amber-400 text-[10px] font-semibold" title="系统中未配置该出站标签">
+                <span v-if="!rule.balancerTag && rule.outboundTag && !isKnownOutbound(rule.outboundTag)" class="text-amber-400 text-[10px] font-semibold" title="系统中未配置该出站标签">
                   ⚠️ 未知出站
                 </span>
               </div>
@@ -240,6 +243,9 @@
             <!-- 4. Matching Conditions -->
             <td class="p-3 align-middle">
               <div class="flex flex-wrap items-center gap-1.5 font-mono text-[11px]">
+                <span v-if="rule.domainMatcher" class="px-1.5 py-0.5 rounded bg-neutral-800 text-cyan-300 border border-neutral-700">
+                  matcher: {{ rule.domainMatcher }}
+                </span>
                 <span v-if="rule.vlessRoute" class="px-1.5 py-0.5 rounded bg-indigo-950/60 text-indigo-300 border border-indigo-800/50">
                   vlessRoute: {{ rule.vlessRoute }}
                 </span>
@@ -252,6 +258,12 @@
                 <span v-if="rule.ip?.length" class="px-1.5 py-0.5 rounded bg-purple-950/60 text-purple-300 border border-purple-800/50">
                   IP: {{ rule.ip.join(', ') }}
                 </span>
+                <span v-if="rule.source?.length" class="px-1.5 py-0.5 rounded bg-teal-950/60 text-teal-300 border border-teal-800/50">
+                  源IP: {{ rule.source.join(', ') }}
+                </span>
+                <span v-if="rule.sourcePort" class="px-1.5 py-0.5 rounded bg-teal-950/60 text-teal-300 border border-teal-800/50">
+                  源端口: {{ rule.sourcePort }}
+                </span>
                 <span v-if="rule.protocol?.length" class="px-1.5 py-0.5 rounded bg-amber-950/60 text-amber-300 border border-amber-800/50">
                   协议: {{ rule.protocol.join(', ') }}
                 </span>
@@ -261,7 +273,7 @@
                 <span v-if="rule.network" class="px-1.5 py-0.5 rounded bg-neutral-900 text-neutral-300 border border-border">
                   网络: {{ rule.network }}
                 </span>
-                <span v-if="!rule.vlessRoute && !rule.user?.length && !rule.domain?.length && !rule.ip?.length && !rule.protocol?.length && !rule.port && !rule.network" class="text-muted-foreground text-xs font-sans">
+                <span v-if="!rule.domainMatcher && !rule.vlessRoute && !rule.user?.length && !rule.domain?.length && !rule.ip?.length && !rule.source?.length && !rule.sourcePort && !rule.protocol?.length && !rule.port && !rule.network" class="text-muted-foreground text-xs font-sans">
                   无额外限制 (匹配任意流量)
                 </span>
               </div>
@@ -357,7 +369,10 @@
               #{{ Number(idx) + 1 }}
             </button>
             <div class="flex items-center gap-1.5 truncate">
-              <Badge :variant="getOutboundBadgeVariant(rule.outboundTag)">
+              <Badge v-if="rule.balancerTag" variant="secondary" class="bg-cyan-950/50 text-cyan-400 border border-cyan-800/60">
+                LB: {{ rule.balancerTag }}
+              </Badge>
+              <Badge v-else :variant="getOutboundBadgeVariant(rule.outboundTag || '')">
                 {{ rule.outboundTag }}
               </Badge>
               <span
@@ -367,7 +382,7 @@
                 {{ rule.tag }}
               </span>
               <span
-                v-if="!isKnownOutbound(rule.outboundTag)"
+                v-if="!rule.balancerTag && rule.outboundTag && !isKnownOutbound(rule.outboundTag)"
                 class="text-amber-400 text-[10px] font-semibold shrink-0"
                 title="系统中未配置该出站标签"
               >
@@ -428,6 +443,12 @@
           <!-- Criteria Badges with auto wrap & zero horizontal overflow -->
           <div class="flex flex-wrap items-center gap-1.5 text-[11px]">
             <span
+              v-if="rule.domainMatcher"
+              class="px-1.5 py-0.5 rounded bg-neutral-800 text-cyan-300 border border-neutral-700 break-all"
+            >
+              matcher: {{ rule.domainMatcher }}
+            </span>
+            <span
               v-if="rule.vlessRoute"
               class="px-1.5 py-0.5 rounded bg-indigo-950/60 text-indigo-300 border border-indigo-800/50 break-all"
             >
@@ -452,6 +473,18 @@
               IP: {{ rule.ip.join(', ') }}
             </span>
             <span
+              v-if="rule.source?.length"
+              class="px-1.5 py-0.5 rounded bg-teal-950/60 text-teal-300 border border-teal-800/50 break-all"
+            >
+              源IP: {{ rule.source.join(', ') }}
+            </span>
+            <span
+              v-if="rule.sourcePort"
+              class="px-1.5 py-0.5 rounded bg-teal-950/60 text-teal-300 border border-teal-800/50"
+            >
+              源端口: {{ rule.sourcePort }}
+            </span>
+            <span
               v-if="rule.protocol?.length"
               class="px-1.5 py-0.5 rounded bg-amber-950/60 text-amber-300 border border-amber-800/50 break-all"
             >
@@ -470,7 +503,7 @@
               网络: {{ rule.network }}
             </span>
             <span
-              v-if="!rule.vlessRoute && !rule.user?.length && !rule.domain?.length && !rule.ip?.length && !rule.protocol?.length && !rule.port && !rule.network"
+              v-if="!rule.domainMatcher && !rule.vlessRoute && !rule.user?.length && !rule.domain?.length && !rule.ip?.length && !rule.source?.length && !rule.sourcePort && !rule.protocol?.length && !rule.port && !rule.network"
               class="text-muted-foreground text-[11px] font-sans"
             >
               无额外限制 (匹配任意流量)
@@ -508,10 +541,23 @@
         </div>
 
         <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
-          <!-- 动态 OutboundTag 下拉选择 -->
+          <!-- 路由目标：出站标签或负载均衡组 -->
           <div>
-            <label class="block text-foreground mb-1 font-medium">目标出站 (OutboundTag)</label>
-            <div class="space-y-1.5">
+            <div class="flex items-center justify-between mb-1">
+              <label class="text-foreground font-medium">路由目标 (Target)</label>
+              <div class="flex items-center gap-2 text-[11px] font-mono">
+                <label class="inline-flex items-center gap-1 cursor-pointer">
+                  <input type="radio" v-model="ruleForm.targetType" value="outbound" class="text-cyan-500" />
+                  <span>出站</span>
+                </label>
+                <label class="inline-flex items-center gap-1 cursor-pointer">
+                  <input type="radio" v-model="ruleForm.targetType" value="balancer" class="text-cyan-500" />
+                  <span>负载均衡组</span>
+                </label>
+              </div>
+            </div>
+
+            <div v-if="ruleForm.targetType === 'outbound'" class="space-y-1.5">
               <select
                 v-model="ruleForm.outboundTag"
                 class="w-full bg-neutral-950 border border-border rounded-md px-3 py-2 text-foreground font-mono focus:outline-none focus:ring-1 focus:ring-ring"
@@ -529,6 +575,16 @@
                 placeholder="输入自定义 OutboundTag"
                 class="w-full bg-neutral-950 border border-border rounded-md px-3 py-1.5 text-foreground font-mono text-[11px] focus:outline-none focus:ring-1 focus:ring-ring"
               />
+            </div>
+
+            <div v-else class="space-y-1">
+              <input
+                v-model="ruleForm.balancerTag"
+                type="text"
+                placeholder="例如: balancer-all, lb-us"
+                class="w-full bg-neutral-950 border border-border rounded-md px-3 py-2 text-foreground font-mono text-[11px] focus:outline-none focus:ring-1 focus:ring-ring"
+              />
+              <p class="text-[10px] text-muted-foreground">将流量导向配置中定义的负载均衡组 (balancerTag)</p>
             </div>
           </div>
 
@@ -552,6 +608,25 @@
               class="w-full bg-neutral-950 border border-border rounded-md px-3 py-1.5 mt-1.5 text-foreground font-mono text-[11px] focus:outline-none focus:ring-1 focus:ring-ring"
             />
           </div>
+        </div>
+
+        <!-- 域名匹配算法 (domainMatcher) -->
+        <div>
+          <label class="block text-foreground mb-1 font-medium">
+            域名匹配算法 (domainMatcher，可选)
+          </label>
+          <select
+            v-model="ruleForm.domainMatcher"
+            class="w-full bg-neutral-950 border border-border rounded-md px-3 py-2 text-foreground font-mono focus:outline-none focus:ring-1 focus:ring-ring"
+          >
+            <option value="">默认 (跟随核心全局设置)</option>
+            <option value="hybrid">hybrid (混合双模匹配 - 推荐)</option>
+            <option value="linear">linear (线性规则匹配)</option>
+            <option v-if="ruleForm.domainMatcher && !['hybrid', 'linear'].includes(ruleForm.domainMatcher)" :value="ruleForm.domainMatcher">
+              {{ ruleForm.domainMatcher }} (保留已有)
+            </option>
+          </select>
+          <p class="text-[10px] text-muted-foreground mt-0.5">Xray 域名匹配加速算法，留空使用全局设置</p>
         </div>
 
         <div>
@@ -598,6 +673,31 @@
             placeholder="geoip:cn, geoip:private, 192.168.0.0/16"
             class="w-full bg-neutral-950 border border-border rounded-md p-2.5 text-foreground font-mono text-[11px] focus:outline-none focus:ring-1 focus:ring-ring leading-relaxed"
           ></textarea>
+        </div>
+
+        <!-- 客户端源 IP (source) 与 源端口 (sourcePort) -->
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <div>
+            <label class="block text-foreground mb-1 font-medium">客户端源 IP / CIDR (Source，可选)</label>
+            <textarea
+              v-model="ruleForm.sourceStr"
+              rows="2"
+              placeholder="例如: 192.168.1.0/24, 10.0.0.1, geoip:private"
+              class="w-full bg-neutral-950 border border-border rounded-md p-2.5 text-foreground font-mono text-[11px] focus:outline-none focus:ring-1 focus:ring-ring leading-relaxed"
+            ></textarea>
+            <p class="text-[10px] text-muted-foreground mt-0.5">根据客户端来源 IP/CIDR 分流，多个用逗号或换行隔开</p>
+          </div>
+
+          <div>
+            <label class="block text-foreground mb-1 font-medium">客户端源端口 (SourcePort，可选)</label>
+            <input
+              v-model="ruleForm.sourcePort"
+              type="text"
+              placeholder="例如: 1024-65535 或 50000"
+              class="w-full bg-neutral-950 border border-border rounded-md px-3 py-2 text-foreground font-mono focus:outline-none focus:ring-1 focus:ring-ring"
+            />
+            <p class="text-[10px] text-muted-foreground mt-0.5">客户端源端口范围或单端口</p>
+          </div>
         </div>
 
         <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
@@ -776,7 +876,51 @@ import Modal from '../components/ui/Modal.vue'
 import { toast } from '../utils/toast'
 import api from '../api'
 
-const routingConfig = ref<any>({
+export interface RoutingRule {
+  tag?: string
+  type?: string
+  inboundTag?: string[]
+  outboundTag?: string
+  balancerTag?: string
+  domainMatcher?: string
+  vlessRoute?: string
+  domain?: string[]
+  ip?: string[]
+  port?: string
+  network?: string
+  protocol?: string[]
+  user?: string[]
+  attrs?: string
+  source?: string[]
+  sourcePort?: string
+}
+
+export interface RoutingConfig {
+  domainStrategy: string
+  rules: RoutingRule[]
+}
+
+export interface RuleFormData {
+  tag: string
+  targetType: 'outbound' | 'balancer'
+  outboundTag: string
+  customOutboundTag: string
+  balancerTag: string
+  domainMatcher: string
+  selectedInboundTag: string
+  inboundTagsStr: string
+  vlessRoute: string
+  userStr: string
+  domainStr: string
+  ipStr: string
+  sourceStr: string
+  sourcePort: string
+  port: string
+  network: string
+  protocolStr: string
+}
+
+const routingConfig = ref<RoutingConfig>({
   domainStrategy: 'IPIfNonMatch',
   rules: [],
 })
@@ -859,16 +1003,21 @@ const presetData = ref<any>({
   rules: [],
 })
 
-const ruleForm = ref<any>({
+const ruleForm = ref<RuleFormData>({
   tag: '',
+  targetType: 'outbound',
   outboundTag: 'direct',
   customOutboundTag: '',
+  balancerTag: '',
+  domainMatcher: '',
   selectedInboundTag: '',
   inboundTagsStr: '',
   vlessRoute: '',
   userStr: '',
   domainStr: '',
   ipStr: '',
+  sourceStr: '',
+  sourcePort: '',
   port: '',
   network: '',
   protocolStr: '',
@@ -910,14 +1059,19 @@ const openAddRuleDrawer = () => {
   const defaultOutbound = availableOutboundTags.value.includes('block') ? 'block' : (availableOutboundTags.value[0] || 'direct')
   ruleForm.value = {
     tag: '',
+    targetType: 'outbound',
     outboundTag: defaultOutbound,
     customOutboundTag: '',
+    balancerTag: '',
+    domainMatcher: '',
     selectedInboundTag: '',
     inboundTagsStr: '',
     vlessRoute: '',
     userStr: '',
     domainStr: '',
     ipStr: '',
+    sourceStr: '',
+    sourcePort: '',
     port: '',
     network: '',
     protocolStr: '',
@@ -939,18 +1093,23 @@ const editRule = (idx: number) => {
   isEditingRule.value = true
   editingIndex.value = idx
   const r = routingConfig.value.rules[idx]
-  const isCustom = !availableOutboundTags.value.includes(r.outboundTag)
+  const isCustom = Boolean(r.outboundTag && !availableOutboundTags.value.includes(r.outboundTag))
 
   ruleForm.value = {
     tag: r.tag || '',
-    outboundTag: isCustom ? '__custom__' : r.outboundTag,
-    customOutboundTag: isCustom ? r.outboundTag : '',
+    targetType: r.balancerTag ? 'balancer' : 'outbound',
+    outboundTag: isCustom ? '__custom__' : (r.outboundTag || availableOutboundTags.value[0] || 'direct'),
+    customOutboundTag: isCustom ? (r.outboundTag || '') : '',
+    balancerTag: r.balancerTag || '',
+    domainMatcher: r.domainMatcher || '',
     selectedInboundTag: '',
     inboundTagsStr: (r.inboundTag || []).join(', '),
     vlessRoute: r.vlessRoute || '',
     userStr: (r.user || []).join(', '),
     domainStr: (r.domain || []).join(',\n'),
     ipStr: (r.ip || []).join(',\n'),
+    sourceStr: (r.source || []).join(',\n'),
+    sourcePort: r.sourcePort || '',
     port: r.port || '',
     network: r.network || '',
     protocolStr: (r.protocol || []).join(', '),
@@ -968,17 +1127,38 @@ const parseArray = (str: string) => {
 }
 
 const saveRuleInDrawer = () => {
-  let targetOutbound = ruleForm.value.outboundTag
-  if (targetOutbound === '__custom__') {
-    targetOutbound = ruleForm.value.customOutboundTag.trim() || 'direct'
+  const newRule: RoutingRule = {
+    type: 'field',
   }
 
-  const newRule: any = {
-    outboundTag: targetOutbound,
+  // 1. 目标验证
+  if (ruleForm.value.targetType === 'balancer') {
+    const balancer = ruleForm.value.balancerTag.trim()
+    if (!balancer) {
+      toast.error('请填写负载均衡组标识 (BalancerTag)')
+      return
+    }
+    newRule.balancerTag = balancer
+  } else {
+    let targetOutbound = ruleForm.value.outboundTag
+    if (targetOutbound === '__custom__') {
+      targetOutbound = ruleForm.value.customOutboundTag.trim()
+    }
+    if (!targetOutbound) {
+      toast.error('请选择或输入目标出站 (OutboundTag)')
+      return
+    }
+    newRule.outboundTag = targetOutbound
   }
+
   if (ruleForm.value.tag && ruleForm.value.tag.trim()) {
     newRule.tag = ruleForm.value.tag.trim()
   }
+
+  if (ruleForm.value.domainMatcher && ruleForm.value.domainMatcher.trim()) {
+    newRule.domainMatcher = ruleForm.value.domainMatcher.trim()
+  }
+
   if (ruleForm.value.vlessRoute && ruleForm.value.vlessRoute.trim()) {
     newRule.vlessRoute = ruleForm.value.vlessRoute.trim()
   }
@@ -995,11 +1175,41 @@ const saveRuleInDrawer = () => {
   const ips = parseArray(ruleForm.value.ipStr)
   if (ips) newRule.ip = ips
 
-  if (ruleForm.value.port) newRule.port = ruleForm.value.port
-  if (ruleForm.value.network) newRule.network = ruleForm.value.network
+  const sources = parseArray(ruleForm.value.sourceStr)
+  if (sources) newRule.source = sources
+
+  if (ruleForm.value.sourcePort && ruleForm.value.sourcePort.trim()) {
+    newRule.sourcePort = ruleForm.value.sourcePort.trim()
+  }
+
+  if (ruleForm.value.port && ruleForm.value.port.trim()) {
+    newRule.port = ruleForm.value.port.trim()
+  }
+
+  if (ruleForm.value.network && ruleForm.value.network.trim()) {
+    newRule.network = ruleForm.value.network.trim()
+  }
 
   const protos = parseArray(ruleForm.value.protocolStr)
   if (protos) newRule.protocol = protos
+
+  // 2. 匹配条件验证
+  const hasMatchCondition =
+    Boolean(newRule.domain && newRule.domain.length > 0) ||
+    Boolean(newRule.ip && newRule.ip.length > 0) ||
+    Boolean(newRule.port) ||
+    Boolean(newRule.source && newRule.source.length > 0) ||
+    Boolean(newRule.sourcePort) ||
+    Boolean(newRule.network) ||
+    Boolean(newRule.protocol && newRule.protocol.length > 0) ||
+    Boolean(newRule.inboundTag && newRule.inboundTag.length > 0) ||
+    Boolean(newRule.user && newRule.user.length > 0) ||
+    Boolean(newRule.vlessRoute)
+
+  if (!hasMatchCondition) {
+    toast.error('请至少配置一项匹配条件 (域名/IP/源IP/源端口/目的端口/网络/协议/入站/用户/VLESS路由)')
+    return
+  }
 
   if (isEditingRule.value && editingIndex.value >= 0) {
     routingConfig.value.rules[editingIndex.value] = newRule
@@ -1179,11 +1389,14 @@ const confirmInjectPreset = () => {
 const formatRuleSummary = (rule: any) => {
   if (rule.tag) return `[${rule.tag}]`
   if (rule.vlessRoute) return `vlessRoute: ${rule.vlessRoute}`
-  if (rule.user) return `用户: ${rule.user.join(', ')}`
-  if (rule.domain) return `域名: ${rule.domain.join(', ')}`
-  if (rule.ip) return `IP: ${rule.ip.join(', ')}`
-  if (rule.protocol) return `协议: ${rule.protocol.join(', ')}`
+  if (rule.user?.length) return `用户: ${rule.user.join(', ')}`
+  if (rule.domain?.length) return `域名: ${rule.domain.join(', ')}`
+  if (rule.ip?.length) return `IP: ${rule.ip.join(', ')}`
+  if (rule.source?.length) return `源IP: ${rule.source.join(', ')}`
+  if (rule.sourcePort) return `源端口: ${rule.sourcePort}`
+  if (rule.protocol?.length) return `协议: ${rule.protocol.join(', ')}`
   if (rule.port) return `端口: ${rule.port} (${rule.network || '全部'})`
+  if (rule.balancerTag) return `Balancer: ${rule.balancerTag}`
   return JSON.stringify(rule)
 }
 

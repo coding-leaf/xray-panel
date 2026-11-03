@@ -31,6 +31,7 @@ export interface InboundItem {
   settingsJson?: string
   streamSettings?: string
   streamSettingsJson?: string
+  sniffing?: string
   sniffingJson?: string
   remark?: string
   externalPort?: number
@@ -107,6 +108,11 @@ export interface InboundFormData {
   sniffingEnabled: boolean
   sniffingRouteOnly: boolean
   sniffingDestOverride: string[]
+  sniffingMetadataOnly: boolean
+  sniffingDomainsExcluded: string
+  sniffingIpsExcluded: string
+  acceptProxyProtocol: boolean
+  rawSockopt?: Record<string, any>
   clientFingerprint: string
   vmessAlterId: number
   vmessDisableInsecure: boolean
@@ -200,6 +206,11 @@ export function getDefaultInboundFormData(usersList: any[] = []): InboundFormDat
     sniffingEnabled: true,
     sniffingRouteOnly: true,
     sniffingDestOverride: ['http', 'tls', 'quic'],
+    sniffingMetadataOnly: false,
+    sniffingDomainsExcluded: '',
+    sniffingIpsExcluded: '',
+    acceptProxyProtocol: false,
+    rawSockopt: undefined,
     clientFingerprint: '',
     vmessAlterId: 0,
     vmessDisableInsecure: false,
@@ -237,6 +248,11 @@ export function sanitizeInboundPayload(raw: InboundFormData): InboundFormData {
     sniffingDestOverride: Array.isArray(raw.sniffingDestOverride) && raw.sniffingDestOverride.length > 0
       ? [...raw.sniffingDestOverride]
       : ['http', 'tls', 'quic'],
+    sniffingMetadataOnly: Boolean(raw.sniffingMetadataOnly),
+    sniffingDomainsExcluded: (raw.sniffingDomainsExcluded || '').trim(),
+    sniffingIpsExcluded: (raw.sniffingIpsExcluded || '').trim(),
+    acceptProxyProtocol: Boolean(raw.acceptProxyProtocol),
+    rawSockopt: raw.rawSockopt ? { ...raw.rawSockopt } : undefined,
     subRoutes: [],
     vlessFlow: '',
     selectedUserEmails: [],
@@ -669,6 +685,16 @@ export function buildStreamSettingsJSON(clean: InboundFormData): string {
     stream.tlsSettings = tlsObj
   }
 
+  const sockopt: Record<string, any> = { ...(clean.rawSockopt || {}) }
+  if (clean.acceptProxyProtocol) {
+    sockopt.acceptProxyProtocol = true
+  } else {
+    delete sockopt.acceptProxyProtocol
+  }
+  if (Object.keys(sockopt).length > 0) {
+    stream.sockopt = sockopt
+  }
+
   return JSON.stringify(stream, null, 2)
 }
 
@@ -676,15 +702,29 @@ export function buildSniffingJSON(clean: InboundFormData): string {
   const destOverride = (clean.sniffingDestOverride && clean.sniffingDestOverride.length > 0)
     ? clean.sniffingDestOverride
     : ['http', 'tls', 'quic']
-  return JSON.stringify(
-    {
-      enabled: clean.sniffingEnabled,
-      destOverride,
-      routeOnly: clean.sniffingRouteOnly,
-    },
-    null,
-    2
-  )
+  const sniffingObj: any = {
+    enabled: clean.sniffingEnabled,
+    destOverride,
+    routeOnly: clean.sniffingRouteOnly,
+  }
+  if (clean.sniffingMetadataOnly) {
+    sniffingObj.metadataOnly = true
+  }
+  const domainsExcluded = (clean.sniffingDomainsExcluded || '')
+    .split(/[\n,]/)
+    .map((s: string) => s.trim())
+    .filter(Boolean)
+  if (domainsExcluded.length > 0) {
+    sniffingObj.domainsExcluded = domainsExcluded
+  }
+  const ipsExcluded = (clean.sniffingIpsExcluded || '')
+    .split(/[\n,]/)
+    .map((s) => s.trim())
+    .filter(Boolean)
+  if (ipsExcluded.length > 0) {
+    sniffingObj.ipsExcluded = ipsExcluded
+  }
+  return JSON.stringify(sniffingObj, null, 2)
 }
 
 export function buildInboundPayload(raw: InboundFormData, usersList: any[] = []): InboundPayload {

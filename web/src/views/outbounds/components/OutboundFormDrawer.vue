@@ -432,6 +432,123 @@
           </div>
         </div>
       </SectionCard>
+
+      <!-- 连接多路复用 (Mux & XUDP) -->
+      <SectionCard v-if="isProxyProtocol" title="连接多路复用 (Mux & XUDP)">
+        <!-- 互斥提示：XTLS Vision 与 Mux 互斥 -->
+        <div v-if="isVisionFlow" class="p-3 rounded-md bg-amber-500/10 border border-amber-500/30 text-amber-300 text-xs flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 mb-3">
+          <div class="flex items-center gap-2">
+            <AlertTriangle class="w-4 h-4 text-amber-400 shrink-0" />
+            <span>当前启用了 <strong>XTLS Vision 流控</strong>，与 Mux 连接复用互斥。开启 Mux 需关闭 Vision 流控。</span>
+          </div>
+          <button
+            type="button"
+            @click="clearVisionForMux"
+            class="px-2.5 py-1 text-[11px] rounded bg-amber-500/20 hover:bg-amber-500/30 text-amber-200 border border-amber-500/40 shrink-0 font-medium transition-colors"
+          >
+            关闭 Vision 并启用 Mux
+          </button>
+        </div>
+
+        <div class="flex items-center justify-between">
+          <div class="space-y-0.5">
+            <span class="font-medium text-foreground text-xs block">启用 Mux 多路复用 (Mux & XUDP)</span>
+            <span class="text-[11px] text-muted-foreground block">聚合 TCP 与 UDP 连接至单条物理通道，大幅降低高延迟网络握手开销</span>
+          </div>
+          <label class="relative inline-flex items-center cursor-pointer">
+            <input
+              type="checkbox"
+              :checked="form.muxEnabled"
+              @change="handleMuxToggle(($event.target as HTMLInputElement).checked)"
+              class="sr-only peer"
+            />
+            <div class="w-9 h-5 bg-neutral-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-purple-600"></div>
+          </label>
+        </div>
+
+        <div v-if="form.muxEnabled && !isVisionFlow" class="space-y-3 pt-3 border-t border-border/50 mt-3">
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <FormField label="TCP 最大并发连接 (concurrency)" hint="默认 8 (范围 1~128)。填写 -1 仅关闭 TCP 复用">
+              <input
+                v-model.number="form.muxConcurrency"
+                type="number"
+                min="-1"
+                max="128"
+                placeholder="8"
+                class="w-full bg-neutral-950 border border-border rounded-md px-3 py-2 text-foreground font-mono focus:outline-none focus:ring-1 focus:ring-ring"
+              />
+            </FormField>
+
+            <FormField label="XUDP 最大并发连接 (xudpConcurrency)" hint="默认 16 (范围 1~1024)。填写 -1 关闭 UDP 复用">
+              <input
+                v-model.number="form.muxXudpConcurrency"
+                type="number"
+                min="-1"
+                max="1024"
+                placeholder="16"
+                class="w-full bg-neutral-950 border border-border rounded-md px-3 py-2 text-foreground font-mono focus:outline-none focus:ring-1 focus:ring-ring"
+              />
+            </FormField>
+          </div>
+
+          <FormField label="QUIC / UDP 443 转发策略 (xudpProxyUDP443)" hint="处理对端 443 端口 UDP 流量（主要为 QUIC）的行为">
+            <select
+              v-model="form.muxXudpProxyUDP443"
+              class="w-full bg-neutral-950 border border-border rounded-md px-3 py-2 text-foreground focus:outline-none focus:ring-1 focus:ring-ring font-mono"
+            >
+              <option value="reject">reject (默认拦截 QUIC 回退至 HTTP/2 - 推荐)</option>
+              <option value="allow">allow (允许复用 UDP 443 / QUIC)</option>
+              <option value="skip">skip (绕过 Mux 直传 UDP 443)</option>
+            </select>
+          </FormField>
+        </div>
+      </SectionCard>
+
+      <!-- 高级路由与链式代理 (Relay & Sockopt) -->
+      <SectionCard v-if="form.protocol !== 'blackhole'" title="高级路由与链式代理 (Relay & Sockopt)">
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <FormField label="前置代理出站 Tag (dialerProxy)" hint="经由此出站节点建立前置连接（用于 WARP 落地、前置中转或双重代理链路）">
+            <input
+              v-model="form.dialerProxy"
+              type="text"
+              list="dialer-proxy-options"
+              placeholder="例如: warp-out 或 proxy-pre"
+              class="w-full bg-neutral-950 border border-border rounded-md px-3 py-2 text-foreground font-mono focus:outline-none focus:ring-1 focus:ring-ring"
+            />
+            <datalist id="dialer-proxy-options">
+              <option v-for="tag in availableDialerTags" :key="tag" :value="tag" />
+            </datalist>
+          </FormField>
+
+          <FormField label="出口绑定源 IP (sendThrough)" hint="多 IP 主机出口绑定特定网卡源 IP 或 origin">
+            <input
+              v-model="form.sendThrough"
+              type="text"
+              placeholder="例如: 1.2.3.4 或 origin"
+              class="w-full bg-neutral-950 border border-border rounded-md px-3 py-2 text-foreground font-mono focus:outline-none focus:ring-1 focus:ring-ring"
+            />
+          </FormField>
+        </div>
+
+        <div class="pt-2">
+          <FormField label="目标域名解析策略 (targetStrategy)" hint="控制此出站节点连接目标域名时的 DNS 解析行为">
+            <select
+              v-model="form.targetStrategy"
+              class="w-full bg-neutral-950 border border-border rounded-md px-3 py-2 text-foreground focus:outline-none focus:ring-1 focus:ring-ring font-mono"
+            >
+              <option value="">默认 (AsIs 保持原样)</option>
+              <option value="UseIP">UseIP</option>
+              <option value="UseIPv4">UseIPv4 (强制优先 IPv4)</option>
+              <option value="UseIPv6">UseIPv6 (强制优先 IPv6)</option>
+              <option value="UseIPv4v6">UseIPv4v6</option>
+              <option value="UseIPv6v4">UseIPv6v4</option>
+              <option value="ForceIP">ForceIP</option>
+              <option value="ForceIPv4">ForceIPv4</option>
+              <option value="ForceIPv6">ForceIPv6</option>
+            </select>
+          </FormField>
+        </div>
+      </SectionCard>
     </form>
 
     <template #footer>
@@ -453,6 +570,7 @@
 
 <script setup lang="ts">
 import { ref, computed, watch } from 'vue'
+import { AlertTriangle } from 'lucide-vue-next'
 import { toast } from '../../../utils/toast'
 import Drawer from '../../../components/ui/Drawer.vue'
 import Button from '../../../components/ui/Button.vue'
@@ -468,6 +586,7 @@ import {
 const props = defineProps<{
   modelValue: boolean
   editingOutbound: OutboundItem | null
+  outbounds?: OutboundItem[]
   saving: boolean
 }>()
 
@@ -485,7 +604,63 @@ const isOpen = computed({
 
 const isEditing = computed(() => !!props.editingOutbound)
 
+const isProxyProtocol = computed(() =>
+  ['vless', 'vmess', 'trojan', 'shadowsocks', 'socks', 'http'].includes(form.value.protocol)
+)
+
+const isVisionFlow = computed(() =>
+  form.value.protocol === 'vless' &&
+  (form.value.vlessFlow === 'xtls-rprx-vision' || form.value.vlessFlow === 'xtls-rprx-vision-udp443')
+)
+
+const availableDialerTags = computed(() => {
+  if (!props.outbounds) return []
+  return props.outbounds
+    .filter((o) => o.tag !== form.value.tag && o.protocol !== 'blackhole')
+    .map((o) => o.tag)
+})
+
+const handleMuxToggle = (val: boolean) => {
+  if (val && isVisionFlow.value) {
+    form.value.vlessFlow = 'none'
+    form.value.muxEnabled = true
+    toast.info('已将 VLESS 流控切换为 none 并启用 Mux')
+    return
+  }
+  form.value.muxEnabled = val
+}
+
+const clearVisionForMux = () => {
+  form.value.vlessFlow = 'none'
+  form.value.muxEnabled = true
+  toast.info('已切换为无流控并启用 Mux')
+}
+
+// 当用户选择 XTLS Vision 流控时，自动互斥关闭 Mux
+watch(
+  () => form.value.vlessFlow,
+  (newFlow) => {
+    if (
+      form.value.protocol === 'vless' &&
+      (newFlow === 'xtls-rprx-vision' || newFlow === 'xtls-rprx-vision-udp443') &&
+      form.value.muxEnabled
+    ) {
+      form.value.muxEnabled = false
+      toast.info('已自动关闭 Mux（与 XTLS Vision 流控互斥）')
+    }
+  }
+)
+
 const onOutboundProtocolChange = () => {
+  if (!['vless', 'vmess', 'trojan', 'shadowsocks', 'socks', 'http'].includes(form.value.protocol)) {
+    form.value.muxEnabled = false
+  }
+  if (form.value.protocol === 'blackhole') {
+    form.value.dialerProxy = ''
+    form.value.sendThrough = ''
+    form.value.targetStrategy = ''
+  }
+
   if (['freedom', 'blackhole', 'wireguard', 'socks', 'http', 'dns'].includes(form.value.protocol)) {
     form.value.streamNetwork = 'tcp'
     form.value.streamSecurity = 'none'

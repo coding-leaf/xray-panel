@@ -107,12 +107,21 @@
 
             <!-- 3. Network & Security -->
             <td class="p-3.5 align-middle font-mono">
-              <div v-if="getOutboundStreamInfo(ob).network || getOutboundStreamInfo(ob).security" class="flex items-center gap-1.5">
+              <div v-if="getOutboundStreamInfo(ob).network || getOutboundStreamInfo(ob).security || parseMuxConfig(ob.mux) || parseDialerProxy(ob.streamSettings) || ob.sendThrough" class="flex items-center gap-1.5 flex-wrap">
                 <span v-if="getOutboundStreamInfo(ob).network" class="px-1.5 py-0.5 rounded text-[10px] bg-neutral-900 border border-border text-neutral-300">
                   {{ getOutboundStreamInfo(ob).network.toUpperCase() }}
                 </span>
                 <span v-if="getOutboundStreamInfo(ob).security && getOutboundStreamInfo(ob).security !== 'none'" class="px-1.5 py-0.5 rounded text-[10px] bg-cyan-950/60 border border-cyan-800/50 text-cyan-300">
                   {{ getOutboundStreamInfo(ob).security.toUpperCase() }}
+                </span>
+                <span v-if="parseMuxConfig(ob.mux)" class="px-1.5 py-0.5 rounded text-[10px] bg-purple-950/60 border border-purple-800/50 text-purple-300 font-semibold" :title="'多路复用: ' + parseMuxSummary(ob.mux)">
+                  MUX
+                </span>
+                <span v-if="parseDialerProxy(ob.streamSettings)" class="px-1.5 py-0.5 rounded text-[10px] bg-amber-950/60 border border-amber-800/50 text-amber-300 font-medium" :title="'前置代理: ' + parseDialerProxy(ob.streamSettings)">
+                  🔗 {{ parseDialerProxy(ob.streamSettings) }}
+                </span>
+                <span v-if="ob.sendThrough" class="px-1.5 py-0.5 rounded text-[10px] bg-blue-950/60 border border-blue-800/50 text-blue-300 font-mono" :title="'出口源 IP: ' + ob.sendThrough">
+                  IP: {{ ob.sendThrough }}
                 </span>
               </div>
               <span v-else class="text-neutral-500 text-[11px]">-</span>
@@ -216,14 +225,23 @@
             </span>
           </div>
 
-          <div v-if="getOutboundStreamInfo(ob).network || getOutboundStreamInfo(ob).security" class="flex items-center justify-between">
-            <span class="text-muted-foreground text-[11px]">传输与安全:</span>
-            <div class="flex items-center gap-1.5">
+          <div v-if="getOutboundStreamInfo(ob).network || getOutboundStreamInfo(ob).security || parseMuxConfig(ob.mux) || parseDialerProxy(ob.streamSettings) || ob.sendThrough" class="flex items-center justify-between">
+            <span class="text-muted-foreground text-[11px]">传输与链路:</span>
+            <div class="flex items-center gap-1.5 flex-wrap justify-end">
               <span v-if="getOutboundStreamInfo(ob).network" class="px-1.5 py-0.5 rounded text-[10px] bg-neutral-900 border border-border text-neutral-300">
                 {{ getOutboundStreamInfo(ob).network.toUpperCase() }}
               </span>
               <span v-if="getOutboundStreamInfo(ob).security && getOutboundStreamInfo(ob).security !== 'none'" class="px-1.5 py-0.5 rounded text-[10px] bg-cyan-950/60 border border-cyan-800/50 text-cyan-300">
                 {{ getOutboundStreamInfo(ob).security.toUpperCase() }}
+              </span>
+              <span v-if="parseMuxConfig(ob.mux)" class="px-1.5 py-0.5 rounded text-[10px] bg-purple-950/60 border border-purple-800/50 text-purple-300 font-semibold" :title="'多路复用: ' + parseMuxSummary(ob.mux)">
+                MUX
+              </span>
+              <span v-if="parseDialerProxy(ob.streamSettings)" class="px-1.5 py-0.5 rounded text-[10px] bg-amber-950/60 border border-amber-800/50 text-amber-300 font-medium" :title="'前置代理: ' + parseDialerProxy(ob.streamSettings)">
+                🔗 {{ parseDialerProxy(ob.streamSettings) }}
+              </span>
+              <span v-if="ob.sendThrough" class="px-1.5 py-0.5 rounded text-[10px] bg-blue-950/60 border border-blue-800/50 text-blue-300 font-mono" :title="'出口源 IP: ' + ob.sendThrough">
+                IP: {{ ob.sendThrough }}
               </span>
             </div>
           </div>
@@ -289,6 +307,9 @@ import {
   getTargetEndpoint,
   getOutboundStreamInfo,
   formatSettingsSummary,
+  parseMuxConfig,
+  parseMuxSummary,
+  parseDialerProxy,
 } from '../types'
 
 const props = defineProps<{

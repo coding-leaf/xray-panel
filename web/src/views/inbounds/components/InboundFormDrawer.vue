@@ -231,6 +231,17 @@
             </label>
           </div>
         </div>
+
+        <!-- PROXY Protocol (Sockopt) -->
+        <div v-if="!['socks', 'http', 'dokodemo-door'].includes(form.protocol)" class="pt-2 border-t border-border/40">
+          <div class="flex items-center justify-between">
+            <label class="flex items-center gap-2 cursor-pointer text-muted-foreground hover:text-foreground">
+              <input type="checkbox" v-model="form.acceptProxyProtocol" class="rounded bg-neutral-950 border-border text-neutral-200" />
+              <span>接收 PROXY Protocol (反代透传真实 IP)</span>
+            </label>
+            <span class="text-[10px] text-muted-foreground">streamSettings.sockopt.acceptProxyProtocol</span>
+          </div>
+        </div>
       </SectionCard>
 
       <!-- Socks 专属参数 -->
@@ -522,6 +533,29 @@
                 <span class="font-mono text-xs uppercase">{{ dest }}</span>
               </label>
             </div>
+          </div>
+
+          <div class="flex items-center justify-between">
+            <label class="flex items-center gap-2 cursor-pointer text-muted-foreground hover:text-foreground">
+              <input type="checkbox" v-model="form.sniffingMetadataOnly" class="rounded bg-neutral-950 border-border text-neutral-200" />
+              <span>仅嗅探连接元数据 (MetadataOnly, 适用于 FakeDNS)</span>
+            </label>
+            <span class="text-[10px] text-muted-foreground">仅嗅探元数据，不读取握手数据包</span>
+          </div>
+
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <FormField label="排除嗅探覆写域名 (DomainsExcluded, 逗号分隔)">
+              <Input
+                v-model="form.sniffingDomainsExcluded"
+                placeholder="例如: apple.com, example.com"
+              />
+            </FormField>
+            <FormField label="排除嗅探覆写 IP/CIDR (IPsExcluded, 逗号分隔)">
+              <Input
+                v-model="form.sniffingIpsExcluded"
+                placeholder="例如: 127.0.0.1, 10.0.0.0/8"
+              />
+            </FormField>
           </div>
         </div>
       </SectionCard>
@@ -1109,7 +1143,8 @@ const initFormData = () => {
 
     let stream: any = {}
     try {
-      stream = JSON.parse(inb.streamSettingsJson || inb.streamSettings || '{}')
+      const rawStream = inb.streamSettingsJson || inb.streamSettings
+      stream = typeof rawStream === 'string' ? JSON.parse(rawStream || '{}') : (rawStream || {})
     } catch (e) {}
 
     const isTcp = (stream.network || inb.protocol === 'vless' ? (stream.network || 'tcp') : 'tcp') === 'tcp'
@@ -1279,15 +1314,28 @@ const initFormData = () => {
       form.value.tlsKeyFile = ''
     }
 
+    if (stream.sockopt) {
+      form.value.acceptProxyProtocol = stream.sockopt.acceptProxyProtocol === true
+      const { acceptProxyProtocol, ...restSockopt } = stream.sockopt
+      form.value.rawSockopt = Object.keys(restSockopt).length > 0 ? restSockopt : undefined
+    } else {
+      form.value.acceptProxyProtocol = false
+      form.value.rawSockopt = undefined
+    }
+
     let sniff: any = {}
     try {
-      sniff = JSON.parse(inb.sniffingJson || '{}')
+      const rawSniff = inb.sniffingJson || inb.sniffing
+      sniff = typeof rawSniff === 'string' ? JSON.parse(rawSniff || '{}') : (rawSniff || {})
     } catch (e) {}
     form.value.sniffingEnabled = sniff.enabled !== false
     form.value.sniffingRouteOnly = sniff.routeOnly === true
     form.value.sniffingDestOverride = Array.isArray(sniff.destOverride) && sniff.destOverride.length > 0
       ? sniff.destOverride
       : ['http', 'tls', 'quic']
+    form.value.sniffingMetadataOnly = sniff.metadataOnly === true
+    form.value.sniffingDomainsExcluded = Array.isArray(sniff.domainsExcluded) ? sniff.domainsExcluded.join(', ') : ''
+    form.value.sniffingIpsExcluded = Array.isArray(sniff.ipsExcluded) ? sniff.ipsExcluded.join(', ') : ''
   } else {
     form.value = getDefaultInboundFormData(props.usersList)
     generateRealityKey()

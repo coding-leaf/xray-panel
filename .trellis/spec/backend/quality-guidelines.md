@@ -107,3 +107,54 @@
   - 优先级契约：`入站显式配置的 fingerprint (realitySettings/tlsSettings.fingerprint) > 系统默认 sub_default_fingerprint > 兜底 "chrome"`。
 - **非客户端代理协议过滤**：
   - `dokodemo-door`（任意门端口转发）等非客户端代理协议在 `InboundToNodeConfig`、`InboundsToNodeConfigs` 与 `GetUserShareInfo` 中必须自动跳过，严禁导出为无效客户端订阅节点。
+
+---
+
+## 10. Outbound Mux 编解码与 Xray Schema 全链路无损保留契约 (Outbound Mux & Schema Preservation Invariants)
+
+### 1. Scope / Trigger
+- **Trigger**: 任何触发 `ConfigService.ListOutbounds`、`SaveOutbound`、`RecompileAndApply`、`SaveConfigQuietly` 或 `XrayCompiler.CompileToJSON` 的配置读写与重编译路径。
+
+### 2. Signatures & Contracts
+- `domain.Outbound` (`internal/domain/outbound.go`):
+  - `SendThrough string `json:"sendThrough,omitempty"``
+  - `TargetStrategy string `json:"targetStrategy,omitempty"``
+  - `Mux string `json:"mux,omitempty"``
+- `domain.RoutingRule` (`internal/domain/outbound.go`):
+  - `Source []string `json:"source,omitempty"``
+  - `SourcePort string `json:"sourcePort,omitempty"``
+  - `BalancerTag string `json:"balancerTag,omitempty"``
+  - `DomainMatcher string `json:"domainMatcher,omitempty"``
+- `xray.XrayOutbound` / `XraySockopt` / `XrayStreamSettings` / `XrayRealitySettings` / `XraySniffingConfig` (`internal/adapter/xray/schema.go`):
+  - 必须显式声明 `mux`、`sendThrough`、`targetStrategy`、`sockopt.dialerProxy`（**严禁使用已在 Xray 26+ 移除并报 Exit 23 的 `outbound.proxySettings`**）、`sockopt.acceptProxyProtocol`、KeepAlive/TFO/MPTCP、`tcpSettings` (`rawSettings`)、`splithttpSettings`、REALITY `password`/`target`/`mldsa65*`、Sniffing `metadataOnly`/`domainsExcluded`/`ipsExcluded`。
+
+### 3. Validation & Error Matrix
+- `ob.Mux` 为非法 JSON 字符串 -> `compileOutbound` 显式返回 `invalid outbound mux json` 错误，严禁静默吞错；
+- `ob.Protocol == "vless"` 且 `settings.vnext[*].users[*].flow == "xtls-rprx-vision"` 同时存在 `mux.enabled == true` -> `compileOutbound` 自动抑制输出 `mux`（因 Vision 裸流拼接与 Mux 多路复用在 Xray-core 底层严格互斥）；
+- `SaveOutbound` 更新既有同 Tag 出站时：
+  - 若调用方未传 `Mux` (`""`)，默认保留既有 `existing.Mux`（防止未感知 `Mux` 的局部更新抹除配置）；
+  - 若调用方显式传 `"{}"`、`"null"` 或 `{"enabled":false}`，由 `cleanMux` 归一化清空为 `""`，确保编译产物不残留无效 `mux` 块。
+
+### 4. Good / Base / Bad Cases
+- **Good**: VLESS + TCP + REALITY（无 Vision Flow）配置 `{"enabled":true,"concurrency":8,"xudpConcurrency":16,"xudpProxyUDP443":"reject"}`，经 `ListOutbounds -> SaveOutbound -> CompileToJSON` 往返后字节级语义无损，且通过 `xray run -test`。
+- **Base**: 前端关闭既有出站的 `muxEnabled`，提交 `mux: "{}"`，后端 `SaveOutbound` 将其清除，重编译后 `mux` 键消失。
+- **Bad**: 在 `ListOutbounds` 中使用残缺匿名结构体丢弃 `mux`/`sendThrough`/`targetStrategy`，或在链式代理中生成已废弃的 `outbound.proxySettings`。
+
+### 5. Tests Required
+- `TestXrayCompiler_OutboundMuxAndSchemaAlignment` & `TestXrayCompiler_MuxVisionMutualExclusivity` (`internal/adapter/xray/compiler_test.go`)；
+- `TestConfigService_OutboundMuxAndSchemaAlignment_RoundTrip` (`internal/service/config_service_test.go`)。
+
+### 6. Wrong vs Correct
+#### Wrong
+```go
+// ListOutbounds 仅解析 4 个字段，导致重编译时 mux / sendThrough 被静默抹除
+Outbounds []struct { Tag, Protocol string; Settings, StreamSettings json.RawMessage }
+```
+#### Correct
+```go
+// 完整解析 SendThrough / TargetStrategy / Mux，并在 SaveOutbound 中区分省略保留与显式清空 (cleanMux)
+Outbounds []struct {
+    Tag, Protocol, SendThrough, TargetStrategy string
+    Settings, StreamSettings, Mux json.RawMessage
+}
+```

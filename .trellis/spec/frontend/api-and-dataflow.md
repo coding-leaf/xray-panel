@@ -84,7 +84,14 @@ View  ──►  web/src/api/index.ts (axios 单例)  ──┬──►  /api/*
    - **前端凭据随机生成 CSPRNG 强约束**: 前端生成随机 `SubToken` 与 `UUID` 时，严禁使用 `Math.random()` 或短字符串取模；`SubToken` 必须使用 `crypto.getRandomValues(new Uint8Array(16))` 转换为 **32 位小写十六进制字符串（128-bit 满熵）**，与后端 `crypto/rand` + `hex.EncodeToString` 严格一致；`UUID` 优先使用 `crypto.randomUUID()`，在非 HTTPS 环境下回退至基于 `crypto.getRandomValues(new Uint8Array(16))` 的 RFC 4122 v4 实现。
 
 2. **出站协议 (Outbounds)**:
-   - **freedom / blackhole / wireguard / socks / http / dns**: 均为无传输安全层出站，`streamSettings` 必须清空为 `""`，禁止附带任何 Reality / TLS / XHTTP 参数；
+   - **freedom / blackhole / wireguard / dns**: 无传输安全层封装（但 `freedom` / `socks` / `http` 若配置了链式前置代理 `sockopt.dialerProxy` 或 `rawSockopt`，必须输出精简的 `{"sockopt":{...}}` 块以驱动 Xray 链式拨号，不得附带 Reality / TLS 等无关层参数）；
    - **vmess / shadowsocks**: 安全协议仅允许选择 `tls` 或 `none`，禁止选择 `reality`；
-   - **dns**: 作为系统出站协议，输出空的 settings `{}`，用于 DNS 分流路由规则。
+   - **dns**: 作为系统出站协议，输出空的 settings `{}`，用于 DNS 分流路由规则；
+   - **Mux & XUDP 与 VLESS Vision 互斥契约**:
+     - 仅代理协议（`vless`, `vmess`, `trojan`, `shadowsocks`, `socks`, `http`）开放 `Mux`；
+     - 当 `protocol === 'vless'` 且 `vlessFlow === 'xtls-rprx-vision'` 时，UI 与 `sanitizeOutboundPayload` 必须阻止同时输出启用态 `mux`；
+     - `muxConcurrency` 与 `muxXudpConcurrency` 解析必须使用 `parseConcurrency` 精确区分 `0`（XUDP 与 TCP 共享连接 / TCP 默认 8）、`-1`（显式关闭该协议栈复用）与空值；
+     - 当用户关闭 `muxEnabled` 时，`sanitizeOutboundPayload` 必须显式上送 `mux: "{}"`，通知后端 `SaveOutbound` 清除磁盘上既有的 `mux` 配置。
+   - **非破坏性 `sockopt` 合并契约 (Inbound & Outbound)**:
+     - 前端表单编辑入站（`acceptProxyProtocol`）与出站（`dialerProxy`）的 `streamSettings` 时，必须在反序列化阶段保存其余未知 `sockopt` 字段至 `rawSockopt`，并在序列化阶段非破坏性合并回 `stream.sockopt`，严禁因保存表单而冲掉用户配置的 `tcpKeepAliveInterval`、`mark`、`tproxy` 等底层 socket 参数。
 

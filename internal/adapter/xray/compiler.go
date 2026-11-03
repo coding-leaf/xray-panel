@@ -219,23 +219,46 @@ func (c *XrayCompiler) Compile(
 			if (len(r.InboundTag) > 0 && r.InboundTag[0] == "api") || r.OutboundTag == "api" {
 				continue
 			}
-			ruleType := r.Type
+			outboundTag := strings.TrimSpace(r.OutboundTag)
+			balancerTag := strings.TrimSpace(r.BalancerTag)
+			if outboundTag == "" && balancerTag == "" {
+				continue
+			}
+			ruleType := strings.TrimSpace(r.Type)
 			if ruleType == "" {
 				ruleType = "field"
 			}
 			rule := XrayRoutingRule{
-				Type:        ruleType,
-				Tag:         r.Tag,
-				InboundTag:  r.InboundTag,
-				OutboundTag: r.OutboundTag,
-				VlessRoute:  r.VlessRoute,
-				Domain:      r.Domain,
-				IP:          r.IP,
-				Port:        r.Port,
-				Network:     r.Network,
-				Protocol:    r.Protocol,
-				User:        r.User,
-				Attrs:       r.Attrs,
+				Type:          ruleType,
+				Tag:           strings.TrimSpace(r.Tag),
+				InboundTag:    cleanStringSlice(r.InboundTag),
+				OutboundTag:   outboundTag,
+				BalancerTag:   balancerTag,
+				DomainMatcher: strings.TrimSpace(r.DomainMatcher),
+				VlessRoute:    strings.TrimSpace(r.VlessRoute),
+				Domain:        cleanStringSlice(r.Domain),
+				IP:            cleanStringSlice(r.IP),
+				Port:          strings.TrimSpace(r.Port),
+				Network:       strings.TrimSpace(r.Network),
+				Protocol:      cleanStringSlice(r.Protocol),
+				User:          cleanStringSlice(r.User),
+				Attrs:         strings.TrimSpace(r.Attrs),
+				Source:        cleanStringSlice(r.Source),
+				SourcePort:    strings.TrimSpace(r.SourcePort),
+			}
+			hasMatchCondition := len(rule.InboundTag) > 0 ||
+				rule.VlessRoute != "" ||
+				len(rule.Domain) > 0 ||
+				len(rule.IP) > 0 ||
+				rule.Port != "" ||
+				rule.Network != "" ||
+				len(rule.Protocol) > 0 ||
+				len(rule.User) > 0 ||
+				rule.Attrs != "" ||
+				len(rule.Source) > 0 ||
+				rule.SourcePort != ""
+			if !hasMatchCondition {
+				continue
 			}
 			keyBytes, _ := json.Marshal(rule)
 			key := string(keyBytes)
@@ -425,10 +448,57 @@ func (c *XrayCompiler) compileOutbound(ob *domain.Outbound) (*XrayOutbound, erro
 		}
 	}
 
+	var muxRaw json.RawMessage
+	muxStr := strings.TrimSpace(ob.Mux)
+	if muxStr != "" && muxStr != "null" && muxStr != "{}" {
+		if !json.Valid([]byte(muxStr)) {
+			return nil, fmt.Errorf("outbound %s has invalid mux json: %s", ob.Tag, muxStr)
+		}
+
+		var mc struct {
+			Enabled bool `json:"enabled"`
+		}
+		_ = json.Unmarshal([]byte(muxStr), &mc)
+
+		hasVision := false
+		if strings.EqualFold(ob.Protocol, "vless") && strings.Contains(strings.ToLower(settingsStr), "xtls-rprx-vision") {
+			hasVision = true
+		}
+
+		if (hasVision && mc.Enabled) || !mc.Enabled {
+			// 1. VLESS xtls-rprx-vision 与 Mux 互斥：自动抑制 Mux，防止内核冲突
+			// 2. 显式禁用 (enabled=false) 时抑制 Mux，保持输出配置极简且杜绝潜在冲突
+			muxRaw = nil
+		} else {
+			muxRaw = json.RawMessage(muxStr)
+		}
+	}
+
 	return &XrayOutbound{
 		Tag:            ob.Tag,
 		Protocol:       ob.Protocol,
+		SendThrough:    strings.TrimSpace(ob.SendThrough),
+		TargetStrategy: strings.TrimSpace(ob.TargetStrategy),
 		Settings:       json.RawMessage(settingsStr),
 		StreamSettings: streamSettings,
+		Mux:            muxRaw,
 	}, nil
+}
+
+// cleanStringSlice 去除空白字符串并过滤空元素
+func cleanStringSlice(arr []string) []string {
+	if len(arr) == 0 {
+		return nil
+	}
+	var res []string
+	for _, item := range arr {
+		trimmed := strings.TrimSpace(item)
+		if trimmed != "" {
+			res = append(res, trimmed)
+		}
+	}
+	if len(res) == 0 {
+		return nil
+	}
+	return res
 }

@@ -117,10 +117,11 @@ func FindXrayBinary() (string, error) {
 }
 
 func getFreePort(t *testing.T) int {
-	for i := 0; i < 50; i++ {
+	for i := 0; i < 100; i++ {
 		l, err := net.Listen("tcp", "127.0.0.1:0")
 		if err != nil {
-			t.Fatalf("failed to listen on free port: %v", err)
+			time.Sleep(2 * time.Millisecond)
+			continue
 		}
 		port := l.Addr().(*net.TCPAddr).Port
 		u, err := net.ListenUDP("udp", &net.UDPAddr{IP: net.ParseIP("127.0.0.1"), Port: port})
@@ -130,6 +131,7 @@ func getFreePort(t *testing.T) int {
 			return port
 		}
 		_ = l.Close()
+		time.Sleep(2 * time.Millisecond)
 	}
 	t.Fatalf("failed to find a port free for both TCP and UDP")
 	return 0

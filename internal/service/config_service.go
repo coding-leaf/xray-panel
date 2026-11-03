@@ -418,6 +418,23 @@ func (s *ConfigService) SyncUserToFile(ctx context.Context, authorizedTags []str
 
 // === 出站管理 (Outbounds Management) ===
 
+// cleanMux 规范化 Mux 字段:
+// 1. 若为 ""、"{}"、"null" 或 {"enabled":false}，视为显式清空 Mux，返回 ""；
+// 2. 否则返回去除首尾空白的 JSON 字符串。
+func cleanMux(muxVal string) string {
+	trimmed := strings.TrimSpace(muxVal)
+	if trimmed == "" || trimmed == "{}" || trimmed == "null" {
+		return ""
+	}
+	var mc struct {
+		Enabled bool `json:"enabled"`
+	}
+	if err := json.Unmarshal([]byte(trimmed), &mc); err == nil && !mc.Enabled {
+		return ""
+	}
+	return trimmed
+}
+
 func (s *ConfigService) ListOutbounds(ctx context.Context) ([]domain.Outbound, error) {
 	raw, err := s.configMgr.ReadRawConfig()
 	if err != nil {
@@ -429,8 +446,11 @@ func (s *ConfigService) ListOutbounds(ctx context.Context) ([]domain.Outbound, e
 		Outbounds []struct {
 			Tag            string          `json:"tag"`
 			Protocol       string          `json:"protocol"`
+			SendThrough    string          `json:"sendThrough"`
+			TargetStrategy string          `json:"targetStrategy"`
 			Settings       json.RawMessage `json:"settings"`
 			StreamSettings json.RawMessage `json:"streamSettings"`
+			Mux            json.RawMessage `json:"mux"`
 		} `json:"outbounds"`
 	}
 
@@ -440,11 +460,27 @@ func (s *ConfigService) ListOutbounds(ctx context.Context) ([]domain.Outbound, e
 
 	var list []domain.Outbound
 	for _, ob := range root.Outbounds {
+		var muxStr string
+		if len(ob.Mux) > 0 {
+			muxStr = cleanMux(string(ob.Mux))
+		}
+		var streamSettingsStr string
+		if len(ob.StreamSettings) > 0 && string(ob.StreamSettings) != "null" {
+			streamSettingsStr = string(ob.StreamSettings)
+		}
+		var settingsJSONStr string
+		if len(ob.Settings) > 0 && string(ob.Settings) != "null" {
+			settingsJSONStr = string(ob.Settings)
+		}
+
 		list = append(list, domain.Outbound{
 			Tag:            ob.Tag,
 			Protocol:       ob.Protocol,
-			SettingsJSON:   string(ob.Settings),
-			StreamSettings: string(ob.StreamSettings),
+			SendThrough:    ob.SendThrough,
+			TargetStrategy: ob.TargetStrategy,
+			SettingsJSON:   settingsJSONStr,
+			StreamSettings: streamSettingsStr,
+			Mux:            muxStr,
 		})
 	}
 	return list, nil
@@ -455,17 +491,26 @@ func (s *ConfigService) SaveOutbound(ctx context.Context, outbound domain.Outbou
 	if err != nil && !errors.Is(err, domain.ErrNotFound) {
 		return fmt.Errorf("read outbounds failed, abort saving to protect config: %w", err)
 	}
+
 	found := false
 	var updatedList []domain.Outbound
 	for _, ob := range existingList {
 		if ob.Tag == outbound.Tag {
 			found = true
-			updatedList = append(updatedList, outbound)
+			targetOb := outbound
+			if strings.TrimSpace(targetOb.Mux) == "" {
+				// 旧版/未传 mux 字段时保留已有配置
+				targetOb.Mux = ob.Mux
+			} else {
+				targetOb.Mux = cleanMux(targetOb.Mux)
+			}
+			updatedList = append(updatedList, targetOb)
 		} else {
 			updatedList = append(updatedList, ob)
 		}
 	}
 	if !found {
+		outbound.Mux = cleanMux(outbound.Mux)
 		updatedList = append(updatedList, outbound)
 	}
 
@@ -519,7 +564,10 @@ func (s *ConfigService) saveOutboundsListAndRecompile(ctx context.Context, outbo
 	if err := s.configMgr.WriteConfig(ctx, jsonBytes); err != nil {
 		return err
 	}
-	return s.supervisor.Reload(ctx)
+	if s.supervisor != nil {
+		return s.supervisor.Reload(ctx)
+	}
+	return nil
 }
 
 // === 路由设置 (Routing Management) ===
@@ -603,7 +651,10 @@ func (s *ConfigService) SaveRoutingConfig(ctx context.Context, cfg *domain.Routi
 	if err := s.configMgr.WriteConfig(ctx, jsonBytes); err != nil {
 		return err
 	}
-	return s.supervisor.Reload(ctx)
+	if s.supervisor != nil {
+		return s.supervisor.Reload(ctx)
+	}
+	return nil
 }
 
 func isPureSubRouteFallbackRule(r domain.RoutingRule) bool {
@@ -613,7 +664,11 @@ func isPureSubRouteFallbackRule(r domain.RoutingRule) bool {
 		r.Network == "" &&
 		len(r.Protocol) == 0 &&
 		r.Attrs == "" &&
-		r.Tag == ""
+		r.Tag == "" &&
+		len(r.Source) == 0 &&
+		r.SourcePort == "" &&
+		r.BalancerTag == "" &&
+		r.DomainMatcher == ""
 }
 
 func (s *ConfigService) ensureSubRouteRules(routing *domain.RoutingConfig, inbounds []domain.Inbound) {

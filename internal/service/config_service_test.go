@@ -471,4 +471,196 @@ func TestConfigService_SyncFromFile_PreservesEmptyFlowAcrossRestart(t *testing.T
 	}
 }
 
+func TestConfigService_OutboundMuxAndSchemaAlignment_RoundTrip(t *testing.T) {
+	ctx := context.Background()
+
+	rawInitialConfig := `{
+		"outbounds": [
+			{
+				"tag": "proxy-us",
+				"protocol": "trojan",
+				"sendThrough": "192.168.1.50",
+				"targetStrategy": "UseIPv4",
+				"settings": {"servers":[{"address":"us.node.com","port":443,"password":"secret"}]},
+				"streamSettings": {
+					"network": "tcp",
+					"security": "tls",
+					"sockopt": {
+						"dialerProxy": "warp-out",
+						"acceptProxyProtocol": true
+					},
+					"tcpSettings": {
+						"header": {
+							"type": "http"
+						}
+					}
+				},
+				"mux": {
+					"enabled": true,
+					"concurrency": 8,
+					"xudpConcurrency": 16,
+					"xudpProxyUDP443": "reject"
+				}
+			},
+			{
+				"tag": "direct",
+				"protocol": "freedom"
+			}
+		],
+		"routing": {
+			"domainStrategy": "IPIfNonMatch",
+			"rules": [
+				{
+					"type": "field",
+					"domain": ["geosite:google"],
+					"source": ["192.168.1.0/24"],
+					"sourcePort": "1000-2000",
+					"domainMatcher": "mph",
+					"outboundTag": "proxy-us"
+				},
+				{
+					"type": "field",
+					"domain": ["geosite:netflix"],
+					"balancerTag": "balancer-pool"
+				}
+			]
+		}
+	}`
+
+	cfgStorage := &mockConfigStorageWithContent{
+		content: []byte(rawInitialConfig),
+	}
+	compiler := xray.NewXrayCompiler(10085)
+	svc := service.NewConfigService(cfgStorage, nil, nil, nil, nil, compiler)
+
+	// 1. 测试 ListOutbounds 正确反序列化 mux、sendThrough、targetStrategy
+	outbounds, err := svc.ListOutbounds(ctx)
+	if err != nil {
+		t.Fatalf("ListOutbounds failed: %v", err)
+	}
+	if len(outbounds) != 2 {
+		t.Fatalf("Expected 2 outbounds, got %d", len(outbounds))
+	}
+	proxyUs := outbounds[0]
+	if proxyUs.Tag != "proxy-us" {
+		t.Errorf("Expected tag proxy-us, got %q", proxyUs.Tag)
+	}
+	if proxyUs.SendThrough != "192.168.1.50" {
+		t.Errorf("Expected sendThrough 192.168.1.50, got %q", proxyUs.SendThrough)
+	}
+	if proxyUs.TargetStrategy != "UseIPv4" {
+		t.Errorf("Expected targetStrategy UseIPv4, got %q", proxyUs.TargetStrategy)
+	}
+	var muxObj struct {
+		Enabled     bool  `json:"enabled"`
+		Concurrency int16 `json:"concurrency"`
+	}
+	if err := json.Unmarshal([]byte(proxyUs.Mux), &muxObj); err != nil || !muxObj.Enabled || muxObj.Concurrency != 8 {
+		t.Errorf("Expected mux to be read correctly with enabled=true, concurrency=8, got %q (err: %v)", proxyUs.Mux, err)
+	}
+
+	// 2. 测试 SaveOutbound 更新节点但不传 mux（空字符串）时，继承保留原有 Mux 配置
+	updateWithoutMux := domain.Outbound{
+		Tag:            "proxy-us",
+		Protocol:       "trojan",
+		SendThrough:    "192.168.1.50",
+		TargetStrategy: "UseIPv4",
+		SettingsJSON:   `{"servers":[{"address":"us-new.node.com","port":443,"password":"secret"}]}`,
+		StreamSettings: proxyUs.StreamSettings,
+		Mux:            "", // 旧版/缺省 caller 传递空字符串
+	}
+	if err := svc.SaveOutbound(ctx, updateWithoutMux); err != nil {
+		t.Fatalf("SaveOutbound with empty mux failed: %v", err)
+	}
+
+	outboundsAfterEmptySave, _ := svc.ListOutbounds(ctx)
+	if outboundsAfterEmptySave[0].Mux == "" {
+		t.Errorf("SaveOutbound with empty mux should have preserved existing Mux, but Mux was cleared")
+	}
+
+	// 3. 测试 SaveOutbound 传入 "{}" 或 `{"enabled":false}` 时，显式清空 Mux
+	updateWithDisabledMux := updateWithoutMux
+	updateWithDisabledMux.Mux = `{"enabled":false}`
+	if err := svc.SaveOutbound(ctx, updateWithDisabledMux); err != nil {
+		t.Fatalf("SaveOutbound with disabled mux failed: %v", err)
+	}
+
+	outboundsAfterDisable, _ := svc.ListOutbounds(ctx)
+	if outboundsAfterDisable[0].Mux != "" {
+		t.Errorf("SaveOutbound with enabled:false should have cleared Mux, got %q", outboundsAfterDisable[0].Mux)
+	}
+
+	// 4. 测试 SaveOutbound 传入 "{}" 清空 Mux
+	updateWithoutMux.Mux = `{"enabled":true,"concurrency":16}`
+	_ = svc.SaveOutbound(ctx, updateWithoutMux)
+	updateWithEmptyObjMux := updateWithoutMux
+	updateWithEmptyObjMux.Mux = "{}"
+	if err := svc.SaveOutbound(ctx, updateWithEmptyObjMux); err != nil {
+		t.Fatalf("SaveOutbound with {} failed: %v", err)
+	}
+	outboundsAfterEmptyObj, _ := svc.ListOutbounds(ctx)
+	if outboundsAfterEmptyObj[0].Mux != "" {
+		t.Errorf("SaveOutbound with {} should have cleared Mux, got %q", outboundsAfterEmptyObj[0].Mux)
+	}
+
+	// 5. 测试 GetRoutingConfig 与 SaveRoutingConfig 对 Source, SourcePort, BalancerTag, DomainMatcher 的完整保留
+	routing, err := svc.GetRoutingConfig(ctx)
+	if err != nil {
+		t.Fatalf("GetRoutingConfig failed: %v", err)
+	}
+	if len(routing.Rules) != 2 {
+		t.Fatalf("Expected 2 routing rules, got %d", len(routing.Rules))
+	}
+	rule1 := routing.Rules[0]
+	if len(rule1.Source) != 1 || rule1.Source[0] != "192.168.1.0/24" {
+		t.Errorf("Expected rule 1 source 192.168.1.0/24, got %+v", rule1.Source)
+	}
+	if rule1.SourcePort != "1000-2000" {
+		t.Errorf("Expected rule 1 sourcePort 1000-2000, got %q", rule1.SourcePort)
+	}
+	if rule1.DomainMatcher != "mph" {
+		t.Errorf("Expected rule 1 domainMatcher mph, got %q", rule1.DomainMatcher)
+	}
+	rule2 := routing.Rules[1]
+	if rule2.BalancerTag != "balancer-pool" {
+		t.Errorf("Expected rule 2 balancerTag balancer-pool, got %q", rule2.BalancerTag)
+	}
+
+	// 保存路由配置并验证重编译后仍完好
+	if err := svc.SaveRoutingConfig(ctx, routing); err != nil {
+		t.Fatalf("SaveRoutingConfig failed: %v", err)
+	}
+	reloadedRouting, _ := svc.GetRoutingConfig(ctx)
+	if len(reloadedRouting.Rules) != 2 || reloadedRouting.Rules[0].SourcePort != "1000-2000" {
+		t.Errorf("SaveRoutingConfig round trip failed: %+v", reloadedRouting.Rules)
+	}
+
+	// 6. 测试 ListOutbounds 从包含 disabled Mux 的原始配置中读取时，自动规范化为 ""
+	rawConfigWithDisabledMux := `{
+		"outbounds": [
+			{
+				"tag": "disabled-node",
+				"protocol": "trojan",
+				"mux": {"enabled": false, "concurrency": 8}
+			},
+			{
+				"tag": "empty-mux-node",
+				"protocol": "freedom",
+				"mux": {}
+			}
+		]
+	}`
+	svcDisabled := service.NewConfigService(&mockConfigStorageWithContent{content: []byte(rawConfigWithDisabledMux)}, nil, nil, nil, nil, compiler)
+	outboundsDisabled, err := svcDisabled.ListOutbounds(ctx)
+	if err != nil {
+		t.Fatalf("ListOutbounds with disabled mux failed: %v", err)
+	}
+	for _, ob := range outboundsDisabled {
+		if ob.Mux != "" {
+			t.Errorf("Expected Mux to be normalized to empty for %s, got %q", ob.Tag, ob.Mux)
+		}
+	}
+}
+
+
 

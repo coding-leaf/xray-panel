@@ -14,6 +14,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -1622,4 +1623,314 @@ func TestXrayCompiler_RealBinaryAcceptanceMatrix(t *testing.T) {
 		validateWithXrayCore(t, jsonBytes)
 	})
 }
+
+func TestXrayCompiler_OutboundMuxAndSchemaAlignment(t *testing.T) {
+	compiler := xray.NewXrayCompiler()
+
+	inbounds := []domain.Inbound{
+		{
+			Tag:            "vless-in",
+			Port:           10443,
+			Listen:         "0.0.0.0",
+			Protocol:       "vless",
+			Enabled:        true,
+			SettingsJSON:   `{"decryption":"none"}`,
+			StreamSettings: `{"network":"tcp","security":"none","sockopt":{"acceptProxyProtocol":true}}`,
+			SniffingJSON:   `{"enabled":true,"destOverride":["http","tls","quic"],"metadataOnly":true,"routeOnly":true,"domainsExcluded":["geosite:apple"],"ipsExcluded":["10.0.0.0/8"]}`,
+		},
+	}
+
+	users := []domain.User{
+		{
+			Email:       "test@example.com",
+			UUID:        "c8402f1a-6df2-4217-a169-23114d640201",
+			Enabled:     true,
+			InboundTags: "vless-in",
+		},
+	}
+
+	outbounds := []domain.Outbound{
+		{
+			Tag:            "trojan-out",
+			Protocol:       "trojan",
+			SendThrough:    "0.0.0.0",
+			TargetStrategy: "UseIPv4",
+			SettingsJSON:   `{"servers":[{"address":"127.0.0.1","port":443,"password":"password123"}]}`,
+			StreamSettings: `{"network":"tcp","security":"tls","tlsSettings":{"serverName":"example.com"},"sockopt":{"dialerProxy":"warp-out","acceptProxyProtocol":true,"domainStrategy":"UseIPv4","tcpKeepAliveInterval":30,"tcpKeepAliveIdle":60,"tcpUserTimeout":10000,"tcpCongestion":"bbr","interface":"eth0","tcpMptcp":true,"tcpNoDelay":true},"tcpSettings":{"header":{"type":"http","request":{"version":"1.1","method":"GET","path":["/"]}}}}`,
+			Mux:            `{"enabled":true,"concurrency":8,"xudpConcurrency":16,"xudpProxyUDP443":"reject"}`,
+		},
+		{
+			Tag:      "warp-out",
+			Protocol: "freedom",
+		},
+	}
+
+	routing := &domain.RoutingConfig{
+		DomainStrategy: "IPIfNonMatch",
+		Rules: []domain.RoutingRule{
+			{
+				Type:          "field",
+				Domain:        []string{"geosite:google"},
+				Source:        []string{"192.168.1.0/24"},
+				SourcePort:    "1000-2000",
+				DomainMatcher: "mph",
+				OutboundTag:   "trojan-out",
+			},
+			{
+				Type:        "field",
+				Domain:      []string{"geosite:netflix"},
+				OutboundTag: "warp-out",
+			},
+		},
+	}
+
+	cfg, err := compiler.Compile(inbounds, outbounds, routing, nil, users)
+	if err != nil {
+		t.Fatalf("Compile failed: %v", err)
+	}
+
+	// 1. 验证 Inbound Sniffing 扩展字段
+	if len(cfg.Inbounds) == 0 || cfg.Inbounds[0].Sniffing == nil {
+		t.Fatalf("Expected inbound sniffing to be configured")
+	}
+	sniff := cfg.Inbounds[0].Sniffing
+	if !sniff.MetadataOnly {
+		t.Errorf("Expected sniffing.metadataOnly = true")
+	}
+	if len(sniff.DomainsExcluded) != 1 || sniff.DomainsExcluded[0] != "geosite:apple" {
+		t.Errorf("Expected sniffing.domainsExcluded to contain geosite:apple, got %+v", sniff.DomainsExcluded)
+	}
+	if len(sniff.IPsExcluded) != 1 || sniff.IPsExcluded[0] != "10.0.0.0/8" {
+		t.Errorf("Expected sniffing.ipsExcluded to contain 10.0.0.0/8, got %+v", sniff.IPsExcluded)
+	}
+
+	// 2. 验证 Inbound Sockopt acceptProxyProtocol
+	if cfg.Inbounds[0].StreamSettings == nil || cfg.Inbounds[0].StreamSettings.Sockopt == nil || !cfg.Inbounds[0].StreamSettings.Sockopt.AcceptProxyProtocol {
+		t.Errorf("Expected inbound streamSettings.sockopt.acceptProxyProtocol = true")
+	}
+
+	// 3. 验证 Outbound Mux, SendThrough, TargetStrategy, Sockopt, TCPSettings
+	var trojanOb *xray.XrayOutbound
+	for i := range cfg.Outbounds {
+		if cfg.Outbounds[i].Tag == "trojan-out" {
+			trojanOb = &cfg.Outbounds[i]
+			break
+		}
+	}
+	if trojanOb == nil {
+		t.Fatalf("Outbound trojan-out not found")
+	}
+	if trojanOb.SendThrough != "0.0.0.0" {
+		t.Errorf("Expected sendThrough 0.0.0.0, got %q", trojanOb.SendThrough)
+	}
+	if trojanOb.TargetStrategy != "UseIPv4" {
+		t.Errorf("Expected targetStrategy UseIPv4, got %q", trojanOb.TargetStrategy)
+	}
+	if trojanOb.Mux == nil {
+		t.Fatalf("Expected outbound mux to be non-nil")
+	}
+	var muxConf xray.XrayMuxConfig
+	if err := json.Unmarshal(trojanOb.Mux, &muxConf); err != nil {
+		t.Fatalf("Failed to unmarshal compiled outbound mux: %v", err)
+	}
+	if !muxConf.Enabled || muxConf.Concurrency != 8 || muxConf.XudpConcurrency != 16 || muxConf.XudpProxyUDP443 != "reject" {
+		t.Errorf("Unexpected mux config: %+v", muxConf)
+	}
+
+	// Sockopt 深度验证
+	if trojanOb.StreamSettings == nil || trojanOb.StreamSettings.Sockopt == nil {
+		t.Fatalf("Expected trojan-out streamSettings.sockopt to be present")
+	}
+	sockopt := trojanOb.StreamSettings.Sockopt
+	if sockopt.DialerProxy != "warp-out" {
+		t.Errorf("Expected dialerProxy warp-out, got %q", sockopt.DialerProxy)
+	}
+	if !sockopt.AcceptProxyProtocol {
+		t.Errorf("Expected acceptProxyProtocol = true")
+	}
+	if sockopt.DomainStrategy != "UseIPv4" || sockopt.TCPKeepAliveInterval != 30 || sockopt.TCPKeepAliveIdle != 60 || sockopt.TCPUserTimeout != 10000 || sockopt.TCPCongestion != "bbr" || sockopt.Interface != "eth0" || !sockopt.TcpMptcp || !sockopt.TcpNoDelay {
+		t.Errorf("Unexpected sockopt values: %+v", sockopt)
+	}
+
+	// TCPSettings RawMessage 验证
+	if len(trojanOb.StreamSettings.TCPSettings) == 0 {
+		t.Errorf("Expected tcpSettings to be preserved")
+	}
+
+	// 4. 验证 Routing 规则的 Source, SourcePort, BalancerTag, DomainMatcher
+	rules := cfg.Routing.Rules
+	if len(rules) < 3 { // api + 2 custom rules
+		t.Fatalf("Expected at least 3 routing rules, got %d", len(rules))
+	}
+	r1 := rules[1]
+	if len(r1.Source) != 1 || r1.Source[0] != "192.168.1.0/24" {
+		t.Errorf("Expected rule 1 source [192.168.1.0/24], got %+v", r1.Source)
+	}
+	if r1.SourcePort != "1000-2000" {
+		t.Errorf("Expected rule 1 sourcePort 1000-2000, got %q", r1.SourcePort)
+	}
+	if r1.DomainMatcher != "mph" {
+		t.Errorf("Expected rule 1 domainMatcher mph, got %q", r1.DomainMatcher)
+	}
+	if r1.OutboundTag != "trojan-out" {
+		t.Errorf("Expected rule 1 outboundTag trojan-out, got %q", r1.OutboundTag)
+	}
+
+	r2 := rules[2]
+	if r2.OutboundTag != "warp-out" {
+		t.Errorf("Expected rule 2 outboundTag warp-out, got %q", r2.OutboundTag)
+	}
+
+	// 5. 编译为 JSON 并通过真实 Xray-core 二进制校验
+	jsonBytes, err := compiler.CompileToJSON(inbounds, outbounds, routing, nil, users)
+	if err != nil {
+		t.Fatalf("CompileToJSON failed: %v", err)
+	}
+	validateWithXrayCore(t, jsonBytes)
+}
+
+func TestXrayCompiler_BalancerTagRoutingRule(t *testing.T) {
+	compiler := xray.NewXrayCompiler()
+	routing := &domain.RoutingConfig{
+		Rules: []domain.RoutingRule{
+			{
+				Type:        "field",
+				Domain:      []string{"geosite:netflix"},
+				BalancerTag: "video-balancer",
+			},
+		},
+	}
+	cfg, err := compiler.Compile(nil, []domain.Outbound{{Tag: "direct", Protocol: "freedom"}}, routing, nil, nil)
+	if err != nil {
+		t.Fatalf("Compile failed: %v", err)
+	}
+	if len(cfg.Routing.Rules) != 2 { // api + balancer rule
+		t.Fatalf("Expected 2 rules, got %d", len(cfg.Routing.Rules))
+	}
+	rule := cfg.Routing.Rules[1]
+	if rule.BalancerTag != "video-balancer" {
+		t.Errorf("Expected balancerTag video-balancer, got %q", rule.BalancerTag)
+	}
+	if rule.OutboundTag != "" {
+		t.Errorf("Expected empty outboundTag when balancerTag is used, got %q", rule.OutboundTag)
+	}
+}
+
+func TestXrayCompiler_MuxVisionMutualExclusivity(t *testing.T) {
+	compiler := xray.NewXrayCompiler()
+
+	// 1. VLESS 带 xtls-rprx-vision 且 mux.enabled == true -> 必须抑制 Mux
+	vlessVisionOutbound := domain.Outbound{
+		Tag:      "vless-vision-out",
+		Protocol: "vless",
+		SettingsJSON: `{
+			"vnext": [{
+				"address": "example.com",
+				"port": 443,
+				"users": [{
+					"id": "c8402f1a-6df2-4217-a169-23114d640201",
+					"encryption": "none",
+					"flow": "xtls-rprx-vision"
+				}]
+			}]
+		}`,
+		StreamSettings: `{"network":"tcp","security":"reality","realitySettings":{"serverName":"example.com","publicKey":"n154-lbu-6lS92LFtV_GdzdjXVWgnSGTFKIG-OXOMlM"}}`,
+		Mux:            `{"enabled":true,"concurrency":8}`,
+	}
+
+	// 2. VLESS 不带 vision (flow 为空) 且 mux.enabled == true -> 必须保留 Mux
+	vlessNoVisionOutbound := domain.Outbound{
+		Tag:      "vless-novision-out",
+		Protocol: "vless",
+		SettingsJSON: `{
+			"vnext": [{
+				"address": "example.com",
+				"port": 443,
+				"users": [{
+					"id": "c8402f1a-6df2-4217-a169-23114d640201",
+					"encryption": "none"
+				}]
+			}]
+		}`,
+		StreamSettings: `{"network":"tcp","security":"reality","realitySettings":{"serverName":"example.com","publicKey":"n154-lbu-6lS92LFtV_GdzdjXVWgnSGTFKIG-OXOMlM"}}`,
+		Mux:            `{"enabled":true,"concurrency":8}`,
+	}
+
+	cfg, err := compiler.Compile(nil, []domain.Outbound{vlessVisionOutbound, vlessNoVisionOutbound}, nil, nil, nil)
+	if err != nil {
+		t.Fatalf("Compile failed: %v", err)
+	}
+
+	var obVision, obNoVision *xray.XrayOutbound
+	for i := range cfg.Outbounds {
+		if cfg.Outbounds[i].Tag == "vless-vision-out" {
+			obVision = &cfg.Outbounds[i]
+		}
+		if cfg.Outbounds[i].Tag == "vless-novision-out" {
+			obNoVision = &cfg.Outbounds[i]
+		}
+	}
+
+	if obVision == nil || obNoVision == nil {
+		t.Fatalf("Failed to find compiled outbounds")
+	}
+
+	// Vision 出站应自动剥离 Mux
+	if obVision.Mux != nil {
+		t.Errorf("Expected Mux to be stripped for VLESS xtls-rprx-vision outbound, got %s", string(obVision.Mux))
+	}
+
+	// NoVision 出站应保留 Mux
+	if obNoVision.Mux == nil {
+		t.Errorf("Expected Mux to be preserved for VLESS outbound without vision")
+	}
+
+	// 通过真实 Xray-core 二进制测试
+	jsonBytes, err := compiler.CompileToJSON(nil, []domain.Outbound{vlessVisionOutbound, vlessNoVisionOutbound}, nil, nil, nil)
+	if err != nil {
+		t.Fatalf("CompileToJSON failed: %v", err)
+	}
+	validateWithXrayCore(t, jsonBytes)
+}
+
+func TestXrayCompiler_InvalidMuxJSONError(t *testing.T) {
+	compiler := xray.NewXrayCompiler()
+	outbound := domain.Outbound{
+		Tag:          "broken-mux",
+		Protocol:     "freedom",
+		SettingsJSON: "{}",
+		Mux:          `{invalid_json_format`,
+	}
+
+	_, err := compiler.Compile(nil, []domain.Outbound{outbound}, nil, nil, nil)
+	if err == nil {
+		t.Fatalf("Expected Compile to fail with invalid Mux JSON error, but got nil")
+	}
+	if !strings.Contains(err.Error(), "invalid mux json") {
+		t.Errorf("Expected error to mention 'invalid mux json', got %v", err)
+	}
+}
+
+func TestXrayCompiler_MuxExplicitlyDisabled(t *testing.T) {
+	compiler := xray.NewXrayCompiler()
+	outbound := domain.Outbound{
+		Tag:          "disabled-mux",
+		Protocol:     "trojan",
+		SettingsJSON: `{"servers":[{"address":"127.0.0.1","port":443,"password":"pass"}]}`,
+		Mux:          `{"enabled":false,"concurrency":8}`,
+	}
+
+	cfg, err := compiler.Compile(nil, []domain.Outbound{outbound}, nil, nil, nil)
+	if err != nil {
+		t.Fatalf("Compile failed: %v", err)
+	}
+	if len(cfg.Outbounds) == 0 {
+		t.Fatalf("Expected at least 1 outbound")
+	}
+	if cfg.Outbounds[0].Mux != nil {
+		t.Errorf("Expected Mux to be nil when enabled:false, got %s", string(cfg.Outbounds[0].Mux))
+	}
+}
+
+
 

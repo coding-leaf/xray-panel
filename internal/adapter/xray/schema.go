@@ -67,9 +67,12 @@ type XrayFallback struct {
 }
 
 type XraySniffingConfig struct {
-	Enabled      bool     `json:"enabled"`
-	DestOverride []string `json:"destOverride,omitempty"` // ["http", "tls", "quic"]
-	RouteOnly    bool     `json:"routeOnly,omitempty"`
+	Enabled         bool     `json:"enabled"`
+	DestOverride    []string `json:"destOverride,omitempty"` // ["http", "tls", "quic"]
+	MetadataOnly    bool     `json:"metadataOnly,omitempty"`
+	RouteOnly       bool     `json:"routeOnly,omitempty"`
+	DomainsExcluded []string `json:"domainsExcluded,omitempty"`
+	IPsExcluded     []string `json:"ipsExcluded,omitempty"`
 }
 
 type XrayStreamSettings struct {
@@ -77,6 +80,9 @@ type XrayStreamSettings struct {
 	Security            string                   `json:"security,omitempty"` // reality, tls, none
 	RealitySettings     *XrayRealitySettings     `json:"realitySettings,omitempty"`
 	TLSSettings         *XrayTLSSettings         `json:"tlsSettings,omitempty"`
+	TCPSettings         json.RawMessage          `json:"tcpSettings,omitempty"`
+	RAWSettings         json.RawMessage          `json:"rawSettings,omitempty"`
+	SplitHTTPSettings   json.RawMessage          `json:"splithttpSettings,omitempty"`
 	XHTTPSettings       *XrayXHTTPSettings       `json:"xhttpSettings,omitempty"`
 	WSSettings          *XrayWSSettings          `json:"wsSettings,omitempty"`
 	GRPCSettings        *XrayGRPCSettings        `json:"grpcSettings,omitempty"`
@@ -108,21 +114,26 @@ type XrayKCPHeader struct {
 }
 
 type XrayRealitySettings struct {
-	Show         bool     `json:"show,omitempty"`
-	Dest         string   `json:"dest,omitempty"`
-	Target       string   `json:"target,omitempty"`
-	Xver         int      `json:"xver,omitempty"`
-	ServerNames  []string `json:"serverNames,omitempty"` // 服务端专属 (复数)
-	ServerName   string   `json:"serverName,omitempty"`  // 客户端专属 (单数)
-	PrivateKey   string   `json:"privateKey,omitempty"`  // 服务端专属
-	PublicKey    string   `json:"publicKey,omitempty"`   // 客户端专属
-	ShortIds     []string `json:"shortIds,omitempty"`    // 服务端专属 (复数)
-	ShortId      string   `json:"shortId,omitempty"`     // 客户端专属 (单数)
-	Fingerprint  string   `json:"fingerprint,omitempty"` // 客户端专属
-	SpiderX      string   `json:"spiderX,omitempty"`     // 客户端专属
-	MinClientVer string   `json:"minClientVer,omitempty"`
-	MaxClientVer string   `json:"maxClientVer,omitempty"`
-	MaxTimeDiff  int      `json:"maxTimeDiff,omitempty"`
+	Show                  bool            `json:"show,omitempty"`
+	Dest                  string          `json:"dest,omitempty"`
+	Target                string          `json:"target,omitempty"`
+	Password              string          `json:"password,omitempty"`
+	Mldsa65Seed           string          `json:"mldsa65Seed,omitempty"`
+	Mldsa65Verify         string          `json:"mldsa65Verify,omitempty"`
+	LimitFallbackUpload   json.RawMessage `json:"limitFallbackUpload,omitempty"`
+	LimitFallbackDownload json.RawMessage `json:"limitFallbackDownload,omitempty"`
+	Xver                  int             `json:"xver,omitempty"`
+	ServerNames           []string        `json:"serverNames,omitempty"` // 服务端专属 (复数)
+	ServerName            string          `json:"serverName,omitempty"`  // 客户端专属 (单数)
+	PrivateKey            string          `json:"privateKey,omitempty"`  // 服务端专属
+	PublicKey             string          `json:"publicKey,omitempty"`   // 客户端专属
+	ShortIds              []string        `json:"shortIds,omitempty"`    // 服务端专属 (复数)
+	ShortId               string          `json:"shortId,omitempty"`     // 客户端专属 (单数)
+	Fingerprint           string          `json:"fingerprint,omitempty"` // 客户端专属
+	SpiderX               string          `json:"spiderX,omitempty"`     // 客户端专属
+	MinClientVer          string          `json:"minClientVer,omitempty"`
+	MaxClientVer          string          `json:"maxClientVer,omitempty"`
+	MaxTimeDiff           int             `json:"maxTimeDiff,omitempty"`
 }
 
 type XrayTLSSettings struct {
@@ -154,9 +165,26 @@ type XrayGRPCSettings struct {
 }
 
 type XraySockopt struct {
-	Mark        int    `json:"mark,omitempty"`
-	Tproxy      string `json:"tproxy,omitempty"`
-	TCPFastOpen bool   `json:"tcpFastOpen,omitempty"`
+	Mark                 int    `json:"mark,omitempty"`
+	Tproxy               string `json:"tproxy,omitempty"`
+	TCPFastOpen          bool   `json:"tcpFastOpen,omitempty"`
+	DialerProxy          string `json:"dialerProxy,omitempty"`
+	AcceptProxyProtocol  bool   `json:"acceptProxyProtocol,omitempty"`
+	DomainStrategy       string `json:"domainStrategy,omitempty"`
+	TCPKeepAliveInterval int32  `json:"tcpKeepAliveInterval,omitempty"`
+	TCPKeepAliveIdle     int32  `json:"tcpKeepAliveIdle,omitempty"`
+	TCPUserTimeout       int32  `json:"tcpUserTimeout,omitempty"`
+	TCPCongestion        string `json:"tcpCongestion,omitempty"`
+	Interface            string `json:"interface,omitempty"`
+	TcpMptcp             bool   `json:"tcpMptcp,omitempty"`
+	TcpNoDelay           bool   `json:"tcpNoDelay,omitempty"`
+}
+
+type XrayMuxConfig struct {
+	Enabled         bool   `json:"enabled"`
+	Concurrency     int16  `json:"concurrency,omitempty"`
+	XudpConcurrency int16  `json:"xudpConcurrency,omitempty"`
+	XudpProxyUDP443 string `json:"xudpProxyUDP443,omitempty"`
 }
 
 type XrayInbound struct {
@@ -172,23 +200,30 @@ type XrayInbound struct {
 type XrayOutbound struct {
 	Tag            string              `json:"tag"`
 	Protocol       string              `json:"protocol"`
+	SendThrough    string              `json:"sendThrough,omitempty"`
+	TargetStrategy string              `json:"targetStrategy,omitempty"`
 	Settings       json.RawMessage     `json:"settings,omitempty"`
 	StreamSettings *XrayStreamSettings `json:"streamSettings,omitempty"`
+	Mux            json.RawMessage     `json:"mux,omitempty"`
 }
 
 type XrayRoutingRule struct {
-	Type        string   `json:"type"` // field
-	Tag         string   `json:"tag,omitempty"`
-	InboundTag  []string `json:"inboundTag,omitempty"`
-	OutboundTag string   `json:"outboundTag"`
-	VlessRoute  string   `json:"vlessRoute,omitempty"` // 16-bit 协议级路由
-	User        []string `json:"user,omitempty"`       // 指定匹配的用户 Email 列表
-	Domain      []string `json:"domain,omitempty"`
-	IP          []string `json:"ip,omitempty"`
-	Port        string   `json:"port,omitempty"`
-	Network     string   `json:"network,omitempty"`
-	Protocol    []string `json:"protocol,omitempty"`
-	Attrs       string   `json:"attrs,omitempty"`
+	Type          string   `json:"type"` // field
+	Tag           string   `json:"tag,omitempty"`
+	InboundTag    []string `json:"inboundTag,omitempty"`
+	OutboundTag   string   `json:"outboundTag,omitempty"`
+	BalancerTag   string   `json:"balancerTag,omitempty"`
+	DomainMatcher string   `json:"domainMatcher,omitempty"`
+	VlessRoute    string   `json:"vlessRoute,omitempty"` // 16-bit 协议级路由
+	User          []string `json:"user,omitempty"`       // 指定匹配的用户 Email 列表
+	Domain        []string `json:"domain,omitempty"`
+	IP            []string `json:"ip,omitempty"`
+	Port          string   `json:"port,omitempty"`
+	Network       string   `json:"network,omitempty"`
+	Protocol      []string `json:"protocol,omitempty"`
+	Attrs         string   `json:"attrs,omitempty"`
+	Source        []string `json:"source,omitempty"`
+	SourcePort    string   `json:"sourcePort,omitempty"`
 }
 
 type XrayRoutingConfig struct {

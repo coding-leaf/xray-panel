@@ -1,0 +1,3 @@
+{"file": ".trellis/spec/frontend/index.md", "reason": "Frontend Vue 3 + TypeScript conventions and build gate requirements"}
+{"file": ".trellis/spec/backend/index.md", "reason": "Backend layering architecture and compiler test conventions"}
+{"file": ".trellis/tasks/archive/2026-11/11-03-feat-outbound-mux-and-xray-config-alignment/research/xray-official-config-reference.md", "reason": "Official Xray-core targetStrategy and sockopt.domainStrategy valid enum values"}

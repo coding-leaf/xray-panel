@@ -1,0 +1,2 @@
+{"file": ".trellis/spec/frontend/quality-guidelines.md", "reason": "Frontend build and type check verification standards"}
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "Backend KISS principle and test verification standards"}

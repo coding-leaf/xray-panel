@@ -170,7 +170,7 @@ export function populateOutboundForm(ob: OutboundItem): OutboundFormState {
   form.tag = ob.tag || ''
   form.protocol = ob.protocol || 'vless'
   form.sendThrough = ob.sendThrough || ''
-  form.targetStrategy = ob.targetStrategy || ''
+  form.targetStrategy = ob.targetStrategy === 'AsIs' ? '' : (ob.targetStrategy || '')
 
   if (ob.mux) {
     try {
@@ -208,6 +208,9 @@ export function populateOutboundForm(ob: OutboundItem): OutboundFormState {
   if (str.sockopt && typeof str.sockopt === 'object') {
     const { dialerProxy, ...restSockopt } = str.sockopt
     form.dialerProxy = dialerProxy || ''
+    if (ob.protocol === 'freedom' && 'domainStrategy' in restSockopt) {
+      delete restSockopt.domainStrategy
+    }
     form.rawSockopt = Object.keys(restSockopt).length > 0 ? restSockopt : undefined
   } else {
     form.dialerProxy = ''
@@ -216,7 +219,16 @@ export function populateOutboundForm(ob: OutboundItem): OutboundFormState {
 
   form.streamNetwork = str.network || 'tcp'
   form.streamSecurity = str.security || 'none'
-  form.freedomDomainStrategy = s.domainStrategy || 'UseIPv4'
+  if (ob.protocol === 'freedom') {
+    form.freedomDomainStrategy =
+      s.domainStrategy ||
+      str.sockopt?.domainStrategy ||
+      (ob.targetStrategy && ob.targetStrategy !== 'AsIs' ? ob.targetStrategy : '') ||
+      'UseIPv4'
+    form.targetStrategy = ''
+  } else {
+    form.freedomDomainStrategy = s.domainStrategy || 'UseIPv4'
+  }
   form.blackholeResponse = s.response?.type || 'none'
 
   if (['freedom', 'blackhole', 'wireguard', 'socks', 'http', 'dns'].includes(ob.protocol)) {
@@ -518,11 +530,16 @@ export function sanitizeOutboundPayload(form: OutboundFormState): OutboundPayloa
     })
   }
 
+  const normalizedTargetStrategy =
+    form.protocol === 'freedom' || form.targetStrategy?.trim() === 'AsIs'
+      ? ''
+      : form.targetStrategy?.trim() || ''
+
   return {
     tag: form.tag.trim(),
     protocol: form.protocol,
     sendThrough: form.sendThrough?.trim() || '',
-    targetStrategy: form.targetStrategy?.trim() || '',
+    targetStrategy: normalizedTargetStrategy,
     settingsJson: buildSettingsJSON(form),
     streamSettings: buildStreamSettingsJSON(form),
     mux: muxStr,

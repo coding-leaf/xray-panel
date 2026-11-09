@@ -42,9 +42,9 @@
             v-model="dnsConfig.queryStrategy"
             class="w-full bg-neutral-950 border border-border rounded-md px-2.5 py-1.5 text-foreground font-mono focus:outline-none focus:ring-1 focus:ring-ring"
           >
-            <option value="UseIP">UseIP (双栈根据网络自动选择)</option>
+            <option value="UseIP">UseIP (双栈同时查询 A/AAAA - 双栈优先回退必选)</option>
             <option value="UseIPv4">UseIPv4 (仅查询 IPv4 A 记录 - 推荐)</option>
-            <option value="UseIPv6">UseIPv6 (优先/仅查询 IPv6 AAAA 记录)</option>
+            <option value="UseIPv6">UseIPv6 (仅查询 IPv6 AAAA 记录)</option>
           </select>
         </div>
 

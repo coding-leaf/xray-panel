@@ -1932,5 +1932,53 @@ func TestXrayCompiler_MuxExplicitlyDisabled(t *testing.T) {
 	}
 }
 
+func TestXrayCompiler_PreferIPv4v6Strategies(t *testing.T) {
+	compiler := xray.NewXrayCompiler()
+	outbounds := []domain.Outbound{
+		{
+			Tag:          "direct-prefer-v4",
+			Protocol:     "freedom",
+			SettingsJSON: `{"domainStrategy":"UseIPv4v6"}`,
+		},
+		{
+			Tag:          "direct-prefer-v6",
+			Protocol:     "freedom",
+			SettingsJSON: `{"domainStrategy":"UseIPv6v4"}`,
+		},
+		{
+			Tag:            "proxy-prefer-v4",
+			Protocol:       "trojan",
+			TargetStrategy: "UseIPv4v6",
+			SettingsJSON:   `{"servers":[{"address":"127.0.0.1","port":443,"password":"pass"}]}`,
+		},
+		{
+			Tag:            "proxy-force-v6v4",
+			Protocol:       "trojan",
+			TargetStrategy: "ForceIPv6v4",
+			SettingsJSON:   `{"servers":[{"address":"127.0.0.1","port":443,"password":"pass"}]}`,
+		},
+	}
+
+	dnsCfg := &domain.DNSConfig{
+		QueryStrategy: "UseIP",
+		Servers:       []interface{}{"1.1.1.1", "8.8.8.8"},
+	}
+
+	jsonBytes, err := compiler.CompileToJSON(nil, outbounds, nil, dnsCfg, nil)
+	if err != nil {
+		t.Fatalf("CompileToJSON failed: %v", err)
+	}
+
+	jsonStr := string(jsonBytes)
+	for _, expected := range []string{`"domainStrategy": "UseIPv4v6"`, `"domainStrategy": "UseIPv6v4"`, `"targetStrategy": "UseIPv4v6"`, `"targetStrategy": "ForceIPv6v4"`} {
+		if !strings.Contains(jsonStr, expected) {
+			t.Errorf("Expected compiled JSON to contain %s, got:\n%s", expected, jsonStr)
+		}
+	}
+
+	validateWithXrayCore(t, jsonBytes)
+}
+
+
 
 

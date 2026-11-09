@@ -42,14 +42,24 @@
 
       <!-- Freedom 专属配置 -->
       <SectionCard v-if="form.protocol === 'freedom'" title="Freedom 直连策略">
-        <FormField label="域名解析策略 (domainStrategy)" hint="控制客户端域名在本地的解析行为">
+        <FormField
+          label="域名解析策略 (domainStrategy)"
+          :hint="['UseIPv4v6', 'UseIPv6v4', 'ForceIPv4v6', 'ForceIPv6v4'].includes(form.freedomDomainStrategy) ? '已选双栈优先回退策略：请确保 DNS 模块查询策略 (queryStrategy) 开启 UseIP 双栈查询，以同时获取 A 与 AAAA 记录' : '控制客户端域名在本地的解析与连接栈行为'"
+        >
           <select
             v-model="form.freedomDomainStrategy"
             class="w-full bg-neutral-950 border border-border rounded-md px-3 py-2 text-foreground focus:outline-none focus:ring-1 focus:ring-ring font-mono"
           >
-            <option value="UseIP">UseIP</option>
-            <option value="UseIPv4">UseIPv4 (强制IPv4 - 推荐)</option>
-            <option value="UseIPv6">UseIPv6 (强制IPv6)</option>
+            <option value="UseIP">UseIP (双栈自动解析)</option>
+            <option value="UseIPv4">UseIPv4 (仅 IPv4 - 推荐)</option>
+            <option value="UseIPv6">UseIPv6 (仅 IPv6)</option>
+            <option value="UseIPv4v6">UseIPv4v6 (PreferIPv4 - 优先IPv4回退IPv6)</option>
+            <option value="UseIPv6v4">UseIPv6v4 (PreferIPv6 - 优先IPv6回退IPv4)</option>
+            <option value="ForceIP">ForceIP (强制内置DNS双栈解析)</option>
+            <option value="ForceIPv4">ForceIPv4 (强制仅 IPv4)</option>
+            <option value="ForceIPv6">ForceIPv6 (强制仅 IPv6)</option>
+            <option value="ForceIPv4v6">ForceIPv4v6 (强制优先IPv4回退IPv6)</option>
+            <option value="ForceIPv6v4">ForceIPv6v4 (强制优先IPv6回退IPv4)</option>
             <option value="AsIs">AsIs (保持原样)</option>
           </select>
         </FormField>
@@ -530,21 +540,26 @@
           </FormField>
         </div>
 
-        <div class="pt-2">
-          <FormField label="目标域名解析策略 (targetStrategy)" hint="控制此出站节点连接目标域名时的 DNS 解析行为">
+        <div v-if="form.protocol !== 'freedom'" class="pt-2">
+          <FormField
+            label="目标域名解析策略 (targetStrategy)"
+            :hint="['UseIPv4v6', 'UseIPv6v4', 'ForceIPv4v6', 'ForceIPv6v4'].includes(form.targetStrategy) ? '已选双栈优先回退策略：请确保 DNS 模块查询策略 (queryStrategy) 开启 UseIP 双栈查询，以同时获取 A 与 AAAA 记录' : '控制此出站节点连接目标域名时的 DNS 解析行为'"
+          >
             <select
               v-model="form.targetStrategy"
               class="w-full bg-neutral-950 border border-border rounded-md px-3 py-2 text-foreground focus:outline-none focus:ring-1 focus:ring-ring font-mono"
             >
               <option value="">默认 (AsIs 保持原样)</option>
-              <option value="UseIP">UseIP</option>
-              <option value="UseIPv4">UseIPv4 (强制优先 IPv4)</option>
-              <option value="UseIPv6">UseIPv6 (强制优先 IPv6)</option>
-              <option value="UseIPv4v6">UseIPv4v6</option>
-              <option value="UseIPv6v4">UseIPv6v4</option>
-              <option value="ForceIP">ForceIP</option>
-              <option value="ForceIPv4">ForceIPv4</option>
-              <option value="ForceIPv6">ForceIPv6</option>
+              <option value="UseIP">UseIP (双栈自动解析)</option>
+              <option value="UseIPv4">UseIPv4 (仅 IPv4)</option>
+              <option value="UseIPv6">UseIPv6 (仅 IPv6)</option>
+              <option value="UseIPv4v6">UseIPv4v6 (PreferIPv4 - 优先IPv4回退IPv6)</option>
+              <option value="UseIPv6v4">UseIPv6v4 (PreferIPv6 - 优先IPv6回退IPv4)</option>
+              <option value="ForceIP">ForceIP (强制内置DNS双栈解析)</option>
+              <option value="ForceIPv4">ForceIPv4 (强制仅 IPv4)</option>
+              <option value="ForceIPv6">ForceIPv6 (强制仅 IPv6)</option>
+              <option value="ForceIPv4v6">ForceIPv4v6 (强制优先IPv4回退IPv6)</option>
+              <option value="ForceIPv6v4">ForceIPv6v4 (强制优先IPv6回退IPv4)</option>
             </select>
           </FormField>
         </div>
@@ -658,6 +673,8 @@ const onOutboundProtocolChange = () => {
   if (form.value.protocol === 'blackhole') {
     form.value.dialerProxy = ''
     form.value.sendThrough = ''
+    form.value.targetStrategy = ''
+  } else if (form.value.protocol === 'freedom') {
     form.value.targetStrategy = ''
   }
 

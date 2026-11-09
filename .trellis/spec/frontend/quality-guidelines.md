@@ -77,7 +77,8 @@ cd web && mise x -- npm run build       # vite build
 - **废弃字段彻底绝迹**：
   - TLS 证书与 streamSettings 表单中严禁出现 `allowInsecure` 选项与对应模型字段；
 - **文案语义真实性**：
-  - 遇到面板未实现/未开放组合（如 Socks/HTTP streamSettings、VMess+REALITY），文案必须注明为“面板当前管理策略暂未开放/暂仅支持原生监听”，禁止表述为“Xray 不支持”。
+  - 遇到面板未实现/未开放组合（如 Socks/HTTP streamSettings、VMess+REALITY），文案必须注明为“面板当前管理策略暂未开放/暂仅支持原生监听”，禁止表述为“Xray 不支持”；
+  - 出站域名解析策略（`freedom.settings.domainStrategy` / `outbound.targetStrategy`）必须准确区分单栈与双栈优先回退：`UseIPv4` / `UseIPv6` 为仅单栈（无回退），双栈优先回退（`PreferIPv4` / `PreferIPv6`）在 Xray-core 中的唯一合法枚举值为 `UseIPv4v6` / `UseIPv6v4`（直接写入 `"PreferIPv4"` 会触发 Xray Exit Code 23）；同时 `protocol === 'freedom'` 时必须隐藏底部 `targetStrategy` 并将 `"AsIs"` 归一化为 `""`，防止双选择器冲突与回显空白。
 - **不引入明文敏感信息**：禁止在源码、配置或 demo 数据中写入真实公网 IP、生产域名、
   Token 或私钥；mock 数据使用模拟值。
 

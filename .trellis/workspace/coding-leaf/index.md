@@ -8,8 +8,8 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 30
-- **Last Active**: 2026-11-03
+- **Total Sessions**: 31
+- **Last Active**: 2026-11-09
 <!-- @@@/auto:current-status -->
 
 ---
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~700 | Active |
+| `journal-1.md` | ~723 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 31 | 2026-11-09 | 补齐出站UseIPv4v6/UseIPv6v4双栈优先策略与语义闭环 | `a3663ec`, `2b55a54` | `master` |
 | 30 | 2026-11-03 | Outbound Mux 支持与 Xray 配置参数完整性对齐 | `d66a0f6`, `ea56676`, `ae19c1b` | `master` |
 | 29 | 2026-11-02 | 重构线路与拓扑中心为三栏动态脉冲连线可视化拓扑画布 | `f671448` | `master` |
 | 28 | 2026-11-02 | 修复客户端uTLS指纹分发、Socks热拔插报错、CSPRNG随机Token与多协议入站参数 | `74f6dda` | `master` |

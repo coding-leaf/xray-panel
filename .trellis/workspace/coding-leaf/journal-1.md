@@ -698,3 +698,26 @@
 ### Status
 
 [OK] **Completed**
+
+
+## Session 31: 补齐出站UseIPv4v6/UseIPv6v4双栈优先策略与语义闭环
+<!-- trellis-session: v=2 fp=9465d1dec5f819d6 -->
+
+**Date**: 2026-11-09
+**Task**: 补齐出站UseIPv4v6/UseIPv6v4双栈优先策略与语义闭环
+**Branch**: `master`
+
+### Summary
+
+在Freedom直连与通用出站targetStrategy中补齐UseIPv4v6(PreferIPv4)、UseIPv6v4(PreferIPv6)及ForceIP*全系列枚举，修正UseIPv4/6与DNS查询策略文案，消除Freedom双选择器冲突与AsIs回显盲区，并通过Herdr多智能体辩论与xray.exe实测验证。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `a3663ec` | feat(web): 补齐出站UseIPv4v6/UseIPv6v4双栈优先策略并修正解析语义与回显闭环 |
+| `2b55a54` | docs(spec): 沉淀出站域名解析策略UseIPv4v6双栈优先语义与表单防冲突规范 |
+
+### Status
+
+[OK] **Completed**

@@ -867,7 +867,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, computed } from 'vue'
+import { ref, onMounted, onUnmounted, computed } from 'vue'
 import { Plus, Check, Edit3, Trash2, Database, RotateCw, GripVertical, ArrowUp, ArrowDown } from 'lucide-vue-next'
 import Button from '../components/ui/Button.vue'
 import Badge from '../components/ui/Badge.vue'
@@ -950,9 +950,12 @@ const geoProgress = ref<any>({
   message: '',
   speedBps: 0,
 })
-let progressTimer: any = null
+let progressTimer: ReturnType<typeof setInterval> | null = null
+let progressInFlight = false
 
 const pollGeoProgress = async () => {
+  if (progressInFlight) return
+  progressInFlight = true
   try {
     const res: any = await api.get('/geodata/progress')
     if (res) {
@@ -976,6 +979,8 @@ const pollGeoProgress = async () => {
     }
   } catch (e) {
     console.error('poll progress failed', e)
+  } finally {
+    progressInFlight = false
   }
 }
 
@@ -1429,5 +1434,12 @@ const getOutboundBadgeVariant = (tag: string): 'default' | 'secondary' | 'outlin
 onMounted(() => {
   fetchAllDependencies()
   fetchGeoStatus()
+})
+
+onUnmounted(() => {
+  if (progressTimer) {
+    clearInterval(progressTimer)
+    progressTimer = null
+  }
 })
 </script>

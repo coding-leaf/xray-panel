@@ -55,4 +55,5 @@ const api = {
 }
 
 export * from './reality'
+export * from './users'
 export default api

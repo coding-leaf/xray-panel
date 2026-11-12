@@ -1,5 +1,6 @@
 import { ref, computed } from 'vue'
 import api from '../../../api'
+import { batchDeleteUsers as batchDeleteUsersApi } from '../../../api/users'
 import { toast } from '../../../utils/toast'
 import type { UserItem } from '../types'
 import { UserSubscriptionService } from '../services/subscription'
@@ -132,8 +133,11 @@ export function useUserList() {
     }
   }
 
+  let speedsInFlight = false
+
   const fetchSpeeds = async () => {
-    if (document.hidden) return
+    if (document.hidden || speedsInFlight) return
+    speedsInFlight = true
     try {
       const res: any = await api.get('/users/speeds')
       if (res && users.value.length) {
@@ -152,6 +156,8 @@ export function useUserList() {
       }
     } catch (_err) {
       // 保证轮询稳定性
+    } finally {
+      speedsInFlight = false
     }
   }
 
@@ -221,9 +227,7 @@ export function useUserList() {
     if (!selectedUserIds.value.length) return
     if (!confirm(`确定批量删除选中的 ${selectedUserIds.value.length} 位用户吗？此操作不可逆！`)) return
     try {
-      for (const id of selectedUserIds.value) {
-        await api.delete(`/users/${id}`)
-      }
+      await batchDeleteUsersApi(selectedUserIds.value)
       toast.success('已成功批量删除选中用户！')
       selectedUserIds.value = []
       await fetchAll()

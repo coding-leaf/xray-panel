@@ -227,7 +227,7 @@
     <!-- 1. Access Logs Structured View -->
     <div v-if="logType === 'access' && viewMode === 'table'" class="space-y-3">
       <!-- Desktop Access Table -->
-      <div class="rounded-lg border border-border overflow-hidden bg-neutral-950 hidden md:block">
+      <div v-if="isDesktop" class="rounded-lg border border-border overflow-hidden bg-neutral-950">
         <div class="px-4 py-2.5 bg-neutral-900 border-b border-border flex items-center justify-between text-xs">
           <div class="flex items-center gap-2 font-mono text-foreground font-semibold">
             <span class="w-2 h-2 rounded-full bg-emerald-400"></span>
@@ -263,8 +263,8 @@
             </thead>
             <tbody class="divide-y divide-gray-800/50 font-mono text-xs">
               <tr
-                v-for="(row, idx) in filteredAccessLogs"
-                :key="idx"
+                v-for="row in filteredAccessLogs"
+                :key="row._rowKey"
                 class="hover:bg-white/[0.03] transition-colors"
               >
                 <td class="py-3 px-4 text-gray-400 whitespace-nowrap">{{ row.time }}</td>
@@ -346,10 +346,10 @@
       </div>
 
       <!-- Mobile Access Log Stream -->
-      <div class="space-y-2 md:hidden">
+      <div v-else class="space-y-2">
         <div
-          v-for="(row, idx) in filteredAccessLogs"
-          :key="idx"
+          v-for="row in filteredAccessLogs"
+          :key="row._rowKey"
           class="p-3 rounded-lg bg-card border border-border space-y-2 text-xs"
         >
           <div class="flex items-center justify-between text-[11px] font-mono">
@@ -410,7 +410,7 @@
     <!-- 2. Error / Diagnostic Structured View -->
     <div v-else-if="logType === 'error' && viewMode === 'table'" class="space-y-3">
       <!-- Desktop Error Table -->
-      <div class="rounded-lg border border-border overflow-hidden bg-neutral-950 hidden md:block">
+      <div v-if="isDesktop" class="rounded-lg border border-border overflow-hidden bg-neutral-950">
         <div class="px-4 py-2.5 bg-neutral-900 border-b border-border flex items-center justify-between text-xs">
           <div class="flex items-center gap-2 font-mono text-foreground font-semibold">
             <span class="w-2 h-2 rounded-full bg-rose-400"></span>
@@ -433,8 +433,8 @@
             </thead>
             <tbody class="divide-y divide-gray-800/50 font-mono text-xs">
               <tr
-                v-for="(row, idx) in filteredErrorLogs"
-                :key="idx"
+                v-for="row in filteredErrorLogs"
+                :key="row._rowKey"
                 class="hover:bg-white/[0.03] transition-colors"
               >
                 <!-- Time -->
@@ -479,10 +479,10 @@
       </div>
 
       <!-- Mobile Error Log Stream -->
-      <div class="space-y-2 md:hidden">
+      <div v-else class="space-y-2">
         <div
-          v-for="(row, idx) in filteredErrorLogs"
-          :key="idx"
+          v-for="row in filteredErrorLogs"
+          :key="row._rowKey"
           class="p-3 rounded-lg bg-card border border-border space-y-2 text-xs"
         >
           <div class="flex items-center justify-between text-[11px] font-mono">
@@ -515,7 +515,7 @@
     <!-- 3. Audit Logs Structured View -->
     <div v-else-if="logType === 'audit'" class="space-y-3">
       <!-- Desktop Audit Table -->
-      <div class="rounded-lg border border-border overflow-hidden bg-neutral-950 hidden md:block">
+      <div v-if="isDesktop" class="rounded-lg border border-border overflow-hidden bg-neutral-950">
         <div class="px-4 py-2.5 bg-neutral-900 border-b border-border flex items-center justify-between text-xs">
           <div class="flex items-center gap-2 font-mono text-foreground font-semibold">
             <span class="w-2 h-2 rounded-full bg-purple-400"></span>
@@ -637,7 +637,7 @@
       </div>
 
       <!-- Mobile Audit Log Stream -->
-      <div class="space-y-2 md:hidden">
+      <div v-else class="space-y-2">
         <div
           v-for="row in displayedAuditLogs"
           :key="row.id"
@@ -733,15 +733,15 @@
         class="h-[600px] overflow-y-auto p-4 sm:p-5 font-['JetBrains_Mono',monospace] text-[13.5px] leading-[1.7] select-text space-y-0.5 bg-neutral-950 text-foreground"
       >
         <div
-          v-for="(line, idx) in filteredRawLines"
-          :key="idx"
+          v-for="(item, idx) in filteredRawLines"
+          :key="item._rowKey"
           class="py-0.5 px-2 rounded hover:bg-neutral-900 transition-colors flex items-start gap-3"
-          :class="highlightLine(line)"
+          :class="highlightLine(item.text)"
         >
           <span class="text-muted-foreground select-none shrink-0 w-10 text-right font-mono text-xs pt-0.5">
             {{ Number(idx) + 1 }}
           </span>
-          <span class="break-all whitespace-pre-wrap flex-1">{{ line }}</span>
+          <span class="break-all whitespace-pre-wrap flex-1">{{ item.text }}</span>
         </div>
 
         <div v-if="!filteredRawLines.length" class="text-center text-muted-foreground py-24 font-sans text-xs">
@@ -940,7 +940,20 @@ const auditEntries = shallowRef<any[]>([])
 const knownUsers = ref<any[]>([])
 const knownInbounds = ref<any[]>([])
 const knownOutbounds = ref<any[]>([])
-let timer: any = null
+let timer: ReturnType<typeof setInterval> | null = null
+let pollInFlight = false
+
+const DESKTOP_MEDIA_QUERY = '(min-width: 768px)'
+const isDesktop = ref(
+  typeof window !== 'undefined' && typeof window.matchMedia === 'function'
+    ? window.matchMedia(DESKTOP_MEDIA_QUERY).matches
+    : true
+)
+let mediaQueryList: MediaQueryList | null = null
+
+const handleMediaChange = (e: MediaQueryListEvent) => {
+  isDesktop.value = e.matches
+}
 
 const auditActionOptions = [
   { label: '全部操作', value: '' },
@@ -1152,10 +1165,21 @@ const changeAuditPage = (page: number) => {
   fetchLogs()
 }
 
+const pollLogs = async () => {
+  if (pollInFlight || loading.value) return
+  pollInFlight = true
+  try {
+    await fetchLogs()
+  } finally {
+    pollInFlight = false
+  }
+}
+
 const toggleAutoRefresh = () => {
   autoRefresh.value = !autoRefresh.value
   if (autoRefresh.value) {
-    timer = setInterval(fetchLogs, 5000)
+    if (timer) clearInterval(timer)
+    timer = setInterval(pollLogs, 5000)
   } else if (timer) {
     clearInterval(timer)
     timer = null
@@ -1229,6 +1253,46 @@ const setFilterOutbound = (tag: string) => {
   fetchLogs()
 }
 
+const withStableKeys = <T extends Record<string, any>>(
+  items: T[],
+  getBaseKey: (item: T) => string
+): (T & { _rowKey: string })[] => {
+  const counts = new Map<string, number>()
+  return items.map((item) => {
+    const base = getBaseKey(item)
+    const seq = counts.get(base) || 0
+    counts.set(base, seq + 1)
+    return { ...item, _rowKey: `${base}#${seq}` }
+  })
+}
+
+const keyedAccessEntries = computed(() =>
+  withStableKeys(
+    rawAccessEntries.value,
+    (item) =>
+      item.raw ||
+      `${item.time || ''}|${item.from_ip || ''}|${item.target || ''}|${item.inbound_tag || ''}|${item.outbound_tag || item.route || ''}|${item.email || ''}`
+  )
+)
+
+const keyedErrorEntries = computed(() =>
+  withStableKeys(
+    rawErrorEntries.value,
+    (item) =>
+      item.raw || `${item.time || ''}|${item.level || ''}|${item.module || ''}|${item.message || ''}`
+  )
+)
+
+const keyedRawLines = computed(() => {
+  if (!rawLines.value) return []
+  const counts = new Map<string, number>()
+  return rawLines.value.map((text: string) => {
+    const seq = counts.get(text) || 0
+    counts.set(text, seq + 1)
+    return { text, _rowKey: `${text}#${seq}` }
+  })
+})
+
 // 1. 结构化 Access 访问日志
 const filteredAccessLogs = computed(() => {
   if (logType.value !== 'access') return []
@@ -1238,7 +1302,7 @@ const filteredAccessLogs = computed(() => {
   const targetInbound = selectedInbound.value
   const targetOutbound = selectedOutbound.value
 
-  const list = rawAccessEntries.value.filter((item) => {
+  const list = keyedAccessEntries.value.filter((item) => {
     if (filterEmail && (!item.email || !item.email.toLowerCase().includes(filterEmail))) {
       return false
     }
@@ -1275,7 +1339,7 @@ const filteredErrorLogs = computed(() => {
   const kw = searchKeyword.value.toLowerCase()
   const filterLvl = selectedLevel.value.toUpperCase()
 
-  const list = rawErrorEntries.value.filter((item) => {
+  const list = keyedErrorEntries.value.filter((item) => {
     if (filterLvl && item.level !== filterLvl) {
       return false
     }
@@ -1301,13 +1365,13 @@ const displayedAuditLogs = computed(() => {
 
 // 4. 原始终端高亮筛选
 const filteredRawLines = computed(() => {
-  if (!rawLines.value) return []
+  if (!keyedRawLines.value.length) return []
   const kw = searchKeyword.value.toLowerCase()
   const filterEmail = selectedUserEmail.value.toLowerCase()
   const targetInbound = selectedInbound.value
   const filterLvl = selectedLevel.value.toLowerCase()
 
-  const list = rawLines.value.filter((line: string) => {
+  const list = keyedRawLines.value.filter(({ text: line }) => {
     const l = line.toLowerCase()
     if (kw && !l.includes(kw)) return false
     if (logType.value === 'access') {
@@ -1396,15 +1460,24 @@ const handleVisibilityChange = () => {
     }
   } else {
     if (autoRefresh.value) {
-      fetchLogs()
+      pollLogs()
       if (!timer) {
-        timer = setInterval(fetchLogs, 5000)
+        timer = setInterval(pollLogs, 5000)
       }
     }
   }
 }
 
 onMounted(() => {
+  if (typeof window !== 'undefined' && typeof window.matchMedia === 'function') {
+    mediaQueryList = window.matchMedia(DESKTOP_MEDIA_QUERY)
+    isDesktop.value = mediaQueryList.matches
+    if (typeof mediaQueryList.addEventListener === 'function') {
+      mediaQueryList.addEventListener('change', handleMediaChange)
+    } else if (typeof (mediaQueryList as any).addListener === 'function') {
+      ;(mediaQueryList as any).addListener(handleMediaChange)
+    }
+  }
   fetchUsers()
   fetchInbounds()
   fetchOutbounds()
@@ -1416,6 +1489,14 @@ onUnmounted(() => {
   if (timer) {
     clearInterval(timer)
     timer = null
+  }
+  if (mediaQueryList) {
+    if (typeof mediaQueryList.removeEventListener === 'function') {
+      mediaQueryList.removeEventListener('change', handleMediaChange)
+    } else if (typeof (mediaQueryList as any).removeListener === 'function') {
+      ;(mediaQueryList as any).removeListener(handleMediaChange)
+    }
+    mediaQueryList = null
   }
   document.removeEventListener('visibilitychange', handleVisibilityChange)
 })

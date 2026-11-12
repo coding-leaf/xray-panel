@@ -40,7 +40,7 @@ export default defineConfig({
             if (id.includes('axios')) {
               return 'vendor-utils'
             }
-            if (id.includes('vue') || id.includes('pinia')) {
+            if (id.includes('vue')) {
               return 'vendor-vue'
             }
             return 'vendor-libs'

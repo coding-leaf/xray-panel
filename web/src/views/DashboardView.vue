@@ -303,7 +303,8 @@ const dashboard = ref<any>(null)
 const refreshing = ref(false)
 const restarting = ref(false)
 const realitySummary = ref<RealitySummaryStatus | null>(null)
-let timer: any = null
+let timer: ReturnType<typeof setInterval> | null = null
+let dashboardPollInFlight = false
 
 const realityAlertCount = computed(() => {
   if (!realitySummary.value) return 0
@@ -325,11 +326,21 @@ const fetchData = async () => {
   refreshing.value = true
   try {
     dashboard.value = await api.get('/dashboard')
-    fetchRealityAlerts()
+    await fetchRealityAlerts()
   } catch (err) {
     console.error(err)
   } finally {
     refreshing.value = false
+  }
+}
+
+const pollDashboard = async () => {
+  if (dashboardPollInFlight || refreshing.value) return
+  dashboardPollInFlight = true
+  try {
+    await fetchData()
+  } finally {
+    dashboardPollInFlight = false
   }
 }
 
@@ -366,21 +377,24 @@ const handleVisibilityChange = () => {
       timer = null
     }
   } else {
-    fetchData()
+    pollDashboard()
     if (!timer) {
-      timer = setInterval(fetchData, 4000)
+      timer = setInterval(pollDashboard, 4000)
     }
   }
 }
 
 onMounted(() => {
-  fetchData()
-  timer = setInterval(fetchData, 4000)
+  pollDashboard()
+  timer = setInterval(pollDashboard, 4000)
   document.addEventListener('visibilitychange', handleVisibilityChange)
 })
 
 onUnmounted(() => {
-  if (timer) clearInterval(timer)
+  if (timer) {
+    clearInterval(timer)
+    timer = null
+  }
   document.removeEventListener('visibilitychange', handleVisibilityChange)
 })
 </script>

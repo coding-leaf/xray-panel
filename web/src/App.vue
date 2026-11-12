@@ -417,7 +417,8 @@ const coreStatus = ref<{
   version: '',
   panelVersion: '',
 })
-let statusTimer: any = null
+let statusTimer: ReturnType<typeof setInterval> | null = null
+let statusInFlight = false
 
 const fetchCoreStatus = async () => {
   if (isBlankLayout.value) return
@@ -435,9 +436,19 @@ const fetchCoreStatus = async () => {
   }
 }
 
+const pollCoreStatus = async () => {
+  if (isBlankLayout.value || statusInFlight) return
+  statusInFlight = true
+  try {
+    await fetchCoreStatus()
+  } finally {
+    statusInFlight = false
+  }
+}
+
 const triggerGlobalRefresh = () => {
   refreshing.value = true
-  fetchCoreStatus()
+  pollCoreStatus()
   setTimeout(() => {
     refreshing.value = false
     toast.info('面板数据已同步')
@@ -464,21 +475,24 @@ const handleVisibilityChange = () => {
       statusTimer = null
     }
   } else {
-    fetchCoreStatus()
+    pollCoreStatus()
     if (!statusTimer) {
-      statusTimer = setInterval(fetchCoreStatus, 6000)
+      statusTimer = setInterval(pollCoreStatus, 6000)
     }
   }
 }
 
 onMounted(() => {
-  fetchCoreStatus()
-  statusTimer = setInterval(fetchCoreStatus, 6000)
+  pollCoreStatus()
+  statusTimer = setInterval(pollCoreStatus, 6000)
   document.addEventListener('visibilitychange', handleVisibilityChange)
 })
 
 onUnmounted(() => {
-  if (statusTimer) clearInterval(statusTimer)
+  if (statusTimer) {
+    clearInterval(statusTimer)
+    statusTimer = null
+  }
   document.removeEventListener('visibilitychange', handleVisibilityChange)
 })
 

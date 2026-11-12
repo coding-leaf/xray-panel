@@ -1,0 +1,30 @@
+{
+  "trellis-agy": {
+    "SessionStart": [
+      {
+        "type": "command",
+        "command": "python -X utf8 hooks/trellis_agy_hook.py session-start",
+        "timeout": 15
+      }
+    ],
+    "PreInvocation": [
+      {
+        "type": "command",
+        "command": "python -X utf8 hooks/trellis_agy_hook.py pre-invocation",
+        "timeout": 10
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": ".*(swarm|subagent|command).*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python -X utf8 hooks/trellis_agy_hook.py pre-tool-use",
+            "timeout": 15
+          }
+        ]
+      }
+    ]
+  }
+}

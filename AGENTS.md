@@ -77,7 +77,7 @@ cd web && mise x -- npm run build   # 前端 Vite 生产构建与静态类型验
 ## 5. Trellis 协同规范 (Workflow & Subagents)
 
 - **新功能与复杂重构**：按 Trellis 三阶段流转：
-  - Phase 1 (Plan): 激活 `trellis-brainstorm` / `trellis-before-dev`，讨论需求并建立 task 工件 (`prd.md`, `design.md`)；
-  - Phase 2 (Execute): 委派 `trellis-implement` 执行具体代码编写与伴随式测试；
-  - Phase 3 (Finish): 激活 `trellis-check` 执行最终全量门禁与 spec 对照，运行 `/trellis:finish-work` 进行归档与日志持久化。
+  - Phase 1 (Plan): 激活 `trellis-brainstorm` / `trellis-before-dev`，讨论需求并建立 task 工件 (`prd.md`, `design.md`, `implement.md`)；多里程碑任务首批仅细化 `M1` 全套工件（`M2..Mn` 先留轻量 stub，避免主会话长时间静默）。任何阶段派发 Swarm / 子代理（含只读调研/审计代理）前，**必须显式请示用户确认执行阵型与子代理模型**（除非用户当轮已明确指定；严禁静默继承高配主模型或通过环境变量/Hook 暗改）；
+  - Phase 2 (Execute): 在 Claude/Codex 下委派 `trellis-implement`；在 Antigravity 下按用户授权显式传入 `model`，走 **Swarm (`Worker + Verifier`，钩子自动注入绝对路径规范；单批次用 `git merge --squash` 归拢，未提交多里程碑串行批次用 `refs/swarm-opt/*` + `git show -p --format= <commit> | git apply` 增量归拢)** 或轻量 **Inline** 直改（Swarm 子代理严禁修改 `.trellis/**`）；
+  - Phase 3 (Finish): 激活 `trellis-check` 执行最终全量门禁与 spec 对照，`trellis-update-spec` 沉淀经验后确认提交并归档（主分支直改未走 PR 分支时归档加 `--skip-branch-validation`）。
 - **缺陷排查与修复**：严格遵循 Fail-repro First（失败测试先行复现，红灯后再编写修复代码，最后绿灯确认）。

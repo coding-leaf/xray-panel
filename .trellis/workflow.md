@@ -182,6 +182,13 @@ Simple conversation / small task: ask only whether this turn should create a Tre
 Complex task: ask the user if you can create a Trellis task and enter the planning phase. If the user says no, explain, clarify scope, or suggest a smaller split.
 [/workflow-state:no_task]
 
+[workflow-state:no_task-antigravity]
+No active task. First classify the current turn and ask for task-creation consent before creating any Trellis task.
+Simple conversation / small task: ask only whether this turn should create a Trellis task. If the user says no, skip Trellis for this session.
+Complex task: ask the user if you can create a Trellis task and enter the planning phase. If the user says no, explain, clarify scope, or suggest a smaller split.
+Child-agent model gate: before spawning any Swarm worker or non-trivial subagent (including read-only audit/research agents before a task exists), explicitly ask the user which model to use unless already specified in the prompt — never silently inherit the main-session model or override via env/hooks.
+[/workflow-state:no_task-antigravity]
+
 <!-- Per-turn breadcrumb: shown when the active task record cannot be read. -->
 
 [workflow-state:task_error]
@@ -194,8 +201,8 @@ Preserve existing task fields and artifacts. If the correct status cannot be det
 - 1.0 Create task `[required · once]` (only after task-creation consent)
 - 1.1 Requirement exploration `[required · repeatable]` (`prd.md`; complex tasks also need `design.md` + `implement.md`)
 - 1.2 Research `[optional · repeatable]`
-- 1.3 Configure context `[required · once]` — Claude Code, Cursor, OpenCode, Codex, Kiro, Gemini, Qoder, CodeBuddy, Copilot, Droid, Pi, Oh My Pi, ZCode, Snow, Reasonix, Grok, Kimi Code (sub-agent-dispatch platforms only; inline platforms skip)
-- 1.4 Activate task `[required · once]` (review gate, then `task.py start`; status → in_progress)
+- 1.3 Configure context `[required · once]` — Claude Code, Cursor, OpenCode, Codex, Kiro, Gemini, Qoder, CodeBuddy, Copilot, Droid, Pi, Oh My Pi, ZCode, Snow, Reasonix, Grok, Kimi Code, Antigravity (Swarm mode) (inline platforms skip)
+- 1.4 Activate task `[required · once]` (review gate + execution formation & child-agent model sign-off, then `task.py start`; status → in_progress)
 - 1.5 Completion criteria
 
 <!-- Per-turn breadcrumb: shown throughout Phase 1 (status='planning') -->
@@ -219,6 +226,16 @@ Lightweight: `prd.md` can be enough. Complex: finish `prd.md`, `design.md`, and 
 Multi-deliverable scope: consider a parent task plus independently verifiable child tasks; dependencies must be written in child artifacts, not implied by tree position.
 Inline mode: skip jsonl curation; Phase 2 reads artifacts/specs via `trellis-before-dev`.
 [/workflow-state:planning-inline]
+
+[workflow-state:planning-antigravity]
+Load `trellis-brainstorm`; stay in planning.
+Lightweight: `prd.md` can be enough. Complex: finish `prd.md`, `design.md`, and `implement.md`.
+Multi-milestone parent/child trees (`Parent + M1..Mn`): write full `design.md` + `implement.md` + `jsonl` ONLY for `M1` upfront; keep `M2..Mn` as brief stub PRDs (`--no-start`) until each milestone's turn arrives to avoid long silent planning turns.
+Before asking for `task.py start` sign-off, recommend the Phase 2 formation AND explicitly ask the user which model child agents should run on (unless already specified by the user — never silently inherit or override via env/hooks):
+- **Inline** (small / tightly-coupled single-file edit): skip jsonl (`task.py start --allow-empty-context`).
+- **Swarm** (`1 Worker + 1 Verifier` for standard work, or `N Workers + 1 Verifier` for file-disjoint slices): ask user for the Worker/Verifier model (and lightweight `monitor` model if needed), and curate `implement.jsonl` + `check.jsonl` first so `.agent/hooks.json` auto-injects absolute-path specs/artifacts into every Worker & Verifier.
+Wait for user approval on artifacts, formation, and child-agent model before running `task.py start` or dispatching agents.
+[/workflow-state:planning-antigravity]
 
 ### Phase 2: Execute
 - 2.1 Implement `[required · repeatable]`
@@ -250,6 +267,13 @@ Flow: `trellis-before-dev` -> edit -> `trellis-check` -> validation -> `trellis-
 Do not dispatch implement/check sub-agents in inline mode.
 Read context: `prd.md` -> `design.md if present` -> `implement.md if present`, plus relevant spec/research loaded by skills.
 [/workflow-state:in_progress-inline]
+
+[workflow-state:in_progress-antigravity]
+Execute the user-approved formation, then finish in main session:
+- **Swarm formation**: load `swarm` skill; main session acts strictly as Coordinator. Pass the user-approved `model` explicitly on every `swarm{action:"add"}` / `invoke_subagent` call (if unconfirmed, ask the user first — never silently inherit or override via env/hooks). Add author worker(s) (`workspace:"share"` when ≥2 authors) + `verifier` (`workspace:"inherit"`). `.agent/hooks.json` auto-injects absolute-path `implement.jsonl`/`check.jsonl` + task artifacts into briefs. Once `verifier` signs off, land `share` worktrees (`git merge --squash` for single-batch; for uncommitted multi-milestone `M1 -> M2 -> Mn` runs, pin `refs/swarm-opt/<m>-<slice>`, merge prior refs at Step 0 in next-milestone `share` worktrees, and land incremental commits via `git show -p --format= <commit> | git apply`), `kill` temporary workers, and run final `trellis-check`.
+- **Inline formation**: `trellis-before-dev` -> edit -> `trellis-check`.
+Wrap-up (always main session): `trellis-update-spec` (Phase 3.3) -> batched commit confirmation (Phase 3.4) -> `/finish-work` (use `task.py archive <task> --skip-branch-validation` when working directly on base branch).
+[/workflow-state:in_progress-antigravity]
 
 ### Phase 3: Finish
 - 3.2 Debug retrospective `[on demand]`
@@ -291,13 +315,22 @@ When a user request matches one of these intents inside an active task, route fi
 
 [/Claude Code, Cursor, OpenCode, codex-sub-agent, Kiro, Gemini, Qoder, CodeBuddy, Copilot, Droid, Pi, Oh My Pi, ZCode, Snow, Reasonix, Trae, Grok, Kimi Code]
 
-[codex-inline, Kilo, Antigravity, Devin, DeepSeek Harness]
+[Antigravity]
+
+- Planning or unclear requirements -> `trellis-brainstorm` (propose Inline vs Swarm Worker+Verifier formation at Phase 1.4).
+- `in_progress` Swarm mode -> load `swarm` skill (Worker(s) + `verifier` on board; `.agent/hooks.json` auto-injects specs) -> `git merge --squash` -> `trellis-check`.
+- `in_progress` Inline mode -> `trellis-before-dev` -> edit -> `trellis-check`.
+- Repeated debugging -> `trellis-break-loop`; spec updates -> `trellis-update-spec`.
+
+[/Antigravity]
+
+[codex-inline, Kilo, Devin, DeepSeek Harness]
 
 - Planning or unclear requirements -> `trellis-brainstorm`.
 - Before editing -> `trellis-before-dev`; after editing -> `trellis-check`.
 - Repeated debugging -> `trellis-break-loop`; spec updates -> `trellis-update-spec`.
 
-[/codex-inline, Kilo, Antigravity, Devin, DeepSeek Harness]
+[/codex-inline, Kilo, Devin, DeepSeek Harness]
 
 ### Guardrails
 
@@ -374,11 +407,17 @@ Spawn the research sub-agent:
 
 [/Claude Code, Cursor, OpenCode, codex-sub-agent, Kiro, Gemini, Qoder, CodeBuddy, Copilot, Droid, Pi, Oh My Pi, ZCode, Snow, Reasonix, Trae, Grok, Kimi Code]
 
-[codex-inline, Kilo, Antigravity, Devin, DeepSeek Harness]
+[Antigravity]
+
+Do quick research in the main session (or delegate multi-topic read-only lookups via `invoke_subagent` `research` / read-only Swarm workers — **only after explicitly asking the user which model child agents should use**, unless already specified by the user) and persist findings into `{TASK_DIR}/research/`.
+
+[/Antigravity]
+
+[codex-inline, Kilo, Devin, DeepSeek Harness]
 
 Do the research in the main session directly and write findings into `{TASK_DIR}/research/`. `codex-inline` is the explicit mode that keeps work in the main session.
 
-[/codex-inline, Kilo, Antigravity, Devin, DeepSeek Harness]
+[/codex-inline, Kilo, Devin, DeepSeek Harness]
 
 **Research artifact conventions**:
 - One file per research topic (e.g. `research/auth-library-comparison.md`)
@@ -438,11 +477,19 @@ Skip this step only when both files already have real curated entries.
 
 [/Claude Code, Cursor, OpenCode, codex-sub-agent, Kiro, Gemini, Qoder, CodeBuddy, Copilot, Droid, Pi, Oh My Pi, ZCode, Snow, Reasonix, Trae, Grok, Kimi Code]
 
-[codex-inline, Kilo, Antigravity, Devin, DeepSeek Harness]
+[Antigravity]
+
+- **If proposing Swarm mode** (`1 Worker + 1 Verifier` or `N Workers + 1 Verifier`): curate `{TASK_DIR}/implement.jsonl` and `{TASK_DIR}/check.jsonl` via `python ./.trellis/scripts/task.py add-context "<task>" implement|check "<path>" "<reason>"`. `.agent/hooks.json` (`PreToolUse`) automatically resolves these manifests (plus untracked `{TASK_DIR}/*.md`) to absolute POSIX paths and injects them into every Swarm Worker and Verifier brief so `workspace:"share"` / `"branch"` git worktrees never hit `File Not Found`! Also list disjoint file ownership per worker slice in `implement.md` when spawning ≥2 Workers.
+- **Lean multi-milestone planning (`Parent + M1..Mn`)**: During initial Phase 1, write full `design.md` + `implement.md` + curated `jsonl` ONLY for the first child (`M1`); create `M2..Mn` with `--no-start` and lightweight stub `prd.md`s, fleshing out each later milestone right before activating it so the main session stays responsive.
+- **If proposing Inline mode** (small, single-file or tightly-coupled change): skip jsonl curation and pass `--allow-empty-context` to `task.py start` if empty jsonl files were seeded; Phase 2 loads specs via `trellis-before-dev`.
+
+[/Antigravity]
+
+[codex-inline, Kilo, Devin, DeepSeek Harness]
 
 Skip this step. Context is loaded directly by the `trellis-before-dev` skill in Phase 2.
 
-[/codex-inline, Kilo, Antigravity, Devin, DeepSeek Harness]
+[/codex-inline, Kilo, Devin, DeepSeek Harness]
 
 #### 1.4 Activate task `[required · once]`
 
@@ -452,7 +499,13 @@ After artifact review, flip the task status to `in_progress`:
 python ./.trellis/scripts/task.py start <task-dir>
 ```
 
-For lightweight tasks, `prd.md` can be enough. For complex tasks, `prd.md`, `design.md`, and `implement.md` must exist and be reviewed before start. On sub-agent-dispatch platforms, `implement.jsonl` and `check.jsonl` must both have real curated entries before start. Runtime consumers tolerate missing or seed-only manifests for compatibility, but that tolerance is not a planning-ready state.
+For lightweight tasks, `prd.md` can be enough. For complex tasks, `prd.md`, `design.md`, and `implement.md` must exist and be reviewed before start. On sub-agent-dispatch platforms (and Antigravity Swarm mode), `implement.jsonl` and `check.jsonl` must both have real curated entries before start. Runtime consumers tolerate missing or seed-only manifests for compatibility, but that tolerance is not a planning-ready state.
+
+[Antigravity]
+
+**Formation & child-agent model gate**: When presenting planning artifacts for user approval, state your recommended Phase 2 formation (`Inline` vs `Swarm: 1 Worker + 1 Verifier` vs `Swarm: N Workers + 1 Verifier`) AND explicitly ask the user which model Swarm workers / subagents should use (plus lightweight `monitor` model if different), unless the user already specified a model in the conversation. Never silently inherit the main-session model or overwrite models via environment variables or hooks. Wait for user sign-off on artifacts, formation, and model before running `task.py start`.
+
+[/Antigravity]
 
 After this command succeeds, the breadcrumb auto-switches to `[workflow-state:in_progress]`, and the rest of Phase 2 / 3 follows.
 
@@ -474,6 +527,12 @@ If `task.py start` errors with a session-identity message (no context key from h
 | `implement.jsonl` and `check.jsonl` each contain at least one real curated entry (seed row does not count) | ✅ |
 
 [/Claude Code, Cursor, OpenCode, codex-sub-agent, Kiro, Gemini, Qoder, CodeBuddy, Copilot, Droid, Pi, Oh My Pi, ZCode, Snow, Reasonix, Trae, Grok, Kimi Code]
+
+[Antigravity]
+
+| User confirmed execution formation (`Inline` vs `Swarm`) AND child-agent `model` (if `Swarm`/subagents); if `Swarm`, `implement.jsonl` & `check.jsonl` have curated entries | ✅ |
+
+[/Antigravity]
 
 ---
 
@@ -526,7 +585,23 @@ The platform prelude auto-handles the context load requirement:
 
 [/Kiro]
 
-[codex-inline, Kilo, Antigravity, Devin, DeepSeek Harness]
+[Antigravity]
+
+- **Swarm formation (user approved `1 Worker + 1 Verifier` or `N Workers + 1 Verifier` + child-agent `model`)**:
+  1. Load the built-in `swarm` skill; main session acts strictly as Coordinator (do not edit code directly while coordinating; sleep via `swarm_wait` while workers run).
+  2. Pass the user-approved `model` explicitly on every `swarm{action:"add", model:"...", ...}` call (never leave `model` unset unless the user explicitly chose to inherit the main-session model).
+  3. Spawn author worker(s) via `swarm{action:"add", name:"...", model:"...", workspace:"share"}` (`"inherit"` is acceptable only when there is a single author and `verifier` strictly reads/tests without editing). State exact owned files and what "done" looks like; `.agent/hooks.json` automatically appends absolute-path `implement.jsonl` specs + task artifacts + `.trellis/**` write-ban to `brief`.
+  4. Spawn `verifier` via `swarm{action:"add", name:"verifier", model:"...", workspace:"inherit"}` (`.agent/hooks.json` automatically appends `check.jsonl` specs + task artifacts). Instruct author(s) to `@verifier` with their commit hash when local checks pass, and `verifier` to `@coordinator` once all specs and tests pass.
+  5. **Landing `workspace:"share"` worktrees before `kill`** (`kill` deletes the worktree & temporary branch):
+     - **Single-batch Swarm (clean `HEAD`)**: `git merge --squash <worker-branch>` (followed by `git reset HEAD` if keeping changes unstaged) so changes stay uncommitted for Phase 3.4 batched review, then `kill` temporary workers.
+     - **Stacked multi-milestone Swarm (`M1 -> M2 -> Mn` kept uncommitted until Phase 3.4)**: because `share` worktrees branch off `HEAD` and dirty working trees reject subsequent `git merge --squash` / `cherry-pick -n`, pin each verified slice commit before killing its worker via `git update-ref refs/swarm-opt/<m>-<slice> <commit>`, instruct next-milestone `share` workers to run `git merge --no-edit refs/swarm-opt/...` as Step 0 so they build on prior milestones, land each incremental commit into the main working copy via `git show -p --format= <commit> | git apply`, and remove temporary refs (`git update-ref -d refs/swarm-opt/...`) before Phase 3.4.
+- **Inline formation (user approved single-session direct edit)**:
+  1. Load `trellis-before-dev`, read `{TASK_DIR}/prd.md` (`design.md` / `implement.md` if present) and `research/`.
+  2. Implement the code and run package lint/type-check/tests.
+
+[/Antigravity]
+
+[codex-inline, Kilo, Devin, DeepSeek Harness]
 
 1. Load the `trellis-before-dev` skill to read project guidelines
 2. Read `{TASK_DIR}/prd.md`, then `design.md` if present, then `implement.md` if present
@@ -534,7 +609,7 @@ The platform prelude auto-handles the context load requirement:
 4. Implement the code per reviewed artifacts
 5. Run project lint and type-check
 
-[/codex-inline, Kilo, Antigravity, Devin, DeepSeek Harness]
+[/codex-inline, Kilo, Devin, DeepSeek Harness]
 
 #### 2.2 Quality check `[required · repeatable]`
 
@@ -554,7 +629,14 @@ The check agent's job:
 
 [/Claude Code, Cursor, OpenCode, codex-sub-agent, Kiro, Gemini, Qoder, CodeBuddy, Copilot, Droid, Pi, Oh My Pi, ZCode, Snow, Reasonix, Trae, Grok, Kimi Code]
 
-[codex-inline, Kilo, Antigravity, Devin, DeepSeek Harness]
+[Antigravity]
+
+- In **Swarm formation**, `verifier` performs iterative spec & test verification on the board; after landing all worker slices into the main workspace (`git merge --squash` or `git show -p --format= <commit> | git apply`), run one final full-scope check (`trellis-check` skill + full package quality gates) on the combined diff before entering Phase 3.
+- In **Inline formation**, load the `trellis-check` skill and verify spec compliance, lint/type-check/tests, and cross-layer consistency until green.
+
+[/Antigravity]
+
+[codex-inline, Kilo, Devin, DeepSeek Harness]
 
 Load the `trellis-check` skill and verify the code per its guidance:
 - Spec compliance
@@ -563,7 +645,7 @@ Load the `trellis-check` skill and verify the code per its guidance:
 
 If issues are found → fix → re-check, until green.
 
-[/codex-inline, Kilo, Antigravity, Devin, DeepSeek Harness]
+[/codex-inline, Kilo, Devin, DeepSeek Harness]
 
 **Final pass (before Phase 3.4 commit)**: the last 2.2 of a task must run full-scope, not just on the latest implement chunk. List all affected packages with `python ./.trellis/scripts/get_context.py --mode packages`, then load each package's spec index Quality Check section. This catches cross-layer / multi-package issues a mid-iteration local 2.2 cannot.
 
@@ -652,6 +734,12 @@ The AI drives a batched commit of this task's code changes so `/finish-work` can
 #### 3.5 Wrap-up reminder
 
 After the above, remind the user they can run `/finish-work` to wrap up (archive the task, record the session).
+
+[Antigravity]
+
+When archiving tasks executed directly on the base branch via temporary Swarm `share` worktrees (instead of a dedicated PR feature branch), pass `--skip-branch-validation` (`python ./.trellis/scripts/task.py archive <task> --skip-branch-validation`). If `.trellis/tasks/<task>` was never committed before archiving, `task.py archive` stages `.trellis/tasks/archive/YYYY-MM/<task>` in the index and prints an auto-commit pathspec warning — simply commit `.trellis/tasks/archive/...` explicitly.
+
+[/Antigravity]
 
 ---
 

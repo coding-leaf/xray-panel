@@ -1,6 +1,6 @@
 # Start Session
 
-Initialize a Trellis-managed development session. This platform has no session-start hook, so manually load the equivalent compact context by following these steps.
+Initialize or refresh a Trellis-managed development session. Note: `.agent/hooks.json` now auto-injects `SessionStart`, per-turn `PreInvocation`, and `PreToolUse` Swarm/subagent spec manifests; run the steps below manually only when refreshing mid-session or if hooks are disabled.
 
 ---
 
@@ -42,7 +42,7 @@ From Step 1 you know the current task and status. Check the task directory:
   ```bash
   python ./.trellis/scripts/get_context.py --mode phase --step 2.1 --platform antigravity
   ```
-- **No active task** → classify first. For simple conversation / small task, ask only whether this turn should create a Trellis task. For complex work, ask whether you may create a Trellis task and enter planning. If the user says no, skip Trellis for this session.
+- **No active task** → classify first. For simple conversation / small task, ask only whether this turn should create a Trellis task. For complex work, ask whether you may create a Trellis task and enter planning. If the user says no, skip Trellis for this session. Before dispatching any Swarm worker or non-trivial subagent (even read-only audit/research agents), explicitly ask the user which model child agents should run on unless already specified in the prompt — never silently inherit or override via env/hooks.
 
 ---
 
@@ -51,7 +51,8 @@ From Step 1 you know the current task and status. Check the task directory:
 | User intent | Skill |
 |---|---|
 | New feature / unclear requirements | `trellis-brainstorm` |
-| About to write code | `trellis-before-dev` |
+| About to write code (Inline mode) | `trellis-before-dev` |
+| Multi-agent / Worker + Verifier execution | `swarm` (explicitly confirm child-agent `model` with user; specs auto-injected via `.agent/hooks.json`) |
 | Done coding / quality check | `trellis-check` |
 | Stuck / fixed same bug multiple times | `trellis-break-loop` |
 | Learned something worth capturing | `trellis-update-spec` |

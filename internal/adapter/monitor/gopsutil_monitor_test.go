@@ -142,3 +142,41 @@ func TestGopsutilMonitor_BasicAndConcurrency(t *testing.T) {
 		t.Fatal("Start did not terminate within timeout")
 	}
 }
+
+func TestGopsutilMonitor_NetworkCounterWraparound(t *testing.T) {
+	t0 := time.Now()
+	m := &GopsutilMonitor{
+		lastNetCheck: t0,
+		lastSent:     10000,
+		lastRecv:     20000,
+		upSpeed:      500,
+		downSpeed:    800,
+	}
+
+	// 1. 正常增量：sent +2000, recv +4000, elapsed 2s -> up=1000, down=2000
+	up, down := m.updateNetworkCountersLocked(12000, 24000, t0.Add(2*time.Second), 2.0)
+	if up != 1000 || down != 2000 {
+		t.Fatalf("expected (1000, 2000), got (%d, %d)", up, down)
+	}
+
+	// 2. 双向计数重置/回绕 (cur < prev)：速率必须归零且基线更新为新值，不可出现 uint64 下溢尖峰或残留旧速率
+	up, down = m.updateNetworkCountersLocked(500, 300, t0.Add(4*time.Second), 2.0)
+	if up != 0 || down != 0 {
+		t.Fatalf("expected (0, 0) on counter wraparound, got (%d, %d)", up, down)
+	}
+	if m.lastSent != 500 || m.lastRecv != 300 {
+		t.Fatalf("expected baseline updated to (500, 300), got (%d, %d)", m.lastSent, m.lastRecv)
+	}
+
+	// 3. 回绕后基于新基线恢复正常速率计算
+	up, down = m.updateNetworkCountersLocked(2500, 4300, t0.Add(6*time.Second), 2.0)
+	if up != 1000 || down != 2000 {
+		t.Fatalf("expected (1000, 2000) after wraparound recovery, got (%d, %d)", up, down)
+	}
+
+	// 4. 单向回绕：仅发送方向重置，接收方向正常累加
+	up, down = m.updateNetworkCountersLocked(100, 6300, t0.Add(8*time.Second), 2.0)
+	if up != 0 || down != 1000 {
+		t.Fatalf("expected (0, 1000) on asymmetric wraparound, got (%d, %d)", up, down)
+	}
+}

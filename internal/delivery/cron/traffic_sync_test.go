@@ -2,6 +2,7 @@ package cron_test
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -419,5 +420,110 @@ func TestTrafficSyncJob_NativeUserAndInboundNoDoubleCounting(t *testing.T) {
 	}
 	if mockBatchRepo.lastInDeltas[0].Tag != "local-socks" || mockBatchRepo.lastInDeltas[0].Up != 1000 || mockBatchRepo.lastInDeltas[0].Down != 2000 {
 		t.Errorf("unexpected inbound delta: %+v", mockBatchRepo.lastInDeltas[0])
+	}
+}
+
+type mockTrafficLogRepoForCron struct {
+	pruneCalls     int
+	lastBeforeDate string
+}
+
+func (m *mockTrafficLogRepoForCron) RecordTraffic(ctx context.Context, userID uint, email string, upBytes, downBytes int64, date string) error {
+	return nil
+}
+func (m *mockTrafficLogRepoForCron) GetHistoryByUserID(ctx context.Context, userID uint, days int) ([]domain.TrafficLog, error) {
+	return nil, nil
+}
+func (m *mockTrafficLogRepoForCron) GetHistoryByEmail(ctx context.Context, email string, days int) ([]domain.TrafficLog, error) {
+	return nil, nil
+}
+func (m *mockTrafficLogRepoForCron) DeleteByUser(ctx context.Context, userID uint, email string) error {
+	return nil
+}
+func (m *mockTrafficLogRepoForCron) PruneBefore(ctx context.Context, beforeDate string) error {
+	m.pruneCalls++
+	m.lastBeforeDate = beforeDate
+	return nil
+}
+
+func TestTrafficSyncJob_PrunesOldTrafficLogsOncePerDay(t *testing.T) {
+	mockXray := &mockXrayManager{}
+	mockTrafficLog := &mockTrafficLogRepoForCron{}
+	job := deliveryCron.NewTrafficSyncJob(mockXray, nil, nil, mockTrafficLog, nil, nil, nil, 3*time.Second)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	if err := job.Start(ctx); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	expectedCutoff := time.Now().AddDate(0, 0, -180).Format("2006-01-02")
+	if mockTrafficLog.pruneCalls != 1 {
+		t.Fatalf("expected 1 PruneBefore call on first sync, got %d", mockTrafficLog.pruneCalls)
+	}
+	if mockTrafficLog.lastBeforeDate != expectedCutoff {
+		t.Fatalf("expected cutoff date %s, got %s", expectedCutoff, mockTrafficLog.lastBeforeDate)
+	}
+
+	// Second run on the same calendar day should not prune again
+	ctx2, cancel2 := context.WithCancel(context.Background())
+	cancel2()
+	if err := job.Start(ctx2); err != nil {
+		t.Fatalf("unexpected error on second start: %v", err)
+	}
+	if mockTrafficLog.pruneCalls != 1 {
+		t.Fatalf("expected PruneBefore to remain 1 call on same day, got %d", mockTrafficLog.pruneCalls)
+	}
+}
+
+type failingXrayAndRepo struct {
+	domain.UserRepository
+	removeCalls int
+	addCalls    int
+}
+
+func (f *failingXrayAndRepo) AddTraffic(ctx context.Context, email string, upBytes, downBytes int64) error {
+	f.addCalls++
+	return errors.New("db write error")
+}
+
+func (f *failingXrayAndRepo) GetByEmail(ctx context.Context, email string) (*domain.User, error) {
+	return &domain.User{ID: 1, Email: email, Enabled: false, InboundTags: "vless-in"}, nil
+}
+
+type failingXrayMgr struct {
+	mockXrayManager
+	removeErr error
+}
+
+func (m *failingXrayMgr) RemoveUser(ctx context.Context, inboundTag string, email string) error {
+	m.removedCalls = append(m.removedCalls, struct{ Tag, Email string }{Tag: inboundTag, Email: email})
+	return m.removeErr
+}
+
+func TestTrafficSyncJob_HandlesRepoAndXrayErrorsGracefully(t *testing.T) {
+	mockXray := &failingXrayMgr{
+		mockXrayManager: mockXrayManager{
+			statsToReturn: []domain.TrafficStat{
+				{Type: domain.TrafficStatTypeUser, Tag: "disabled@example.com", IsUplink: true, Value: 512},
+			},
+		},
+		removeErr: errors.New("grpc unavailable"),
+	}
+	repo := &failingXrayAndRepo{}
+	job := deliveryCron.NewTrafficSyncJob(mockXray, repo, nil, nil, nil, nil, nil, 3*time.Second)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	if err := job.Start(ctx); err != nil {
+		t.Fatalf("expected graceful exit even on repo/xray errors, got: %v", err)
+	}
+	if repo.addCalls != 1 {
+		t.Fatalf("expected 1 AddTraffic attempt, got %d", repo.addCalls)
+	}
+	if len(mockXray.removedCalls) != 1 {
+		t.Fatalf("expected 1 RemoveUser attempt for disabled user, got %d", len(mockXray.removedCalls))
 	}
 }

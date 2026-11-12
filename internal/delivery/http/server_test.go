@@ -216,3 +216,47 @@ func TestServer_UnexpectedStop(t *testing.T) {
 		t.Fatal("server did not return after Close()")
 	}
 }
+
+func TestServer_DefaultTimeoutsAndOverrides(t *testing.T) {
+	mux := http.NewServeMux()
+	srv := deliveryHTTP.NewServer("8080", mux)
+	hs := srv.HTTPServer()
+	if hs == nil {
+		t.Fatal("expected underlying *http.Server to be initialized")
+	}
+
+	if hs.ReadHeaderTimeout != 10*time.Second {
+		t.Errorf("expected default ReadHeaderTimeout 10s, got %v", hs.ReadHeaderTimeout)
+	}
+	if hs.ReadTimeout != 30*time.Second {
+		t.Errorf("expected default ReadTimeout 30s, got %v", hs.ReadTimeout)
+	}
+	if hs.WriteTimeout != 60*time.Second {
+		t.Errorf("expected default WriteTimeout 60s, got %v", hs.WriteTimeout)
+	}
+	if hs.IdleTimeout != 120*time.Second {
+		t.Errorf("expected default IdleTimeout 120s, got %v", hs.IdleTimeout)
+	}
+	if hs.MaxHeaderBytes != 1<<20 {
+		t.Errorf("expected default MaxHeaderBytes %d, got %d", 1<<20, hs.MaxHeaderBytes)
+	}
+
+	// Verify ServerOption can still override defaults
+	customOpt := func(s *deliveryHTTP.Server) {
+		raw := s.HTTPServer()
+		raw.ReadHeaderTimeout = 3 * time.Second
+		raw.ReadTimeout = 15 * time.Second
+		raw.WriteTimeout = 45 * time.Second
+		raw.IdleTimeout = 90 * time.Second
+		raw.MaxHeaderBytes = 512 << 10
+	}
+	overridden := deliveryHTTP.NewServer("8080", mux, customOpt)
+	ohs := overridden.HTTPServer()
+	if ohs.ReadHeaderTimeout != 3*time.Second ||
+		ohs.ReadTimeout != 15*time.Second ||
+		ohs.WriteTimeout != 45*time.Second ||
+		ohs.IdleTimeout != 90*time.Second ||
+		ohs.MaxHeaderBytes != 512<<10 {
+		t.Errorf("expected ServerOption overrides to apply, got %+v", ohs)
+	}
+}

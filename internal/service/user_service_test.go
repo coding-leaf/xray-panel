@@ -1515,4 +1515,244 @@ func TestUserService_IgnorableDynamicUserManagerErrors(t *testing.T) {
 	})
 }
 
+type mockTicketRepoForUserTest struct {
+	deletedUserIDs []uint
+	deleteErr      error
+}
+
+func (m *mockTicketRepoForUserTest) Create(ctx context.Context, ticket *domain.Ticket) error {
+	return nil
+}
+func (m *mockTicketRepoForUserTest) GetByCode(ctx context.Context, code string) (*domain.Ticket, error) {
+	return nil, nil
+}
+func (m *mockTicketRepoForUserTest) ConsumeAtomic(ctx context.Context, code string) (*domain.Ticket, error) {
+	return nil, nil
+}
+func (m *mockTicketRepoForUserTest) Delete(ctx context.Context, id uint) error { return nil }
+func (m *mockTicketRepoForUserTest) DeleteByUserID(ctx context.Context, userID uint) error {
+	if m.deleteErr != nil {
+		return m.deleteErr
+	}
+	m.deletedUserIDs = append(m.deletedUserIDs, userID)
+	return nil
+}
+func (m *mockTicketRepoForUserTest) CleanExpired(ctx context.Context) error { return nil }
+
+type mockTrafficLogRepoForUserTest struct {
+	logs       []domain.TrafficLog
+	deleteErr  error
+	deleteCall int
+}
+
+func (m *mockTrafficLogRepoForUserTest) RecordTraffic(ctx context.Context, userID uint, email string, upBytes, downBytes int64, date string) error {
+	m.logs = append(m.logs, domain.TrafficLog{
+		UserID:    userID,
+		UserEmail: email,
+		UpBytes:   upBytes,
+		DownBytes: downBytes,
+		Date:      date,
+	})
+	return nil
+}
+func (m *mockTrafficLogRepoForUserTest) GetHistoryByUserID(ctx context.Context, userID uint, days int) ([]domain.TrafficLog, error) {
+	var out []domain.TrafficLog
+	for _, l := range m.logs {
+		if l.UserID == userID {
+			out = append(out, l)
+		}
+	}
+	return out, nil
+}
+func (m *mockTrafficLogRepoForUserTest) GetHistoryByEmail(ctx context.Context, email string, days int) ([]domain.TrafficLog, error) {
+	var out []domain.TrafficLog
+	for _, l := range m.logs {
+		if l.UserEmail == email {
+			out = append(out, l)
+		}
+	}
+	return out, nil
+}
+func (m *mockTrafficLogRepoForUserTest) DeleteByUser(ctx context.Context, userID uint, email string) error {
+	m.deleteCall++
+	if m.deleteErr != nil {
+		return m.deleteErr
+	}
+	filtered := m.logs[:0]
+	for _, l := range m.logs {
+		if l.UserID != userID && l.UserEmail != email {
+			filtered = append(filtered, l)
+		}
+	}
+	m.logs = filtered
+	return nil
+}
+func (m *mockTrafficLogRepoForUserTest) PruneBefore(ctx context.Context, beforeDate string) error {
+	return nil
+}
+
+func TestUserService_BatchOperationsSingleSaveConfigQuietly(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("BatchRenew calls SaveConfigQuietly exactly once", func(t *testing.T) {
+		repo := &mockUserRepo{
+			users: []domain.User{
+				{ID: 1, Email: "u1@test.com", Remark: "vip1", Enabled: true, InboundTags: "vless-in"},
+				{ID: 2, Email: "u2@test.com", Remark: "vip2", Enabled: true, InboundTags: "vless-in"},
+				{ID: 3, Email: "u3@test.com", Remark: "vip3", Enabled: true, InboundTags: "vless-in"},
+			},
+		}
+		mockCfg := &mockConfigSynchronizer{}
+		svc := NewUserService(repo, nil, nil, &mockXrayManager{}, mockCfg)
+
+		if err := svc.BatchRenew(ctx, []uint{1, 2, 3}, 15); err != nil {
+			t.Fatalf("BatchRenew failed: %v", err)
+		}
+		if mockCfg.saveCalls != 1 {
+			t.Fatalf("expected 1 SaveConfigQuietly call, got %d", mockCfg.saveCalls)
+		}
+		if mockCfg.syncCalls != 0 {
+			t.Fatalf("expected 0 SyncUserToFile calls, got %d", mockCfg.syncCalls)
+		}
+		u1, _ := repo.GetByID(ctx, 1)
+		if u1.Remark != "vip1" {
+			t.Fatalf("expected Remark preserved on BatchRenew, got %q", u1.Remark)
+		}
+	})
+
+	t.Run("BatchResetTraffic calls SaveConfigQuietly exactly once", func(t *testing.T) {
+		repo := &mockUserRepo{
+			users: []domain.User{
+				{ID: 1, Email: "u1@test.com", UpBytes: 100, DownBytes: 200, Enabled: true, InboundTags: "vless-in"},
+				{ID: 2, Email: "u2@test.com", UpBytes: 300, DownBytes: 400, Enabled: true, InboundTags: "vless-in"},
+			},
+		}
+		mockCfg := &mockConfigSynchronizer{}
+		svc := NewUserService(repo, nil, nil, &mockXrayManager{}, mockCfg)
+
+		if err := svc.BatchResetTraffic(ctx, []uint{1, 2}); err != nil {
+			t.Fatalf("BatchResetTraffic failed: %v", err)
+		}
+		if mockCfg.saveCalls != 1 {
+			t.Fatalf("expected 1 SaveConfigQuietly call, got %d", mockCfg.saveCalls)
+		}
+		if mockCfg.syncCalls != 0 {
+			t.Fatalf("expected 0 SyncUserToFile calls, got %d", mockCfg.syncCalls)
+		}
+		u2, _ := repo.GetByID(ctx, 2)
+		if u2.UpBytes != 0 || u2.DownBytes != 0 {
+			t.Fatalf("expected u2 traffic reset to 0, got up=%d down=%d", u2.UpBytes, u2.DownBytes)
+		}
+	})
+
+	t.Run("BatchSetStatus calls SaveConfigQuietly exactly once", func(t *testing.T) {
+		repo := &mockUserRepo{
+			users: []domain.User{
+				{ID: 1, Email: "u1@test.com", Enabled: true, InboundTags: "vless-in"},
+				{ID: 2, Email: "u2@test.com", Enabled: true, InboundTags: "vless-in"},
+			},
+		}
+		mockCfg := &mockConfigSynchronizer{}
+		svc := NewUserService(repo, nil, nil, &mockXrayManager{}, mockCfg)
+
+		if err := svc.BatchSetStatus(ctx, []uint{1, 2}, false); err != nil {
+			t.Fatalf("BatchSetStatus failed: %v", err)
+		}
+		if mockCfg.saveCalls != 1 {
+			t.Fatalf("expected 1 SaveConfigQuietly call, got %d", mockCfg.saveCalls)
+		}
+		if mockCfg.syncCalls != 0 {
+			t.Fatalf("expected 0 SyncUserToFile calls, got %d", mockCfg.syncCalls)
+		}
+	})
+
+	t.Run("BatchDelete removes users, cleans orphans, and calls SaveConfigQuietly once", func(t *testing.T) {
+		repo := &mockUserRepo{
+			users: []domain.User{
+				{ID: 1, Email: "u1@test.com", Enabled: true, InboundTags: "vless-in"},
+				{ID: 2, Email: "u2@test.com", Enabled: true, InboundTags: "vless-in"},
+				{ID: 3, Email: "u3@test.com", Enabled: true, InboundTags: "vless-in"},
+			},
+		}
+		ticketRepo := &mockTicketRepoForUserTest{}
+		trafficRepo := &mockTrafficLogRepoForUserTest{
+			logs: []domain.TrafficLog{
+				{UserID: 1, UserEmail: "u1@test.com", UpBytes: 100, Date: "2026-11-12"},
+				{UserID: 2, UserEmail: "u2@test.com", UpBytes: 200, Date: "2026-11-12"},
+				{UserID: 3, UserEmail: "u3@test.com", UpBytes: 300, Date: "2026-11-12"},
+			},
+		}
+		mockCfg := &mockConfigSynchronizer{}
+		mockXray := &mockXrayManager{}
+		svc := NewUserService(repo, nil, trafficRepo, mockXray, mockCfg).WithTicketRepo(ticketRepo)
+
+		if err := svc.BatchDelete(ctx, []uint{1, 2}); err != nil {
+			t.Fatalf("BatchDelete failed: %v", err)
+		}
+		if mockCfg.saveCalls != 1 {
+			t.Fatalf("expected 1 SaveConfigQuietly call, got %d", mockCfg.saveCalls)
+		}
+		if mockCfg.syncCalls != 0 {
+			t.Fatalf("expected 0 SyncUserToFile calls, got %d", mockCfg.syncCalls)
+		}
+		if len(repo.users) != 1 || repo.users[0].ID != 3 {
+			t.Fatalf("expected only user 3 to remain, got %+v", repo.users)
+		}
+		if len(ticketRepo.deletedUserIDs) != 2 {
+			t.Fatalf("expected ticketRepo.DeleteByUserID called for 2 users, got %+v", ticketRepo.deletedUserIDs)
+		}
+		if len(trafficRepo.logs) != 1 || trafficRepo.logs[0].UserEmail != "u3@test.com" {
+			t.Fatalf("expected only u3 traffic log to remain, got %+v", trafficRepo.logs)
+		}
+	})
+
+	t.Run("BatchDelete rolls back DB and Xray without cleaning orphans when SaveConfigQuietly fails", func(t *testing.T) {
+		repo := &mockUserRepo{
+			users: []domain.User{
+				{ID: 1, Email: "u1@test.com", Enabled: true, InboundTags: "vless-in"},
+				{ID: 2, Email: "u2@test.com", Enabled: true, InboundTags: "vless-in"},
+			},
+		}
+		ticketRepo := &mockTicketRepoForUserTest{}
+		trafficRepo := &mockTrafficLogRepoForUserTest{
+			logs: []domain.TrafficLog{
+				{UserID: 1, UserEmail: "u1@test.com", UpBytes: 100, Date: "2026-11-12"},
+			},
+		}
+		mockCfg := &mockConfigSynchronizer{failSaveConfig: errors.New("disk full")}
+		mockXray := &mockXrayManager{}
+		svc := NewUserService(repo, nil, trafficRepo, mockXray, mockCfg).WithTicketRepo(ticketRepo)
+
+		if err := svc.BatchDelete(ctx, []uint{1, 2}); err == nil {
+			t.Fatal("expected BatchDelete to fail when SaveConfigQuietly fails")
+		}
+		if len(repo.users) != 2 {
+			t.Fatalf("expected both users restored in DB after rollback, got %d", len(repo.users))
+		}
+		if len(ticketRepo.deletedUserIDs) != 0 || trafficRepo.deleteCall != 0 {
+			t.Fatalf("expected orphans NOT cleaned when BatchDelete rolls back")
+		}
+	})
+}
+
+func TestUserService_DeleteUser_OrphanCleanupTolerance(t *testing.T) {
+	ctx := context.Background()
+	repo := &mockUserRepo{
+		users: []domain.User{
+			{ID: 7, Email: "orphan-warn@test.com", Enabled: true, InboundTags: "vless-in"},
+		},
+	}
+	ticketRepo := &mockTicketRepoForUserTest{deleteErr: errors.New("ticket delete error")}
+	trafficRepo := &mockTrafficLogRepoForUserTest{deleteErr: errors.New("traffic delete error")}
+	mockCfg := &mockConfigSynchronizer{}
+
+	svc := NewUserService(repo, nil, trafficRepo, &mockXrayManager{}, mockCfg).WithTicketRepo(ticketRepo)
+	if err := svc.DeleteUser(ctx, 7); err != nil {
+		t.Fatalf("expected DeleteUser to succeed even when orphan cleanup warns, got: %v", err)
+	}
+	if len(repo.users) != 0 {
+		t.Fatalf("expected user 7 to remain deleted, got %+v", repo.users)
+	}
+}
+
 

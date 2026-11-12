@@ -3,9 +3,15 @@ package service_test
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
+	"net"
 	"os"
 	"path/filepath"
+	"sync"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"panel/internal/adapter/xray"
 	"panel/internal/domain"
@@ -661,6 +667,580 @@ func TestConfigService_OutboundMuxAndSchemaAlignment_RoundTrip(t *testing.T) {
 		}
 	}
 }
+
+type syncConfigStorage struct {
+	mu      sync.Mutex
+	content []byte
+}
+
+func (m *syncConfigStorage) ReadRawConfig() ([]byte, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	cp := make([]byte, len(m.content))
+	copy(cp, m.content)
+	return cp, nil
+}
+
+func (m *syncConfigStorage) ValidateConfig(ctx context.Context, raw []byte) error {
+	return nil
+}
+
+func (m *syncConfigStorage) WriteConfig(ctx context.Context, raw []byte) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	cp := make([]byte, len(raw))
+	copy(cp, raw)
+	m.content = cp
+	return nil
+}
+
+type mockNoopSupervisor struct{}
+
+func (m *mockNoopSupervisor) Reload(ctx context.Context) error  { return nil }
+func (m *mockNoopSupervisor) Restart(ctx context.Context) error { return nil }
+
+func TestConfigService_ConcurrentSaveOutbound_NoLostUpdate(t *testing.T) {
+	ctx := context.Background()
+	cfgStorage := &syncConfigStorage{
+		content: []byte(`{"inbounds":[],"outbounds":[]}`),
+	}
+	compiler := xray.NewXrayCompiler(10085)
+	svc := service.NewConfigService(cfgStorage, &mockNoopSupervisor{}, nil, nil, nil, compiler)
+
+	const workers = 8
+	var wg sync.WaitGroup
+	errs := make(chan error, workers)
+
+	for i := 0; i < workers; i++ {
+		wg.Add(1)
+		go func(idx int) {
+			defer wg.Done()
+			ob := domain.Outbound{
+				Tag:      fmt.Sprintf("ob-%d", idx),
+				Protocol: "freedom",
+			}
+			if err := svc.SaveOutbound(ctx, ob); err != nil {
+				errs <- err
+			}
+		}(i)
+	}
+	wg.Wait()
+	close(errs)
+
+	for err := range errs {
+		t.Fatalf("concurrent SaveOutbound failed: %v", err)
+	}
+
+	outbounds, err := svc.ListOutbounds(ctx)
+	if err != nil {
+		t.Fatalf("ListOutbounds failed: %v", err)
+	}
+	foundTags := make(map[string]bool, len(outbounds))
+	for _, ob := range outbounds {
+		foundTags[ob.Tag] = true
+	}
+	for i := 0; i < workers; i++ {
+		tag := fmt.Sprintf("ob-%d", i)
+		if !foundTags[tag] {
+			t.Fatalf("lost update detected: missing outbound tag %q (got %d outbounds)", tag, len(outbounds))
+		}
+	}
+}
+
+type failingInboundRepo struct {
+	domain.InboundRepository
+	listErr   error
+	getTagErr error
+	createErr error
+}
+
+func (m *failingInboundRepo) ListAll(ctx context.Context) ([]domain.Inbound, error) {
+	if m.listErr != nil {
+		return nil, m.listErr
+	}
+	return nil, nil
+}
+
+func (m *failingInboundRepo) GetByTag(ctx context.Context, tag string) (*domain.Inbound, error) {
+	if m.getTagErr != nil {
+		return nil, m.getTagErr
+	}
+	return nil, domain.ErrNotFound
+}
+
+func (m *failingInboundRepo) Create(ctx context.Context, inbound *domain.Inbound) error {
+	return m.createErr
+}
+
+type failingUserRepo struct {
+	domain.UserRepository
+	listErr     error
+	getEmailErr error
+}
+
+func (m *failingUserRepo) ListAll(ctx context.Context) ([]domain.User, error) {
+	if m.listErr != nil {
+		return nil, m.listErr
+	}
+	return nil, nil
+}
+
+func (m *failingUserRepo) GetByEmail(ctx context.Context, email string) (*domain.User, error) {
+	if m.getEmailErr != nil {
+		return nil, m.getEmailErr
+	}
+	return nil, domain.ErrNotFound
+}
+
+func TestConfigService_ErrorPropagation_NoSilentSwallow(t *testing.T) {
+	ctx := context.Background()
+	dbErr := errors.New("sqlite db locked")
+	initialRaw := []byte(`{"outbounds":[{"tag":"direct","protocol":"freedom"}],"routing":{"domainStrategy":"IPIfNonMatch","rules":[]},"dns":{"servers":["1.1.1.1"]}}`)
+
+	t.Run("SaveOutbound aborts on inboundRepo ListAll failure", func(t *testing.T) {
+		cfgStorage := &syncConfigStorage{content: initialRaw}
+		svc := service.NewConfigService(cfgStorage, &mockNoopSupervisor{}, &failingInboundRepo{listErr: dbErr}, &failingUserRepo{}, nil, xray.NewXrayCompiler(10085))
+		err := svc.SaveOutbound(ctx, domain.Outbound{Tag: "proxy", Protocol: "freedom"})
+		if !errors.Is(err, dbErr) {
+			t.Fatalf("expected wrapped dbErr, got %v", err)
+		}
+	})
+
+	t.Run("SaveOutbound aborts on userRepo ListAll failure", func(t *testing.T) {
+		cfgStorage := &syncConfigStorage{content: initialRaw}
+		svc := service.NewConfigService(cfgStorage, &mockNoopSupervisor{}, &failingInboundRepo{}, &failingUserRepo{listErr: dbErr}, nil, xray.NewXrayCompiler(10085))
+		err := svc.SaveOutbound(ctx, domain.Outbound{Tag: "proxy", Protocol: "freedom"})
+		if !errors.Is(err, dbErr) {
+			t.Fatalf("expected wrapped dbErr, got %v", err)
+		}
+	})
+
+	t.Run("SaveRoutingConfig aborts on inboundRepo ListAll failure", func(t *testing.T) {
+		cfgStorage := &syncConfigStorage{content: initialRaw}
+		svc := service.NewConfigService(cfgStorage, &mockNoopSupervisor{}, &failingInboundRepo{listErr: dbErr}, &failingUserRepo{}, nil, xray.NewXrayCompiler(10085))
+		err := svc.SaveRoutingConfig(ctx, &domain.RoutingConfig{DomainStrategy: "IPIfNonMatch"})
+		if !errors.Is(err, dbErr) {
+			t.Fatalf("expected wrapped dbErr, got %v", err)
+		}
+	})
+
+	t.Run("SaveDNSConfig aborts on userRepo ListAll failure", func(t *testing.T) {
+		cfgStorage := &syncConfigStorage{content: initialRaw}
+		svc := service.NewConfigService(cfgStorage, &mockNoopSupervisor{}, &failingInboundRepo{}, &failingUserRepo{listErr: dbErr}, nil, xray.NewXrayCompiler(10085))
+		err := svc.SaveDNSConfig(ctx, &domain.DNSConfig{QueryStrategy: "UseIP"})
+		if !errors.Is(err, dbErr) {
+			t.Fatalf("expected wrapped dbErr, got %v", err)
+		}
+	})
+
+	t.Run("SaveAndApplyRawConfig propagates syncFromRawJSON DB error", func(t *testing.T) {
+		cfgStorage := &syncConfigStorage{content: initialRaw}
+		svc := service.NewConfigService(cfgStorage, &mockNoopSupervisor{}, &failingInboundRepo{getTagErr: dbErr}, &failingUserRepo{}, nil, xray.NewXrayCompiler(10085))
+		rawWithInbound := []byte(`{"inbounds":[{"tag":"vless-in","port":443,"protocol":"vless","settings":{}}],"outbounds":[{"tag":"direct","protocol":"freedom"}]}`)
+		err := svc.SaveAndApplyRawConfig(ctx, rawWithInbound)
+		if !errors.Is(err, dbErr) {
+			t.Fatalf("expected wrapped dbErr from syncFromRawJSON, got %v", err)
+		}
+	})
+
+	t.Run("GetRoutingConfig propagates inboundRepo ListAll failure", func(t *testing.T) {
+		cfgStorage := &syncConfigStorage{content: initialRaw}
+		svc := service.NewConfigService(cfgStorage, &mockNoopSupervisor{}, &failingInboundRepo{listErr: dbErr}, &failingUserRepo{}, nil, xray.NewXrayCompiler(10085))
+		_, err := svc.GetRoutingConfig(ctx)
+		if !errors.Is(err, dbErr) {
+			t.Fatalf("expected wrapped dbErr, got %v", err)
+		}
+	})
+}
+
+func TestConfigService_ConcurrentMixedOperations_NoDeadlockOrRace(t *testing.T) {
+	ctx := context.Background()
+	cfgStorage := &syncConfigStorage{
+		content: []byte(`{"inbounds":[],"outbounds":[{"tag":"direct","protocol":"freedom"}],"routing":{"domainStrategy":"IPIfNonMatch","rules":[]},"dns":{"servers":["1.1.1.1"]}}`),
+	}
+	inboundRepo := &mockStatefulInboundRepo{byTag: map[string]*domain.Inbound{}}
+	userRepo := &mockStatefulUserRepo{byEmail: map[string]*domain.User{}}
+	svc := service.NewConfigService(cfgStorage, &mockNoopSupervisor{}, inboundRepo, userRepo, nil, xray.NewXrayCompiler(10085))
+
+	const workers = 6
+	const iters = 10
+	var wg sync.WaitGroup
+	errs := make(chan error, workers*iters)
+
+	for w := 0; w < workers; w++ {
+		wg.Add(1)
+		go func(id int) {
+			defer wg.Done()
+			for i := 0; i < iters; i++ {
+				var err error
+				switch (id + i) % 5 {
+				case 0:
+					err = svc.RecompileAndApply(ctx, "recompile")
+				case 1:
+					err = svc.SaveOutbound(ctx, domain.Outbound{Tag: fmt.Sprintf("out-%d", id), Protocol: "freedom"})
+				case 2:
+					err = svc.SaveRoutingConfig(ctx, &domain.RoutingConfig{DomainStrategy: "IPIfNonMatch"})
+				case 3:
+					err = svc.SaveDNSConfig(ctx, &domain.DNSConfig{QueryStrategy: "UseIP"})
+				case 4:
+					_, err = svc.GetRoutingConfig(ctx)
+				}
+				if err != nil {
+					errs <- err
+					return
+				}
+			}
+		}(w)
+	}
+
+	wg.Wait()
+	close(errs)
+	for err := range errs {
+		t.Fatalf("concurrent mixed operation failed: %v", err)
+	}
+}
+
+type mockStatusSupervisor struct {
+	mockNoopSupervisor
+	active     bool
+	err        error
+	statusCall atomic.Int32
+}
+
+func (m *mockStatusSupervisor) GetStatus(ctx context.Context) (domain.ServiceStatus, error) {
+	m.statusCall.Add(1)
+	if m.err != nil {
+		return domain.ServiceStatus{}, m.err
+	}
+	return domain.ServiceStatus{Active: m.active}, nil
+}
+
+func getUnusedTCPPort(t *testing.T) int {
+	t.Helper()
+	l, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("failed to allocate port: %v", err)
+	}
+	port := l.Addr().(*net.TCPAddr).Port
+	_ = l.Close()
+	return port
+}
+
+func TestConfigService_ListInbounds_ConcurrentAndUDPHandling(t *testing.T) {
+	ctx := context.Background()
+
+	// 1. Open one real TCP listener on 127.0.0.1
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("failed to listen on 127.0.0.1: %v", err)
+	}
+	defer ln.Close()
+	openPort := ln.Addr().(*net.TCPAddr).Port
+
+	// Open a listener specifically for disabled inbound to prove disabled inbounds are skipped
+	disabledLn, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("failed to listen for disabled inbound: %v", err)
+	}
+	defer disabledLn.Close()
+	disabledPort := disabledLn.Addr().(*net.TCPAddr).Port
+
+	// Unused ports for UDP / closed TCP checks
+	hy2Port := getUnusedTCPPort(t)
+	dokoUDPPort := getUnusedTCPPort(t)
+	dokoStreamUDPPort := getUnusedTCPPort(t)
+	dokoTCPUDPPort := getUnusedTCPPort(t)
+
+	inbounds := []domain.Inbound{
+		{Tag: "tcp-open-empty-listen", Listen: "", Port: openPort, Protocol: "vless", Enabled: true},
+		{Tag: "tcp-open-all-listen", Listen: "0.0.0.0", Port: openPort, Protocol: "trojan", Enabled: true},
+		{Tag: "tcp-disabled", Listen: "127.0.0.1", Port: disabledPort, Protocol: "vless", Enabled: false},
+		{Tag: "hy2-enabled", Listen: "0.0.0.0", Port: hy2Port, Protocol: "hysteria2", Enabled: true},
+		{Tag: "hy2-disabled", Listen: "0.0.0.0", Port: hy2Port, Protocol: "hysteria2", Enabled: false},
+		{Tag: "doko-settings-udp", Listen: "0.0.0.0", Port: dokoUDPPort, Protocol: "dokodemo-door", SettingsJSON: `{"network":"udp"}`, Enabled: true},
+		{Tag: "doko-stream-udp", Listen: "0.0.0.0", Port: dokoStreamUDPPort, Protocol: "dokodemo-door", StreamSettings: `{"network":"udp"}`, Enabled: true},
+		{Tag: "doko-tcp-udp", Listen: "127.0.0.1", Port: dokoTCPUDPPort, Protocol: "dokodemo-door", SettingsJSON: `{"network":"tcp,udp"}`, Enabled: true},
+	}
+
+	// Optional IPv6 loopback check for "::" -> "::1" mapping
+	hasIPv6Loopback := false
+	if ln6, err6 := net.Listen("tcp", "[::1]:0"); err6 == nil {
+		defer ln6.Close()
+		hasIPv6Loopback = true
+		port6 := ln6.Addr().(*net.TCPAddr).Port
+		inbounds = append(inbounds, domain.Inbound{
+			Tag:      "tcp-ipv6-any",
+			Listen:   "::",
+			Port:     port6,
+			Protocol: "vless",
+			Enabled:  true,
+		})
+	}
+
+	t.Run("supervisor active marks pure UDP alive with single GetStatus call", func(t *testing.T) {
+		sup := &mockStatusSupervisor{active: true}
+		svc := service.NewConfigService(&mockConfigStorage{}, sup, &mockInboundRepoWithList{inbounds: inbounds}, nil, nil, nil)
+
+		got, err := svc.ListInbounds(ctx)
+		if err != nil {
+			t.Fatalf("ListInbounds failed: %v", err)
+		}
+		if calls := sup.statusCall.Load(); calls != 1 {
+			t.Fatalf("expected GetStatus to be called exactly once, got %d", calls)
+		}
+
+		byTag := make(map[string]domain.Inbound, len(got))
+		for _, ib := range got {
+			byTag[ib.Tag] = ib
+		}
+
+		if !byTag["tcp-open-empty-listen"].IsAlive || byTag["tcp-open-empty-listen"].LatencyMs < 1 {
+			t.Errorf("expected tcp-open-empty-listen alive with latency >= 1, got %+v", byTag["tcp-open-empty-listen"])
+		}
+		if !byTag["tcp-open-all-listen"].IsAlive || byTag["tcp-open-all-listen"].LatencyMs < 1 {
+			t.Errorf("expected tcp-open-all-listen alive with latency >= 1, got %+v", byTag["tcp-open-all-listen"])
+		}
+		if byTag["tcp-disabled"].IsAlive || byTag["tcp-disabled"].LatencyMs != 0 {
+			t.Errorf("expected disabled tcp inbound to be skipped (IsAlive=false, LatencyMs=0), got %+v", byTag["tcp-disabled"])
+		}
+		if !byTag["hy2-enabled"].IsAlive {
+			t.Errorf("expected enabled hysteria2 to be alive when core is running, got %+v", byTag["hy2-enabled"])
+		}
+		if byTag["hy2-disabled"].IsAlive {
+			t.Errorf("expected disabled hysteria2 to be offline, got %+v", byTag["hy2-disabled"])
+		}
+		if !byTag["doko-settings-udp"].IsAlive {
+			t.Errorf("expected dokodemo-door network=udp (settings) to be alive when core is running, got %+v", byTag["doko-settings-udp"])
+		}
+		if !byTag["doko-stream-udp"].IsAlive {
+			t.Errorf("expected dokodemo-door network=udp (stream) to be alive when core is running, got %+v", byTag["doko-stream-udp"])
+		}
+		if byTag["doko-tcp-udp"].IsAlive {
+			t.Errorf("expected dokodemo-door network=tcp,udp on closed port to be offline, got %+v", byTag["doko-tcp-udp"])
+		}
+		if hasIPv6Loopback && !byTag["tcp-ipv6-any"].IsAlive {
+			t.Errorf("expected '::' inbound to probe '::1' and be alive, got %+v", byTag["tcp-ipv6-any"])
+		}
+	})
+
+	t.Run("supervisor inactive marks pure UDP offline", func(t *testing.T) {
+		sup := &mockStatusSupervisor{active: false}
+		svc := service.NewConfigService(&mockConfigStorage{}, sup, &mockInboundRepoWithList{inbounds: inbounds}, nil, nil, nil)
+
+		got, err := svc.ListInbounds(ctx)
+		if err != nil {
+			t.Fatalf("ListInbounds failed: %v", err)
+		}
+		for _, ib := range got {
+			if ib.Tag == "hy2-enabled" || ib.Tag == "doko-settings-udp" || ib.Tag == "doko-stream-udp" {
+				if ib.IsAlive {
+					t.Errorf("expected %s to be offline when core is stopped, got alive", ib.Tag)
+				}
+			}
+		}
+	})
+
+	t.Run("nil supervisor defaults pure UDP alive", func(t *testing.T) {
+		svc := service.NewConfigService(&mockConfigStorage{}, nil, &mockInboundRepoWithList{inbounds: []domain.Inbound{
+			{Tag: "hy2-only", Listen: "0.0.0.0", Port: hy2Port, Protocol: "hysteria2", Enabled: true},
+		}}, nil, nil, nil)
+
+		got, err := svc.ListInbounds(ctx)
+		if err != nil {
+			t.Fatalf("ListInbounds failed: %v", err)
+		}
+		if len(got) != 1 || !got[0].IsAlive {
+			t.Errorf("expected enabled hysteria2 with nil supervisor to default alive, got %+v", got)
+		}
+	})
+
+	t.Run("concurrent TCP probes complete within single-hop timeout bound", func(t *testing.T) {
+		var closedInbounds []domain.Inbound
+		for i := 0; i < 6; i++ {
+			closedInbounds = append(closedInbounds, domain.Inbound{
+				Tag:      fmt.Sprintf("closed-%d", i),
+				Listen:   "127.0.0.1",
+				Port:     getUnusedTCPPort(t),
+				Protocol: "vless",
+				Enabled:  true,
+			})
+		}
+		svc := service.NewConfigService(&mockConfigStorage{}, nil, &mockInboundRepoWithList{inbounds: closedInbounds}, nil, nil, nil)
+
+		start := time.Now()
+		got, err := svc.ListInbounds(ctx)
+		elapsed := time.Since(start)
+		if err != nil {
+			t.Fatalf("ListInbounds failed: %v", err)
+		}
+		if len(got) != 6 {
+			t.Fatalf("expected 6 inbounds, got %d", len(got))
+		}
+		for _, ib := range got {
+			if ib.IsAlive {
+				t.Errorf("expected closed inbound %s to be offline", ib.Tag)
+			}
+		}
+		// Sequential 6 * 200ms = 1200ms on Windows timeout; concurrent must finish well under 800ms
+		if elapsed > 800*time.Millisecond {
+			t.Fatalf("expected concurrent probing to finish within 800ms, took %v", elapsed)
+		}
+	})
+}
+
+type countingConfigStorage struct {
+	raw        []byte
+	err        error
+	readCalls  atomic.Int32
+	writeCalls atomic.Int32
+}
+
+func (m *countingConfigStorage) ReadRawConfig() ([]byte, error) {
+	m.readCalls.Add(1)
+	if m.err != nil {
+		return nil, m.err
+	}
+	return m.raw, nil
+}
+
+func (m *countingConfigStorage) ValidateConfig(ctx context.Context, raw []byte) error {
+	return nil
+}
+
+func (m *countingConfigStorage) WriteConfig(ctx context.Context, raw []byte) error {
+	m.writeCalls.Add(1)
+	return nil
+}
+
+type countingInboundRepo struct {
+	domain.InboundRepository
+	inbounds  []domain.Inbound
+	listCalls atomic.Int32
+}
+
+func (m *countingInboundRepo) ListAll(ctx context.Context) ([]domain.Inbound, error) {
+	m.listCalls.Add(1)
+	return m.inbounds, nil
+}
+
+type recordingSnapshotRepo struct {
+	domain.ConfigSnapshotRepository
+	saved []*domain.ConfigSnapshot
+}
+
+func (m *recordingSnapshotRepo) Save(ctx context.Context, s *domain.ConfigSnapshot) error {
+	m.saved = append(m.saved, s)
+	return nil
+}
+
+type capturingCompiler struct {
+	outbounds []domain.Outbound
+	routing   *domain.RoutingConfig
+	dns       *domain.DNSConfig
+	inbounds  []domain.Inbound
+	users     []domain.User
+}
+
+func (m *capturingCompiler) CompileToJSON(inbounds []domain.Inbound, outbounds []domain.Outbound, routing *domain.RoutingConfig, dns *domain.DNSConfig, users []domain.User) ([]byte, error) {
+	m.inbounds = inbounds
+	m.outbounds = outbounds
+	m.routing = routing
+	m.dns = dns
+	m.users = users
+	return []byte(`{"inbounds":[],"outbounds":[]}`), nil
+}
+
+func TestConfigService_SaveConfigQuietly_SingleReadAndListAll(t *testing.T) {
+	ctx := context.Background()
+	rawConfig := []byte(`{
+		// JSONC comment should be stripped once
+		"outbounds": [
+			{"tag": "direct", "protocol": "freedom", "targetStrategy": "UseIPv4v6"}
+		],
+		"routing": {
+			"domainStrategy": "AsIs",
+			"rules": [
+				{"type": "field", "inboundTag": ["api"], "outboundTag": "api"},
+				{"type": "field", "domain": ["geosite:cn"], "outboundTag": "direct"}
+			]
+		},
+		"dns": {
+			"servers": ["1.1.1.1"],
+			"queryStrategy": "UseIPv4"
+		}
+	}`)
+
+	storage := &countingConfigStorage{raw: rawConfig}
+	inboundRepo := &countingInboundRepo{
+		inbounds: []domain.Inbound{
+			{
+				Tag:      "vless-in",
+				Port:     443,
+				Protocol: "vless",
+				Enabled:  true,
+			},
+		},
+	}
+	userRepo := &mockUserRepoForConfig{
+		users: map[string]*domain.User{
+			"alice@example.com": {ID: 1, Email: "alice@example.com", Enabled: true},
+		},
+	}
+	snapRepo := &recordingSnapshotRepo{}
+	compiler := &capturingCompiler{}
+
+	svc := service.NewConfigService(storage, nil, inboundRepo, userRepo, snapRepo, compiler)
+	if err := svc.SaveConfigQuietly(ctx, "single-read-check"); err != nil {
+		t.Fatalf("SaveConfigQuietly failed: %v", err)
+	}
+
+	if got := storage.readCalls.Load(); got != 1 {
+		t.Fatalf("expected ReadRawConfig to be called exactly 1 time, got %d", got)
+	}
+	if got := inboundRepo.listCalls.Load(); got != 1 {
+		t.Fatalf("expected inboundRepo.ListAll to be called exactly 1 time, got %d", got)
+	}
+	if got := storage.writeCalls.Load(); got != 1 {
+		t.Fatalf("expected WriteConfig to be called 1 time, got %d", got)
+	}
+	if len(snapRepo.saved) != 1 || snapRepo.saved[0].RawConfig != string(rawConfig) {
+		t.Fatalf("expected snapshot to reuse exact oldRaw bytes, got %+v", snapRepo.saved)
+	}
+	if len(compiler.outbounds) != 1 || compiler.outbounds[0].Tag != "direct" || compiler.outbounds[0].TargetStrategy != "UseIPv4v6" {
+		t.Fatalf("unexpected compiled outbounds: %+v", compiler.outbounds)
+	}
+	if compiler.routing == nil || compiler.routing.DomainStrategy != "AsIs" || len(compiler.routing.Rules) != 1 {
+		t.Fatalf("unexpected compiled routing: %+v", compiler.routing)
+	}
+	if compiler.dns == nil || compiler.dns.QueryStrategy != "UseIPv4" {
+		t.Fatalf("unexpected compiled dns: %+v", compiler.dns)
+	}
+	if len(compiler.inbounds) != 1 || len(compiler.users) != 1 {
+		t.Fatalf("unexpected compiled inbounds=%d users=%d", len(compiler.inbounds), len(compiler.users))
+	}
+
+	t.Run("missing raw config falls back gracefully without snapshot", func(t *testing.T) {
+		missingStorage := &countingConfigStorage{err: domain.ErrNotFound}
+		missingSnap := &recordingSnapshotRepo{}
+		missingCompiler := &capturingCompiler{}
+		missingInbounds := &countingInboundRepo{inbounds: inboundRepo.inbounds}
+
+		svc2 := service.NewConfigService(missingStorage, nil, missingInbounds, userRepo, missingSnap, missingCompiler)
+		if err := svc2.SaveConfigQuietly(ctx, "missing-raw"); err != nil {
+			t.Fatalf("SaveConfigQuietly with ErrNotFound failed: %v", err)
+		}
+		if got := missingStorage.readCalls.Load(); got != 1 {
+			t.Fatalf("expected 1 ReadRawConfig call, got %d", got)
+		}
+		if len(missingSnap.saved) != 0 {
+			t.Fatalf("expected 0 snapshots when config does not exist, got %d", len(missingSnap.saved))
+		}
+		if missingCompiler.routing == nil || missingCompiler.routing.DomainStrategy != "IPIfNonMatch" {
+			t.Fatalf("expected default routing fallback, got %+v", missingCompiler.routing)
+		}
+	})
+}
+
 
 
 

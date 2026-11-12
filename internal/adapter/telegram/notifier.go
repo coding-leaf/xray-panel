@@ -4,7 +4,9 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"net/http"
 	"sync"
+	"time"
 
 	"panel/internal/domain"
 	"panel/internal/pkg/logger"
@@ -12,11 +14,14 @@ import (
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 )
 
+const defaultTelegramHTTPTimeout = 45 * time.Second
+
 type BotAdapter struct {
 	mu          sync.RWMutex
 	botToken    string
 	adminChatID int64
 	bot         *tgbotapi.BotAPI
+	apiEndpoint string
 	ReloadChan  chan struct{}
 }
 
@@ -28,15 +33,32 @@ func NewBotAdapter(botToken string, adminChatID int64) *BotAdapter {
 	}
 }
 
+func newTelegramBotAPI(token, endpoint string) (*tgbotapi.BotAPI, error) {
+	if endpoint == "" {
+		endpoint = tgbotapi.APIEndpoint
+	}
+	client := &http.Client{
+		Timeout: defaultTelegramHTTPTimeout,
+	}
+	return tgbotapi.NewBotAPIWithClient(token, endpoint, client)
+}
+
 func (b *BotAdapter) Init() error {
-	if b.botToken == "" {
+	b.mu.RLock()
+	token := b.botToken
+	endpoint := b.apiEndpoint
+	b.mu.RUnlock()
+
+	if token == "" {
 		return nil
 	}
-	bot, err := tgbotapi.NewBotAPI(b.botToken)
+	bot, err := newTelegramBotAPI(token, endpoint)
 	if err != nil {
 		return fmt.Errorf("init telegram bot failed: %w", err)
 	}
+	b.mu.Lock()
 	b.bot = bot
+	b.mu.Unlock()
 	slog.Info("Telegram bot initialized", slog.String("username", bot.Self.UserName))
 	return nil
 }
@@ -48,10 +70,25 @@ func (b *BotAdapter) SetBotForTest(bot *tgbotapi.BotAPI) {
 	b.bot = bot
 }
 
+// SetAPIEndpointForTest overrides the Telegram Bot API endpoint for unit testing.
+func (b *BotAdapter) SetAPIEndpointForTest(endpoint string) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.apiEndpoint = endpoint
+}
+
+// GetBotForTest returns the underlying BotAPI instance for unit testing.
+func (b *BotAdapter) GetBotForTest() *tgbotapi.BotAPI {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+	return b.bot
+}
+
 func (b *BotAdapter) UpdateConfig(botToken string, adminChatID int64) error {
 	b.mu.Lock()
 	b.botToken = botToken
 	b.adminChatID = adminChatID
+	endpoint := b.apiEndpoint
 
 	if botToken == "" {
 		b.bot = nil
@@ -63,7 +100,7 @@ func (b *BotAdapter) UpdateConfig(botToken string, adminChatID int64) error {
 		return nil
 	}
 
-	bot, err := tgbotapi.NewBotAPI(botToken)
+	bot, err := newTelegramBotAPI(botToken, endpoint)
 	if err != nil {
 		b.mu.Unlock()
 		return err

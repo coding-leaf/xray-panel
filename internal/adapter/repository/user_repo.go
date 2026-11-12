@@ -136,8 +136,14 @@ func (r *GORMUserRepository) BatchSyncTraffic(
 			if d.Up <= 0 && d.Down <= 0 {
 				continue
 			}
-			emails = append(emails, d.Email)
-			deltaMap[d.Email] = d
+			if existing, ok := deltaMap[d.Email]; ok {
+				existing.Up += d.Up
+				existing.Down += d.Down
+				deltaMap[d.Email] = existing
+			} else {
+				emails = append(emails, d.Email)
+				deltaMap[d.Email] = d
+			}
 			if err := tx.Model(&domain.User{}).
 				Where("email = ?", d.Email).
 				Updates(map[string]interface{}{
@@ -149,48 +155,30 @@ func (r *GORMUserRepository) BatchSyncTraffic(
 			}
 		}
 
-		// 2. 查询受影响的最新用户信息并记录每日 TrafficLog
+		// 2. 查询受影响的最新用户信息并按 200 条分批原子 ON CONFLICT UPSERT 每日 TrafficLog
 		if len(emails) > 0 {
 			if err := tx.Where("email IN ?", emails).Find(&updatedUsers).Error; err != nil {
 				return err
 			}
 
+			logsToUpsert := make([]domain.TrafficLog, 0, len(updatedUsers))
 			for _, u := range updatedUsers {
-				d := deltaMap[u.Email]
-				var log domain.TrafficLog
-				err := tx.Where("user_email = ? AND date = ?", u.Email, date).First(&log).Error
-				if err != nil {
-					if errors.Is(err, gorm.ErrRecordNotFound) {
-						newLog := domain.TrafficLog{
-							UserID:    u.ID,
-							UserEmail: u.Email,
-							UpBytes:   d.Up,
-							DownBytes: d.Down,
-							Date:      date,
-							CreatedAt: now,
-						}
-						if createErr := tx.Create(&newLog).Error; createErr != nil {
-							if updateErr := tx.Model(&domain.TrafficLog{}).
-								Where("user_email = ? AND date = ?", u.Email, date).
-								Updates(map[string]interface{}{
-									"up_bytes":   gorm.Expr("up_bytes + ?", d.Up),
-									"down_bytes": gorm.Expr("down_bytes + ?", d.Down),
-									"user_id":    u.ID,
-								}).Error; updateErr != nil {
-								return updateErr
-							}
-						}
-					} else {
-						return err
-					}
-				} else {
-					if updateErr := tx.Model(&log).Updates(map[string]interface{}{
-						"up_bytes":   gorm.Expr("up_bytes + ?", d.Up),
-						"down_bytes": gorm.Expr("down_bytes + ?", d.Down),
-						"user_id":    u.ID,
-					}).Error; updateErr != nil {
-						return updateErr
-					}
+				d, ok := deltaMap[u.Email]
+				if !ok || (d.Up <= 0 && d.Down <= 0) {
+					continue
+				}
+				logsToUpsert = append(logsToUpsert, domain.TrafficLog{
+					UserID:    u.ID,
+					UserEmail: u.Email,
+					UpBytes:   d.Up,
+					DownBytes: d.Down,
+					Date:      date,
+					CreatedAt: now,
+				})
+			}
+			if len(logsToUpsert) > 0 {
+				if err := tx.Clauses(trafficLogOnConflictClause()).CreateInBatches(logsToUpsert, 200).Error; err != nil {
+					return err
 				}
 			}
 		}

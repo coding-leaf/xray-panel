@@ -89,6 +89,8 @@ if systemctl is-active --quiet panel.service; then
     echo -e "${BLUE}  - 数据存储目录: ${DATA_DIR}                         ${PLAIN}"
     echo -e "${BLUE}  - 服务管理命令: systemctl restart panel              ${PLAIN}"
     echo -e "${BLUE}  - 查看运行日志: journalctl -u panel -f               ${PLAIN}"
+    echo -e "${YELLOW}  - 可选内核调优 (独立 VPS 启用 BBR 与 QUIC/Hysteria2 UDP 缓冲区基线，容器环境可跳过):${PLAIN}"
+    echo -e "${YELLOW}    cp deploy/99-xray-panel-sysctl.conf /etc/sysctl.d/99-xray-panel-sysctl.conf && sysctl --system${PLAIN}"
     echo -e "${GREEN}======================================================${PLAIN}"
 else
     echo -e "${RED}警告：panel.service 启动未就绪，请使用 'journalctl -u panel -e' 查看详细日志！${PLAIN}"

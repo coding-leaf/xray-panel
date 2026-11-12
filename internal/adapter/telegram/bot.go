@@ -36,6 +36,8 @@ type UserServiceController interface {
 	GetByEmail(ctx context.Context, email string) (*domain.User, error)
 }
 
+const maxConcurrentUpdates = 8
+
 type BotHandler struct {
 	adapter     *BotAdapter
 	userRepo    domain.UserRepository
@@ -45,6 +47,7 @@ type BotHandler struct {
 	userSvc     UserServiceController
 	publicURL   string
 	actionMu    sync.Mutex
+	sem         chan struct{}
 }
 
 func NewBotHandler(
@@ -64,6 +67,7 @@ func NewBotHandler(
 		xrayManager: xrayManager,
 		userSvc:     userSvc,
 		publicURL:   publicURL,
+		sem:         make(chan struct{}, maxConcurrentUpdates),
 	}
 }
 
@@ -103,10 +107,33 @@ func (c *contextAwareHTTPClient) Do(req *http.Request) (*http.Response, error) {
 	return http.DefaultClient.Do(req)
 }
 
+func (h *BotHandler) dispatchUpdate(ctx context.Context, sem chan struct{}, wg *sync.WaitGroup, fn func()) bool {
+	select {
+	case sem <- struct{}{}:
+	case <-ctx.Done():
+		return false
+	case <-h.adapter.ReloadChan:
+		return false
+	}
+
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		defer func() { <-sem }()
+		fn()
+	}()
+	return true
+}
+
 // Start runs the Telegram bot polling loop as an app.Service.
 // When ctx is canceled, it immediately stops long-polling and returns cleanly.
 func (h *BotHandler) Start(ctx context.Context) error {
 	slog.Info("Telegram Bot service started")
+
+	sem := h.sem
+	if sem == nil {
+		sem = make(chan struct{}, maxConcurrentUpdates)
+	}
 
 	for {
 		if ctx.Err() != nil {
@@ -116,6 +143,10 @@ func (h *BotHandler) Start(ctx context.Context) error {
 
 		h.adapter.mu.RLock()
 		bot := h.adapter.bot
+		var pollBot tgbotapi.BotAPI
+		if bot != nil {
+			pollBot = *bot
+		}
 		h.adapter.mu.RUnlock()
 
 		if bot == nil {
@@ -130,19 +161,18 @@ func (h *BotHandler) Start(ctx context.Context) error {
 			}
 		}
 
-		// 自动注册云端 Menu 按钮指令列表
-		h.registerBotCommands(bot)
-
-		// 注入感知 context 的 HTTP 客户端，当 ctx 取消时立即中断底层 HTTP 长轮询连接
-		origClient := bot.Client
-		bot.Client = &contextAwareHTTPClient{
-			base: origClient,
+		// 使用局部结构体浅拷贝挂载 context 感知客户端，避免与并发 SendMessage 读取 bot.Client 产生数据竞态
+		pollBot.Client = &contextAwareHTTPClient{
+			base: pollBot.Client,
 			ctx:  ctx,
 		}
 
+		// 自动注册云端 Menu 按钮指令列表
+		h.registerBotCommands(&pollBot)
+
 		u := tgbotapi.NewUpdate(0)
 		u.Timeout = 30
-		slog.Info("Telegram Bot long polling started", slog.String("username", bot.Self.UserName))
+		slog.Info("Telegram Bot long polling started", slog.String("username", pollBot.Self.UserName))
 
 		var wg sync.WaitGroup
 
@@ -158,7 +188,7 @@ func (h *BotHandler) Start(ctx context.Context) error {
 			default:
 			}
 
-			updates, err := bot.GetUpdates(u)
+			updates, err := pollBot.GetUpdates(u)
 			if err != nil {
 				if ctx.Err() != nil {
 					slog.Info("Telegram Bot context canceled during updates fetch")
@@ -181,27 +211,24 @@ func (h *BotHandler) Start(ctx context.Context) error {
 				}
 				if update.Message != nil {
 					msg := update.Message
-					wg.Add(1)
-					go func() {
-						defer wg.Done()
+					if !h.dispatchUpdate(ctx, sem, &wg, func() {
 						h.handleMessage(ctx, msg)
-					}()
+					}) {
+						break pollLoop
+					}
 				}
 				if update.CallbackQuery != nil {
 					cb := update.CallbackQuery
-					wg.Add(1)
-					go func() {
-						defer wg.Done()
+					if !h.dispatchUpdate(ctx, sem, &wg, func() {
 						h.handleCallbackQuery(ctx, cb)
-					}()
+					}) {
+						break pollLoop
+					}
 				}
 			}
 		}
 
 		wg.Wait()
-
-		// 还原原始 Client
-		bot.Client = origClient
 
 		if ctx.Err() != nil {
 			slog.Info("Telegram Bot service stopped gracefully")

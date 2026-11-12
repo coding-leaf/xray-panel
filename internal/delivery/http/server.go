@@ -33,13 +33,18 @@ func WithShutdownTimeout(timeout time.Duration) ServerOption {
 	}
 }
 
-// NewServer creates a new HTTP server service.
+// NewServer creates a new HTTP server service with safe timeout defaults.
 func NewServer(port string, handler http.Handler, opts ...ServerOption) *Server {
 	addr := fmt.Sprintf(":%s", port)
 	s := &Server{
 		httpServer: &http.Server{
-			Addr:    addr,
-			Handler: handler,
+			Addr:              addr,
+			Handler:           handler,
+			ReadHeaderTimeout: 10 * time.Second,
+			ReadTimeout:       30 * time.Second,
+			WriteTimeout:      60 * time.Second,
+			IdleTimeout:       120 * time.Second,
+			MaxHeaderBytes:    1 << 20,
 		},
 		shutdownTimeout: 5 * time.Second,
 	}
@@ -47,6 +52,11 @@ func NewServer(port string, handler http.Handler, opts ...ServerOption) *Server 
 		opt(s)
 	}
 	return s
+}
+
+// HTTPServer returns the underlying *http.Server instance.
+func (s *Server) HTTPServer() *http.Server {
+	return s.httpServer
 }
 
 // NewServerWithHTTPServer wraps an existing *http.Server instance.

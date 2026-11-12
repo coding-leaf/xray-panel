@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -141,11 +142,29 @@ func (s *GeoDataService) TriggerUpdate() error {
 	return nil
 }
 
+func newGeoDataHTTPClient() *http.Client {
+	transport := &http.Transport{
+		Proxy: http.ProxyFromEnvironment,
+		DialContext: (&net.Dialer{
+			Timeout:   15 * time.Second,
+			KeepAlive: 30 * time.Second,
+		}).DialContext,
+		TLSHandshakeTimeout:   15 * time.Second,
+		ResponseHeaderTimeout: 30 * time.Second,
+		IdleConnTimeout:       90 * time.Second,
+		ExpectContinueTimeout: 1 * time.Second,
+	}
+	return &http.Client{
+		Timeout:   180 * time.Second,
+		Transport: transport,
+	}
+}
+
 func (s *GeoDataService) runUpdateWorker() {
 	dataDir := s.getGeoDataDir(context.Background())
 	_ = os.MkdirAll(dataDir, 0755)
 
-	client := &http.Client{Timeout: 120 * time.Second}
+	client := newGeoDataHTTPClient()
 
 	// 1. 下载 geoip.dat (0% -> 48%)
 	s.setProgress(GeoDataProgress{
@@ -324,11 +343,18 @@ func (s *GeoDataService) downloadWithProgress(client *http.Client, url, destPath
 	}
 
 	if _, err := io.Copy(f, io.TeeReader(resp.Body, pw)); err != nil {
-		f.Close()
+		_ = f.Close()
 		_ = os.Remove(tmpPath)
 		return err
 	}
-	f.Close()
+	if err := f.Close(); err != nil {
+		_ = os.Remove(tmpPath)
+		return err
+	}
 
-	return os.Rename(tmpPath, destPath)
+	if err := os.Rename(tmpPath, destPath); err != nil {
+		_ = os.Remove(tmpPath)
+		return err
+	}
+	return nil
 }

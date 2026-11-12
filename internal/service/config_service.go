@@ -7,9 +7,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"panel/internal/domain"
@@ -33,6 +35,7 @@ type ConfigCompiler interface {
 }
 
 type ConfigService struct {
+	mu           sync.Mutex
 	configMgr    ConfigStorage
 	supervisor   ServiceSupervisor
 	inboundRepo  domain.InboundRepository
@@ -63,17 +66,26 @@ func NewConfigService(
 	}
 }
 
+func (s *ConfigService) recordSnapshotWithRaw(ctx context.Context, remark string, oldRaw []byte) {
+	if s.snapshotRepo == nil || len(oldRaw) == 0 {
+		return
+	}
+	if saveErr := s.snapshotRepo.Save(ctx, &domain.ConfigSnapshot{
+		RawConfig: string(oldRaw),
+		Remark:    remark,
+		CreatedAt: time.Now(),
+	}); saveErr != nil {
+		slog.Warn("Failed to save config snapshot before write", slog.String("error", saveErr.Error()))
+	}
+}
+
 func (s *ConfigService) recordSnapshotBeforeWrite(ctx context.Context, remark string) {
-	if s.snapshotRepo == nil {
+	if s.snapshotRepo == nil || s.configMgr == nil {
 		return
 	}
 	oldRaw, err := s.configMgr.ReadRawConfig()
 	if err == nil && len(oldRaw) > 0 {
-		_ = s.snapshotRepo.Save(ctx, &domain.ConfigSnapshot{
-			RawConfig: string(oldRaw),
-			Remark:    remark,
-			CreatedAt: time.Now(),
-		})
+		s.recordSnapshotWithRaw(ctx, remark, oldRaw)
 	}
 }
 
@@ -97,6 +109,8 @@ func (s *ConfigService) RollbackSnapshot(ctx context.Context, id uint) error {
 }
 
 func (s *ConfigService) GetRawConfig(ctx context.Context) ([]byte, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	return s.configMgr.ReadRawConfig()
 }
 
@@ -105,76 +119,62 @@ func (s *ConfigService) ValidateRawConfig(ctx context.Context, rawJSON []byte) e
 }
 
 func (s *ConfigService) SaveAndApplyRawConfig(ctx context.Context, rawJSON []byte) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.saveAndApplyRawConfigLocked(ctx, rawJSON)
+}
+
+func (s *ConfigService) saveAndApplyRawConfigLocked(ctx context.Context, rawJSON []byte) error {
 	s.recordSnapshotBeforeWrite(ctx, "保存并应用原生 JSON 配置")
 	if err := s.configMgr.WriteConfig(ctx, rawJSON); err != nil {
 		return err
 	}
 
-	_ = s.syncFromRawJSON(ctx, rawJSON)
-	return s.supervisor.Reload(ctx)
+	if err := s.syncFromRawJSONLocked(ctx, rawJSON); err != nil {
+		return fmt.Errorf("sync from raw config failed: %w", err)
+	}
+	if s.supervisor != nil {
+		return s.supervisor.Reload(ctx)
+	}
+	return nil
 }
 
 func (s *ConfigService) SyncFromFile(ctx context.Context) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
 	raw, err := s.configMgr.ReadRawConfig()
 	if err != nil || len(raw) == 0 {
 		return nil
 	}
-	return s.syncFromRawJSON(ctx, raw)
+	return s.syncFromRawJSONLocked(ctx, raw)
 }
 
-// SaveConfigQuietly 核心强类型编译管道：读取所有领域实体 ➔ 编译为合规 JSON ➔ 校验写入 ➔ 静默持久化 (不平滑重载 supervisor)
-func (s *ConfigService) SaveConfigQuietly(ctx context.Context, remark string) error {
-	// 1. 读取 Inbounds
-	var inbounds []domain.Inbound
-	if s.inboundRepo != nil {
-		var err error
-		inbounds, err = s.inboundRepo.ListAll(ctx)
-		if err != nil {
-			return err
-		}
-	}
+func (s *ConfigService) compileAndWriteLocked(
+	ctx context.Context,
+	inbounds []domain.Inbound,
+	outbounds []domain.Outbound,
+	routing *domain.RoutingConfig,
+	dns *domain.DNSConfig,
+	users []domain.User,
+	remark string,
+	reload bool,
+) error {
+	return s.compileAndWriteWithRawLocked(ctx, inbounds, outbounds, routing, dns, users, remark, reload, nil, false)
+}
 
-	// 2. 读取 Outbounds
-	outbounds, err := s.ListOutbounds(ctx)
-	if err != nil {
-		if !errors.Is(err, domain.ErrNotFound) {
-			return fmt.Errorf("read outbounds failed, abort saving to protect config: %w", err)
-		}
-		outbounds = nil
-	}
-
-	// 3. 读取 Routing
-	routing, err := s.GetRoutingConfig(ctx)
-	if err != nil {
-		if !errors.Is(err, domain.ErrNotFound) {
-			return fmt.Errorf("read routing failed, abort saving to protect config: %w", err)
-		}
-		routing = nil
-	}
-	if routing == nil {
-		routing = &domain.RoutingConfig{DomainStrategy: "IPIfNonMatch"}
-	}
-	s.ensureSubRouteRules(routing, inbounds)
-
-	// 4. 读取 DNS
-	dns, err := s.GetDNSConfig(ctx)
-	if err != nil {
-		if !errors.Is(err, domain.ErrNotFound) {
-			return fmt.Errorf("read dns failed, abort saving to protect config: %w", err)
-		}
-		dns = nil
-	}
-
-	// 5. 读取 Users
-	var users []domain.User
-	if s.userRepo != nil {
-		users, err = s.userRepo.ListAll(ctx)
-		if err != nil {
-			return err
-		}
-	}
-
-	// 6. 单向编译为强类型 JSON
+func (s *ConfigService) compileAndWriteWithRawLocked(
+	ctx context.Context,
+	inbounds []domain.Inbound,
+	outbounds []domain.Outbound,
+	routing *domain.RoutingConfig,
+	dns *domain.DNSConfig,
+	users []domain.User,
+	remark string,
+	reload bool,
+	oldRaw []byte,
+	hasOldRaw bool,
+) error {
 	if s.compiler == nil {
 		return fmt.Errorf("compiler not configured")
 	}
@@ -183,20 +183,83 @@ func (s *ConfigService) SaveConfigQuietly(ctx context.Context, remark string) er
 		return fmt.Errorf("compile config failed: %w", err)
 	}
 
-	// 7. 写入 (不调用 supervisor.Reload)
-	s.recordSnapshotBeforeWrite(ctx, remark)
+	if hasOldRaw {
+		s.recordSnapshotWithRaw(ctx, remark, oldRaw)
+	} else {
+		s.recordSnapshotBeforeWrite(ctx, remark)
+	}
 	if s.configMgr != nil {
 		if err := s.configMgr.WriteConfig(ctx, jsonBytes); err != nil {
 			return err
 		}
 	}
-
+	if reload && s.supervisor != nil {
+		return s.supervisor.Reload(ctx)
+	}
 	return nil
+}
+
+// SaveConfigQuietly 核心强类型编译管道：读取所有领域实体 ➔ 编译为合规 JSON ➔ 校验写入 ➔ 静默持久化 (不平滑重载 supervisor)
+func (s *ConfigService) SaveConfigQuietly(ctx context.Context, remark string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.saveConfigQuietlyLocked(ctx, remark)
+}
+
+func (s *ConfigService) saveConfigQuietlyLocked(ctx context.Context, remark string) error {
+	// 1. 读取 Inbounds（仅查询 1 次，直接复用于路由兜底对账）
+	var inbounds []domain.Inbound
+	if s.inboundRepo != nil {
+		var err error
+		inbounds, err = s.inboundRepo.ListAll(ctx)
+		if err != nil {
+			return fmt.Errorf("read inbounds failed, abort saving to protect config: %w", err)
+		}
+	}
+
+	// 2-4. 单次读盘 + 单次 JSONC 清洗反序列化，同时提取 Outbounds / Routing / DNS 与原始快照字节
+	var (
+		outbounds []domain.Outbound
+		routing   *domain.RoutingConfig
+		dns       *domain.DNSConfig
+		oldRaw    []byte
+	)
+	sections, err := s.readParsedSectionsLocked(ctx, inbounds, true)
+	if err != nil {
+		if !errors.Is(err, domain.ErrNotFound) {
+			return fmt.Errorf("read config sections failed, abort saving to protect config: %w", err)
+		}
+		routing = &domain.RoutingConfig{DomainStrategy: "IPIfNonMatch"}
+		s.ensureSubRouteRules(routing, inbounds)
+	} else {
+		outbounds = sections.outbounds
+		routing = sections.routing
+		dns = sections.dns
+		oldRaw = sections.rawBytes
+	}
+
+	// 5. 读取 Users
+	var users []domain.User
+	if s.userRepo != nil {
+		users, err = s.userRepo.ListAll(ctx)
+		if err != nil {
+			return fmt.Errorf("read users failed, abort saving to protect config: %w", err)
+		}
+	}
+
+	// 6-7. 单向编译并写入 (复用 oldRaw 写入快照，不调用 supervisor.Reload)
+	return s.compileAndWriteWithRawLocked(ctx, inbounds, outbounds, routing, dns, users, remark, false, oldRaw, true)
 }
 
 // RecompileAndApply 核心强类型编译管道：读取所有领域实体 ➔ 编译为合规 JSON ➔ 校验写入 ➔ 平滑重载
 func (s *ConfigService) RecompileAndApply(ctx context.Context, remark string) error {
-	if err := s.SaveConfigQuietly(ctx, remark); err != nil {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.recompileAndApplyLocked(ctx, remark)
+}
+
+func (s *ConfigService) recompileAndApplyLocked(ctx context.Context, remark string) error {
+	if err := s.saveConfigQuietlyLocked(ctx, remark); err != nil {
 		return err
 	}
 
@@ -206,137 +269,176 @@ func (s *ConfigService) RecompileAndApply(ctx context.Context, remark string) er
 	return nil
 }
 
-func (s *ConfigService) syncFromRawJSON(ctx context.Context, rawJSON []byte) error {
+func (s *ConfigService) syncFromRawJSONLocked(ctx context.Context, rawJSON []byte) error {
 	cleaned := jsonc.StripJSONC(rawJSON)
 
 	var root map[string]interface{}
-	if err := json.Unmarshal(cleaned, &root); err == nil {
-		if inboundsRaw, ok := root["inbounds"].([]interface{}); ok {
-			for _, inRaw := range inboundsRaw {
-				ib, ok := inRaw.(map[string]interface{})
-				if !ok {
-					continue
-				}
-				tag, _ := ib["tag"].(string)
-				if tag == "" || tag == "api" {
-					continue
-				}
+	if err := json.Unmarshal(cleaned, &root); err != nil {
+		return fmt.Errorf("parse raw config json failed: %w", err)
+	}
 
-				port := 0
-				if pFloat, ok := ib["port"].(float64); ok {
-					port = int(pFloat)
-				}
-				listen, _ := ib["listen"].(string)
-				protocol, _ := ib["protocol"].(string)
+	inboundsRaw, ok := root["inbounds"].([]interface{})
+	if !ok {
+		return nil
+	}
 
-				existing, _ := s.inboundRepo.GetByTag(ctx, tag)
-				if strings.EqualFold(protocol, "vless") {
-					if settingsMap, ok := ib["settings"].(map[string]interface{}); ok {
-						rawFlow, _ := settingsMap["flow"].(string)
-						if strings.TrimSpace(rawFlow) == "" {
-							preserveNone := false
-							if existing != nil {
-								var prevSettings map[string]interface{}
-								if err := json.Unmarshal([]byte(existing.SettingsJSON), &prevSettings); err == nil {
-									if pf, ok := prevSettings["flow"].(string); ok && strings.EqualFold(strings.TrimSpace(pf), "none") {
-										preserveNone = true
-									}
-								}
-							}
-							hasClientWithFlow := false
-							hasAnyClient := false
-							if clientsRaw, ok := settingsMap["clients"].([]interface{}); ok && len(clientsRaw) > 0 {
-								hasAnyClient = true
-								for _, cRaw := range clientsRaw {
-									if cMap, ok := cRaw.(map[string]interface{}); ok {
-										if cf, _ := cMap["flow"].(string); strings.TrimSpace(cf) != "" {
-											hasClientWithFlow = true
-											break
-										}
-									}
-								}
-							}
-							if (preserveNone && !hasClientWithFlow) || (hasAnyClient && !hasClientWithFlow) {
-								settingsMap["flow"] = "none"
+	for _, inRaw := range inboundsRaw {
+		ib, ok := inRaw.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		tag, _ := ib["tag"].(string)
+		if tag == "" || tag == "api" {
+			continue
+		}
+
+		port := 0
+		if pFloat, ok := ib["port"].(float64); ok {
+			port = int(pFloat)
+		}
+		listen, _ := ib["listen"].(string)
+		protocol, _ := ib["protocol"].(string)
+
+		var existing *domain.Inbound
+		if s.inboundRepo != nil {
+			var err error
+			existing, err = s.inboundRepo.GetByTag(ctx, tag)
+			if err != nil && !errors.Is(err, domain.ErrNotFound) {
+				return fmt.Errorf("lookup inbound %q failed: %w", tag, err)
+			}
+		}
+
+		if strings.EqualFold(protocol, "vless") {
+			if settingsMap, ok := ib["settings"].(map[string]interface{}); ok {
+				rawFlow, _ := settingsMap["flow"].(string)
+				if strings.TrimSpace(rawFlow) == "" {
+					preserveNone := false
+					if existing != nil {
+						var prevSettings map[string]interface{}
+						if err := json.Unmarshal([]byte(existing.SettingsJSON), &prevSettings); err == nil {
+							if pf, ok := prevSettings["flow"].(string); ok && strings.EqualFold(strings.TrimSpace(pf), "none") {
+								preserveNone = true
 							}
 						}
 					}
-				}
-
-				settingsBytes, _ := json.Marshal(ib["settings"])
-				streamBytes, _ := json.Marshal(ib["streamSettings"])
-				sniffingBytes, _ := json.Marshal(ib["sniffing"])
-
-				if existing != nil {
-					existing.Port = port
-					existing.Listen = listen
-					existing.Protocol = protocol
-					existing.SettingsJSON = string(settingsBytes)
-					existing.StreamSettings = string(streamBytes)
-					existing.SniffingJSON = string(sniffingBytes)
-					_ = s.inboundRepo.Update(ctx, existing)
-				} else {
-					newIn := &domain.Inbound{
-						Tag:            tag,
-						Port:           port,
-						Listen:         listen,
-						Protocol:       protocol,
-						SettingsJSON:   string(settingsBytes),
-						StreamSettings: string(streamBytes),
-						SniffingJSON:   string(sniffingBytes),
-						Remark:         tag,
-						Enabled:        true,
-						CreatedAt:      time.Now(),
-						UpdatedAt:      time.Now(),
-					}
-					_ = s.inboundRepo.Create(ctx, newIn)
-				}
-
-				// 收集每个 inbound 下的 clients（用户）
-				if settingsMap, ok := ib["settings"].(map[string]interface{}); ok {
-					if clientsRaw, ok := settingsMap["clients"].([]interface{}); ok {
+					hasClientWithFlow := false
+					hasAnyClient := false
+					if clientsRaw, ok := settingsMap["clients"].([]interface{}); ok && len(clientsRaw) > 0 {
+						hasAnyClient = true
 						for _, cRaw := range clientsRaw {
-							cMap, ok := cRaw.(map[string]interface{})
-							if !ok {
-								continue
-							}
-							email, _ := cMap["email"].(string)
-							uuidStr, _ := cMap["id"].(string)
-							if uuidStr == "" {
-								uuidStr, _ = cMap["password"].(string)
-							}
-							flow, _ := cMap["flow"].(string)
-
-							if email == "" || uuidStr == "" {
-								continue
-							}
-
-							existingUser, _ := s.userRepo.GetByEmail(ctx, email)
-							if existingUser != nil {
-								existingUser.UUID = uuidStr
-								tags := existingUser.GetInboundTagList()
-								if !existingUser.HasInbound(tag) {
-									tags = append(tags, tag)
-									existingUser.InboundTags = strings.Join(tags, ",")
+							if cMap, ok := cRaw.(map[string]interface{}); ok {
+								if cf, _ := cMap["flow"].(string); strings.TrimSpace(cf) != "" {
+									hasClientWithFlow = true
+									break
 								}
-								_ = s.userRepo.Update(ctx, existingUser)
-							} else {
-								tokenBytes := make([]byte, 16)
-								_, _ = rand.Read(tokenBytes)
-								subToken := hex.EncodeToString(tokenBytes)
+							}
+						}
+					}
+					if (preserveNone && !hasClientWithFlow) || (hasAnyClient && !hasClientWithFlow) {
+						settingsMap["flow"] = "none"
+					}
+				}
+			}
+		}
 
-								newUser := &domain.User{
-									UUID:        uuidStr,
-									Email:       email,
-									InboundTag:  tag,
-									InboundTags: tag,
-									Flow:        flow,
-									SubToken:    subToken,
-									Enabled:     true,
-									CreatedAt:   time.Now(),
-									UpdatedAt:   time.Now(),
-								}
-								_ = s.userRepo.Create(ctx, newUser)
+		settingsBytes, err := json.Marshal(ib["settings"])
+		if err != nil {
+			return fmt.Errorf("marshal settings for inbound %q failed: %w", tag, err)
+		}
+		streamBytes, err := json.Marshal(ib["streamSettings"])
+		if err != nil {
+			return fmt.Errorf("marshal streamSettings for inbound %q failed: %w", tag, err)
+		}
+		sniffingBytes, err := json.Marshal(ib["sniffing"])
+		if err != nil {
+			return fmt.Errorf("marshal sniffing for inbound %q failed: %w", tag, err)
+		}
+
+		if s.inboundRepo != nil {
+			if existing != nil {
+				existing.Port = port
+				existing.Listen = listen
+				existing.Protocol = protocol
+				existing.SettingsJSON = string(settingsBytes)
+				existing.StreamSettings = string(streamBytes)
+				existing.SniffingJSON = string(sniffingBytes)
+				if err := s.inboundRepo.Update(ctx, existing); err != nil {
+					return fmt.Errorf("update inbound %q failed: %w", tag, err)
+				}
+			} else {
+				newIn := &domain.Inbound{
+					Tag:            tag,
+					Port:           port,
+					Listen:         listen,
+					Protocol:       protocol,
+					SettingsJSON:   string(settingsBytes),
+					StreamSettings: string(streamBytes),
+					SniffingJSON:   string(sniffingBytes),
+					Remark:         tag,
+					Enabled:        true,
+					CreatedAt:      time.Now(),
+					UpdatedAt:      time.Now(),
+				}
+				if err := s.inboundRepo.Create(ctx, newIn); err != nil {
+					return fmt.Errorf("create inbound %q failed: %w", tag, err)
+				}
+			}
+		}
+
+		// 收集每个 inbound 下的 clients（用户）
+		if s.userRepo != nil {
+			if settingsMap, ok := ib["settings"].(map[string]interface{}); ok {
+				if clientsRaw, ok := settingsMap["clients"].([]interface{}); ok {
+					for _, cRaw := range clientsRaw {
+						cMap, ok := cRaw.(map[string]interface{})
+						if !ok {
+							continue
+						}
+						email, _ := cMap["email"].(string)
+						uuidStr, _ := cMap["id"].(string)
+						if uuidStr == "" {
+							uuidStr, _ = cMap["password"].(string)
+						}
+						flow, _ := cMap["flow"].(string)
+
+						if email == "" || uuidStr == "" {
+							continue
+						}
+
+						existingUser, err := s.userRepo.GetByEmail(ctx, email)
+						if err != nil && !errors.Is(err, domain.ErrNotFound) {
+							return fmt.Errorf("lookup user %q failed: %w", email, err)
+						}
+						if existingUser != nil {
+							existingUser.UUID = uuidStr
+							tags := existingUser.GetInboundTagList()
+							if !existingUser.HasInbound(tag) {
+								tags = append(tags, tag)
+								existingUser.InboundTags = strings.Join(tags, ",")
+							}
+							if err := s.userRepo.Update(ctx, existingUser); err != nil {
+								return fmt.Errorf("update user %q failed: %w", email, err)
+							}
+						} else {
+							tokenBytes := make([]byte, 16)
+							if _, err := rand.Read(tokenBytes); err != nil {
+								return fmt.Errorf("generate sub token for user %q failed: %w", email, err)
+							}
+							subToken := hex.EncodeToString(tokenBytes)
+
+							newUser := &domain.User{
+								UUID:        uuidStr,
+								Email:       email,
+								InboundTag:  tag,
+								InboundTags: tag,
+								Flow:        flow,
+								SubToken:    subToken,
+								Enabled:     true,
+								CreatedAt:   time.Now(),
+								UpdatedAt:   time.Now(),
+							}
+							if err := s.userRepo.Create(ctx, newUser); err != nil {
+								return fmt.Errorf("create user %q failed: %w", email, err)
 							}
 						}
 					}
@@ -347,28 +449,127 @@ func (s *ConfigService) syncFromRawJSON(ctx context.Context, rawJSON []byte) err
 	return nil
 }
 
+type statusProvider interface {
+	GetStatus(ctx context.Context) (domain.ServiceStatus, error)
+}
+
 func (s *ConfigService) ListInbounds(ctx context.Context) ([]domain.Inbound, error) {
 	list, err := s.inboundRepo.ListAll(ctx)
 	if err != nil {
 		return nil, err
 	}
-	for i := range list {
-		list[i].LatencyMs, list[i].IsAlive = probeInboundPort(list[i].Listen, list[i].Port)
+
+	needCoreStatus := false
+	for _, ib := range list {
+		if ib.Enabled && ib.Port > 0 && isPureUDPInbound(ib) {
+			needCoreStatus = true
+			break
+		}
 	}
+
+	coreRunning := false
+	if needCoreStatus {
+		coreRunning = s.isCoreRunning(ctx)
+	}
+
+	var wg sync.WaitGroup
+	for i := range list {
+		ib := &list[i]
+		if !ib.Enabled || ib.Port <= 0 {
+			ib.LatencyMs = 0
+			ib.IsAlive = false
+			continue
+		}
+		if isPureUDPInbound(*ib) {
+			ib.LatencyMs = 0
+			ib.IsAlive = coreRunning
+			continue
+		}
+		wg.Add(1)
+		go func(idx int, listen string, port int) {
+			defer wg.Done()
+			list[idx].LatencyMs, list[idx].IsAlive = probeInboundPort(listen, port)
+		}(i, ib.Listen, ib.Port)
+	}
+	wg.Wait()
+
 	return list, nil
+}
+
+func (s *ConfigService) isCoreRunning(ctx context.Context) bool {
+	if s.supervisor == nil {
+		return true
+	}
+	sp, ok := s.supervisor.(statusProvider)
+	if !ok {
+		return true
+	}
+	st, err := sp.GetStatus(ctx)
+	if err != nil {
+		slog.Warn("Failed to query core status for UDP inbound check", slog.String("error", err.Error()))
+		return false
+	}
+	return st.Active
+}
+
+func isPureUDPInbound(ib domain.Inbound) bool {
+	proto := strings.ToLower(strings.TrimSpace(ib.Protocol))
+	if proto == "hysteria2" || proto == "hy2" {
+		return true
+	}
+	if proto != "dokodemo-door" {
+		return false
+	}
+	var settings struct {
+		Network string `json:"network"`
+	}
+	if ib.SettingsJSON != "" {
+		if err := json.Unmarshal([]byte(ib.SettingsJSON), &settings); err == nil {
+			if netVal := strings.TrimSpace(settings.Network); netVal != "" {
+				return isPureUDPNetwork(netVal)
+			}
+		}
+	}
+	var stream struct {
+		Network string `json:"network"`
+	}
+	if ib.StreamSettings != "" {
+		if err := json.Unmarshal([]byte(ib.StreamSettings), &stream); err == nil {
+			if netVal := strings.TrimSpace(stream.Network); netVal != "" {
+				return isPureUDPNetwork(netVal)
+			}
+		}
+	}
+	return false
+}
+
+func isPureUDPNetwork(network string) bool {
+	hasUDP := false
+	for _, part := range strings.Split(strings.ToLower(network), ",") {
+		switch strings.TrimSpace(part) {
+		case "tcp":
+			return false
+		case "udp":
+			hasUDP = true
+		}
+	}
+	return hasUDP
 }
 
 func probeInboundPort(listen string, port int) (int64, bool) {
 	if port <= 0 {
 		return 0, false
 	}
-	host := listen
-	if host == "0.0.0.0" || host == "" {
+	host := strings.TrimSpace(listen)
+	switch host {
+	case "", "0.0.0.0":
 		host = "127.0.0.1"
+	case "::", "[::]":
+		host = "::1"
 	}
 	addr := net.JoinHostPort(host, strconv.Itoa(port))
 	start := time.Now()
-	conn, err := net.DialTimeout("tcp", addr, 1000*time.Millisecond)
+	conn, err := net.DialTimeout("tcp", addr, 200*time.Millisecond)
 	if err != nil {
 		return 0, false
 	}
@@ -385,22 +586,31 @@ func (s *ConfigService) CreateInbound(ctx context.Context, inbound *domain.Inbou
 		return fmt.Errorf("%w: tag is required", domain.ErrInvalidInput)
 	}
 
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
 	if err := s.inboundRepo.Create(ctx, inbound); err != nil {
 		return err
 	}
 
-	return s.RecompileAndApply(ctx, fmt.Sprintf("创建入站节点 %s", inbound.Tag))
+	return s.recompileAndApplyLocked(ctx, fmt.Sprintf("创建入站节点 %s", inbound.Tag))
 }
 
 func (s *ConfigService) UpdateInbound(ctx context.Context, inbound *domain.Inbound) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
 	if err := s.inboundRepo.Update(ctx, inbound); err != nil {
 		return err
 	}
 
-	return s.RecompileAndApply(ctx, fmt.Sprintf("更新入站节点 %s", inbound.Tag))
+	return s.recompileAndApplyLocked(ctx, fmt.Sprintf("更新入站节点 %s", inbound.Tag))
 }
 
 func (s *ConfigService) DeleteInbound(ctx context.Context, id uint) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
 	inbound, err := s.inboundRepo.GetByID(ctx, id)
 	if err != nil {
 		return err
@@ -409,7 +619,7 @@ func (s *ConfigService) DeleteInbound(ctx context.Context, id uint) error {
 		return err
 	}
 
-	return s.RecompileAndApply(ctx, fmt.Sprintf("删除入站节点 %s", inbound.Tag))
+	return s.recompileAndApplyLocked(ctx, fmt.Sprintf("删除入站节点 %s", inbound.Tag))
 }
 
 func (s *ConfigService) SyncUserToFile(ctx context.Context, authorizedTags []string, user *domain.User, isDelete bool) error {
@@ -435,31 +645,26 @@ func cleanMux(muxVal string) string {
 	return trimmed
 }
 
-func (s *ConfigService) ListOutbounds(ctx context.Context) ([]domain.Outbound, error) {
-	raw, err := s.configMgr.ReadRawConfig()
-	if err != nil {
-		return nil, err
-	}
-	cleaned := jsonc.StripJSONC(raw)
+type rawOutboundItem struct {
+	Tag            string          `json:"tag"`
+	Protocol       string          `json:"protocol"`
+	SendThrough    string          `json:"sendThrough"`
+	TargetStrategy string          `json:"targetStrategy"`
+	Settings       json.RawMessage `json:"settings"`
+	StreamSettings json.RawMessage `json:"streamSettings"`
+	Mux            json.RawMessage `json:"mux"`
+}
 
-	var root struct {
-		Outbounds []struct {
-			Tag            string          `json:"tag"`
-			Protocol       string          `json:"protocol"`
-			SendThrough    string          `json:"sendThrough"`
-			TargetStrategy string          `json:"targetStrategy"`
-			Settings       json.RawMessage `json:"settings"`
-			StreamSettings json.RawMessage `json:"streamSettings"`
-			Mux            json.RawMessage `json:"mux"`
-		} `json:"outbounds"`
-	}
+type parsedRawSections struct {
+	rawBytes  []byte
+	outbounds []domain.Outbound
+	routing   *domain.RoutingConfig
+	dns       *domain.DNSConfig
+}
 
-	if err := json.Unmarshal(cleaned, &root); err != nil {
-		return nil, err
-	}
-
+func parseOutboundsList(items []rawOutboundItem) []domain.Outbound {
 	var list []domain.Outbound
-	for _, ob := range root.Outbounds {
+	for _, ob := range items {
 		var muxStr string
 		if len(ob.Mux) > 0 {
 			muxStr = cleanMux(string(ob.Mux))
@@ -483,11 +688,128 @@ func (s *ConfigService) ListOutbounds(ctx context.Context) ([]domain.Outbound, e
 			Mux:            muxStr,
 		})
 	}
-	return list, nil
+	return list
+}
+
+func (s *ConfigService) normalizeRoutingConfig(
+	ctx context.Context,
+	cfg domain.RoutingConfig,
+	inbounds []domain.Inbound,
+	hasInbounds bool,
+) (*domain.RoutingConfig, error) {
+	if cfg.DomainStrategy == "" {
+		cfg.DomainStrategy = "IPIfNonMatch"
+	}
+
+	// 自动过滤内部 api 规则，并对历史遗留堆叠规则进行幂等去重
+	seen := make(map[string]bool)
+	var cleanRules []domain.RoutingRule
+	for _, r := range cfg.Rules {
+		if (len(r.InboundTag) > 0 && r.InboundTag[0] == "api") || r.OutboundTag == "api" {
+			continue
+		}
+		keyBytes, err := json.Marshal(r)
+		if err != nil {
+			return nil, fmt.Errorf("marshal routing rule failed: %w", err)
+		}
+		key := string(keyBytes)
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		cleanRules = append(cleanRules, r)
+	}
+	cfg.Rules = cleanRules
+
+	// 确保所有启用的 SubRoutes 在 routing.Rules 中均有显式规则（若无则默认追加至尾部）
+	if !hasInbounds && s.inboundRepo != nil {
+		var err error
+		inbounds, err = s.inboundRepo.ListAll(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("read inbounds for routing failed: %w", err)
+		}
+	}
+	if s.inboundRepo != nil || hasInbounds {
+		s.ensureSubRouteRules(&cfg, inbounds)
+	}
+
+	return &cfg, nil
+}
+
+func normalizeDNSConfig(cfg domain.DNSConfig) *domain.DNSConfig {
+	if len(cfg.Servers) == 0 {
+		cfg.Servers = []interface{}{"https://1.1.1.1/dns-query", "8.8.8.8", "localhost"}
+	}
+	if cfg.QueryStrategy == "" {
+		cfg.QueryStrategy = "UseIP"
+	}
+	return &cfg
+}
+
+func (s *ConfigService) readParsedSectionsLocked(ctx context.Context, inbounds []domain.Inbound, hasInbounds bool) (*parsedRawSections, error) {
+	if s.configMgr == nil {
+		return nil, domain.ErrNotFound
+	}
+	raw, err := s.configMgr.ReadRawConfig()
+	if err != nil {
+		return nil, err
+	}
+	cleaned := jsonc.StripJSONC(raw)
+
+	var root struct {
+		Outbounds []rawOutboundItem    `json:"outbounds"`
+		Routing   domain.RoutingConfig `json:"routing"`
+		DNS       domain.DNSConfig     `json:"dns"`
+	}
+	if err := json.Unmarshal(cleaned, &root); err != nil {
+		return nil, err
+	}
+
+	routing, err := s.normalizeRoutingConfig(ctx, root.Routing, inbounds, hasInbounds)
+	if err != nil {
+		return nil, err
+	}
+
+	return &parsedRawSections{
+		rawBytes:  raw,
+		outbounds: parseOutboundsList(root.Outbounds),
+		routing:   routing,
+		dns:       normalizeDNSConfig(root.DNS),
+	}, nil
+}
+
+func (s *ConfigService) ListOutbounds(ctx context.Context) ([]domain.Outbound, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.listOutboundsLocked(ctx)
+}
+
+func (s *ConfigService) listOutboundsLocked(ctx context.Context) ([]domain.Outbound, error) {
+	if s.configMgr == nil {
+		return nil, domain.ErrNotFound
+	}
+	raw, err := s.configMgr.ReadRawConfig()
+	if err != nil {
+		return nil, err
+	}
+	cleaned := jsonc.StripJSONC(raw)
+
+	var root struct {
+		Outbounds []rawOutboundItem `json:"outbounds"`
+	}
+
+	if err := json.Unmarshal(cleaned, &root); err != nil {
+		return nil, err
+	}
+
+	return parseOutboundsList(root.Outbounds), nil
 }
 
 func (s *ConfigService) SaveOutbound(ctx context.Context, outbound domain.Outbound) error {
-	existingList, err := s.ListOutbounds(ctx)
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	existingList, err := s.listOutboundsLocked(ctx)
 	if err != nil && !errors.Is(err, domain.ErrNotFound) {
 		return fmt.Errorf("read outbounds failed, abort saving to protect config: %w", err)
 	}
@@ -515,11 +837,14 @@ func (s *ConfigService) SaveOutbound(ctx context.Context, outbound domain.Outbou
 	}
 
 	// 临时保存到配置并重新编译
-	return s.saveOutboundsListAndRecompile(ctx, updatedList, fmt.Sprintf("保存出站节点 %s", outbound.Tag))
+	return s.saveOutboundsListAndRecompileLocked(ctx, updatedList, fmt.Sprintf("保存出站节点 %s", outbound.Tag))
 }
 
 func (s *ConfigService) DeleteOutbound(ctx context.Context, tag string) error {
-	existingList, err := s.ListOutbounds(ctx)
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	existingList, err := s.listOutboundsLocked(ctx)
 	if err != nil && !errors.Is(err, domain.ErrNotFound) {
 		return fmt.Errorf("read outbounds failed, abort deleting to protect config: %w", err)
 	}
@@ -530,49 +855,57 @@ func (s *ConfigService) DeleteOutbound(ctx context.Context, tag string) error {
 		}
 	}
 
-	return s.saveOutboundsListAndRecompile(ctx, updatedList, fmt.Sprintf("删除出站节点 %s", tag))
+	return s.saveOutboundsListAndRecompileLocked(ctx, updatedList, fmt.Sprintf("删除出站节点 %s", tag))
 }
 
-func (s *ConfigService) saveOutboundsListAndRecompile(ctx context.Context, outbounds []domain.Outbound, remark string) error {
+func (s *ConfigService) saveOutboundsListAndRecompileLocked(ctx context.Context, outbounds []domain.Outbound, remark string) error {
 	// 读取当前 Inbounds, Routing, DNS, Users
 	var inbounds []domain.Inbound
 	if s.inboundRepo != nil {
-		inbounds, _ = s.inboundRepo.ListAll(ctx)
+		var err error
+		inbounds, err = s.inboundRepo.ListAll(ctx)
+		if err != nil {
+			return fmt.Errorf("read inbounds failed, abort saving to protect config: %w", err)
+		}
 	}
-	routing, err := s.GetRoutingConfig(ctx)
-	if err != nil && !errors.Is(err, domain.ErrNotFound) {
-		return fmt.Errorf("read routing failed, abort saving to protect config: %w", err)
-	}
-	dns, err := s.GetDNSConfig(ctx)
-	if err != nil && !errors.Is(err, domain.ErrNotFound) {
-		return fmt.Errorf("read dns failed, abort saving to protect config: %w", err)
+	var (
+		routing *domain.RoutingConfig
+		dns     *domain.DNSConfig
+		oldRaw  []byte
+	)
+	sections, err := s.readParsedSectionsLocked(ctx, inbounds, true)
+	if err != nil {
+		if !errors.Is(err, domain.ErrNotFound) {
+			return fmt.Errorf("read config sections failed, abort saving to protect config: %w", err)
+		}
+	} else {
+		routing = sections.routing
+		dns = sections.dns
+		oldRaw = sections.rawBytes
 	}
 	var users []domain.User
 	if s.userRepo != nil {
-		users, _ = s.userRepo.ListAll(ctx)
+		users, err = s.userRepo.ListAll(ctx)
+		if err != nil {
+			return fmt.Errorf("read users failed, abort saving to protect config: %w", err)
+		}
 	}
 
-	if s.compiler == nil {
-		return fmt.Errorf("compiler not configured")
-	}
-	jsonBytes, err := s.compiler.CompileToJSON(inbounds, outbounds, routing, dns, users)
-	if err != nil {
-		return err
-	}
-
-	s.recordSnapshotBeforeWrite(ctx, remark)
-	if err := s.configMgr.WriteConfig(ctx, jsonBytes); err != nil {
-		return err
-	}
-	if s.supervisor != nil {
-		return s.supervisor.Reload(ctx)
-	}
-	return nil
+	return s.compileAndWriteWithRawLocked(ctx, inbounds, outbounds, routing, dns, users, remark, true, oldRaw, true)
 }
 
 // === 路由设置 (Routing Management) ===
 
 func (s *ConfigService) GetRoutingConfig(ctx context.Context) (*domain.RoutingConfig, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.getRoutingConfigLocked(ctx)
+}
+
+func (s *ConfigService) getRoutingConfigLocked(ctx context.Context) (*domain.RoutingConfig, error) {
+	if s.configMgr == nil {
+		return nil, domain.ErrNotFound
+	}
 	raw, err := s.configMgr.ReadRawConfig()
 	if err != nil {
 		return nil, err
@@ -587,74 +920,51 @@ func (s *ConfigService) GetRoutingConfig(ctx context.Context) (*domain.RoutingCo
 		return nil, err
 	}
 
-	if root.Routing.DomainStrategy == "" {
-		root.Routing.DomainStrategy = "IPIfNonMatch"
-	}
-
-	// 自动过滤内部 api 规则，并对历史遗留堆叠规则进行幂等去重
-	seen := make(map[string]bool)
-	var cleanRules []domain.RoutingRule
-	for _, r := range root.Routing.Rules {
-		if (len(r.InboundTag) > 0 && r.InboundTag[0] == "api") || r.OutboundTag == "api" {
-			continue
-		}
-		keyBytes, _ := json.Marshal(r)
-		key := string(keyBytes)
-		if seen[key] {
-			continue
-		}
-		seen[key] = true
-		cleanRules = append(cleanRules, r)
-	}
-	root.Routing.Rules = cleanRules
-
-	// 确保所有启用的 SubRoutes 在 routing.Rules 中均有显式规则（若无则默认追加至尾部）
-	if s.inboundRepo != nil {
-		if inbounds, err := s.inboundRepo.ListAll(ctx); err == nil {
-			s.ensureSubRouteRules(&root.Routing, inbounds)
-		}
-	}
-
-	return &root.Routing, nil
+	return s.normalizeRoutingConfig(ctx, root.Routing, nil, false)
 }
 
 func (s *ConfigService) SaveRoutingConfig(ctx context.Context, cfg *domain.RoutingConfig) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.saveRoutingConfigLocked(ctx, cfg)
+}
+
+func (s *ConfigService) saveRoutingConfigLocked(ctx context.Context, cfg *domain.RoutingConfig) error {
 	var inbounds []domain.Inbound
 	if s.inboundRepo != nil {
-		inbounds, _ = s.inboundRepo.ListAll(ctx)
+		var err error
+		inbounds, err = s.inboundRepo.ListAll(ctx)
+		if err != nil {
+			return fmt.Errorf("read inbounds failed, abort saving to protect config: %w", err)
+		}
 	}
 	// 确保入站分流线路有默认规则兜底（若完全无匹配则放尾部）
 	s.ensureSubRouteRules(cfg, inbounds)
 
-	outbounds, err := s.ListOutbounds(ctx)
-	if err != nil && !errors.Is(err, domain.ErrNotFound) {
-		return fmt.Errorf("read outbounds failed, abort saving to protect config: %w", err)
-	}
-	dns, err := s.GetDNSConfig(ctx)
-	if err != nil && !errors.Is(err, domain.ErrNotFound) {
-		return fmt.Errorf("read dns failed, abort saving to protect config: %w", err)
+	var (
+		outbounds []domain.Outbound
+		dns       *domain.DNSConfig
+		oldRaw    []byte
+	)
+	sections, err := s.readParsedSectionsLocked(ctx, inbounds, true)
+	if err != nil {
+		if !errors.Is(err, domain.ErrNotFound) {
+			return fmt.Errorf("read config sections failed, abort saving to protect config: %w", err)
+		}
+	} else {
+		outbounds = sections.outbounds
+		dns = sections.dns
+		oldRaw = sections.rawBytes
 	}
 	var users []domain.User
 	if s.userRepo != nil {
-		users, _ = s.userRepo.ListAll(ctx)
+		users, err = s.userRepo.ListAll(ctx)
+		if err != nil {
+			return fmt.Errorf("read users failed, abort saving to protect config: %w", err)
+		}
 	}
 
-	if s.compiler == nil {
-		return fmt.Errorf("compiler not configured")
-	}
-	jsonBytes, err := s.compiler.CompileToJSON(inbounds, outbounds, cfg, dns, users)
-	if err != nil {
-		return err
-	}
-
-	s.recordSnapshotBeforeWrite(ctx, "更新分流路由规则")
-	if err := s.configMgr.WriteConfig(ctx, jsonBytes); err != nil {
-		return err
-	}
-	if s.supervisor != nil {
-		return s.supervisor.Reload(ctx)
-	}
-	return nil
+	return s.compileAndWriteWithRawLocked(ctx, inbounds, outbounds, cfg, dns, users, "更新分流路由规则", true, oldRaw, true)
 }
 
 func isPureSubRouteFallbackRule(r domain.RoutingRule) bool {
@@ -765,6 +1075,15 @@ func sliceContains(slice []string, val string) bool {
 // === DNS 设置 (DNS Management) ===
 
 func (s *ConfigService) GetDNSConfig(ctx context.Context) (*domain.DNSConfig, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.getDNSConfigLocked(ctx)
+}
+
+func (s *ConfigService) getDNSConfigLocked(ctx context.Context) (*domain.DNSConfig, error) {
+	if s.configMgr == nil {
+		return nil, domain.ErrNotFound
+	}
 	raw, err := s.configMgr.ReadRawConfig()
 	if err != nil {
 		return nil, err
@@ -779,47 +1098,48 @@ func (s *ConfigService) GetDNSConfig(ctx context.Context) (*domain.DNSConfig, er
 		return nil, err
 	}
 
-	if len(root.DNS.Servers) == 0 {
-		root.DNS.Servers = []interface{}{"https://1.1.1.1/dns-query", "8.8.8.8", "localhost"}
-	}
-	if root.DNS.QueryStrategy == "" {
-		root.DNS.QueryStrategy = "UseIP"
-	}
-
-	return &root.DNS, nil
+	return normalizeDNSConfig(root.DNS), nil
 }
 
 func (s *ConfigService) SaveDNSConfig(ctx context.Context, cfg *domain.DNSConfig) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.saveDNSConfigLocked(ctx, cfg)
+}
+
+func (s *ConfigService) saveDNSConfigLocked(ctx context.Context, cfg *domain.DNSConfig) error {
 	var inbounds []domain.Inbound
 	if s.inboundRepo != nil {
-		inbounds, _ = s.inboundRepo.ListAll(ctx)
+		var err error
+		inbounds, err = s.inboundRepo.ListAll(ctx)
+		if err != nil {
+			return fmt.Errorf("read inbounds failed, abort saving to protect config: %w", err)
+		}
 	}
-	outbounds, err := s.ListOutbounds(ctx)
-	if err != nil && !errors.Is(err, domain.ErrNotFound) {
-		return fmt.Errorf("read outbounds failed, abort saving to protect config: %w", err)
-	}
-	routing, err := s.GetRoutingConfig(ctx)
-	if err != nil && !errors.Is(err, domain.ErrNotFound) {
-		return fmt.Errorf("read routing failed, abort saving to protect config: %w", err)
+	var (
+		outbounds []domain.Outbound
+		routing   *domain.RoutingConfig
+		oldRaw    []byte
+	)
+	sections, err := s.readParsedSectionsLocked(ctx, inbounds, true)
+	if err != nil {
+		if !errors.Is(err, domain.ErrNotFound) {
+			return fmt.Errorf("read config sections failed, abort saving to protect config: %w", err)
+		}
+	} else {
+		outbounds = sections.outbounds
+		routing = sections.routing
+		oldRaw = sections.rawBytes
 	}
 	var users []domain.User
 	if s.userRepo != nil {
-		users, _ = s.userRepo.ListAll(ctx)
+		users, err = s.userRepo.ListAll(ctx)
+		if err != nil {
+			return fmt.Errorf("read users failed, abort saving to protect config: %w", err)
+		}
 	}
 
-	if s.compiler == nil {
-		return fmt.Errorf("compiler not configured")
-	}
-	jsonBytes, err := s.compiler.CompileToJSON(inbounds, outbounds, routing, cfg, users)
-	if err != nil {
-		return err
-	}
-
-	s.recordSnapshotBeforeWrite(ctx, "更新 DNS 解析设置")
-	if err := s.configMgr.WriteConfig(ctx, jsonBytes); err != nil {
-		return err
-	}
-	return s.supervisor.Reload(ctx)
+	return s.compileAndWriteWithRawLocked(ctx, inbounds, outbounds, routing, cfg, users, "更新 DNS 解析设置", true, oldRaw, true)
 }
 
 func (s *ConfigService) RestartService(ctx context.Context) error {

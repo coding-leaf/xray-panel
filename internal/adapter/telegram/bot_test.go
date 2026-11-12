@@ -1298,4 +1298,178 @@ func TestBotHandler_ActionLock_ConcurrencyToast(t *testing.T) {
 	}
 }
 
+func TestBotAdapter_HTTPClientTimeout(t *testing.T) {
+	srv := newMockTelegramServer(t)
+	defer srv.server.Close()
+
+	adapter := telegram.NewBotAdapter("123456:ABC-DEF1234ghIkl-zyx57W2v1u123ew11", 88888)
+	adapter.SetAPIEndpointForTest(srv.server.URL + "/bot%s/%s")
+
+	if err := adapter.Init(); err != nil {
+		t.Fatalf("Init failed: %v", err)
+	}
+	bot := adapter.GetBotForTest()
+	if bot == nil {
+		t.Fatal("expected bot to be initialized")
+	}
+	hc, ok := bot.Client.(*http.Client)
+	if !ok || hc.Timeout != 45*time.Second {
+		t.Fatalf("expected Init bot.Client to be *http.Client with 45s timeout, got %T (%v)", bot.Client, bot.Client)
+	}
+
+	if err := adapter.UpdateConfig("654321:ABC-DEF1234ghIkl-zyx57W2v1u123ew11", 99999); err != nil {
+		t.Fatalf("UpdateConfig failed: %v", err)
+	}
+	updatedBot := adapter.GetBotForTest()
+	if updatedBot == nil {
+		t.Fatal("expected updated bot to be initialized")
+	}
+	hc2, ok := updatedBot.Client.(*http.Client)
+	if !ok || hc2.Timeout != 45*time.Second {
+		t.Fatalf("expected UpdateConfig bot.Client to be *http.Client with 45s timeout, got %T (%v)", updatedBot.Client, updatedBot.Client)
+	}
+}
+
+func TestBotHandler_ConcurrentSendMessageDuringPolling_NoRace(t *testing.T) {
+	adminID := int64(88888)
+	env := setupTestEnv(t, adminID)
+
+	// Trigger concurrent SendMessage calls while long-polling loop is running
+	var wg sync.WaitGroup
+	errs := make(chan error, 10)
+	for i := 0; i < 10; i++ {
+		wg.Add(1)
+		go func(idx int) {
+			defer wg.Done()
+			if err := env.adapter.SendMessage(context.Background(), fmt.Sprintf("concurrent-alert-%d", idx)); err != nil {
+				errs <- err
+			}
+		}(i)
+	}
+	env.server.SendMessageUpdate(adminID, "/status")
+
+	wg.Wait()
+	close(errs)
+	for err := range errs {
+		t.Fatalf("SendMessage failed during concurrent polling: %v", err)
+	}
+	// Drain at least 11 sent messages (10 alerts + 1 /status reply)
+	for i := 0; i < 11; i++ {
+		_ = env.server.WaitSentMsg(t, 2*time.Second)
+	}
+}
+
+type semaphoreProbeMonitor struct {
+	active    atomic.Int32
+	maxActive atomic.Int32
+	entered   chan struct{}
+	release   chan struct{}
+}
+
+func (m *semaphoreProbeMonitor) GetSystemMetrics(ctx context.Context) (*panelDomain.SystemMetrics, error) {
+	cur := m.active.Add(1)
+	for {
+		prev := m.maxActive.Load()
+		if cur <= prev || m.maxActive.CompareAndSwap(prev, cur) {
+			break
+		}
+	}
+	defer m.active.Add(-1)
+
+	select {
+	case m.entered <- struct{}{}:
+	default:
+	}
+
+	select {
+	case <-m.release:
+	case <-ctx.Done():
+	}
+
+	return &panelDomain.SystemMetrics{CPUUsagePercent: 10}, nil
+}
+
+func (m *semaphoreProbeMonitor) GetNetworkSpeed(ctx context.Context) (uint64, uint64, error) {
+	return 0, 0, nil
+}
+
+func TestBotHandler_SemaphoreLimitAndGracefulCancel(t *testing.T) {
+	adminID := int64(88888)
+	srv := newMockTelegramServer(t)
+	defer srv.server.Close()
+
+	endpoint := srv.server.URL + "/bot%s/%s"
+	bot, err := tgbotapi.NewBotAPIWithAPIEndpoint("123456:ABC-DEF1234ghIkl-zyx57W2v1u123ew11", endpoint)
+	if err != nil {
+		t.Fatalf("failed to init mock bot: %v", err)
+	}
+
+	adapter := telegram.NewBotAdapter("", adminID)
+	adapter.SetBotForTest(bot)
+
+	probeMon := &semaphoreProbeMonitor{
+		entered: make(chan struct{}, 32),
+		release: make(chan struct{}),
+	}
+	xrayMgr := &mockXrayManager{
+		status:  panelDomain.ServiceStatus{Active: true, SubState: "running"},
+		version: "1.8.24",
+	}
+	handler := telegram.NewBotHandler(adapter, nil, nil, probeMon, xrayMgr, nil, "https://panel.example.com")
+
+	ctx, cancel := context.WithCancel(context.Background())
+	errCh := make(chan error, 1)
+	go func() {
+		errCh <- handler.Start(ctx)
+	}()
+
+	// Queue 12 /status updates
+	const totalUpdates = 12
+	for i := 0; i < totalUpdates; i++ {
+		srv.SendMessageUpdate(adminID, "/status")
+	}
+
+	// Wait until 8 workers have entered GetSystemMetrics
+	for i := 0; i < 8; i++ {
+		select {
+		case <-probeMon.entered:
+		case <-time.After(3 * time.Second):
+			cancel()
+			t.Fatalf("timed out waiting for worker %d to enter", i)
+		}
+	}
+
+	// Give polling loop a moment to ensure the 9th update does NOT bypass semaphore
+	time.Sleep(80 * time.Millisecond)
+	if got := probeMon.active.Load(); got != 8 {
+		cancel()
+		t.Fatalf("expected active workers capped at 8, got %d", got)
+	}
+	if gotMax := probeMon.maxActive.Load(); gotMax != 8 {
+		cancel()
+		t.Fatalf("expected maxActive == 8, got %d", gotMax)
+	}
+
+	// Release all blocked handlers
+	close(probeMon.release)
+
+	for i := 0; i < totalUpdates; i++ {
+		_ = srv.WaitSentMsg(t, 3*time.Second)
+	}
+
+	if gotMax := probeMon.maxActive.Load(); gotMax > 8 {
+		t.Fatalf("semaphore breached: maxActive = %d > 8", gotMax)
+	}
+
+	cancel()
+	select {
+	case err := <-errCh:
+		if err != nil {
+			t.Fatalf("expected nil error on graceful shutdown, got %v", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("BotHandler failed to stop after cancel")
+	}
+}
+
 

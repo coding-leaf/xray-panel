@@ -106,6 +106,7 @@ func SetupRouter(handlers *Handlers, jwtSecret string, staticFS fs.FS) *gin.Engi
 			authGroup.POST("/users/batch-renew", handlers.User.BatchRenew)
 			authGroup.POST("/users/batch-reset-traffic", handlers.User.BatchResetTraffic)
 			authGroup.POST("/users/batch-status", handlers.User.BatchStatus)
+			authGroup.POST("/users/batch-delete", handlers.User.BatchDelete)
 			authGroup.GET("/users/:id/share", handlers.User.GetShareLink)
 			authGroup.GET("/users/:id/traffic-history", handlers.User.GetTrafficHistory)
 			if handlers.Ticket != nil {
@@ -179,17 +180,29 @@ func SetupRouter(handlers *Handlers, jwtSecret string, staticFS fs.FS) *gin.Engi
 				return
 			}
 
-			// 检查静态资源是否存在，不存在则返回 index.html 实现 SPA 路由
-			f, err := staticFS.Open(strings.TrimPrefix(path, "/"))
-			if err == nil {
-				_ = f.Close()
-				fileServer.ServeHTTP(c.Writer, c.Request)
-				return
+			// 检查静态资源是否存在（非目录），存在则按路径策略设置缓存头后返回
+			trimmed := strings.TrimPrefix(path, "/")
+			if trimmed != "" {
+				f, err := staticFS.Open(trimmed)
+				if err == nil {
+					info, statErr := f.Stat()
+					_ = f.Close()
+					if statErr == nil && !info.IsDir() {
+						if strings.HasPrefix(path, "/assets/") {
+							c.Header("Cache-Control", "public, max-age=31536000, immutable")
+						} else if path == "/index.html" {
+							c.Header("Cache-Control", "no-cache")
+						}
+						fileServer.ServeHTTP(c.Writer, c.Request)
+						return
+					}
+				}
 			}
 
 			indexFile, err := staticFS.Open("index.html")
 			if err == nil {
 				_ = indexFile.Close()
+				c.Header("Cache-Control", "no-cache")
 				c.Request.URL.Path = "/"
 				fileServer.ServeHTTP(c.Writer, c.Request)
 				return

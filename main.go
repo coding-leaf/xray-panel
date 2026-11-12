@@ -29,7 +29,7 @@ import (
 )
 
 var (
-	Version   = "v2.6.7"
+	Version   = "v2.6.8"
 	Commit    = "dev"
 	BuildTime = "unknown"
 )
@@ -144,7 +144,8 @@ func main() {
 		}
 	}
 
-	userSvc := service.NewUserService(userRepo, inboundRepo, trafficLogRepo, xrayManager, configSvc)
+	userSvc := service.NewUserService(userRepo, inboundRepo, trafficLogRepo, xrayManager, configSvc).
+		WithTicketRepo(ticketRepo)
 	botHandler := telegram.NewBotHandler(botAdapter, userRepo, inboundRepo, hostMonitor, xrayManager, userSvc, cfg.PublicURL)
 	subSvc := service.NewSubService(userRepo, inboundRepo, settingRepo)
 	monitorSvc := service.NewMonitorService(hostMonitor, xrayManager, userRepo, inboundRepo)

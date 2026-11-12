@@ -314,6 +314,9 @@ export default {
           });
         }
 
+        // 释放非命中候选源站响应流，避免占用 Workers 连接与流句柄
+        await response.body?.cancel().catch(() => {});
+
         // 状态机记录
         if (evaluation.category === "CLIENT_MISS") {
           hasClientMiss = true;

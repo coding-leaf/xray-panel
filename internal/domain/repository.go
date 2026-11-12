@@ -34,6 +34,8 @@ type TrafficLogRepository interface {
 	RecordTraffic(ctx context.Context, userID uint, email string, upBytes, downBytes int64, date string) error
 	GetHistoryByUserID(ctx context.Context, userID uint, days int) ([]TrafficLog, error)
 	GetHistoryByEmail(ctx context.Context, email string, days int) ([]TrafficLog, error)
+	DeleteByUser(ctx context.Context, userID uint, email string) error
+	PruneBefore(ctx context.Context, beforeDate string) error
 }
 
 // UserTrafficDelta 表示单次统计周期的用户流量增量

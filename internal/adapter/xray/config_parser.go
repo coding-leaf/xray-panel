@@ -17,9 +17,12 @@ import (
 )
 
 type ConfigManager struct {
-	configPath  string
-	xrayBinPath string
-	mu          sync.RWMutex
+	configPath      string
+	xrayBinPath     string
+	mu              sync.RWMutex
+	cachedAccessLog string
+	cachedErrorLog  string
+	logPathsCached  bool
 }
 
 func NewConfigManager(configPath, xrayBinPath string) *ConfigManager {
@@ -38,6 +41,13 @@ func (c *ConfigManager) UpdateConfig(configPath, xrayBinPath string) {
 	if xrayBinPath != "" {
 		c.xrayBinPath = xrayBinPath
 	}
+	c.invalidateLogPathsCacheLocked()
+}
+
+func (c *ConfigManager) invalidateLogPathsCacheLocked() {
+	c.logPathsCached = false
+	c.cachedAccessLog = ""
+	c.cachedErrorLog = ""
 }
 
 // ReadRawConfig 读取当前原始 JSON 配置
@@ -155,12 +165,27 @@ func (c *ConfigManager) WriteConfig(ctx context.Context, rawJSON []byte) error {
 		return fmt.Errorf("atomic rename config failed: %w", err)
 	}
 
+	c.invalidateLogPathsCacheLocked()
 	return nil
 }
 
-// GetLogPaths 从配置文件中获取 access 和 error 日志路径
+// GetLogPaths 从配置文件中获取 access 和 error 日志路径（带内存缓存，写盘或变更路径后自动失效刷新）
 func (c *ConfigManager) GetLogPaths() (accessLog, errorLog string) {
-	raw, err := c.ReadRawConfig()
+	c.mu.RLock()
+	if c.logPathsCached {
+		accessLog, errorLog = c.cachedAccessLog, c.cachedErrorLog
+		c.mu.RUnlock()
+		return accessLog, errorLog
+	}
+	c.mu.RUnlock()
+
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.logPathsCached {
+		return c.cachedAccessLog, c.cachedErrorLog
+	}
+
+	raw, err := os.ReadFile(c.configPath)
 	if err != nil {
 		return "", ""
 	}
@@ -172,7 +197,10 @@ func (c *ConfigManager) GetLogPaths() (accessLog, errorLog string) {
 		} `json:"log"`
 	}
 	if err := json.Unmarshal(cleaned, &js); err == nil {
-		return js.Log.Access, js.Log.Error
+		c.cachedAccessLog = js.Log.Access
+		c.cachedErrorLog = js.Log.Error
+		c.logPathsCached = true
+		return c.cachedAccessLog, c.cachedErrorLog
 	}
 	return "", ""
 }

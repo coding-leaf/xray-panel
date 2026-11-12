@@ -3,10 +3,12 @@ package service
 import (
 	"context"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
 	"panel/internal/domain"
+	"panel/internal/protocol"
 )
 
 type mockSubUserRepo struct {
@@ -83,10 +85,16 @@ func TestSubService_OnlySubTokenAllowed(t *testing.T) {
 }
 
 type mockSubSettingRepo struct {
-	settings map[string]string
+	settings    map[string]string
+	getCalls    int
+	getAllCalls int
+	getAllMu    sync.Mutex
 }
 
 func (m *mockSubSettingRepo) Get(ctx context.Context, key string) (string, error) {
+	m.getAllMu.Lock()
+	m.getCalls++
+	m.getAllMu.Unlock()
 	if m.settings == nil {
 		return "", domain.ErrNotFound
 	}
@@ -96,6 +104,8 @@ func (m *mockSubSettingRepo) Get(ctx context.Context, key string) (string, error
 	return "", domain.ErrNotFound
 }
 func (m *mockSubSettingRepo) Set(ctx context.Context, key, value string) error {
+	m.getAllMu.Lock()
+	defer m.getAllMu.Unlock()
 	if m.settings == nil {
 		m.settings = make(map[string]string)
 	}
@@ -103,6 +113,9 @@ func (m *mockSubSettingRepo) Set(ctx context.Context, key, value string) error {
 	return nil
 }
 func (m *mockSubSettingRepo) GetAll(ctx context.Context) (map[string]string, error) {
+	m.getAllMu.Lock()
+	m.getAllCalls++
+	m.getAllMu.Unlock()
 	return m.settings, nil
 }
 
@@ -557,3 +570,250 @@ func TestSubService_FingerprintAndDokodemoDoor(t *testing.T) {
 		t.Errorf("expected 2 proxy lines in subscription (doko excluded), got %d", proxyLines)
 	}
 }
+
+func TestSubService_ConcurrentFingerprintIsolation(t *testing.T) {
+	protocol.SetDefaultFingerprint("random")
+	defer protocol.SetDefaultFingerprint("chrome")
+
+	user := &domain.User{
+		ID:          1,
+		Email:       "concurrent@example.com",
+		UUID:        "11111111-2222-3333-4444-555555555555",
+		SubToken:    "token_concurrent_fp",
+		InboundTags: "tls-default,reality-explicit-chrome,reality-explicit-edge",
+		Enabled:     true,
+	}
+
+	inbounds := []domain.Inbound{
+		{
+			ID:             1,
+			Tag:            "tls-default",
+			Protocol:       "vless",
+			Port:           443,
+			ExternalHost:   "default.example.com",
+			Enabled:        true,
+			StreamSettings: `{"network":"tcp","security":"tls","tlsSettings":{"serverName":"default.example.com"}}`,
+		},
+		{
+			ID:             2,
+			Tag:            "reality-explicit-chrome",
+			Protocol:       "vless",
+			Port:           443,
+			ExternalHost:   "chrome.example.com",
+			Enabled:        true,
+			StreamSettings: `{"network":"tcp","security":"reality","realitySettings":{"dest":"127.0.0.1:443","serverNames":["chrome.example.com"],"privateKey":"dGVzdA==","publicKey":"dGVzdA==","fingerprint":"chrome"}}`,
+		},
+		{
+			ID:             3,
+			Tag:            "reality-explicit-edge",
+			Protocol:       "vless",
+			Port:           443,
+			ExternalHost:   "edge.example.com",
+			Enabled:        true,
+			StreamSettings: `{"network":"tcp","security":"reality","realitySettings":{"dest":"127.0.0.1:443","serverNames":["edge.example.com"],"privateKey":"dGVzdA==","publicKey":"dGVzdA==","fingerprint":"edge"}}`,
+		},
+	}
+
+	svcSafari := NewSubService(
+		&mockSubUserRepo{user: user},
+		&mockSubInboundRepo{inbounds: inbounds},
+		&mockSubSettingRepo{settings: map[string]string{"sub_default_fingerprint": "safari"}},
+	)
+	svcFirefox := NewSubService(
+		&mockSubUserRepo{user: user},
+		&mockSubInboundRepo{inbounds: inbounds},
+		&mockSubSettingRepo{settings: map[string]string{"sub_default_fingerprint": "firefox"}},
+	)
+
+	const workers = 6
+	const iters = 25
+	var wg sync.WaitGroup
+	errCh := make(chan string, workers*iters*2)
+
+	checkService := func(svc *SubService, expectedDefaultFP string) {
+		defer wg.Done()
+		for i := 0; i < iters; i++ {
+			payload, err := svc.GetSubscriptionByToken(context.Background(), "token_concurrent_fp", "", "")
+			if err != nil {
+				errCh <- err.Error()
+				return
+			}
+			for _, line := range strings.Split(strings.TrimSpace(payload.NodesRaw), "\n") {
+				if strings.Contains(line, "default.example.com") && !strings.Contains(line, "fp="+expectedDefaultFP) {
+					errCh <- "default node contaminated: expected fp=" + expectedDefaultFP + " got " + line
+					return
+				}
+				if strings.Contains(line, "chrome.example.com") && !strings.Contains(line, "fp=chrome") {
+					errCh <- "explicit chrome node overwritten: got " + line
+					return
+				}
+				if strings.Contains(line, "edge.example.com") && !strings.Contains(line, "fp=edge") {
+					errCh <- "explicit edge node overwritten: got " + line
+					return
+				}
+			}
+
+			share, err := svc.GetUserShareInfo(context.Background(), 1, "https://panel.example.com")
+			if err != nil {
+				errCh <- err.Error()
+				return
+			}
+			for _, n := range share.Nodes {
+				if n.Tag == "tls-default" && !strings.Contains(n.ShareLink, "fp="+expectedDefaultFP) {
+					errCh <- "share default node contaminated: expected fp=" + expectedDefaultFP + " got " + n.ShareLink
+					return
+				}
+				if n.Tag == "reality-explicit-chrome" && !strings.Contains(n.ShareLink, "fp=chrome") {
+					errCh <- "share explicit chrome overwritten: got " + n.ShareLink
+					return
+				}
+				if n.Tag == "reality-explicit-edge" && !strings.Contains(n.ShareLink, "fp=edge") {
+					errCh <- "share explicit edge overwritten: got " + n.ShareLink
+					return
+				}
+			}
+		}
+	}
+
+	for w := 0; w < workers; w++ {
+		wg.Add(2)
+		go checkService(svcSafari, "safari")
+		go checkService(svcFirefox, "firefox")
+	}
+	wg.Wait()
+	close(errCh)
+
+	for msg := range errCh {
+		t.Fatal(msg)
+	}
+
+	if got := protocol.GetDefaultFingerprint(); got != "random" {
+		t.Fatalf("SubService mutated global defaultFingerprint to %q, expected stateless execution", got)
+	}
+}
+
+func TestSubService_SingleGetAllAndOnDemandEncoding(t *testing.T) {
+	user := &domain.User{
+		ID:          1,
+		Email:       "perf@example.com",
+		UUID:        "11111111-2222-3333-4444-555555555555",
+		SubToken:    "token_perf_test_123",
+		InboundTags: "node-vless",
+		Enabled:     true,
+	}
+	inboundRepo := &mockSubInboundRepo{
+		inbounds: []domain.Inbound{
+			{
+				Tag:            "node-vless",
+				Protocol:       "vless",
+				Port:           443,
+				Listen:         "127.0.0.1",
+				ExternalHost:   "node.example.com",
+				Enabled:        true,
+				StreamSettings: `{"network":"tcp","security":"none"}`,
+			},
+		},
+	}
+
+	newSettingRepo := func() *mockSubSettingRepo {
+		return &mockSubSettingRepo{
+			settings: map[string]string{
+				"sub_domain":              "sub.example.com",
+				"sub_profile_title":       "Perf Profile",
+				"sub_update_interval":     "12",
+				"sub_clash_mixed_port":    "7891",
+				"sub_clash_allow_lan":     "true",
+				"sub_clash_mode":          "global",
+				"sub_show_info_nodes":     "false",
+				"sub_default_fingerprint": "safari",
+			},
+		}
+	}
+
+	t.Run("ExportUserSubscription clash uses 1 GetAll and skips Base64/Raw encoding", func(t *testing.T) {
+		settingRepo := newSettingRepo()
+		svc := NewSubService(&mockSubUserRepo{user: user}, inboundRepo, settingRepo)
+
+		payload, output, err := svc.ExportUserSubscription(context.Background(), user.SubToken, "", "", "clash")
+		if err != nil {
+			t.Fatalf("ExportUserSubscription clash failed: %v", err)
+		}
+		if settingRepo.getAllCalls != 1 || settingRepo.getCalls != 0 {
+			t.Fatalf("expected 1 GetAll and 0 Get calls, got GetAll=%d Get=%d", settingRepo.getAllCalls, settingRepo.getCalls)
+		}
+		if output == "" || !strings.Contains(output, "mixed-port: 7891") {
+			t.Fatalf("expected clash yaml output with mixed-port 7891, got: %s", output)
+		}
+		if payload.ProfileTitle != "Perf Profile" || payload.UpdateInterval != 12 {
+			t.Fatalf("unexpected payload metadata: %+v", payload)
+		}
+		if payload.Base64Data != "" || payload.NodesRaw != "" {
+			t.Fatalf("expected Base64Data and NodesRaw to be skipped for clash format, got base64=%q raw=%q", payload.Base64Data, payload.NodesRaw)
+		}
+	})
+
+	t.Run("ExportUserSubscription sing-box skips Base64/Raw encoding", func(t *testing.T) {
+		settingRepo := newSettingRepo()
+		svc := NewSubService(&mockSubUserRepo{user: user}, inboundRepo, settingRepo)
+
+		payload, output, err := svc.ExportUserSubscription(context.Background(), user.SubToken, "", "", "sing-box")
+		if err != nil {
+			t.Fatalf("ExportUserSubscription sing-box failed: %v", err)
+		}
+		if settingRepo.getAllCalls != 1 || settingRepo.getCalls != 0 {
+			t.Fatalf("expected 1 GetAll and 0 Get calls, got GetAll=%d Get=%d", settingRepo.getAllCalls, settingRepo.getCalls)
+		}
+		if output == "" || payload.Base64Data != "" || payload.NodesRaw != "" {
+			t.Fatalf("expected sing-box output without redundant Base64/Raw encoding")
+		}
+	})
+
+	t.Run("ExportUserSubscription raw skips Base64 encoding", func(t *testing.T) {
+		settingRepo := newSettingRepo()
+		svc := NewSubService(&mockSubUserRepo{user: user}, inboundRepo, settingRepo)
+
+		payload, output, err := svc.ExportUserSubscription(context.Background(), user.SubToken, "", "", "raw")
+		if err != nil {
+			t.Fatalf("ExportUserSubscription raw failed: %v", err)
+		}
+		if settingRepo.getAllCalls != 1 || settingRepo.getCalls != 0 {
+			t.Fatalf("expected 1 GetAll and 0 Get calls, got GetAll=%d Get=%d", settingRepo.getAllCalls, settingRepo.getCalls)
+		}
+		if output == "" || payload.NodesRaw != output || payload.Base64Data != "" {
+			t.Fatalf("expected raw output only, got base64=%q", payload.Base64Data)
+		}
+	})
+
+	t.Run("ExportUserSubscription base64 skips Raw encoding", func(t *testing.T) {
+		settingRepo := newSettingRepo()
+		svc := NewSubService(&mockSubUserRepo{user: user}, inboundRepo, settingRepo)
+
+		payload, output, err := svc.ExportUserSubscription(context.Background(), user.SubToken, "", "", "base64")
+		if err != nil {
+			t.Fatalf("ExportUserSubscription base64 failed: %v", err)
+		}
+		if settingRepo.getAllCalls != 1 || settingRepo.getCalls != 0 {
+			t.Fatalf("expected 1 GetAll and 0 Get calls, got GetAll=%d Get=%d", settingRepo.getAllCalls, settingRepo.getCalls)
+		}
+		if output == "" || payload.Base64Data != output || payload.NodesRaw != "" {
+			t.Fatalf("expected base64 output only, got raw=%q", payload.NodesRaw)
+		}
+	})
+
+	t.Run("GetSubscriptionByToken preserves NodesRaw and Base64Data with 1 GetAll", func(t *testing.T) {
+		settingRepo := newSettingRepo()
+		svc := NewSubService(&mockSubUserRepo{user: user}, inboundRepo, settingRepo)
+
+		payload, err := svc.GetSubscriptionByToken(context.Background(), user.SubToken, "", "")
+		if err != nil {
+			t.Fatalf("GetSubscriptionByToken failed: %v", err)
+		}
+		if settingRepo.getAllCalls != 1 || settingRepo.getCalls != 0 {
+			t.Fatalf("expected 1 GetAll and 0 Get calls, got GetAll=%d Get=%d", settingRepo.getAllCalls, settingRepo.getCalls)
+		}
+		if payload.NodesRaw == "" || payload.Base64Data == "" {
+			t.Fatalf("expected both NodesRaw and Base64Data populated for backward compatibility")
+		}
+	})
+}
+

@@ -131,11 +131,21 @@ func (m *GopsutilMonitor) GetNetworkSpeed(ctx context.Context) (uint64, uint64, 
 	}
 
 	currSent, currRecv := filterAndSumIOCounters(ioCounters)
+	up, down := m.updateNetworkCountersLocked(currSent, currRecv, now, elapsed)
+	return up, down, nil
+}
 
-	if m.lastSent > 0 && currSent >= m.lastSent {
+func (m *GopsutilMonitor) updateNetworkCountersLocked(currSent, currRecv uint64, now time.Time, elapsed float64) (uint64, uint64) {
+	// 防止网卡计数重置/回绕导致 uint64 下溢或残留旧速率尖峰：cur < prev 时仅更新基线并将该方向速率归零
+	if currSent < m.lastSent {
+		m.upSpeed = 0
+	} else if m.lastSent > 0 && elapsed > 0 {
 		m.upSpeed = uint64(float64(currSent-m.lastSent) / elapsed)
 	}
-	if m.lastRecv > 0 && currRecv >= m.lastRecv {
+
+	if currRecv < m.lastRecv {
+		m.downSpeed = 0
+	} else if m.lastRecv > 0 && elapsed > 0 {
 		m.downSpeed = uint64(float64(currRecv-m.lastRecv) / elapsed)
 	}
 
@@ -143,7 +153,7 @@ func (m *GopsutilMonitor) GetNetworkSpeed(ctx context.Context) (uint64, uint64, 
 	m.lastRecv = currRecv
 	m.lastNetCheck = now
 
-	return m.upSpeed, m.downSpeed, nil
+	return m.upSpeed, m.downSpeed
 }
 
 // isIgnoredInterface 过滤回环网卡与虚拟/容器网卡

@@ -19,7 +19,13 @@ type item[T any] struct {
 }
 
 // Cache is a thread-safe in-memory key-value cache with generic values and TTL expiration.
+// It wraps *cacheInner[T] so that runtime.SetFinalizer runs when the outer *Cache[T]
+// becomes unreachable, stopping the janitor goroutine without a self-referential cycle.
 type Cache[T any] struct {
+	inner *cacheInner[T]
+}
+
+type cacheInner[T any] struct {
 	mu         sync.RWMutex
 	defaultTTL time.Duration
 	items      map[string]item[T]
@@ -27,25 +33,28 @@ type Cache[T any] struct {
 	stopOnce   sync.Once
 }
 
+func stopCache[T any](c *Cache[T]) {
+	c.Stop()
+}
+
 // New creates a new Cache instance with specified default TTL and cleanup interval.
 func New[T any](defaultTTL, cleanupInterval time.Duration) *Cache[T] {
-	c := &Cache[T]{
+	inner := &cacheInner[T]{
 		defaultTTL: defaultTTL,
 		items:      make(map[string]item[T]),
 		stopChan:   make(chan struct{}),
 	}
+	c := &Cache[T]{inner: inner}
 
 	if cleanupInterval > 0 {
-		go c.startJanitor(cleanupInterval)
-		runtime.SetFinalizer(c, func(cache *Cache[T]) {
-			cache.Stop()
-		})
+		go inner.startJanitor(cleanupInterval)
+		runtime.SetFinalizer(c, stopCache[T])
 	}
 
 	return c
 }
 
-func (c *Cache[T]) startJanitor(interval time.Duration) {
+func (c *cacheInner[T]) startJanitor(interval time.Duration) {
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 
@@ -59,7 +68,7 @@ func (c *Cache[T]) startJanitor(interval time.Duration) {
 	}
 }
 
-func (c *Cache[T]) deleteExpired() {
+func (c *cacheInner[T]) deleteExpired() {
 	now := time.Now().UnixNano()
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -75,6 +84,10 @@ func (c *Cache[T]) deleteExpired() {
 // If ttl == DefaultExpiration (0) and defaultTTL > 0, defaultTTL is used.
 // If ttl == NoExpiration (-1), the item will never expire.
 func (c *Cache[T]) Set(key string, val T, ttl time.Duration) {
+	c.inner.set(key, val, ttl)
+}
+
+func (c *cacheInner[T]) set(key string, val T, ttl time.Duration) {
 	var expiresAt int64
 	if ttl == DefaultExpiration {
 		ttl = c.defaultTTL
@@ -94,11 +107,15 @@ func (c *Cache[T]) Set(key string, val T, ttl time.Duration) {
 
 // SetDefault adds or overwrites an item using the cache's default TTL.
 func (c *Cache[T]) SetDefault(key string, val T) {
-	c.Set(key, val, DefaultExpiration)
+	c.inner.set(key, val, DefaultExpiration)
 }
 
 // Get retrieves an item by key. Returns the value and true if found and not expired.
 func (c *Cache[T]) Get(key string) (T, bool) {
+	return c.inner.get(key)
+}
+
+func (c *cacheInner[T]) get(key string) (T, bool) {
 	c.mu.RLock()
 	it, found := c.items[key]
 	c.mu.RUnlock()
@@ -117,6 +134,10 @@ func (c *Cache[T]) Get(key string) (T, bool) {
 
 // Delete removes an item from the cache.
 func (c *Cache[T]) Delete(key string) {
+	c.inner.delete(key)
+}
+
+func (c *cacheInner[T]) delete(key string) {
 	c.mu.Lock()
 	delete(c.items, key)
 	c.mu.Unlock()
@@ -124,6 +145,10 @@ func (c *Cache[T]) Delete(key string) {
 
 // Flush removes all items from the cache.
 func (c *Cache[T]) Flush() {
+	c.inner.flush()
+}
+
+func (c *cacheInner[T]) flush() {
 	c.mu.Lock()
 	c.items = make(map[string]item[T])
 	c.mu.Unlock()
@@ -131,6 +156,10 @@ func (c *Cache[T]) Flush() {
 
 // ItemCount returns the number of unexpired items in the cache.
 func (c *Cache[T]) ItemCount() int {
+	return c.inner.itemCount()
+}
+
+func (c *cacheInner[T]) itemCount() int {
 	now := time.Now().UnixNano()
 	c.mu.RLock()
 	defer c.mu.RUnlock()
@@ -146,6 +175,10 @@ func (c *Cache[T]) ItemCount() int {
 
 // Stop terminates the background cleanup goroutine.
 func (c *Cache[T]) Stop() {
+	c.inner.stop()
+}
+
+func (c *cacheInner[T]) stop() {
 	c.stopOnce.Do(func() {
 		close(c.stopChan)
 	})

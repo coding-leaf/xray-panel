@@ -2,6 +2,7 @@ package cache
 
 import (
 	"fmt"
+	"runtime"
 	"sync"
 	"testing"
 	"time"
@@ -127,4 +128,31 @@ func TestCache_Concurrency(t *testing.T) {
 	}
 
 	wg.Wait()
+}
+
+func TestCache_FinalizerStopsJanitorOnGC(t *testing.T) {
+	var stopCh chan struct{}
+	func() {
+		c := New[string](time.Second, 10*time.Millisecond)
+		c.SetDefault("k", "v")
+		stopCh = c.inner.stopChan
+		runtime.KeepAlive(c)
+	}()
+
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		runtime.GC()
+		select {
+		case <-stopCh:
+			return
+		case <-time.After(10 * time.Millisecond):
+		}
+	}
+	t.Fatal("expected janitor stopChan to be closed by finalizer after GC")
+}
+
+func TestCache_StopIdempotent(t *testing.T) {
+	c := New[int](time.Second, 10*time.Millisecond)
+	c.Stop()
+	c.Stop()
 }

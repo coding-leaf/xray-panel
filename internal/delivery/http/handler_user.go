@@ -284,6 +284,23 @@ func (h *UserHandler) BatchStatus(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"message": fmt.Sprintf("成功%s %d 位用户", action, len(req.IDs))})
 }
 
+func (h *UserHandler) BatchDelete(c *gin.Context) {
+	var req BatchIDsRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	if err := h.userSvc.BatchDelete(c.Request.Context(), req.IDs); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	h.auditSvc.RecordFromGin(c, domain.ActionUserDelete, fmt.Sprintf("%d 位用户", len(req.IDs)), fmt.Sprintf("成功批量删除 %d 位用户", len(req.IDs)), "SUCCESS")
+
+	c.JSON(http.StatusOK, gin.H{"message": fmt.Sprintf("成功删除 %d 位用户", len(req.IDs))})
+}
+
 // GetSpeeds 纯内存瞬时速率与在线状态查询接口（0 数据库 I/O，微秒级响应）
 func (h *UserHandler) GetSpeeds(c *gin.Context) {
 	speeds := domain.GetAllUserRuntimeSpeeds()

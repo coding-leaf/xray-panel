@@ -2,6 +2,7 @@ package repository
 
 import (
 	"context"
+	"fmt"
 	"path/filepath"
 	"testing"
 
@@ -251,5 +252,51 @@ func TestUserRepo_BatchSyncTraffic(t *testing.T) {
 	}
 	if log1Round2.UpBytes != 150 || log1Round2.DownBytes != 250 {
 		t.Fatalf("expected log1 traffic to accumulate to 150/250, got %d/%d", log1Round2.UpBytes, log1Round2.DownBytes)
+	}
+}
+
+func TestUserRepo_BatchSyncTraffic_MultiBatchUpsert(t *testing.T) {
+	db := setupTestDB(t)
+	repo := NewUserRepository(db)
+	ctx := context.Background()
+
+	const totalUsers = 250
+	deltas1 := make([]domain.UserTrafficDelta, 0, totalUsers)
+	deltas2 := make([]domain.UserTrafficDelta, 0, totalUsers)
+	for i := 0; i < totalUsers; i++ {
+		email := fmt.Sprintf("user-%03d@test.com", i)
+		u := &domain.User{
+			Email:    email,
+			UUID:     fmt.Sprintf("uuid-%03d", i),
+			SubToken: fmt.Sprintf("sub-%03d", i),
+		}
+		if err := repo.Create(ctx, u); err != nil {
+			t.Fatalf("create user %d failed: %v", i, err)
+		}
+		deltas1 = append(deltas1, domain.UserTrafficDelta{Email: email, Up: 100 + int64(i), Down: 200 + int64(i)})
+		deltas2 = append(deltas2, domain.UserTrafficDelta{Email: email, Up: 50, Down: 75})
+	}
+
+	if _, err := repo.BatchSyncTraffic(ctx, deltas1, nil, "2026-11-13"); err != nil {
+		t.Fatalf("round 1 BatchSyncTraffic failed: %v", err)
+	}
+	if _, err := repo.BatchSyncTraffic(ctx, deltas2, nil, "2026-11-13"); err != nil {
+		t.Fatalf("round 2 BatchSyncTraffic failed: %v", err)
+	}
+
+	var count int64
+	if err := db.Model(&domain.TrafficLog{}).Where("date = ?", "2026-11-13").Count(&count).Error; err != nil {
+		t.Fatalf("count traffic logs failed: %v", err)
+	}
+	if count != totalUsers {
+		t.Fatalf("expected %d traffic log rows, got %d", totalUsers, count)
+	}
+
+	var sample domain.TrafficLog
+	if err := db.Where("user_email = ? AND date = ?", "user-249@test.com", "2026-11-13").First(&sample).Error; err != nil {
+		t.Fatalf("query sample traffic log failed: %v", err)
+	}
+	if sample.UpBytes != (100+249+50) || sample.DownBytes != (200+249+75) {
+		t.Fatalf("unexpected accumulated sample log: up=%d down=%d", sample.UpBytes, sample.DownBytes)
 	}
 }

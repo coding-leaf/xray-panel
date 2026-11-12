@@ -100,3 +100,66 @@ func TestUserRuntimeSpeed_Lifecycle(t *testing.T) {
 		t.Fatalf("expected user %s to be completely removed from runtime speeds", email)
 	}
 }
+
+func TestTrafficLogRepo_DeleteByUserAndPruneBefore(t *testing.T) {
+	db := setupTrafficTestDB(t)
+	repo := NewGormTrafficLogRepository(db)
+	ctx := context.Background()
+
+	// Seed logs for two users across multiple dates
+	if err := repo.RecordTraffic(ctx, 10, "alice@example.com", 100, 200, "2025-01-01"); err != nil {
+		t.Fatalf("RecordTraffic failed: %v", err)
+	}
+	if err := repo.RecordTraffic(ctx, 99, "alice@example.com", 300, 400, "2026-06-01"); err != nil {
+		t.Fatalf("RecordTraffic failed: %v", err)
+	}
+	if err := repo.RecordTraffic(ctx, 10, "alice-old@example.com", 500, 600, "2026-06-02"); err != nil {
+		t.Fatalf("RecordTraffic failed: %v", err)
+	}
+	if err := repo.RecordTraffic(ctx, 20, "bob@example.com", 700, 800, "2025-12-31"); err != nil {
+		t.Fatalf("RecordTraffic failed: %v", err)
+	}
+	if err := repo.RecordTraffic(ctx, 20, "bob@example.com", 900, 1000, "2026-01-01"); err != nil {
+		t.Fatalf("RecordTraffic failed: %v", err)
+	}
+
+	// DeleteByUser(10, "alice@example.com") should delete all 3 rows matching user_id=10 OR email="alice@example.com"
+	if err := repo.DeleteByUser(ctx, 10, "alice@example.com"); err != nil {
+		t.Fatalf("DeleteByUser failed: %v", err)
+	}
+
+	aliceHistory, err := repo.GetHistoryByEmail(ctx, "alice@example.com", 30)
+	if err != nil {
+		t.Fatalf("GetHistoryByEmail failed: %v", err)
+	}
+	if len(aliceHistory) != 0 {
+		t.Fatalf("expected 0 logs for alice@example.com, got %d", len(aliceHistory))
+	}
+
+	var aliceOldCount int64
+	db.Model(&domain.TrafficLog{}).Where("user_email = ?", "alice-old@example.com").Count(&aliceOldCount)
+	if aliceOldCount != 0 {
+		t.Fatalf("expected user_id=10 log to be deleted too, got %d", aliceOldCount)
+	}
+
+	// Bob's 2 logs must remain intact
+	bobHistory, err := repo.GetHistoryByEmail(ctx, "bob@example.com", 30)
+	if err != nil {
+		t.Fatalf("GetHistoryByEmail bob failed: %v", err)
+	}
+	if len(bobHistory) != 2 {
+		t.Fatalf("expected 2 logs for bob, got %d", len(bobHistory))
+	}
+
+	// PruneBefore("2026-01-01") should delete "2025-12-31" and preserve "2026-01-01"
+	if err := repo.PruneBefore(ctx, "2026-01-01"); err != nil {
+		t.Fatalf("PruneBefore failed: %v", err)
+	}
+	bobAfterPrune, err := repo.GetHistoryByEmail(ctx, "bob@example.com", 30)
+	if err != nil {
+		t.Fatalf("GetHistoryByEmail bob after prune failed: %v", err)
+	}
+	if len(bobAfterPrune) != 1 || bobAfterPrune[0].Date != "2026-01-01" {
+		t.Fatalf("expected only 2026-01-01 log to remain for bob, got %+v", bobAfterPrune)
+	}
+}

@@ -19,6 +19,8 @@ type XrayTrafficManager interface {
 	RemoveUser(ctx context.Context, inboundTag string, email string) error
 }
 
+const trafficLogRetentionDays = 180
+
 type TrafficSyncJob struct {
 	xrayManager    XrayTrafficManager
 	userRepo       domain.UserRepository
@@ -28,6 +30,8 @@ type TrafficSyncJob struct {
 	userSvc        *service.UserService
 	ticketRepo     domain.TicketRepository
 	interval       time.Duration
+	pruneMu        sync.Mutex
+	lastPruneDate  string
 }
 
 func NewTrafficSyncJob(
@@ -78,16 +82,26 @@ func (j *TrafficSyncJob) Start(ctx context.Context) error {
 				return
 			case <-ticketCleanTicker.C:
 				if j.ticketRepo != nil {
-					_ = j.ticketRepo.CleanExpired(ctx)
+					if err := j.ticketRepo.CleanExpired(ctx); err != nil {
+						slog.Warn("Failed to clean expired tickets", slog.String("error", err.Error()))
+					}
 				}
 			case <-alertTicker.C:
 				if j.alertSvc != nil {
-					_ = j.alertSvc.CheckTrafficQuotas(ctx)
-					_ = j.alertSvc.CheckSystemLoad(ctx)
-					_ = j.alertSvc.CheckCertificates(ctx)
+					if err := j.alertSvc.CheckTrafficQuotas(ctx); err != nil {
+						slog.Warn("Failed to check traffic quotas", slog.String("error", err.Error()))
+					}
+					if err := j.alertSvc.CheckSystemLoad(ctx); err != nil {
+						slog.Warn("Failed to check system load", slog.String("error", err.Error()))
+					}
+					if err := j.alertSvc.CheckCertificates(ctx); err != nil {
+						slog.Warn("Failed to check certificates", slog.String("error", err.Error()))
+					}
 				}
 				if j.userSvc != nil {
-					_ = j.userSvc.CheckAndResetMonthlyTraffic(ctx)
+					if err := j.userSvc.CheckAndResetMonthlyTraffic(ctx); err != nil {
+						slog.Warn("Failed to check and reset monthly traffic", slog.String("error", err.Error()))
+					}
 				}
 			}
 		}
@@ -119,6 +133,7 @@ func (j *TrafficSyncJob) syncOnce(ctx context.Context) {
 	// 查询增量统计数据并重置计数
 	stats, err := j.xrayManager.QueryTrafficStats(ctx, true)
 	if err != nil {
+		slog.Warn("Failed to query Xray traffic stats", slog.String("error", err.Error()))
 		return
 	}
 
@@ -213,11 +228,7 @@ func (j *TrafficSyncJob) syncOnce(ctx context.Context) {
 			} else {
 				// 检查用户是否处于非活跃状态（禁用、过期或超额），非活跃则立即从 Xray 所有节点剔除
 				for _, user := range updatedUsers {
-					if !user.IsActive() {
-						for _, t := range user.GetInboundTagList() {
-							_ = j.xrayManager.RemoveUser(writeCtx, t, user.Email)
-						}
-					}
+					j.removeInactiveUserFromXray(writeCtx, &user)
 				}
 			}
 		}
@@ -229,19 +240,21 @@ func (j *TrafficSyncJob) syncOnce(ctx context.Context) {
 			}
 
 			if j.userRepo != nil {
-				_ = j.userRepo.AddTraffic(writeCtx, email, d.up, d.down)
+				if err := j.userRepo.AddTraffic(writeCtx, email, d.up, d.down); err != nil {
+					slog.Error("Failed to add user traffic", slog.String("email", email), slog.String("error", err.Error()))
+				}
 				user, err := j.userRepo.GetByEmail(writeCtx, email)
-				if err == nil && user != nil {
+				if err != nil {
+					slog.Warn("Failed to load user after traffic sync", slog.String("email", email), slog.String("error", err.Error()))
+				} else if user != nil {
 					if j.trafficLogRepo != nil {
-						_ = j.trafficLogRepo.RecordTraffic(writeCtx, user.ID, email, d.up, d.down, today)
+						if err := j.trafficLogRepo.RecordTraffic(writeCtx, user.ID, email, d.up, d.down, today); err != nil {
+							slog.Warn("Failed to record daily traffic log", slog.String("email", email), slog.String("error", err.Error()))
+						}
 					}
 
 					// 检查用户是否处于非活跃状态（禁用、过期或超额），非活跃则立即从 Xray 所有节点剔除
-					if !user.IsActive() {
-						for _, t := range user.GetInboundTagList() {
-							_ = j.xrayManager.RemoveUser(writeCtx, t, user.Email)
-						}
-					}
+					j.removeInactiveUserFromXray(writeCtx, user)
 				}
 			}
 		}
@@ -252,7 +265,9 @@ func (j *TrafficSyncJob) syncOnce(ctx context.Context) {
 				continue
 			}
 			if j.inboundRepo != nil {
-				_ = j.inboundRepo.AddTraffic(writeCtx, tag, d.up, d.down)
+				if err := j.inboundRepo.AddTraffic(writeCtx, tag, d.up, d.down); err != nil {
+					slog.Error("Failed to add inbound traffic", slog.String("tag", tag), slog.String("error", err.Error()))
+				}
 			}
 		}
 	}
@@ -278,4 +293,38 @@ func (j *TrafficSyncJob) syncOnce(ctx context.Context) {
 		}
 	}
 	domain.BatchUpdateUserRuntimeSpeeds(speedUpdates, sec, nowMs)
+
+	j.pruneOldTrafficLogsIfNeeded(writeCtx, today)
+}
+
+func (j *TrafficSyncJob) removeInactiveUserFromXray(ctx context.Context, user *domain.User) {
+	if user == nil || user.IsActive() || j.xrayManager == nil {
+		return
+	}
+	for _, t := range user.GetInboundTagList() {
+		if err := j.xrayManager.RemoveUser(ctx, t, user.Email); err != nil {
+			slog.Warn("Failed to remove inactive user from Xray",
+				slog.String("inbound", t),
+				slog.String("email", user.Email),
+				slog.String("error", err.Error()),
+			)
+		}
+	}
+}
+
+func (j *TrafficSyncJob) pruneOldTrafficLogsIfNeeded(ctx context.Context, today string) {
+	if j.trafficLogRepo == nil {
+		return
+	}
+	j.pruneMu.Lock()
+	defer j.pruneMu.Unlock()
+	if j.lastPruneDate == today {
+		return
+	}
+	cutoffDate := time.Now().AddDate(0, 0, -trafficLogRetentionDays).Format("2006-01-02")
+	if err := j.trafficLogRepo.PruneBefore(ctx, cutoffDate); err != nil {
+		slog.Warn("Failed to prune expired traffic logs", slog.String("cutoff", cutoffDate), slog.Any("error", err))
+		return
+	}
+	j.lastPruneDate = today
 }

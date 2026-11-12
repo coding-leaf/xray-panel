@@ -493,4 +493,66 @@ describe("Cloudflare Gateway Unit & Integration Tests", () => {
       });
     });
   });
+
+  describe("Non-Hit Response Body Stream Release", () => {
+    for (const [label, script] of [
+      ["Worker", workerScript],
+      ["Pages", pagesScript],
+    ]) {
+      it(`${label}: should cancel non-hit response bodies and preserve hit body`, async () => {
+        const cancelCalls = [];
+
+        globalThis.fetch = async (req) => {
+          const host = new URL(req.url).host;
+          if (host === "miss1.example.com") {
+            return {
+              status: 404,
+              statusText: "Not Found",
+              headers: new Headers(),
+              body: {
+                cancel: async () => {
+                  cancelCalls.push("miss1");
+                },
+              },
+            };
+          }
+          if (host === "miss2.example.com") {
+            return {
+              status: 502,
+              statusText: "Bad Gateway",
+              headers: new Headers(),
+              body: null, // Verify null body safety
+            };
+          }
+          if (host === "miss3.example.com") {
+            return {
+              status: 500,
+              statusText: "Internal Server Error",
+              headers: new Headers(),
+              body: {
+                cancel: async () => {
+                  cancelCalls.push("miss3");
+                  throw new Error("already closed"); // Verify rejection is safely swallowed
+                },
+              },
+            };
+          }
+          return new Response("HIT OK", { status: 200 });
+        };
+
+        const request = new Request("https://gateway.internal/sub?token=abc", {
+          method: "GET",
+        });
+        const env = {
+          UPSTREAM_ORIGINS:
+            "https://miss1.example.com, https://miss2.example.com, https://miss3.example.com, https://hit.example.com",
+        };
+
+        const res = await script.fetch(request, env, {});
+        assert.equal(res.status, 200);
+        assert.equal(await res.text(), "HIT OK");
+        assert.deepEqual(cancelCalls, ["miss1", "miss3"]);
+      });
+    }
+  });
 });

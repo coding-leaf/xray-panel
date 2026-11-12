@@ -16,9 +16,7 @@ composable 或组件库；新增代码应对齐既有形态，而非套用通用
 - **图标**：`lucide-vue-next`；二维码：`qrcode.vue`；
 - **构建**：Vite 5；类型检查 `vue-tsc --noEmit`（`strict: false`）。
 
-> **Pinia 说明**：依赖已在 `web/src/main.ts:2,8` 注册，但**全仓没有任何 store**
-> （`defineStore` 零匹配）。当前状态一律使用组件内 `ref`/`computed` 与模块级单例，
-> 详见 [Directory Structure](./directory-structure.md) 与 [Components & Routing](./components-and-routing.md)。
+> **零全局 Store 规范**：项目已卸载空置的 `pinia` 依赖并统一使用 `package-lock.json` 单锁管理。当前状态一律使用组件内 `ref`/`computed`、领域 `composables/` 与模块级单例，严禁重新引入 Pinia/Vuex，详见 [Directory Structure](./directory-structure.md) 与 [Components & Routing](./components-and-routing.md)。
 
 ---
 

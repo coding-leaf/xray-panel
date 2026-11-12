@@ -102,8 +102,8 @@
 - **RFC 3986 URI Fragment 编码规范**：
   - 导出 `vless://`、`trojan://`、`ss://`、`hysteria2://`、`socks://` 分享链接的 `#remark` 锚点后缀时，严禁直接使用 `url.QueryEscape`（会将空格编码为 `+` 号导致 v2rayNG / NekoBox 等客户端节点名显示加号）；
   - 必须统一调用 `protocol.EscapeRemark(remark)`（将 `+` 替换为 `%20`），严格遵循 RFC 3986 百分号编码标准。
-- **uTLS 指纹 (`fp`) 雙链路一致性**：
-  - 聚合订阅（`resolveSubscriptionNodes`）与单节点直连分享链接（`GetUserShareInfo`）必须统一读取系统设置 `sub_default_fingerprint` 并同步至 `protocol.SetDefaultFingerprint`；
+- **uTLS 指纹 (`fp`) 双链路无状态一致性**：
+  - 聚合订阅（`resolveSubscriptionNodes`）与单节点直连分享链接（`GetUserShareInfo`）必须读取系统设置 `sub_default_fingerprint`，并通过无状态参数函数（`InboundToNodeConfigWithDefaultFP` / `InboundsToNodeConfigsWithDefaultFP` / `BuildShareLinkWithDefaultFP`）显式透传，严禁在并发请求路径中改写包级全局变量 `protocol.SetDefaultFingerprint`；
   - 优先级契约：`入站显式配置的 fingerprint (realitySettings/tlsSettings.fingerprint) > 系统默认 sub_default_fingerprint > 兜底 "chrome"`。
 - **非客户端代理协议过滤**：
   - `dokodemo-door`（任意门端口转发）等非客户端代理协议在 `InboundToNodeConfig`、`InboundsToNodeConfigs` 与 `GetUserShareInfo` 中必须自动跳过，严禁导出为无效客户端订阅节点。
@@ -157,4 +157,44 @@ Outbounds []struct {
     Tag, Protocol, SendThrough, TargetStrategy string
     Settings, StreamSettings, Mux json.RawMessage
 }
+```
+
+---
+
+## 11. 配置双源串行化、授信代理限流与 REALITY H2 探测契约 (Concurrency & Edge Hardening Invariants)
+
+### 1. Scope / Trigger
+- **Trigger**: 修改 `ConfigService` 配置读写重编译、`UserService` 批量变更、HTTP 真实客户端 IP 提取限流（`middleware/limiter.go`）或 `DefaultRealityProber` 伪装目标探测（`adapter/reality/prober.go`）。
+
+### 2. Signatures & Contracts
+- `ConfigService`: 业务层 `Read -> Modify -> Compile -> Write` 全程由 `ConfigService.mu` (`sync.Mutex`) 串行化，内部互调统一走 `*Locked` 私有辅助函数避免自死锁；单次重编译通过 `readParsedSectionsLocked` 一次读取解析 `config.json` 并透传原始字节写快照；批量用户操作（`BatchRenew`/`BatchResetTraffic`/`BatchSetStatus`/`BatchDelete`）在循环内仅同步 DB + gRPC，循环末尾统一调用 **1 次** `SaveConfigQuietly`。
+- `middleware.GetRealClientIP(c *gin.Context) string`: 仅当直连 `RemoteAddr` 属于受信代理网段（默认 `127.0.0.1/8`、`::1/128` 及 `SetTrustedProxyCIDRs` 显式网段）时才解析 `CF-Connecting-IP` / `X-Real-IP` / `X-Forwarded-For`；非受信公网直连强制返回 socket 对端 IP；`ipLimiterShard` 单分片容量硬上限为 `4096`。
+- `DefaultRealityProber.Probe`: 当 `tlsState.NegotiatedProtocol == "h2"` 时必须通过 `(&http2.Transport{}).NewClientConn(tlsConn)` 发送原生 HTTP/2 请求读取响应头，严禁向 `h2` TLS 流写入 `HTTP/1.1` 明文报文。
+
+### 3. Validation & Error Matrix
+- 非受信对端携带伪造 `CF-Connecting-IP` -> 忽略伪造头，按直连 socket IP 计入限流桶；
+- `ConfigService` 内部查询 `inboundRepo.ListAll` / `userRepo.ListAll` 报错 -> 显式返回 `%w` 错误中止编译，严禁 `_ =` 吞错后将空列表覆盖写盘；
+- `ListInbounds` 遇到纯 UDP 协议（`hysteria2`、纯 UDP `dokodemo-door`） -> 跳过 TCP Dial，复用核心运行状态判定存活。
+
+### 4. Good / Base / Bad Cases
+- **Good**: Nginx `stream :443` 面板分支启用 `proxy_protocol` 直达 `:8443` `real_ip_header proxy_protocol`，REALITY 分支独立剥离/直通，面板收到真实访客 IP。
+- **Base**: 本机无反代直连测试（`RemoteAddr` 为公网 IP），伪造转发头不生效，单分片超 4096 IP 时自动淘汰过期/最旧桶。
+- **Bad**: 在 `GRPCClient.getConn` 解锁后裸读 `c.handlerCli`、在 `Telegram.Start` 直接覆写共享 `bot.Client`、或向 ALPN `h2` 连接发送 `GET / HTTP/1.1\r\n`。
+
+### 5. Tests Required
+- `CGO_ENABLED=1 mise x -- go test -race ./internal/adapter/xray/... ./internal/service/... ./internal/delivery/http/middleware/... ./internal/adapter/reality/... ./internal/adapter/telegram/...`
+
+### 6. Wrong vs Correct
+#### Wrong
+```go
+// 解锁后裸读客户端指针 + 无条件信任伪造请求头
+if err := c.getConn(ctx); err != nil { return err }
+_, err := c.handlerCli.AlterInbound(...) // Close() 并发置 nil 时触发 race/panic
+```
+#### Correct
+```go
+// 锁内原子拷贝返回局部客户端句柄
+handlerCli, _, err := c.getClients(ctx)
+if err != nil { return err }
+_, err = handlerCli.AlterInbound(...)
 ```

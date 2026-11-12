@@ -39,10 +39,9 @@ View  ──►  web/src/api/index.ts (axios 单例)  ──┬──►  /api/*
 
 - 泛型默认为 `any`（`<T = any>`），多数页面直接以 `ref<any>` 接收
   （例：`web/src/views/DashboardView.vue:278`）。这是当前现状，非强制约定。
-- 唯一类型化的领域模块是 `web/src/api/reality.ts`：
-  接口 `RealityDomainStatus` / `RealityCheckItem` / `RealitySummaryStatus`（`:3-30`），
-  函数 `getRealityStatus()`（`:32-38`）、`checkRealityStatus()`（`:40-45`）。
-  其中对可能的 `res.data` 包装做了防御性解包（`:34,42`）。
+- 类型化的领域模块包括 `web/src/api/reality.ts` 与 `web/src/api/users.ts`：
+  - `reality.ts`：接口 `RealityDomainStatus` / `RealityCheckItem` / `RealitySummaryStatus`，函数 `getRealityStatus()`、`checkRealityStatus()`；
+  - `users.ts`：封装 `batchDeleteUsers(ids: number[])`（对接 `POST /api/users/batch-delete` 批量原子删除与单次重编译，严禁在视图层用 `for` 循环串行发送 `DELETE /users/:id`）。
 
 > **规范**：新增领域接口优先参照 `reality.ts` 补齐类型；
 > 不要在页面里对同一后端字段重复做局部强转 —— 收敛到 `api/` 下。

@@ -12,8 +12,8 @@
   - **业务领域子组件（`web/src/views/<feature>/components/`）**：针对 50KB+ 的庞大视图，按领域就近聚合拆分为子组件（如 `InboundTable`, `UserTable`, `OutboundTable`, `OutboundDetailDrawer`, `OutboundFormDrawer`）；重型表单抽屉与大型弹窗（如二维码、趋势图）采用 `defineAsyncComponent` 异步懒加载以优化首屏 chunk 体积。
   - **业务调度视图（`web/src/views/`）**：遵循自包含与轻量化原则，主视图作为调度器协调过滤状态、表格与双抽屉，局部类型与参数清洗收敛至 `views/<feature>/types.ts`。
 - 页面协作与模块解耦：跨层单例协作继续通过导入模块单例（`toast`、`api`）完成。
-- 生命周期配合清理：`onMounted` 注册 `setInterval`，`onUnmounted` 清理，
-  并处理 `visibilitychange`——新增轮询必须成对清理。
+- 生命周期配合清理与轮询防重入：`onMounted` 注册 `setInterval` 或异步进度定时器（如 GeoData 更新 `progressTimer`），`onUnmounted` 必须成对清理并处理 `visibilitychange`；所有 `setInterval` 异步回调必须设置局部布尔 `inFlight`（`try/finally`）防重入守卫，杜绝慢网络高延迟下的并发请求叠加。
+- 高行数响应式表格单套挂载：对于最大可达千行的视图（如 `LogsView.vue`），禁止使用 CSS `hidden md:block` / `md:hidden` 同时挂载桌面与移动两套完整列表 DOM，应通过 `window.matchMedia` 响应式断点（`v-if="isDesktop"` / `v-else`）仅渲染当前视口形态并绑定稳定行 `:key`。
 - 样式主要全部走 Tailwind class 与 Design Tokens 语义类。
 
 ---

@@ -8,9 +8,9 @@
 
 - **驱动**：`github.com/glebarez/sqlite`（纯 Go 实现，无 CGO 依赖，保证跨平台一键打包）；
   初始化位于 `internal/adapter/repository/sqlite_db.go:28`。
-- **连接字符串**（`sqlite_db.go:27`）：必须携带三个 pragma：
+- **连接字符串**（`sqlite_db.go:27`）：必须携带五个核心 pragma：
   ```
-  {dbPath}?_pragma=journal_mode(WAL)&_pragma=busy_timeout(5000)&_pragma=synchronous(NORMAL)
+  {dbPath}?_pragma=journal_mode(WAL)&_pragma=busy_timeout(5000)&_pragma=synchronous(NORMAL)&_pragma=temp_store(MEMORY)&_pragma=cache_size(-8000)
   ```
 - **连接池**（`sqlite_db.go:37-38`）：
   - `sqlDB.SetMaxOpenConns(1)` 串行排队写入，杜绝 SQLite `database is locked` 异常；
@@ -44,8 +44,11 @@
 
 3. **批量数据同步与原生用户/入站独立核算**：
    定时任务同步多用户流量时，必须走仓储的 `BatchSyncTraffic`
-   （`internal/adapter/repository/user_repo.go:118-119`），
-   在**单一原子事务**中批量累加用户与入站增量并写每日流量日志；
-   禁止单次循环单条开启独立事务。接口定义见 `internal/domain/repository.go:55`。
+   （`internal/adapter/repository/user_repo.go`），
+   在**单一原子事务**中批量累加用户与入站增量，并基于复合唯一索引 `idx_user_email_date`（`user_email`, `date`）通过 GORM `clause.OnConflict`（`CreateInBatches(..., 200)`）原子累加每日流量日志，禁止逐用户执行 `SELECT + INSERT/UPDATE` 或循环单条开启独立事务。接口定义见 `internal/domain/repository.go`。
    原生用户与入站各自独立核算用量，入站流量不自动复制或额外归属给用户，
    杜绝同轮双计；遗留 `BoundUserEmail` 仅作向后兼容保留，不产生计费或核算效果。
+
+4. **高频历史表容量自裁剪与级联清理**：
+   - `audit_logs`、`config_snapshots`（原子写计数器定期保留最新 100 条）与 `traffic_logs`（`TrafficSyncJob` 每日低频触发 `PruneBefore` 保留最近 180 天）必须具备自动裁剪上界，防止小磁盘 VPS 上 `panel.db` 无限膨胀；
+   - 删除用户（`DeleteUser` / `BatchDelete`）确认成功后，必须同步清理关联 `tickets`（`DeleteByUserID`）与 `traffic_logs`（`DeleteByUser` 按 `user_id` 或 `user_email`），防止同名邮箱重建用户串用旧历史流量。

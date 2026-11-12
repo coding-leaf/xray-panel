@@ -1,0 +1,30 @@
+{
+  "id": "full-arch-perf-net-opt",
+  "name": "full-arch-perf-net-opt",
+  "title": "全量架构·性能·网络深度优化",
+  "description": "全栈架构并发一致性、后端/SQLite/前端性能与网络边缘防线分批次优化总纲",
+  "status": "completed",
+  "dev_type": null,
+  "scope": null,
+  "package": null,
+  "priority": "P0",
+  "creator": "coding-leaf",
+  "assignee": "coding-leaf",
+  "createdAt": "2026-11-13",
+  "completedAt": "2026-11-13",
+  "branch": null,
+  "base_branch": "master",
+  "worktree_path": null,
+  "commit": null,
+  "pr_url": null,
+  "subtasks": [],
+  "children": [
+    "11-13-m1-p0-concurrency-and-network-hardening",
+    "11-13-m2-p1-backend-db-edge-performance",
+    "11-13-m3-p2-io-upsert-web-and-cache-polish"
+  ],
+  "parent": null,
+  "relatedFiles": [],
+  "notes": "",
+  "meta": {}
+}

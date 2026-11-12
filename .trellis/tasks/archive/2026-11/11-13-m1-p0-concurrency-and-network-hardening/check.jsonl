@@ -1,0 +1,4 @@
+{"file": ".trellis/spec/backend/index.md", "reason": "后端审查基准"}
+{"file": ".trellis/spec/backend/error-handling.md", "reason": "排查静默吞错与错误包装"}
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "核验竞态防护、测试真实性与 KISS 规范"}
+{"file": ".trellis/spec/guides/review-3pass-guide.md", "reason": "3-Pass 审查门禁规范"}

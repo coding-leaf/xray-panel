@@ -1,0 +1,6 @@
+{"file": ".trellis/spec/backend/index.md", "reason": "后端架构总纲与核心红线"}
+{"file": ".trellis/spec/backend/database-guidelines.md", "reason": "SQLite 裁剪与仓储规范"}
+{"file": ".trellis/spec/backend/error-handling.md", "reason": "错误包装与禁吞错规范"}
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "并发安全与测试门禁规范"}
+{"file": ".trellis/spec/frontend/api-and-dataflow.md", "reason": "前端 API 封装与调用规范"}
+{"file": ".trellis/spec/guides/index.md", "reason": "跨层契约与代码复用指南"}

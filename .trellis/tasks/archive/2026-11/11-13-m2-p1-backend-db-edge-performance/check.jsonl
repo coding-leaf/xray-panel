@@ -1,0 +1,5 @@
+{"file": ".trellis/spec/backend/index.md", "reason": "后端审查基准"}
+{"file": ".trellis/spec/backend/database-guidelines.md", "reason": "核验 SQLite 单连接与裁剪契约"}
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "核验竞态防护与测试真实性"}
+{"file": ".trellis/spec/frontend/api-and-dataflow.md", "reason": "核验 batch-delete 跨层契约"}
+{"file": ".trellis/spec/guides/review-3pass-guide.md", "reason": "3-Pass 审查门禁规范"}

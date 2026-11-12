@@ -1,0 +1,5 @@
+{"file": ".trellis/spec/backend/database-guidelines.md", "reason": "核验 SQLite Pragma 与单连接契约未被破坏"}
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "核验资源释放、错误处理与测试真实性"}
+{"file": ".trellis/spec/frontend/components-and-routing.md", "reason": "核验 LogsView 终端模式与 URL query 溯源契约完整"}
+{"file": ".trellis/spec/frontend/quality-guidelines.md", "reason": "核验前端构建与类型门禁"}
+{"file": ".trellis/spec/guides/review-3pass-guide.md", "reason": "3-Pass 审查门禁规范"}

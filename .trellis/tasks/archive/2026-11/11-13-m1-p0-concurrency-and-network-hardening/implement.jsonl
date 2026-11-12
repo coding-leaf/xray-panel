@@ -1,0 +1,6 @@
+{"file": ".trellis/spec/backend/index.md", "reason": "后端架构总纲与核心红线"}
+{"file": ".trellis/spec/backend/directory-structure.md", "reason": "分层依赖约束"}
+{"file": ".trellis/spec/backend/error-handling.md", "reason": "错误包装与禁吞错规范"}
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "并发安全、Fail-repro First 与门禁规范"}
+{"file": ".trellis/spec/backend/logging-guidelines.md", "reason": "结构化日志规范"}
+{"file": ".trellis/spec/guides/index.md", "reason": "跨层与复用思考指南"}

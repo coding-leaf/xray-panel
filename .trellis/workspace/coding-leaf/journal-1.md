@@ -721,3 +721,29 @@
 ### Status
 
 [OK] **Completed**
+
+
+## Session 32: v2.6.8 全栈架构并发清零、批量性能飞跃与网络防线优化
+<!-- trellis-session: v=2 fp=8f48d9cfb0e5ecc8 -->
+
+**Date**: 2026-11-13
+**Task**: v2.6.8 全栈架构并发清零、批量性能飞跃与网络防线优化
+**Branch**: `master`
+
+### Summary
+
+分 M1/M2/M3 三批次完成 20 项架构并发竞态清零、批量用户单次编译与 batch-delete、SQLite 批量原子 UPSERT 与历史表自动裁剪、授信代理限流与 Nginx proxy_protocol 透传、REALITY 原生 HTTP/2 探测、SPA 静态缓存分离及前端轮询防重入与移除空置 Pinia，发布 v2.6.8。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `da753ca` | fix(core): 清零gRPC/Supervisor/节点转换并发竞态并加固授信代理限流与REALITY H2探测 |
+| `bdb8ddd` | perf(backend): 批量操作合并编译单次读盘、历史表自动裁剪批量UPSERT及网络边缘加固 |
+| `e2f7251` | perf(web): 接入批量删除接口、补齐轮询防重入与定时器清理、优化日志单套渲染并移除Pinia |
+| `8a5b726` | docs(spec): 沉淀配置串行化、授信代理限流、SQLite批量UPSERT裁剪与前端零Store规范 |
+| `09a77db` | docs(release): 发布 v2.6.8 更新日志与版本元数据 |
+
+### Status
+
+[OK] **Completed**

@@ -4,6 +4,30 @@
 
 ---
 
+## v2.6.8 (2026-11) - 全栈架构并发清零、批量操作与 SQLite 性能飞跃、网络防线加固与前端瘦身
+
+- **高并发架构一致性与竞态清零 (Concurrency & State Hardening)**：
+  - **Xray gRPC 与进程守护零竞态**：重构 `GRPCClient.getClients` 在读锁内原子拷贝客户端句柄，迁移至现代 `grpc.NewClient` 并注入 `keepalive` 心跳保活，彻底根治高并发下 `Close()` 重连时的空指针 Panic 与竞态；收敛 `SystemdSupervisor` 为单一 `RWMutex` 且将外部 `systemctl`/`xray -version` 调用全部移出锁外；
+  - **配置双源读写串行化与禁吞错**：为 `ConfigService` 引入业务级互斥锁与 `*Locked` 无死锁内部管线，杜绝并发增删用户与修改出站/路由/DNS 时的更新丢失及重启“已删用户幽灵复活”，并显式传播全部仓储/同步错误；
+  - **无状态 uTLS 默认指纹传递**：新增 `InboundToNodeConfigWithDefaultFP` 等无状态转换入口，消除并发拉取订阅时包级全局默认指纹互相污染；
+  - **Telegram 客户端竞态消除与限流**：为 Bot 配置 45s 超时客户端，长轮询浅拷贝独立 `pollBot` 挂载上下文取消传输层，并引入容量 8 的消息处理并发信号量。
+- **后端、SQLite 与高频操作性能飞跃 (Backend & Storage Performance)**：
+  - **批量用户操作提速 10~50 倍**：重构批量续期、批量重置流量、批量启停并新增 `POST /api/users/batch-delete` 批量删除接口，循环内仅同步 DB + gRPC 内存态，末尾统一执行 **1 次** 配置重编译写盘与 `xray -test` 校验，告别 1C1G 小内存机器上的进程 Fork 风暴；
+  - **配置单次读盘与日志路径缓存**：单次保存配置从重复读取解析 `config.json` 5 次压缩至 **1 次** 并直接复用原始字节写快照；`ConfigManager` 内存缓存日志文件路径（写配置时自动刷新），消除日志页高频轮询的重复磁盘解析；
+  - **订阅接口 SQL 缩减 85% 与按需编码**：`/sub` 单次请求由串行 11~12 次单键查库合并为 1 次 `GetAll` 批量读取，并按客户端请求的 `clash` / `sing-box` / `v2ray` 格式单次编码；
+  - **入站 200ms 并发探测与 Hysteria2 修正**：`ListInbounds` 跳过停用节点并改为并发 TCP 探测（支持 `:: -> ::1`），对 `hysteria2` 及纯 UDP `dokodemo-door` 免除无效 TCP 拨号，彻底解决纯 UDP 节点在列表恒显示“离线”的误报；
+  - **SQLite 批量原子 UPSERT 与历史表自裁剪**：每日流量同步采用 `clause.OnConflict` 200 条分批原子累加 UPSERT，DSN 启用 `temp_store(MEMORY)` 与 `cache_size(-8000)`；新增 `config_snapshots`（保留最新 100 条）与 `traffic_logs`（自动清理 180 天前记录）容量自裁剪，删除用户时级联清理关联提件码与历史流量日志。
+- **网络防线、边缘网关与静态缓存基线 (Network & Edge Security)**：
+  - **防伪造头绕过限流与防 OOM**：`GetRealClientIP` 仅在直连对端属于受信代理（回环或配置白名单网段）时才解析转发头，公网直连强制取真实 socket IP，且每个限流分片设 4096 容量硬上限自动淘汰旧桶；
+  - **Nginx 四层真实访客 IP 透传与长连接基线**：重构 `deploy/nginx-sample.conf`，为面板分流启用 `proxy_protocol` 还原真实客户端 IP（避免全员坍缩为 `127.0.0.1` 引发连坐误封），同时对 REALITY 分支剥离协议头保持零破坏兼容，补齐 `upstream keepalive 32`、`gzip` 及 Linux BBR/QUIC 缓冲区调优模板 `deploy/99-xray-panel-sysctl.conf`；
+  - **REALITY 原生 HTTP/2 探测与边缘流释放**：`DefaultRealityProber` 在协商出 ALPN `h2` 时改用 `x/net/http2` 发送原生二进制请求采集真实响应头，精准识别 Cloudflare CDN 伪装目标；`http.Server` 补齐防 Slowloris 超时基线；Cloudflare Worker/Pages 多源站漫游非命中时立即 `cancel()` 响应流；SPA 静态资源分离 `/assets/*` 永久强缓存（`immutable`）与 `index.html` 协商缓存（`no-cache`），杜绝升级面板后浏览器旧缓存白屏。
+- **前端轮询减负与依赖瘦身 (Web Console Polish)**：
+  - 卸载未使用的 `pinia` 依赖与冗余 `pnpm-lock.yaml`，精简首屏核心包体积；
+  - 修复 `RoutingView` 更新 GeoData 时卸载未清理定时器的泄漏，为仪表盘、日志、用户列表等全部轮询加上 `inFlight` 防重入锁，消除弱网下请求堆积卡顿；
+  - `LogsView` 改用响应式视口断点条件渲染（仅挂载桌面表格或移动卡片中的一套）与稳定行 Key，最多减少一半日志 DOM 节点开销。
+
+---
+
 ## v2.6.7 (2026-11) - 用户与订阅高可定制化、全链路动态版本号、三栏脉冲连线可视化拓扑与陈年隐患根治
 
 - **三栏动态脉冲连线可视化拓扑中心 (Visual Pipeline Topology Canvas)**：

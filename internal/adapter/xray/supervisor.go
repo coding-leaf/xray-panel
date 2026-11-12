@@ -13,12 +13,11 @@ import (
 )
 
 type SystemdSupervisor struct {
+	mu              sync.RWMutex
 	serviceName     string
 	xrayBinPath     string
 	lastReload      time.Time
-	verMu           sync.RWMutex
 	cachedVersion   string
-	statusMu        sync.RWMutex
 	cachedStatus    domain.ServiceStatus
 	lastStatusCheck time.Time
 }
@@ -34,13 +33,12 @@ func NewSystemdSupervisor(serviceName, xrayBinPath string) *SystemdSupervisor {
 }
 
 func (s *SystemdSupervisor) UpdateConfig(serviceName, binPath string) {
-	s.verMu.Lock()
-	s.statusMu.Lock()
-	defer s.verMu.Unlock()
-	defer s.statusMu.Unlock()
+	s.mu.Lock()
+	defer s.mu.Unlock()
 
 	if serviceName != "" {
 		s.serviceName = serviceName
+		s.lastStatusCheck = time.Time{}
 	}
 	if binPath != "" {
 		s.xrayBinPath = binPath
@@ -50,29 +48,34 @@ func (s *SystemdSupervisor) UpdateConfig(serviceName, binPath string) {
 
 func (s *SystemdSupervisor) GetStatus(ctx context.Context) (domain.ServiceStatus, error) {
 	if runtime.GOOS != "linux" {
+		s.mu.RLock()
+		lastReload := s.lastReload
+		s.mu.RUnlock()
 		return domain.ServiceStatus{
 			Active:     true,
 			SubState:   "running (dev-mode)",
 			PID:        1,
 			Uptime:     "dev",
-			LastReload: s.lastReload,
+			LastReload: lastReload,
 		}, nil
 	}
 
 	// 3 秒节流缓存，杜绝轮询引发的连续 systemctl 进程 Fork
-	s.statusMu.RLock()
+	s.mu.RLock()
 	if time.Since(s.lastStatusCheck) < 3*time.Second && s.cachedStatus.SubState != "" {
 		st := s.cachedStatus
-		s.statusMu.RUnlock()
+		s.mu.RUnlock()
 		return st, nil
 	}
-	s.statusMu.RUnlock()
+	serviceName := s.serviceName
+	s.mu.RUnlock()
 
-	cmd := exec.CommandContext(ctx, "systemctl", "is-active", s.serviceName)
+	cmd := exec.CommandContext(ctx, "systemctl", "is-active", serviceName)
 	out, _ := cmd.Output()
 	state := strings.TrimSpace(string(out))
 	active := (state == "active")
 
+	s.mu.Lock()
 	st := domain.ServiceStatus{
 		Active:     active,
 		SubState:   state,
@@ -80,35 +83,36 @@ func (s *SystemdSupervisor) GetStatus(ctx context.Context) (domain.ServiceStatus
 		Uptime:     "",
 		LastReload: s.lastReload,
 	}
-
-	s.statusMu.Lock()
 	s.cachedStatus = st
 	s.lastStatusCheck = time.Now()
-	s.statusMu.Unlock()
+	s.mu.Unlock()
 
 	return st, nil
 }
 
 func (s *SystemdSupervisor) Restart(ctx context.Context) error {
-	s.statusMu.Lock()
+	s.mu.Lock()
 	s.lastStatusCheck = time.Time{} // 重置状态缓存，强制立即刷新
-	s.statusMu.Unlock()
+	serviceName := s.serviceName
+	s.mu.Unlock()
 
 	if runtime.GOOS != "linux" {
+		s.mu.Lock()
 		s.lastReload = time.Now()
+		s.mu.Unlock()
 		return nil
 	}
 
-	cmd := exec.CommandContext(ctx, "systemctl", "restart", s.serviceName)
+	cmd := exec.CommandContext(ctx, "systemctl", "restart", serviceName)
 	if out, err := cmd.CombinedOutput(); err != nil {
 		return fmt.Errorf("systemctl restart failed: %s, %w", string(out), err)
 	}
-	s.lastReload = time.Now()
 
-	// 重启后刷新版本缓存
-	s.verMu.Lock()
+	s.mu.Lock()
+	s.lastReload = time.Now()
 	s.cachedVersion = ""
-	s.verMu.Unlock()
+	s.lastStatusCheck = time.Time{}
+	s.mu.Unlock()
 
 	return nil
 }
@@ -118,18 +122,19 @@ func (s *SystemdSupervisor) Reload(ctx context.Context) error {
 }
 
 func (s *SystemdSupervisor) GetVersion(ctx context.Context) (string, error) {
-	s.verMu.RLock()
+	s.mu.RLock()
 	if s.cachedVersion != "" {
 		v := s.cachedVersion
-		s.verMu.RUnlock()
+		s.mu.RUnlock()
 		return v, nil
 	}
-	s.verMu.RUnlock()
+	binPath := s.xrayBinPath
+	s.mu.RUnlock()
 
-	if s.xrayBinPath == "" {
-		s.xrayBinPath = "xray"
+	if binPath == "" {
+		binPath = "xray"
 	}
-	cmd := exec.CommandContext(ctx, s.xrayBinPath, "version")
+	cmd := exec.CommandContext(ctx, binPath, "version")
 	out, err := cmd.Output()
 	if err != nil {
 		return "unknown", err
@@ -140,9 +145,9 @@ func (s *SystemdSupervisor) GetVersion(ctx context.Context) (string, error) {
 		ver = strings.TrimSpace(lines[0])
 	}
 
-	s.verMu.Lock()
+	s.mu.Lock()
 	s.cachedVersion = ver
-	s.verMu.Unlock()
+	s.mu.Unlock()
 
 	return ver, nil
 }

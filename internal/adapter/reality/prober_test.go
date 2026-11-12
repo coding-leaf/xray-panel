@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"panel/internal/adapter/reality"
+	"panel/internal/domain"
 )
 
 func TestProbe_Success(t *testing.T) {
@@ -103,5 +104,161 @@ func TestProbe_ConnectionRefused(t *testing.T) {
 	}
 	if res == nil || res.TCPError == nil {
 		t.Errorf("expected TCPError for closed port, got res=%v", res)
+	}
+}
+
+func TestProbe_HTTP2HeadersAndCloudflareDetection(t *testing.T) {
+	ts := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Server", "cloudflare")
+		w.Header().Set("Cf-Ray", "8a1b2c3d4e5f-SJC")
+		w.Header().Set("X-Probe-Proto", r.Proto)
+		w.WriteHeader(http.StatusOK)
+	}))
+	ts.EnableHTTP2 = true
+	ts.TLS = &tls.Config{
+		MinVersion: tls.VersionTLS13,
+		MaxVersion: tls.VersionTLS13,
+		NextProtos: []string{"h2", "http/1.1"},
+	}
+	ts.StartTLS()
+	defer ts.Close()
+
+	host, portStr, err := net.SplitHostPort(ts.Listener.Addr().String())
+	if err != nil {
+		t.Fatalf("failed to split host port: %v", err)
+	}
+	port, err := strconv.Atoi(portStr)
+	if err != nil {
+		t.Fatalf("failed to parse port: %v", err)
+	}
+
+	prober := reality.NewDefaultRealityProber()
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+
+	res, err := prober.Probe(ctx, host, port, "example.com")
+	if err != nil {
+		t.Fatalf("prober.Probe returned unexpected error: %v", err)
+	}
+	if res == nil {
+		t.Fatalf("prober.Probe returned nil result")
+	}
+	if res.TCPError != nil {
+		t.Fatalf("expected TCPError to be nil, got: %v", res.TCPError)
+	}
+	if res.ALPN != "h2" {
+		t.Fatalf("expected ALPN 'h2', got %q", res.ALPN)
+	}
+	if got := res.Headers.Get("Server"); got != "cloudflare" {
+		t.Fatalf("expected Server='cloudflare', got %q", got)
+	}
+	if got := res.Headers.Get("Cf-Ray"); got != "8a1b2c3d4e5f-SJC" {
+		t.Fatalf("expected Cf-Ray='8a1b2c3d4e5f-SJC', got %q", got)
+	}
+
+	status, errType, _ := domain.EvaluateRealityProbe(
+		res.TCPError,
+		res.TLSVersion,
+		res.ALPN,
+		res.Cert,
+		res.Headers,
+		time.Now(),
+		"example.com",
+	)
+	if status != domain.RealityStatusError || errType != domain.ErrTypeCDNDetected {
+		t.Fatalf("expected CDN_DETECTED error, got status=%s errType=%s", status, errType)
+	}
+}
+
+func TestProbe_HTTP2NonCDNSuccess(t *testing.T) {
+	ts := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Server", "nginx")
+		w.Header().Set("X-Custom-H2", "ok")
+		w.WriteHeader(http.StatusOK)
+	}))
+	ts.EnableHTTP2 = true
+	ts.TLS = &tls.Config{
+		MinVersion: tls.VersionTLS13,
+		MaxVersion: tls.VersionTLS13,
+		NextProtos: []string{"h2", "http/1.1"},
+	}
+	ts.StartTLS()
+	defer ts.Close()
+
+	host, portStr, err := net.SplitHostPort(ts.Listener.Addr().String())
+	if err != nil {
+		t.Fatalf("failed to split host port: %v", err)
+	}
+	port, err := strconv.Atoi(portStr)
+	if err != nil {
+		t.Fatalf("failed to parse port: %v", err)
+	}
+
+	prober := reality.NewDefaultRealityProber()
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+
+	res, err := prober.Probe(ctx, host, port, "example.com")
+	if err != nil {
+		t.Fatalf("prober.Probe returned unexpected error: %v", err)
+	}
+	if res.TCPError != nil {
+		t.Fatalf("expected TCPError to be nil, got: %v", res.TCPError)
+	}
+	if res.ALPN != "h2" {
+		t.Fatalf("expected ALPN 'h2', got %q", res.ALPN)
+	}
+	if got := res.Headers.Get("Server"); got != "nginx" {
+		t.Fatalf("expected Server='nginx', got %q", got)
+	}
+	if got := res.Headers.Get("X-Custom-H2"); got != "ok" {
+		t.Fatalf("expected X-Custom-H2='ok', got %q", got)
+	}
+}
+
+func TestProbe_HTTP2ResponseTimeoutDoesNotFailHandshake(t *testing.T) {
+	unblock := make(chan struct{})
+	defer close(unblock)
+
+	ts := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		select {
+		case <-unblock:
+		case <-r.Context().Done():
+		}
+	}))
+	ts.EnableHTTP2 = true
+	ts.TLS = &tls.Config{
+		MinVersion: tls.VersionTLS13,
+		MaxVersion: tls.VersionTLS13,
+		NextProtos: []string{"h2", "http/1.1"},
+	}
+	ts.StartTLS()
+	defer ts.Close()
+
+	host, portStr, err := net.SplitHostPort(ts.Listener.Addr().String())
+	if err != nil {
+		t.Fatalf("failed to split host port: %v", err)
+	}
+	port, err := strconv.Atoi(portStr)
+	if err != nil {
+		t.Fatalf("failed to parse port: %v", err)
+	}
+
+	prober := reality.NewDefaultRealityProber()
+	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
+	defer cancel()
+
+	res, err := prober.Probe(ctx, host, port, "example.com")
+	if err != nil {
+		t.Fatalf("prober.Probe returned unexpected error: %v", err)
+	}
+	if res == nil {
+		t.Fatalf("prober.Probe returned nil result")
+	}
+	if res.TCPError != nil {
+		t.Fatalf("expected TCPError to be nil when TLS handshake succeeded, got: %v", res.TCPError)
+	}
+	if res.ALPN != "h2" {
+		t.Fatalf("expected ALPN 'h2', got %q", res.ALPN)
 	}
 }

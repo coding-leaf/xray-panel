@@ -12,6 +12,7 @@ import (
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/grpc/keepalive"
 )
 
 type GRPCClient struct {
@@ -31,38 +32,53 @@ func NewGRPCClient(addr string) *GRPCClient {
 	}
 }
 
-func (c *GRPCClient) getConn(ctx context.Context) (*grpc.ClientConn, error) {
+func (c *GRPCClient) getClients(ctx context.Context) (proto.HandlerServiceClient, proto.StatsServiceClient, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, nil, err
+	}
+
 	c.mu.RLock()
-	if c.conn != nil {
-		defer c.mu.RUnlock()
-		return c.conn, nil
+	if c.conn != nil && c.handlerCli != nil && c.statsCli != nil {
+		h, s := c.handlerCli, c.statsCli
+		c.mu.RUnlock()
+		return h, s, nil
 	}
 	c.mu.RUnlock()
 
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	if c.conn != nil {
-		return c.conn, nil
+	if c.conn != nil && c.handlerCli != nil && c.statsCli != nil {
+		return c.handlerCli, c.statsCli, nil
 	}
 
-	dialCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
-	defer cancel()
+	if err := ctx.Err(); err != nil {
+		return nil, nil, err
+	}
 
-	conn, err := grpc.DialContext(
-		dialCtx,
+	conn, err := grpc.NewClient(
 		c.addr,
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
-		grpc.WithBlock(),
+		grpc.WithKeepaliveParams(keepalive.ClientParameters{
+			Time:    30 * time.Second,
+			Timeout: 5 * time.Second,
+		}),
 	)
 	if err != nil {
-		return nil, fmt.Errorf("%w: connect gRPC at %s failed: %v", domain.ErrXrayUnavailable, c.addr, err)
+		return nil, nil, fmt.Errorf("%w: connect gRPC at %s failed: %v", domain.ErrXrayUnavailable, c.addr, err)
 	}
 
 	c.conn = conn
 	c.handlerCli = proto.NewHandlerServiceClient(conn)
 	c.statsCli = proto.NewStatsServiceClient(conn)
-	return c.conn, nil
+	return c.handlerCli, c.statsCli, nil
+}
+
+func ensureRPCTimeout(ctx context.Context) (context.Context, context.CancelFunc) {
+	if _, ok := ctx.Deadline(); ok {
+		return ctx, func() {}
+	}
+	return context.WithTimeout(ctx, 5*time.Second)
 }
 
 func (c *GRPCClient) Close() error {
@@ -80,7 +96,7 @@ func (c *GRPCClient) Close() error {
 
 // AddUser 向指定 Inbound 添加用户
 func (c *GRPCClient) AddUser(ctx context.Context, inbound *domain.Inbound, user *domain.User) error {
-	_, err := c.getConn(ctx)
+	handlerCli, _, err := c.getClients(ctx)
 	if err != nil {
 		return err
 	}
@@ -108,7 +124,10 @@ func (c *GRPCClient) AddUser(ctx context.Context, inbound *domain.Inbound, user 
 		Operation: opMsg,
 	}
 
-	_, err = c.handlerCli.AlterInbound(ctx, req)
+	rpcCtx, cancel := ensureRPCTimeout(ctx)
+	defer cancel()
+
+	_, err = handlerCli.AlterInbound(rpcCtx, req)
 	if err != nil {
 		return fmt.Errorf("xray alter inbound add user failed: %w", err)
 	}
@@ -117,7 +136,7 @@ func (c *GRPCClient) AddUser(ctx context.Context, inbound *domain.Inbound, user 
 
 // RemoveUser 从指定 Inbound 移除用户
 func (c *GRPCClient) RemoveUser(ctx context.Context, inboundTag string, email string) error {
-	_, err := c.getConn(ctx)
+	handlerCli, _, err := c.getClients(ctx)
 	if err != nil {
 		return err
 	}
@@ -134,7 +153,10 @@ func (c *GRPCClient) RemoveUser(ctx context.Context, inboundTag string, email st
 		Operation: opMsg,
 	}
 
-	_, err = c.handlerCli.AlterInbound(ctx, req)
+	rpcCtx, cancel := ensureRPCTimeout(ctx)
+	defer cancel()
+
+	_, err = handlerCli.AlterInbound(rpcCtx, req)
 	if err != nil {
 		return fmt.Errorf("xray alter inbound remove user failed: %w", err)
 	}
@@ -143,7 +165,7 @@ func (c *GRPCClient) RemoveUser(ctx context.Context, inboundTag string, email st
 
 // QueryTrafficStats 查询流量统计
 func (c *GRPCClient) QueryTrafficStats(ctx context.Context, reset bool) ([]domain.TrafficStat, error) {
-	_, err := c.getConn(ctx)
+	_, statsCli, err := c.getClients(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -152,7 +174,10 @@ func (c *GRPCClient) QueryTrafficStats(ctx context.Context, reset bool) ([]domai
 		Reset_: reset,
 	}
 
-	resp, err := c.statsCli.QueryStats(ctx, req)
+	rpcCtx, cancel := ensureRPCTimeout(ctx)
+	defer cancel()
+
+	resp, err := statsCli.QueryStats(rpcCtx, req)
 	if err != nil {
 		return nil, fmt.Errorf("xray query stats failed: %w", err)
 	}

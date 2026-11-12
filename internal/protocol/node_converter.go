@@ -122,11 +122,21 @@ type inboundRawStream struct {
 
 // InboundToNodeConfig 将 domain.Inbound 与 domain.User 转换为通用的 protocol.NodeConfig
 func InboundToNodeConfig(inbound *domain.Inbound, user *domain.User, hostDomain string, defaultPort int) *NodeConfig {
+	return InboundToNodeConfigWithDefaultFP(inbound, user, hostDomain, defaultPort, GetDefaultFingerprint())
+}
+
+// InboundToNodeConfigWithDefaultFP 无状态转换 Inbound 与 User 为 NodeConfig，显式传入默认指纹以避免全局状态竞态
+func InboundToNodeConfigWithDefaultFP(inbound *domain.Inbound, user *domain.User, hostDomain string, defaultPort int, defaultFP string) *NodeConfig {
 	if inbound == nil || strings.EqualFold(inbound.Protocol, "dokodemo-door") {
 		return nil
 	}
 	if user == nil && !strings.EqualFold(inbound.Protocol, "trojan") {
 		return nil
+	}
+
+	resolvedDefaultFP := strings.TrimSpace(defaultFP)
+	if resolvedDefaultFP == "" {
+		resolvedDefaultFP = "chrome"
 	}
 
 	targetHost := cleanHost(inbound.ExternalHost)
@@ -200,10 +210,10 @@ func InboundToNodeConfig(inbound *domain.Inbound, user *domain.User, hostDomain 
 		if len(rawStream.TLSSettings.ALPN) > 0 {
 			node.SetParam("alpn", strings.Join(rawStream.TLSSettings.ALPN, ","))
 		}
-		if rawStream.TLSSettings.Fingerprint != "" {
-			node.SetParam("fp", rawStream.TLSSettings.Fingerprint)
+		if fp := strings.TrimSpace(rawStream.TLSSettings.Fingerprint); fp != "" {
+			node.SetParam("fp", fp)
 		} else {
-			node.SetParam("fp", GetDefaultFingerprint())
+			node.SetParam("fp", resolvedDefaultFP)
 		}
 	}
 
@@ -234,10 +244,10 @@ func InboundToNodeConfig(inbound *domain.Inbound, user *domain.User, hostDomain 
 		if r.SpiderX != "" {
 			node.SetParam("spx", r.SpiderX)
 		}
-		if r.Fingerprint != "" {
-			node.SetParam("fp", r.Fingerprint)
+		if fp := strings.TrimSpace(r.Fingerprint); fp != "" {
+			node.SetParam("fp", fp)
 		} else {
-			node.SetParam("fp", GetDefaultFingerprint())
+			node.SetParam("fp", resolvedDefaultFP)
 		}
 	}
 
@@ -380,6 +390,11 @@ func InboundToNodeConfig(inbound *domain.Inbound, user *domain.User, hostDomain 
 
 // InboundsToNodeConfigs 将一组 Inbound 和 User 转换为 []*NodeConfig
 func InboundsToNodeConfigs(inbounds []domain.Inbound, user *domain.User, hostDomain string, defaultPort int, tagFilter string, routeFilter ...uint16) []*NodeConfig {
+	return InboundsToNodeConfigsWithDefaultFP(inbounds, user, hostDomain, defaultPort, tagFilter, GetDefaultFingerprint(), routeFilter...)
+}
+
+// InboundsToNodeConfigsWithDefaultFP 无状态转换一组 Inbound 和 User 为 []*NodeConfig，显式传入默认指纹以避免全局状态竞态
+func InboundsToNodeConfigsWithDefaultFP(inbounds []domain.Inbound, user *domain.User, hostDomain string, defaultPort int, tagFilter string, defaultFP string, routeFilter ...uint16) []*NodeConfig {
 	var targetRoute uint16
 	if len(routeFilter) > 0 {
 		targetRoute = routeFilter[0]
@@ -411,7 +426,7 @@ func InboundsToNodeConfigs(inbounds []domain.Inbound, user *domain.User, hostDom
 			if targetRoute > 0 {
 				continue
 			}
-			if node := InboundToNodeConfig(&in, user, hostDomain, defaultPort); node != nil {
+			if node := InboundToNodeConfigWithDefaultFP(&in, user, hostDomain, defaultPort, defaultFP); node != nil {
 				nodes = append(nodes, node)
 			}
 			continue
@@ -444,7 +459,7 @@ func InboundsToNodeConfigs(inbounds []domain.Inbound, user *domain.User, hostDom
 				tempInbound.Remark = fmt.Sprintf("%s - 线路 #%d", baseName, sr.RouteID)
 			}
 			tempInbound.RouteID = sr.RouteID
-			if node := InboundToNodeConfig(&tempInbound, user, hostDomain, defaultPort); node != nil {
+			if node := InboundToNodeConfigWithDefaultFP(&tempInbound, user, hostDomain, defaultPort, defaultFP); node != nil {
 				if sr.Name != "" {
 					node.SetParam("remark", sr.Name)
 				}
@@ -497,7 +512,12 @@ func ApplyNodeNameTemplate(nodes []*NodeConfig, template string) {
 
 // BuildShareLink 生成标准 Xray 分享链接 (基于 protocol.Registry 策略模式)
 func BuildShareLink(inbound *domain.Inbound, user *domain.User, hostDomain string, defaultPort int) string {
-	node := InboundToNodeConfig(inbound, user, hostDomain, defaultPort)
+	return BuildShareLinkWithDefaultFP(inbound, user, hostDomain, defaultPort, GetDefaultFingerprint())
+}
+
+// BuildShareLinkWithDefaultFP 无状态生成标准 Xray 分享链接，显式传入默认指纹以避免全局状态竞态
+func BuildShareLinkWithDefaultFP(inbound *domain.Inbound, user *domain.User, hostDomain string, defaultPort int, defaultFP string) string {
+	node := InboundToNodeConfigWithDefaultFP(inbound, user, hostDomain, defaultPort, defaultFP)
 	if node == nil {
 		return ""
 	}

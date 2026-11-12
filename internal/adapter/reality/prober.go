@@ -12,6 +12,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"golang.org/x/net/http2"
 )
 
 // ProbeResult stores the network and TLS probing outcome for a Reality target.
@@ -130,17 +132,82 @@ func (p *DefaultRealityProber) Probe(ctx context.Context, dest string, port int,
 	}
 
 	// 3. Lightweight HTTP GET to read response headers for CDN detection
-	_ = tlsConn.SetDeadline(time.Now().Add(1 * time.Second))
-	reqStr := fmt.Sprintf("GET / HTTP/1.1\r\nHost: %s\r\nUser-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36\r\nConnection: close\r\n\r\n", sni)
-	if _, err := io.WriteString(tlsConn, reqStr); err == nil {
-		reader := bufio.NewReader(tlsConn)
-		dummyReq, _ := http.NewRequestWithContext(ctx, http.MethodGet, "https://"+sni+"/", nil)
-		resp, err := http.ReadResponse(reader, dummyReq)
-		if err == nil && resp != nil {
-			result.Headers = resp.Header.Clone()
-			_ = resp.Body.Close()
+	httpDeadline := time.Now().Add(1 * time.Second)
+	if ctxDeadline, ok := ctx.Deadline(); ok && ctxDeadline.Before(httpDeadline) {
+		httpDeadline = ctxDeadline
+	}
+	_ = tlsConn.SetDeadline(httpDeadline)
+
+	if tlsState.NegotiatedProtocol == "h2" {
+		if headers := probeHTTP2Headers(ctx, tlsConn, sni, httpDeadline); headers != nil {
+			result.Headers = headers
 		}
+		return result, nil
 	}
 
+	if headers := probeHTTP1Headers(ctx, tlsConn, sni); headers != nil {
+		result.Headers = headers
+	}
 	return result, nil
+}
+
+func buildProbeURL(sni string) string {
+	host := sni
+	if strings.Contains(host, ":") && !strings.HasPrefix(host, "[") {
+		host = "[" + host + "]"
+	}
+	return "https://" + host + "/"
+}
+
+func probeHTTP2Headers(ctx context.Context, tlsConn *tls.Conn, sni string, deadline time.Time) http.Header {
+	reqCtx, cancel := context.WithDeadline(ctx, deadline)
+	defer cancel()
+
+	tr := &http2.Transport{}
+	cc, err := tr.NewClientConn(tlsConn)
+	if err != nil {
+		return nil
+	}
+	defer func() {
+		_ = cc.Close()
+	}()
+
+	req, err := http.NewRequestWithContext(reqCtx, http.MethodGet, buildProbeURL(sni), nil)
+	if err != nil {
+		return nil
+	}
+	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
+
+	resp, err := cc.RoundTrip(req)
+	if err != nil || resp == nil {
+		return nil
+	}
+	defer func() {
+		_ = resp.Body.Close()
+	}()
+
+	if resp.StatusCode > 0 {
+		return resp.Header.Clone()
+	}
+	return nil
+}
+
+func probeHTTP1Headers(ctx context.Context, tlsConn *tls.Conn, sni string) http.Header {
+	reqStr := fmt.Sprintf("GET / HTTP/1.1\r\nHost: %s\r\nUser-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36\r\nConnection: close\r\n\r\n", sni)
+	if _, err := io.WriteString(tlsConn, reqStr); err != nil {
+		return nil
+	}
+	reader := bufio.NewReader(tlsConn)
+	dummyReq, err := http.NewRequestWithContext(ctx, http.MethodGet, buildProbeURL(sni), nil)
+	if err != nil {
+		return nil
+	}
+	resp, err := http.ReadResponse(reader, dummyReq)
+	if err != nil || resp == nil {
+		return nil
+	}
+	defer func() {
+		_ = resp.Body.Close()
+	}()
+	return resp.Header.Clone()
 }

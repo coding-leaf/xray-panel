@@ -797,5 +797,63 @@ func TestNodeConverter_TrojanFixedPassword(t *testing.T) {
 	}
 }
 
+func TestNodeConverter_StatelessDefaultFingerprint(t *testing.T) {
+	protocol.SetDefaultFingerprint("random")
+	defer protocol.SetDefaultFingerprint("chrome")
+
+	user := &domain.User{
+		Email:       "stateless@example.com",
+		UUID:        "11111111-2222-3333-4444-555555555555",
+		InboundTags: "tls-no-fp,reality-explicit",
+		Enabled:     true,
+	}
+
+	tlsNoFP := domain.Inbound{
+		ID:             1,
+		Tag:            "tls-no-fp",
+		Protocol:       "vless",
+		Port:           443,
+		ExternalHost:   "tls.example.com",
+		Enabled:        true,
+		StreamSettings: `{"network":"tcp","security":"tls","tlsSettings":{"serverName":"tls.example.com"}}`,
+	}
+	realityExplicit := domain.Inbound{
+		ID:             2,
+		Tag:            "reality-explicit",
+		Protocol:       "vless",
+		Port:           443,
+		ExternalHost:   "reality.example.com",
+		Enabled:        true,
+		StreamSettings: `{"network":"tcp","security":"reality","realitySettings":{"dest":"127.0.0.1:443","serverNames":["reality.example.com"],"privateKey":"dGVzdA==","publicKey":"dGVzdA==","fingerprint":"chrome"}}`,
+	}
+
+	// 1. Explicit defaultFP ("safari") applies when inbound has no fp, while explicit inbound fp ("chrome") wins.
+	nodes := protocol.InboundsToNodeConfigsWithDefaultFP([]domain.Inbound{tlsNoFP, realityExplicit}, user, "", 0, "", "safari")
+	if len(nodes) != 2 {
+		t.Fatalf("expected 2 nodes, got %d", len(nodes))
+	}
+	if nodes[0].GetParam("fp") != "safari" {
+		t.Errorf("expected tls-no-fp to get fp='safari', got %q", nodes[0].GetParam("fp"))
+	}
+	if nodes[1].GetParam("fp") != "chrome" {
+		t.Errorf("expected reality-explicit to preserve explicit fp='chrome', got %q", nodes[1].GetParam("fp"))
+	}
+
+	// 2. Empty defaultFP falls back to "chrome".
+	nodeFallback := protocol.InboundToNodeConfigWithDefaultFP(&tlsNoFP, user, "", 0, "")
+	if nodeFallback.GetParam("fp") != "chrome" {
+		t.Errorf("expected empty defaultFP to fall back to 'chrome', got %q", nodeFallback.GetParam("fp"))
+	}
+
+	// 3. BuildShareLinkWithDefaultFP uses passed defaultFP without altering global state.
+	link := protocol.BuildShareLinkWithDefaultFP(&tlsNoFP, user, "", 0, "ios")
+	if !strings.Contains(link, "fp=ios") {
+		t.Errorf("expected BuildShareLinkWithDefaultFP link to contain fp=ios, got %s", link)
+	}
+	if got := protocol.GetDefaultFingerprint(); got != "random" {
+		t.Errorf("expected global defaultFingerprint to remain 'random', got %q", got)
+	}
+}
+
 
 

@@ -1,0 +1,4 @@
+{"file": ".trellis/tasks/11-13-fix-vless-vision-override/research/vless-vision-audit.md", "reason": "Read-only audit, priority matrix, SyncFromFile traps, and test targets"}
+{"file": ".trellis/spec/backend/index.md", "reason": "Backend architecture and layer conventions"}
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "Backend mutex, error handling, and testing gates"}
+{"file": ".trellis/spec/frontend/index.md", "reason": "Frontend Vue 3 + TS conventions and build gate"}

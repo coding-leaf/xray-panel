@@ -1,0 +1,3 @@
+{"file": ".trellis/tasks/11-13-fix-vless-vision-override/research/vless-vision-audit.md", "reason": "Verify every root cause, trap, and priority matrix row is covered"}
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "Backend quality and test gates"}
+{"file": ".trellis/spec/frontend/index.md", "reason": "Frontend build and typecheck gates"}

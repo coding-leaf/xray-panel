@@ -16,7 +16,11 @@
           type="button"
           @click="activeShareTab = 'link'"
           class="pb-2 px-2.5 font-medium border-b-2 transition-colors flex items-center gap-1.5"
-          :class="activeShareTab === 'link' ? 'border-foreground text-foreground' : 'border-transparent text-muted-foreground hover:text-foreground'"
+          :class="
+            activeShareTab === 'link'
+              ? 'border-foreground text-foreground'
+              : 'border-transparent text-muted-foreground hover:text-foreground'
+          "
         >
           <Copy class="w-3.5 h-3.5" />
           <span>订阅链接</span>
@@ -25,7 +29,11 @@
           type="button"
           @click="activeShareTab = 'qrcode'"
           class="pb-2 px-2.5 font-medium border-b-2 transition-colors flex items-center gap-1.5"
-          :class="activeShareTab === 'qrcode' ? 'border-foreground text-foreground' : 'border-transparent text-muted-foreground hover:text-foreground'"
+          :class="
+            activeShareTab === 'qrcode'
+              ? 'border-foreground text-foreground'
+              : 'border-transparent text-muted-foreground hover:text-foreground'
+          "
         >
           <QrCode class="w-3.5 h-3.5" />
           <span>手机扫码</span>
@@ -34,7 +42,11 @@
           type="button"
           @click="activeShareTab = 'ticket'"
           class="pb-2 px-2.5 font-medium border-b-2 transition-colors flex items-center gap-1.5"
-          :class="activeShareTab === 'ticket' ? 'border-foreground text-foreground' : 'border-transparent text-muted-foreground hover:text-foreground'"
+          :class="
+            activeShareTab === 'ticket'
+              ? 'border-foreground text-foreground'
+              : 'border-transparent text-muted-foreground hover:text-foreground'
+          "
         >
           <ShieldCheck class="w-3.5 h-3.5" />
           <span>安全提取码 (Ticket)</span>
@@ -46,12 +58,7 @@
       <!-- 1. 二维码模式 -->
       <div v-if="activeShareTab === 'qrcode'" class="text-center py-4 space-y-3">
         <div class="inline-block p-4 bg-white rounded-lg shadow-sm border border-border">
-          <QrcodeVue
-            :value="subUrl"
-            :size="180"
-            level="M"
-            render-as="svg"
-          />
+          <QrcodeVue :value="subUrl" :size="180" level="M" render-as="svg" />
         </div>
         <p class="text-[11px] text-muted-foreground">
           支持 Shadowrocket / Clash / V2Ray / Sing-box 等主流客户端相机直接扫码添加
@@ -69,7 +76,8 @@
             <Badge variant="outline" class="text-[10px]">抗审查通道</Badge>
           </div>
           <p class="text-[11px] text-muted-foreground leading-relaxed">
-            生成 6 位高熵中立提取码，支持境内即时通讯安全发送。接收方在分布式网管接入点输入即可获取节点。
+            生成 6
+            位高熵中立提取码，支持境内即时通讯安全发送。接收方在分布式网管接入点输入即可获取节点。
           </p>
 
           <div class="grid grid-cols-2 gap-3 pt-1">
@@ -85,7 +93,9 @@
               </select>
             </div>
             <div>
-              <label class="block text-[11px] text-muted-foreground mb-1 font-mono">允许兑换次数</label>
+              <label class="block text-[11px] text-muted-foreground mb-1 font-mono"
+                >允许兑换次数</label
+              >
               <select
                 v-model="ticketMaxUses"
                 class="w-full bg-neutral-950 border border-border rounded-md px-2.5 h-8 text-xs text-foreground font-mono focus:outline-none"
@@ -110,19 +120,25 @@
         </div>
 
         <!-- Display generated ticket -->
-        <div v-if="generatedTicket" class="rounded-lg border border-border bg-card p-4 space-y-3 font-mono">
+        <div
+          v-if="generatedTicket"
+          class="rounded-lg border border-border bg-card p-4 space-y-3 font-mono"
+        >
           <div class="text-center py-2 bg-neutral-950 rounded-md border border-border">
             <div class="text-[11px] text-muted-foreground mb-1">6 位提取码 (不区分大小写)</div>
             <div class="text-2xl font-bold tracking-[0.3em] text-foreground">
               {{ generatedTicket.code }}
             </div>
             <div class="text-[10px] text-muted-foreground mt-1">
-              剩余可用 {{ generatedTicket.remaining_uses }} 次 · {{ formatTicketExpires(generatedTicket.expires_at) }}
+              剩余可用 {{ generatedTicket.remaining_uses }} 次 ·
+              {{ formatTicketExpires(generatedTicket.expires_at) }}
             </div>
           </div>
 
           <div>
-            <label class="block text-[11px] text-muted-foreground mb-1">可直接复制发给用户的分享文案：</label>
+            <label class="block text-[11px] text-muted-foreground mb-1"
+              >可直接复制发给用户的分享文案：</label
+            >
             <textarea
               readonly
               rows="3"
@@ -133,13 +149,19 @@
           </div>
 
           <div
-            v-if="generatedTicket.share_text?.includes('127.0.0.1') || generatedTicket.share_text?.includes('localhost')"
+            v-if="
+              generatedTicket.share_text?.includes('127.0.0.1') ||
+              generatedTicket.share_text?.includes('localhost')
+            "
             class="p-2.5 bg-amber-500/10 border border-amber-500/20 rounded-md text-[11px] text-amber-300 flex items-start gap-2"
           >
             <AlertCircle class="w-4 h-4 mt-0.5 shrink-0 text-amber-400" />
             <div>
               <span class="font-semibold">提示：当前入口为本地 127.0.0.1 地址</span>
-              <p class="text-amber-300/80 text-[10px] mt-0.5">外部用户无法直接访问本地环回地址。建议前往【系统设置】配置「中立提取门户 URL」或「面板公网访问 URL」。</p>
+              <p class="text-amber-300/80 text-[10px] mt-0.5">
+                外部用户无法直接访问本地环回地址。建议前往【系统设置】配置「中立提取门户
+                URL」或「面板公网访问 URL」。
+              </p>
             </div>
           </div>
 
@@ -195,7 +217,9 @@
 
         <!-- 单节点独立直连链接列表 -->
         <div class="space-y-2">
-          <label class="block text-foreground font-semibold text-[11px] font-mono">单个节点独立直连链接</label>
+          <label class="block text-foreground font-semibold text-[11px] font-mono"
+            >单个节点独立直连链接</label
+          >
           <div class="max-h-48 overflow-y-auto space-y-2 pr-1">
             <div
               v-for="link in normalizedLinks"
@@ -216,7 +240,10 @@
                 <Copy class="w-3 h-3" />
               </Button>
             </div>
-            <div v-if="!normalizedLinks.length" class="text-center py-4 text-muted-foreground text-xs font-mono">
+            <div
+              v-if="!normalizedLinks.length"
+              class="text-center py-4 text-muted-foreground text-xs font-mono"
+            >
               该用户暂无直连节点链接
             </div>
           </div>
@@ -225,24 +252,14 @@
     </div>
 
     <template #footer>
-      <Button variant="outline" size="sm" @click="emit('update:modelValue', false)">
-        关闭
-      </Button>
+      <Button variant="outline" size="sm" @click="emit('update:modelValue', false)"> 关闭 </Button>
     </template>
   </Modal>
 </template>
 
 <script setup lang="ts">
 import { ref, computed, watch } from 'vue'
-import {
-  Zap,
-  Copy,
-  QrCode,
-  ShieldCheck,
-  Sparkles,
-  AlertCircle,
-  RotateCcw,
-} from 'lucide-vue-next'
+import { Zap, Copy, QrCode, ShieldCheck, Sparkles, AlertCircle, RotateCcw } from 'lucide-vue-next'
 import QrcodeVue from 'qrcode.vue'
 import api from '../../../api'
 import { toast } from '../../../utils/toast'
@@ -289,7 +306,8 @@ const userId = computed(() => {
 
 const subUrl = computed(() => {
   if (props.shareData?.allSubUrl) return props.shareData.allSubUrl
-  if (props.shareData?.user) return UserSubscriptionService.getDirectTokenSubUrl(props.shareData.user)
+  if (props.shareData?.user)
+    return UserSubscriptionService.getDirectTokenSubUrl(props.shareData.user)
   if (props.shareData?.subToken) return `${window.location.origin}/sub/${props.shareData.subToken}`
   return ''
 })
@@ -325,9 +343,9 @@ const generateUserTicket = async () => {
       max_uses: ticketMaxUses.value,
     })
     generatedTicket.value = res
-    toast.success('安全提取码生成成功！')
+    toast.success('安全提取码已生成')
   } catch (err: any) {
-    toast.error('生成提取码失败: ' + (err.message || err))
+    toast.error('生成提取码失败：' + (err.message || err))
   } finally {
     generatingTicket.value = false
   }

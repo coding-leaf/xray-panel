@@ -1,7 +1,9 @@
 <template>
   <div class="space-y-4">
     <!-- Header banner -->
-    <div class="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 pb-2 border-b border-border/60">
+    <div
+      class="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 pb-2 border-b border-border/60"
+    >
       <div>
         <div class="flex items-center gap-2">
           <h1 class="text-lg font-semibold text-foreground tracking-tight">运行监控与仪表盘</h1>
@@ -9,7 +11,12 @@
             :variant="dashboard?.metrics?.xrayRunning ? 'default' : 'destructive'"
             class="text-[10px] font-mono flex items-center gap-1"
           >
-            <span class="w-1.5 h-1.5 rounded-full" :class="dashboard?.metrics?.xrayRunning ? 'bg-emerald-400 animate-pulse' : 'bg-rose-400'"></span>
+            <span
+              class="w-1.5 h-1.5 rounded-full"
+              :class="
+                dashboard?.metrics?.xrayRunning ? 'bg-emerald-400 animate-pulse' : 'bg-rose-400'
+              "
+            ></span>
             <span>Xray {{ dashboard?.metrics?.xrayRunning ? '运行中' : '已停止' }}</span>
           </Badge>
         </div>
@@ -36,23 +43,39 @@
     <div
       v-if="realityAlertCount > 0"
       class="p-3 rounded-lg border text-xs flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3"
-      :class="realitySummary?.errorCount ? 'bg-rose-950/20 border-rose-800/40 text-rose-300' : 'bg-amber-950/20 border-amber-800/40 text-amber-300'"
+      :class="
+        realitySummary?.errorCount
+          ? 'bg-rose-950/20 border-rose-800/40 text-rose-300'
+          : 'bg-amber-950/20 border-amber-800/40 text-amber-300'
+      "
     >
       <div class="flex items-center gap-2.5">
-        <component :is="realitySummary?.errorCount ? AlertCircle : AlertTriangle" class="w-4 h-4 shrink-0" :class="realitySummary?.errorCount ? 'text-rose-400' : 'text-amber-400'" />
+        <component
+          :is="realitySummary?.errorCount ? AlertCircle : AlertTriangle"
+          class="w-4 h-4 shrink-0"
+          :class="realitySummary?.errorCount ? 'text-rose-400' : 'text-amber-400'"
+        />
         <div>
           <p class="font-semibold text-xs">
-            {{ realitySummary?.errorCount ? 'Reality 伪装域名存在异常风险' : 'Reality 伪装域名临期或配置预警' }}
+            {{
+              realitySummary?.errorCount
+                ? 'REALITY 伪装域名存在异常风险'
+                : 'REALITY 伪装域名临期或配置预警'
+            }}
           </p>
           <p class="text-[11px] opacity-90 mt-0.5 font-mono">
-            检测到 {{ realityAlertCount }} 个 Reality 入站目标需关注，请及时检查与更换以确保护航。
+            检测到 {{ realityAlertCount }} 个 REALITY 入站目标需关注，请及时检查并处理。
           </p>
         </div>
       </div>
       <router-link
         to="/inbounds"
         class="shrink-0 px-2.5 py-1 rounded-md font-mono text-xs transition-colors flex items-center gap-1 border"
-        :class="realitySummary?.errorCount ? 'bg-rose-900/40 hover:bg-rose-900/60 text-rose-200 border-rose-700/50' : 'bg-amber-900/40 hover:bg-amber-900/60 text-amber-200 border-amber-700/50'"
+        :class="
+          realitySummary?.errorCount
+            ? 'bg-rose-900/40 hover:bg-rose-900/60 text-rose-200 border-rose-700/50'
+            : 'bg-amber-900/40 hover:bg-amber-900/60 text-amber-200 border-amber-700/50'
+        "
       >
         <span>前往处理</span>
         <span>➔</span>
@@ -68,7 +91,9 @@
           <Cpu class="w-4 h-4 text-cyan-400" />
         </div>
         <div class="mt-2.5 flex items-baseline gap-2">
-          <span class="text-2xl font-mono font-bold text-foreground">{{ dashboard?.metrics?.cpuUsagePercent?.toFixed(1) || 0 }}%</span>
+          <span class="text-2xl font-mono font-bold text-foreground"
+            >{{ dashboard?.metrics?.cpuUsagePercent?.toFixed(1) || 0 }}%</span
+          >
         </div>
         <div class="mt-3 w-full bg-neutral-900 rounded-full h-1 overflow-hidden">
           <div
@@ -85,9 +110,12 @@
           <Activity class="w-4 h-4 text-indigo-400" />
         </div>
         <div class="mt-2.5 flex items-baseline gap-2">
-          <span class="text-2xl font-mono font-bold text-foreground">{{ dashboard?.metrics?.memoryUsagePercent?.toFixed(1) || 0 }}%</span>
+          <span class="text-2xl font-mono font-bold text-foreground"
+            >{{ dashboard?.metrics?.memoryUsagePercent?.toFixed(1) || 0 }}%</span
+          >
           <span class="text-[11px] text-muted-foreground font-mono truncate">
-            {{ formatBytes(dashboard?.metrics?.memoryUsedBytes || 0) }} / {{ formatBytes(dashboard?.metrics?.memoryTotalBytes || 0) }}
+            {{ formatBytes(dashboard?.metrics?.memoryUsedBytes || 0) }} /
+            {{ formatBytes(dashboard?.metrics?.memoryTotalBytes || 0) }}
           </span>
         </div>
         <div class="mt-3 w-full bg-neutral-900 rounded-full h-1 overflow-hidden">
@@ -105,9 +133,12 @@
           <HardDrive class="w-4 h-4 text-amber-400" />
         </div>
         <div class="mt-2.5 flex items-baseline gap-2">
-          <span class="text-2xl font-mono font-bold text-foreground">{{ dashboard?.metrics?.diskUsagePercent?.toFixed(1) || 0 }}%</span>
+          <span class="text-2xl font-mono font-bold text-foreground"
+            >{{ dashboard?.metrics?.diskUsagePercent?.toFixed(1) || 0 }}%</span
+          >
           <span class="text-[11px] text-muted-foreground font-mono truncate">
-            {{ formatBytes(dashboard?.metrics?.diskUsedBytes || 0) }} / {{ formatBytes(dashboard?.metrics?.diskTotalBytes || 0) }}
+            {{ formatBytes(dashboard?.metrics?.diskUsedBytes || 0) }} /
+            {{ formatBytes(dashboard?.metrics?.diskTotalBytes || 0) }}
           </span>
         </div>
         <div class="mt-3 w-full bg-neutral-900 rounded-full h-1 overflow-hidden">
@@ -125,11 +156,17 @@
           <Users class="w-4 h-4 text-emerald-400" />
         </div>
         <div class="mt-2.5 flex items-baseline gap-2">
-          <span class="text-2xl font-mono font-bold text-foreground">{{ dashboard?.activeUsers || 0 }}</span>
-          <span class="text-[11px] text-muted-foreground font-mono">/ {{ dashboard?.userCount || 0 }} 活跃中</span>
+          <span class="text-2xl font-mono font-bold text-foreground">{{
+            dashboard?.activeUsers || 0
+          }}</span>
+          <span class="text-[11px] text-muted-foreground font-mono"
+            >/ {{ dashboard?.userCount || 0 }} 活跃中</span
+          >
         </div>
         <div class="mt-3 text-[11px] text-muted-foreground font-mono">
-          已配置节点: <span class="text-foreground font-semibold">{{ dashboard?.inbounds?.length || 0 }}</span> 个
+          已配置节点:
+          <span class="text-foreground font-semibold">{{ dashboard?.inbounds?.length || 0 }}</span>
+          个
         </div>
       </div>
     </div>
@@ -139,14 +176,18 @@
       <!-- Real-time Speed Card -->
       <div class="p-4 rounded-lg bg-card border border-border lg:col-span-2 space-y-4">
         <div class="flex items-center justify-between">
-          <h2 class="text-xs font-semibold text-foreground uppercase tracking-wider flex items-center gap-1.5">
+          <h2
+            class="text-xs font-semibold text-foreground uppercase tracking-wider flex items-center gap-1.5"
+          >
             <Zap class="w-3.5 h-3.5 text-cyan-400" />
             <span>实时网络速率与总吞吐量</span>
           </h2>
         </div>
 
         <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
-          <div class="bg-neutral-900/60 border border-border/70 p-3 rounded-md flex items-center justify-between">
+          <div
+            class="bg-neutral-900/60 border border-border/70 p-3 rounded-md flex items-center justify-between"
+          >
             <div class="flex items-center gap-2.5">
               <div class="p-2 rounded bg-cyan-950/60 border border-cyan-800/40 text-cyan-400">
                 <ArrowUpRight class="w-4 h-4" />
@@ -160,17 +201,23 @@
             </div>
             <div class="text-right font-mono space-y-0.5">
               <div>
-                <span class="text-[10px] text-muted-foreground">主机网卡累计: </span>
-                <span class="text-xs text-foreground">{{ formatBytes(dashboard?.metrics?.netTotalSent ?? 0) }}</span>
+                <span class="text-[10px] text-muted-foreground">主机网卡累计：</span>
+                <span class="text-xs text-foreground">{{
+                  formatBytes(dashboard?.metrics?.netTotalSent ?? 0)
+                }}</span>
               </div>
               <div>
-                <span class="text-[10px] text-muted-foreground">现存入站累计: </span>
-                <span class="text-xs text-cyan-400 font-semibold">{{ formatBytes(dashboard?.totalUp ?? 0) }}</span>
+                <span class="text-[10px] text-muted-foreground">现存入站累计：</span>
+                <span class="text-xs text-cyan-400 font-semibold">{{
+                  formatBytes(dashboard?.totalUp ?? 0)
+                }}</span>
               </div>
             </div>
           </div>
 
-          <div class="bg-neutral-900/60 border border-border/70 p-3 rounded-md flex items-center justify-between">
+          <div
+            class="bg-neutral-900/60 border border-border/70 p-3 rounded-md flex items-center justify-between"
+          >
             <div class="flex items-center gap-2.5">
               <div class="p-2 rounded bg-indigo-950/60 border border-indigo-800/40 text-indigo-400">
                 <ArrowDownRight class="w-4 h-4" />
@@ -184,12 +231,16 @@
             </div>
             <div class="text-right font-mono space-y-0.5">
               <div>
-                <span class="text-[10px] text-muted-foreground">主机网卡累计: </span>
-                <span class="text-xs text-foreground">{{ formatBytes(dashboard?.metrics?.netTotalRecv ?? 0) }}</span>
+                <span class="text-[10px] text-muted-foreground">主机网卡累计：</span>
+                <span class="text-xs text-foreground">{{
+                  formatBytes(dashboard?.metrics?.netTotalRecv ?? 0)
+                }}</span>
               </div>
               <div>
-                <span class="text-[10px] text-muted-foreground">现存入站累计: </span>
-                <span class="text-xs text-indigo-400 font-semibold">{{ formatBytes(dashboard?.totalDown ?? 0) }}</span>
+                <span class="text-[10px] text-muted-foreground">现存入站累计：</span>
+                <span class="text-xs text-indigo-400 font-semibold">{{
+                  formatBytes(dashboard?.totalDown ?? 0)
+                }}</span>
               </div>
             </div>
           </div>
@@ -198,14 +249,23 @@
         <!-- Inbound status table preview -->
         <div class="pt-2">
           <div class="flex items-center justify-between mb-2">
-            <h3 class="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider font-mono">入站节点概要</h3>
-            <router-link to="/inbounds" class="text-[11px] text-brand-400 hover:text-brand-300 font-mono">
+            <h3
+              class="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider font-mono"
+            >
+              入站节点概要
+            </h3>
+            <router-link
+              to="/inbounds"
+              class="text-[11px] text-brand-400 hover:text-brand-300 font-mono"
+            >
               查看全部入站 ➔
             </router-link>
           </div>
           <div class="overflow-x-auto rounded-md border border-border bg-neutral-950">
             <table class="w-full text-left text-xs border-collapse min-w-[380px]">
-              <thead class="text-muted-foreground bg-neutral-900 border-b border-border font-mono text-[11px]">
+              <thead
+                class="text-muted-foreground bg-neutral-900 border-b border-border font-mono text-[11px]"
+              >
                 <tr>
                   <th class="py-2 px-3">标签 (Tag)</th>
                   <th class="py-2 px-3">端口</th>
@@ -215,12 +275,18 @@
                 </tr>
               </thead>
               <tbody class="divide-y divide-border/40 font-mono">
-                <tr v-for="inb in dashboard?.inbounds || []" :key="inb.id" class="hover:bg-muted/20 transition-colors">
+                <tr
+                  v-for="inb in dashboard?.inbounds || []"
+                  :key="inb.id"
+                  class="hover:bg-muted/20 transition-colors"
+                >
                   <td class="py-2 px-3 font-medium text-foreground">{{ inb.tag }}</td>
                   <td class="py-2 px-3 text-cyan-400">{{ inb.port }}</td>
                   <td class="py-2 px-3 uppercase text-muted-foreground">{{ inb.protocol }}</td>
                   <td class="py-2 px-3">
-                    <span class="px-1.5 py-0.5 rounded text-[10px] font-semibold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+                    <span
+                      class="px-1.5 py-0.5 rounded text-[10px] font-semibold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20"
+                    >
                       正常
                     </span>
                   </td>
@@ -229,7 +295,9 @@
                   </td>
                 </tr>
                 <tr v-if="!dashboard?.inbounds?.length">
-                  <td colspan="5" class="py-4 text-center text-muted-foreground text-xs font-sans">暂无入站节点</td>
+                  <td colspan="5" class="py-4 text-center text-muted-foreground text-xs font-sans">
+                    暂无入站节点
+                  </td>
                 </tr>
               </tbody>
             </table>
@@ -239,7 +307,9 @@
 
       <!-- Service Info & Quick Ops -->
       <div class="p-4 rounded-lg bg-card border border-border space-y-4">
-        <h2 class="text-xs font-semibold text-foreground uppercase tracking-wider flex items-center gap-1.5">
+        <h2
+          class="text-xs font-semibold text-foreground uppercase tracking-wider flex items-center gap-1.5"
+        >
           <Server class="w-3.5 h-3.5 text-brand-400" />
           <span>服务与系统信息</span>
         </h2>
@@ -247,11 +317,15 @@
         <div class="space-y-2.5 text-xs font-mono">
           <div class="flex justify-between py-1.5 border-b border-border/50">
             <span class="text-muted-foreground">Xray 核心版本</span>
-            <span class="text-foreground font-semibold">{{ dashboard?.metrics?.xrayVersion || '未知' }}</span>
+            <span class="text-foreground font-semibold">{{
+              dashboard?.metrics?.xrayVersion || '未知'
+            }}</span>
           </div>
           <div class="flex justify-between py-1.5 border-b border-border/50">
             <span class="text-muted-foreground">系统开机时长</span>
-            <span class="text-foreground">{{ formatUptime(dashboard?.metrics?.uptimeSeconds || 0) }}</span>
+            <span class="text-foreground">{{
+              formatUptime(dashboard?.metrics?.uptimeSeconds || 0)
+            }}</span>
           </div>
           <div class="flex justify-between py-1.5 border-b border-border/50">
             <span class="text-muted-foreground">服务子状态</span>
@@ -260,7 +334,11 @@
         </div>
 
         <div class="pt-2">
-          <h3 class="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider mb-2 font-mono">快捷运维指令</h3>
+          <h3
+            class="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider mb-2 font-mono"
+          >
+            快捷运维指令
+          </h3>
           <Button
             variant="secondary"
             size="sm"
@@ -314,10 +392,11 @@ const realityAlertCount = computed(() => {
 const fetchRealityAlerts = async () => {
   try {
     const rawRes: any = await getRealityStatus()
-    realitySummary.value = (rawRes?.data && typeof rawRes.data === 'object' && rawRes.data.totalChecked !== undefined)
-      ? rawRes.data
-      : rawRes
-  } catch (err) {
+    realitySummary.value =
+      rawRes?.data && typeof rawRes.data === 'object' && rawRes.data.totalChecked !== undefined
+        ? rawRes.data
+        : rawRes
+  } catch {
     // 静默降级
   }
 }
@@ -350,9 +429,9 @@ const restartXray = async () => {
   try {
     await api.post('/service/restart')
     await fetchData()
-    toast.success('Xray 核心已成功重启！')
+    toast.success('Xray 核心已重启')
   } catch (err: any) {
-    toast.error('重启失败: ' + err)
+    toast.error('重启失败：' + err)
   } finally {
     restarting.value = false
   }

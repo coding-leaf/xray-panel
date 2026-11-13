@@ -4,7 +4,7 @@ import type { TopologyEdge, HoverHighlightState, ComputedBezierEdge } from '../t
 export function useSvgBezier(
   containerRef: Ref<HTMLElement | null>,
   edges: Ref<TopologyEdge[]>,
-  highlightState: Ref<HoverHighlightState>,
+  highlightState: Ref<HoverHighlightState>
 ) {
   const computedEdges = ref<ComputedBezierEdge[]>([])
   let rafId: number | null = null
@@ -31,13 +31,13 @@ export function useSvgBezier(
 
     for (const edge of edges.value) {
       // Find source right anchor
-      let sourceX = 0
-      let sourceY = 0
+      let sourceX: number
+      let sourceY: number
       const sourceAnchor = container.querySelector(
-        `[data-node-id="${edge.sourceId}"] [data-anchor="right"]`,
+        `[data-node-id="${edge.sourceId}"] [data-anchor="right"]`
       ) as HTMLElement | null
       const sourceCard = container.querySelector(
-        `[data-node-id="${edge.sourceId}"]`,
+        `[data-node-id="${edge.sourceId}"]`
       ) as HTMLElement | null
 
       if (sourceAnchor) {
@@ -53,13 +53,13 @@ export function useSvgBezier(
       }
 
       // Find target left anchor
-      let targetX = 0
-      let targetY = 0
+      let targetX: number
+      let targetY: number
       const targetAnchor = container.querySelector(
-        `[data-node-id="${edge.targetId}"] [data-anchor="left"]`,
+        `[data-node-id="${edge.targetId}"] [data-anchor="left"]`
       ) as HTMLElement | null
       const targetCard = container.querySelector(
-        `[data-node-id="${edge.targetId}"]`,
+        `[data-node-id="${edge.targetId}"]`
       ) as HTMLElement | null
 
       if (targetAnchor) {
@@ -118,7 +118,7 @@ export function useSvgBezier(
     () => {
       nextTick(scheduleUpdate)
     },
-    { deep: true },
+    { deep: true }
   )
 
   watch(
@@ -127,8 +127,7 @@ export function useSvgBezier(
       // Fast path: just update isActive and isDimmed without re-querying DOM if paths exist
       if (computedEdges.value.length > 0) {
         const hasHighlight =
-          highlightState.value.activeNodeIds.size > 0 ||
-          highlightState.value.activeEdgeIds.size > 0
+          highlightState.value.activeNodeIds.size > 0 || highlightState.value.activeEdgeIds.size > 0
         const activeEdgeIds = highlightState.value.activeEdgeIds
 
         computedEdges.value = computedEdges.value.map((ce) => {
@@ -144,7 +143,7 @@ export function useSvgBezier(
         scheduleUpdate()
       }
     },
-    { deep: true },
+    { deep: true }
   )
 
   onMounted(() => {

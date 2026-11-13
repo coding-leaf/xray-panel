@@ -24,7 +24,7 @@ export function useUserList() {
     const now = Date.now()
     return users.value.filter((u) => {
       const expired = u.expireTime > 0 && u.expireTime < now
-      const overquota = u.totalBytes > 0 && (u.upBytes + u.downBytes) >= u.totalBytes
+      const overquota = u.totalBytes > 0 && u.upBytes + u.downBytes >= u.totalBytes
       const disabled = !u.enabled
       return expired || overquota || disabled
     }).length
@@ -36,10 +36,12 @@ export function useUserList() {
   }
 
   const isUserOverQuota = (user: UserItem): boolean => {
-    return user.totalBytes > 0 && (user.upBytes + user.downBytes) >= user.totalBytes
+    return user.totalBytes > 0 && user.upBytes + user.downBytes >= user.totalBytes
   }
 
-  const getUserBadgeVariant = (user: UserItem): 'default' | 'secondary' | 'outline' | 'success' | 'warning' | 'destructive' => {
+  const getUserBadgeVariant = (
+    user: UserItem
+  ): 'default' | 'secondary' | 'outline' | 'success' | 'warning' | 'destructive' => {
     if (!user.enabled) return 'destructive'
     if (isUserExpired(user)) return 'warning'
     if (isUserOverQuota(user)) return 'destructive'
@@ -83,7 +85,7 @@ export function useUserList() {
         if (!isExpired) return false
       }
       if (statusFilter.value === 'overquota') {
-        const isOver = user.totalBytes > 0 && (user.upBytes + user.downBytes) >= user.totalBytes
+        const isOver = user.totalBytes > 0 && user.upBytes + user.downBytes >= user.totalBytes
         if (!isOver) return false
       }
 
@@ -93,8 +95,8 @@ export function useUserList() {
       const uuidMatch = user.uuid?.toLowerCase().includes(query)
       const subTokenMatch = user.subToken?.toLowerCase().includes(query)
       const remarkMatch = user.remark?.toLowerCase().includes(query)
-      const inboundMatch = UserSubscriptionService.getNodeTags(user, availableInbounds.value).some((tag) =>
-        tag.toLowerCase().includes(query)
+      const inboundMatch = UserSubscriptionService.getNodeTags(user, availableInbounds.value).some(
+        (tag) => tag.toLowerCase().includes(query)
       )
       return emailMatch || uuidMatch || subTokenMatch || remarkMatch || inboundMatch
     })
@@ -154,7 +156,7 @@ export function useUserList() {
           }
         }
       }
-    } catch (_err) {
+    } catch {
       // 保证轮询稳定性
     } finally {
       speedsInFlight = false
@@ -164,17 +166,18 @@ export function useUserList() {
   // Single / Batch Operations
   const batchRenew = async (days: number) => {
     if (!selectedUserIds.value.length) return
-    if (!confirm(`确定为选中的 ${selectedUserIds.value.length} 位用户统一延期 ${days} 天吗？`)) return
+    if (!confirm(`确定为选中的 ${selectedUserIds.value.length} 位用户统一延期 ${days} 天吗？`))
+      return
     try {
       await api.post('/users/batch-renew', {
         ids: selectedUserIds.value,
         days,
       })
-      toast.success(`成功为选中用户批量延期 ${days} 天！`)
+      toast.success(`已为选中用户批量延期 ${days} 天`)
       selectedUserIds.value = []
       await fetchAll()
     } catch (err: any) {
-      toast.error('批量延期失败: ' + err)
+      toast.error('批量延期失败：' + err)
     }
   }
 
@@ -184,25 +187,26 @@ export function useUserList() {
         ids: [userId],
         days,
       })
-      toast.success(`已成功延期 ${days} 天！`)
+      toast.success(`已延期 ${days} 天`)
       await fetchAll()
     } catch (err: any) {
-      toast.error('延期失败: ' + err)
+      toast.error('延期失败：' + err)
     }
   }
 
   const batchResetTraffic = async () => {
     if (!selectedUserIds.value.length) return
-    if (!confirm(`确定重置选中的 ${selectedUserIds.value.length} 位用户的已用上下行流量吗？`)) return
+    if (!confirm(`确定重置选中的 ${selectedUserIds.value.length} 位用户的已用上下行流量吗？`))
+      return
     try {
       await api.post('/users/batch-reset-traffic', {
         ids: selectedUserIds.value,
       })
-      toast.success('已成功重置选中用户的已用流量！')
+      toast.success('已重置选中用户的已用流量')
       selectedUserIds.value = []
       await fetchAll()
     } catch (err: any) {
-      toast.error('批量重置流量失败: ' + err)
+      toast.error('批量重置流量失败：' + err)
     }
   }
 
@@ -215,24 +219,25 @@ export function useUserList() {
         ids: selectedUserIds.value,
         enabled,
       })
-      toast.success(`已成功批量${action}选中用户！`)
+      toast.success(`已批量${action}选中用户`)
       selectedUserIds.value = []
       await fetchAll()
     } catch (err: any) {
-      toast.error(`批量${action}失败: ` + err)
+      toast.error(`批量${action}失败：` + err)
     }
   }
 
   const batchDeleteUsers = async () => {
     if (!selectedUserIds.value.length) return
-    if (!confirm(`确定批量删除选中的 ${selectedUserIds.value.length} 位用户吗？此操作不可逆！`)) return
+    if (!confirm(`确定批量删除选中的 ${selectedUserIds.value.length} 位用户吗？此操作不可逆。`))
+      return
     try {
       await batchDeleteUsersApi(selectedUserIds.value)
-      toast.success('已成功批量删除选中用户！')
+      toast.success('已批量删除选中用户')
       selectedUserIds.value = []
       await fetchAll()
     } catch (err: any) {
-      toast.error('批量删除失败: ' + err)
+      toast.error('批量删除失败：' + err)
     }
   }
 
@@ -242,10 +247,10 @@ export function useUserList() {
         ids: [user.id],
         enabled: !user.enabled,
       })
-      toast.success(`用户已${!user.enabled ? '启用' : '停用'}！`)
+      toast.success(`用户已${!user.enabled ? '启用' : '停用'}`)
       await fetchAll()
     } catch (err: any) {
-      toast.error('切换状态失败: ' + err)
+      toast.error('切换状态失败：' + err)
     }
   }
 
@@ -253,11 +258,11 @@ export function useUserList() {
     if (!confirm('确定删除该用户并将其从所有节点下线吗？')) return false
     try {
       await api.delete(`/users/${id}`)
-      toast.success('用户已成功删除！')
+      toast.success('用户已删除')
       await fetchAll()
       return true
     } catch (err: any) {
-      toast.error('删除失败: ' + err)
+      toast.error('删除失败：' + err)
       return false
     }
   }
@@ -266,22 +271,27 @@ export function useUserList() {
     if (!confirm('确定重置该用户的上下行流量吗？')) return
     try {
       await api.post(`/users/${id}/reset-traffic`)
-      toast.success('用户已用流量已重置为 0！')
+      toast.success('用户已用流量已重置为 0')
       await fetchAll()
     } catch (err: any) {
-      toast.error('重置失败: ' + err)
+      toast.error('重置失败：' + err)
     }
   }
 
-  const resetUserSubToken = async (userId: number): Promise<{ subToken?: string; uuid?: string } | null> => {
-    if (!confirm('确定重置该用户的订阅与连接密钥吗？所有旧设备将立即断开连接，旧订阅链接也将失效！')) return null
+  const resetUserSubToken = async (
+    userId: number
+  ): Promise<{ subToken?: string; uuid?: string } | null> => {
+    if (
+      !confirm('确定重置该用户的订阅与连接密钥吗？所有旧设备将立即断开连接，旧订阅链接也将失效。')
+    )
+      return null
     try {
       const res: any = await api.post(`/users/${userId}/reset-token`)
-      toast.success('订阅与密钥重置成功，旧设备已断开！')
+      toast.success('订阅与密钥已重置，旧设备已断开')
       await fetchAll()
       return res
     } catch (err: any) {
-      toast.error('重置失败: ' + err)
+      toast.error('重置失败：' + err)
       return null
     }
   }

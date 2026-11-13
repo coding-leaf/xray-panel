@@ -13,7 +13,7 @@ web/src/
 ├── api/          # index.ts (axios 单例) + reality.ts (类型化领域接口)
 ├── router/       # index.ts (单文件路由表)
 ├── mock/         # index.ts (请求分发器) + storage.ts (localStorage 状态)
-├── utils/        # 通用工具；format.ts (流量/日期/时长), clipboard.ts (剪贴板), toast.ts
+├── utils/        # 通用工具；format.ts (流量/日期/时长), clipboard.ts (剪贴板), toast.ts, uid.ts (Vue 3.4 兼容自增 ID)
 ├── App.vue       # 布局骨架 + 全局轮询/可见性处理
 ├── main.ts       # createApp + createPinia 注册
 ├── style.css     # Tailwind 指令 + 全局设计类

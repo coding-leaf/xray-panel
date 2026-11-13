@@ -111,7 +111,8 @@ export function parseMuxSummary(muxStr?: string): string {
 export function parseDialerProxy(streamSettingsStr?: string): string {
   if (!streamSettingsStr) return ''
   try {
-    const s = typeof streamSettingsStr === 'string' ? JSON.parse(streamSettingsStr) : streamSettingsStr
+    const s =
+      typeof streamSettingsStr === 'string' ? JSON.parse(streamSettingsStr) : streamSettingsStr
     return s.sockopt?.dialerProxy || ''
   } catch {
     return ''
@@ -170,7 +171,7 @@ export function populateOutboundForm(ob: OutboundItem): OutboundFormState {
   form.tag = ob.tag || ''
   form.protocol = ob.protocol || 'vless'
   form.sendThrough = ob.sendThrough || ''
-  form.targetStrategy = ob.targetStrategy === 'AsIs' ? '' : (ob.targetStrategy || '')
+  form.targetStrategy = ob.targetStrategy === 'AsIs' ? '' : ob.targetStrategy || ''
 
   if (ob.mux) {
     try {
@@ -191,14 +192,14 @@ export function populateOutboundForm(ob: OutboundItem): OutboundFormState {
     }
   }
 
-  let s: Record<string, any> = {}
+  let s: Record<string, any>
   try {
     s = JSON.parse(ob.settingsJson || '{}')
   } catch {
     s = {}
   }
 
-  let str: Record<string, any> = {}
+  let str: Record<string, any>
   try {
     str = JSON.parse(ob.streamSettings || '{}')
   } catch {
@@ -285,11 +286,12 @@ export function populateOutboundForm(ob: OutboundItem): OutboundFormState {
         if (ob.protocol === 'vless') {
           const flowCandidate = s.flow !== undefined ? s.flow : u.flow
           if (flowCandidate !== undefined) {
-            form.vlessFlow = flowCandidate === '' || flowCandidate === 'none' ? 'none' : flowCandidate
+            form.vlessFlow =
+              flowCandidate === '' || flowCandidate === 'none' ? 'none' : flowCandidate
           } else {
             const isTcp = form.streamNetwork === 'tcp'
             const isTlsOrReality = ['reality', 'tls'].includes(form.streamSecurity)
-            form.vlessFlow = (isTcp && isTlsOrReality) ? 'xtls-rprx-vision' : 'none'
+            form.vlessFlow = isTcp && isTlsOrReality ? 'xtls-rprx-vision' : 'none'
           }
         } else if (ob.protocol === 'vmess') {
           form.vmessSecurity = u.security || 'auto'
@@ -351,7 +353,7 @@ export function buildSettingsJSON(form: OutboundFormState): string {
   } else if (form.protocol === 'vless') {
     const isTcp = form.streamNetwork === 'tcp'
     const isTlsOrReality = ['reality', 'tls'].includes(form.streamSecurity)
-    const flowVal = (isTcp && isTlsOrReality) ? (form.vlessFlow || '') : ''
+    const flowVal = isTcp && isTlsOrReality ? form.vlessFlow || '' : ''
     const userObj: Record<string, any> = {
       id: form.proxyPassword,
       encryption: 'none',
@@ -514,8 +516,12 @@ export function buildStreamSettingsJSON(form: OutboundFormState): string {
 }
 
 export function sanitizeOutboundPayload(form: OutboundFormState): OutboundPayload {
-  const supportsMux = ['vless', 'vmess', 'trojan', 'shadowsocks', 'socks', 'http'].includes(form.protocol)
-  const isVision = form.protocol === 'vless' && (form.vlessFlow === 'xtls-rprx-vision' || form.vlessFlow === 'xtls-rprx-vision-udp443')
+  const supportsMux = ['vless', 'vmess', 'trojan', 'shadowsocks', 'socks', 'http'].includes(
+    form.protocol
+  )
+  const isVision =
+    form.protocol === 'vless' &&
+    (form.vlessFlow === 'xtls-rprx-vision' || form.vlessFlow === 'xtls-rprx-vision-udp443')
 
   let muxStr = '{}'
   if (supportsMux && form.muxEnabled && !isVision) {
@@ -546,7 +552,9 @@ export function sanitizeOutboundPayload(form: OutboundFormState): OutboundPayloa
   }
 }
 
-export function getProtocolBadgeVariant(proto?: string): 'default' | 'secondary' | 'outline' | 'destructive' {
+export function getProtocolBadgeVariant(
+  proto?: string
+): 'default' | 'secondary' | 'outline' | 'destructive' {
   switch (proto?.toLowerCase()) {
     case 'freedom':
       return 'default'
@@ -591,7 +599,9 @@ export function getTargetEndpoint(ob: OutboundItem): string {
     const s = JSON.parse(ob.settingsJson || '{}')
     if (s.vnext?.[0]) return `${s.vnext[0].address}:${s.vnext[0].port}`
     if (s.servers?.[0]) return `${s.servers[0].address}:${s.servers[0].port}`
-  } catch {}
+  } catch {
+    /* ignore */
+  }
   return '-'
 }
 
@@ -614,17 +624,19 @@ export function getParsedSettings(ob: OutboundItem): Record<string, any> {
 }
 
 export function formatSettingsSummary(ob: OutboundItem): string {
-  let baseSummary = ''
+  let baseSummary: string
   if (ob.protocol === 'dns') baseSummary = '内置 DNS 路由解析'
   else if (!ob.settingsJson || ob.settingsJson === '{}') baseSummary = '默认系统策略'
   else {
     try {
       const s = JSON.parse(ob.settingsJson)
-      if (s.domainStrategy) baseSummary = `解析策略: ${s.domainStrategy}`
-      else if (s.peers?.length > 0) baseSummary = `WARP Endpoint: ${s.peers[0].endpoint}`
-      else if (s.response?.type) baseSummary = `拦截类型: ${s.response.type}`
-      else if (s.vnext?.length > 0) baseSummary = `上游代理: ${s.vnext[0].address}:${s.vnext[0].port}`
-      else if (s.servers?.length > 0) baseSummary = `代理服务器: ${s.servers[0].address}:${s.servers[0].port}`
+      if (s.domainStrategy) baseSummary = `解析策略：${s.domainStrategy}`
+      else if (s.peers?.length > 0) baseSummary = `WARP Endpoint：${s.peers[0].endpoint}`
+      else if (s.response?.type) baseSummary = `拦截类型：${s.response.type}`
+      else if (s.vnext?.length > 0)
+        baseSummary = `上游代理：${s.vnext[0].address}:${s.vnext[0].port}`
+      else if (s.servers?.length > 0)
+        baseSummary = `代理服务器：${s.servers[0].address}:${s.servers[0].port}`
       else baseSummary = JSON.stringify(s)
     } catch {
       baseSummary = ob.settingsJson
@@ -634,17 +646,17 @@ export function formatSettingsSummary(ob: OutboundItem): string {
   const extras: string[] = []
   const dialer = parseDialerProxy(ob.streamSettings)
   if (dialer) {
-    extras.push(`前置: ${dialer}`)
+    extras.push(`前置：${dialer}`)
   }
   const muxSummary = parseMuxSummary(ob.mux)
   if (muxSummary) {
-    extras.push(`MUX (${muxSummary})`)
+    extras.push(`Mux (${muxSummary})`)
   }
   if (ob.targetStrategy) {
-    extras.push(`解析: ${ob.targetStrategy}`)
+    extras.push(`解析：${ob.targetStrategy}`)
   }
   if (ob.sendThrough) {
-    extras.push(`绑定IP: ${ob.sendThrough}`)
+    extras.push(`绑定 IP：${ob.sendThrough}`)
   }
 
   if (extras.length > 0) {

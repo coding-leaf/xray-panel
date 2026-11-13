@@ -149,7 +149,7 @@ export function getInboundRealityOverallStatus(tag: string, summary: RealitySumm
     const firstErr = items.find((i) => i.status === 'error')!
     return {
       status: 'error' as const,
-      badgeText: `Reality 异常: ${firstErr.details || firstErr.errorType || '合规异常'}`,
+      badgeText: `REALITY 异常：${firstErr.details || firstErr.errorType || '合规异常'}`,
       item: firstErr,
       items,
     }
@@ -158,7 +158,7 @@ export function getInboundRealityOverallStatus(tag: string, summary: RealitySumm
     const firstWarn = items.find((i) => i.status === 'warning')!
     return {
       status: 'warning' as const,
-      badgeText: `Reality 预警: ${firstWarn.details || firstWarn.errorType || '临期或预警'}`,
+      badgeText: `REALITY 预警：${firstWarn.details || firstWarn.errorType || '临期或预警'}`,
       item: firstWarn,
       items,
     }
@@ -168,7 +168,7 @@ export function getInboundRealityOverallStatus(tag: string, summary: RealitySumm
   const alpn = firstOk.alpn ? ` / ${firstOk.alpn}` : ''
   return {
     status: 'ok' as const,
-    badgeText: `Reality 正常 (${tls}${alpn})`,
+    badgeText: `REALITY 正常 (${tls}${alpn})`,
     item: firstOk,
     items,
   }
@@ -201,7 +201,9 @@ export function getAssignedUserEmails(inb: any, usersList: any[] = []): string[]
         if (c.email) result.push(c.email)
       }
     }
-  } catch {}
+  } catch {
+    /* ignore */
+  }
   if (Array.isArray(usersList)) {
     for (const u of usersList) {
       const tags = (u.inboundTags || u.inboundTag || '').split(',').map((s: string) => s.trim())
@@ -225,7 +227,10 @@ export function useInboundList() {
   const filteredInbounds = computed(() => {
     return inbounds.value.filter((ib) => {
       // Protocol filter
-      if (protocolFilter.value !== 'all' && ib.protocol?.toLowerCase() !== protocolFilter.value.toLowerCase()) {
+      if (
+        protocolFilter.value !== 'all' &&
+        ib.protocol?.toLowerCase() !== protocolFilter.value.toLowerCase()
+      ) {
         return false
       }
       // Search query
@@ -268,14 +273,14 @@ export function useInboundList() {
       const errCount = res?.errorCount ?? 0
       const warnCount = res?.warningCount ?? 0
       if (errCount > 0) {
-        toast.warning(`检测完成：发现 ${errCount} 个 Reality 异常域名`)
+        toast.warning(`检测完成：发现 ${errCount} 个 REALITY 异常域名`)
       } else if (warnCount > 0) {
-        toast.warning(`检测完成：发现 ${warnCount} 个 Reality 预警域名`)
+        toast.warning(`检测完成：发现 ${warnCount} 个 REALITY 预警域名`)
       } else {
-        toast.success(`Reality 检测完成：共巡检 ${count} 个目标，全部合规`)
+        toast.success(`REALITY 检测完成：共巡检 ${count} 个目标，全部合规`)
       }
     } catch (err: any) {
-      toast.error('检测失败: ' + (err?.message || err))
+      toast.error('检测失败：' + (err?.message || err))
     } finally {
       checkingReality.value = false
     }
@@ -292,7 +297,9 @@ export function useInboundList() {
         let srs: any[] = []
         try {
           srs = JSON.parse(ib.subRoutesJson || '[]')
-        } catch (e) {}
+        } catch {
+          /* ignore */
+        }
         return {
           ...ib,
           subRoutes: srs.map((r: any) => ({
@@ -319,11 +326,11 @@ export function useInboundList() {
     if (!confirm('确定删除该入站节点吗？')) return false
     try {
       await api.delete(`/inbounds/${id}`)
-      toast.success('入站节点已成功删除')
+      toast.success('入站节点已删除')
       await fetchAll()
       return true
     } catch (err: any) {
-      toast.error('删除失败: ' + err)
+      toast.error('删除失败：' + err)
       return false
     }
   }
@@ -342,7 +349,8 @@ export function useInboundList() {
     fetchRealityStatus,
     triggerRealityCheck,
     deleteInbound,
-    getInboundRealityOverallStatus: (tag: string) => getInboundRealityOverallStatus(tag, realitySummary.value),
+    getInboundRealityOverallStatus: (tag: string) =>
+      getInboundRealityOverallStatus(tag, realitySummary.value),
     getInboundRealityField,
     getAssignedUserEmails: (inb: any) => getAssignedUserEmails(inb, usersList.value),
     getRealityBadgeClass,

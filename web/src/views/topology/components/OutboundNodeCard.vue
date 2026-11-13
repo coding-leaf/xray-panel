@@ -3,7 +3,9 @@
     :data-node-id="node.id"
     class="relative rounded-xl border bg-card px-3.5 py-2.5 transition-all duration-200 select-none group"
     :class="[
-      isActive ? 'border-emerald-400/80 shadow-[0_0_15px_rgba(52,211,153,0.2)] ring-1 ring-emerald-400/50' : 'border-border hover:border-border/80',
+      isActive
+        ? 'border-emerald-400/80 shadow-[0_0_15px_rgba(52,211,153,0.2)] ring-1 ring-emerald-400/50'
+        : 'border-border hover:border-border/80',
       isDimmed ? 'opacity-25 grayscale-[30%]' : 'opacity-100',
       node.metrics?.isIdle ? 'ring-1 ring-amber-500/40 bg-amber-500/[0.02]' : '',
     ]"
@@ -22,13 +24,13 @@
       <!-- Left part -->
       <div class="flex items-center gap-1.5 min-w-0">
         <!-- Status Dot -->
-        <span
-          class="w-2 h-2 rounded-full shrink-0"
-          :class="statusDotClass"
-        />
+        <span class="w-2 h-2 rounded-full shrink-0" :class="statusDotClass" />
 
         <!-- Outbound Tag -->
-        <span class="font-bold text-xs sm:text-sm font-mono text-foreground truncate max-w-[110px]" :title="node.tag">
+        <span
+          class="font-bold text-xs sm:text-sm font-mono text-foreground truncate max-w-[110px]"
+          :title="node.tag"
+        >
           {{ node.tag }}
         </span>
 
@@ -56,7 +58,10 @@
         </button>
 
         <!-- Hover Actions if not idle -->
-        <div v-else class="opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-0.5">
+        <div
+          v-else
+          class="opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-0.5"
+        >
           <button
             type="button"
             @click.stop="$emit('edit', node.raw)"
@@ -79,16 +84,15 @@
     </div>
 
     <!-- Line 2: Single-line Address Summary + Reference Count -->
-    <div class="flex items-center justify-between text-[11px] font-mono text-muted-foreground mt-1.5 pt-1 border-t border-border/40">
+    <div
+      class="flex items-center justify-between text-[11px] font-mono text-muted-foreground mt-1.5 pt-1 border-t border-border/40"
+    >
       <span class="truncate max-w-[150px]" :title="formatSettingsSummary(node.raw)">
         {{ formatSettingsSummary(node.raw) }}
       </span>
 
-      <span
-        v-if="!node.metrics?.isIdle"
-        class="text-[10px] text-muted-foreground shrink-0"
-      >
-        引用: {{ node.metrics?.referenceCount || 0 }}
+      <span v-if="!node.metrics?.isIdle" class="text-[10px] text-muted-foreground shrink-0">
+        引用：{{ node.metrics?.referenceCount || 0 }}
       </span>
       <span
         v-else
@@ -160,7 +164,9 @@ const formatSettingsSummary = (ob: any) => {
     if (s.servers && s.servers[0]) {
       return `${s.servers[0].address}:${s.servers[0].port}`
     }
-  } catch {}
+  } catch {
+    /* ignore */
+  }
   return ob.settingsJson || '{}'
 }
 </script>

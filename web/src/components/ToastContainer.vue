@@ -1,14 +1,23 @@
 <template>
-  <div class="fixed top-5 left-4 right-4 sm:left-auto sm:right-5 sm:w-80 z-50 flex flex-col gap-2.5 pointer-events-none">
+  <div
+    aria-live="polite"
+    aria-atomic="false"
+    class="fixed top-5 left-4 right-4 sm:left-auto sm:right-5 sm:w-80 z-50 flex flex-col gap-2.5 pointer-events-none"
+  >
     <transition-group name="toast-slide">
       <div
         v-for="item in toasts"
         :key="item.id"
+        :role="item.type === 'error' ? 'alert' : 'status'"
         class="pointer-events-auto flex items-start gap-3 p-3.5 rounded-lg shadow-lg border bg-neutral-900 border-border text-foreground transition-all duration-300 relative overflow-hidden"
         :class="getToastClass(item.type)"
       >
         <!-- Icon -->
-        <component :is="getIcon(item.type)" class="w-4 h-4 shrink-0 mt-0.5" :class="getIconClass(item.type)" />
+        <component
+          :is="getIcon(item.type)"
+          class="w-4 h-4 shrink-0 mt-0.5"
+          :class="getIconClass(item.type)"
+        />
 
         <!-- Message -->
         <div class="flex-1 text-xs font-medium leading-relaxed pr-2">
@@ -17,6 +26,8 @@
 
         <!-- Close Button -->
         <button
+          type="button"
+          aria-label="关闭提示"
           @click="removeToast(item.id)"
           class="text-muted-foreground hover:text-foreground transition-colors p-0.5 rounded-md hover:bg-muted"
         >

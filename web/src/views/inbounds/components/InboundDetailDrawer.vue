@@ -2,7 +2,7 @@
   <Drawer
     :model-value="modelValue"
     @update:model-value="emit('update:modelValue', $event)"
-    :title="`入站节点: ${inbound?.tag || ''}`"
+    :title="`入站节点：${inbound?.tag || ''}`"
     :description="`协议 ${inbound?.protocol?.toUpperCase()} / 端口 :${inbound?.port}`"
     width="w-full sm:max-w-xl md:max-w-2xl"
   >
@@ -10,7 +10,9 @@
       <!-- 1. Node Overview Card -->
       <div class="rounded-lg border border-border bg-card p-4 space-y-3">
         <div class="flex items-center justify-between border-b border-border/60 pb-2">
-          <span class="font-mono font-semibold text-foreground text-xs uppercase tracking-wider">节点概览 (Overview)</span>
+          <span class="font-mono font-semibold text-foreground text-xs uppercase tracking-wider"
+            >节点概览 (Overview)</span
+          >
           <div class="flex items-center gap-1.5">
             <Badge :variant="inbound.isAlive ? 'success' : 'destructive'" :dot="true">
               {{ inbound.isAlive ? `运行正常 (${inbound.latencyMs || 1}ms)` : '端口未响应' }}
@@ -28,11 +30,15 @@
           </div>
           <div>
             <span class="block text-[10px] text-muted-foreground">内部监听</span>
-            <span class="text-neutral-300">{{ inbound.listen || '0.0.0.0' }}:{{ inbound.port }}</span>
+            <span class="text-neutral-300"
+              >{{ inbound.listen || '0.0.0.0' }}:{{ inbound.port }}</span
+            >
           </div>
           <div>
             <span class="block text-[10px] text-muted-foreground">公网外部端口</span>
-            <span class="text-foreground font-semibold">:{{ inbound.externalPort || inbound.port }}</span>
+            <span class="text-foreground font-semibold"
+              >:{{ inbound.externalPort || inbound.port }}</span
+            >
           </div>
           <div>
             <span class="block text-[10px] text-muted-foreground">传输协议 (Network)</span>
@@ -48,39 +54,57 @@
           </div>
           <div v-if="!['socks', 'http', 'dokodemo-door'].includes(inbound.protocol)">
             <span class="block text-[10px] text-muted-foreground">PROXY Protocol</span>
-            <span :class="hasProxyProtocol(inbound) ? 'text-indigo-400 font-semibold' : 'text-neutral-500'">
+            <span
+              :class="
+                hasProxyProtocol(inbound) ? 'text-indigo-400 font-semibold' : 'text-neutral-500'
+              "
+            >
               {{ hasProxyProtocol(inbound) ? '已开启 (透传 IP)' : '已关闭' }}
             </span>
           </div>
           <div>
             <span class="block text-[10px] text-muted-foreground">累计上传 (Up)</span>
-            <span class="text-neutral-300 font-semibold">↑ {{ formatBytes(inbound.upBytes || 0) }}</span>
+            <span class="text-neutral-300 font-semibold"
+              >↑ {{ formatBytes(inbound.upBytes || 0) }}</span
+            >
           </div>
           <div>
             <span class="block text-[10px] text-muted-foreground">累计下载 (Down)</span>
-            <span class="text-neutral-300 font-semibold">↓ {{ formatBytes(inbound.downBytes || 0) }}</span>
+            <span class="text-neutral-300 font-semibold"
+              >↓ {{ formatBytes(inbound.downBytes || 0) }}</span
+            >
           </div>
         </div>
 
-        <div v-if="inbound.externalHost" class="pt-2 border-t border-border/40 font-mono text-[11px]">
-          <span class="text-muted-foreground">自定义外部域名: </span>
+        <div
+          v-if="inbound.externalHost"
+          class="pt-2 border-t border-border/40 font-mono text-[11px]"
+        >
+          <span class="text-muted-foreground">自定义外部域名：</span>
           <span class="text-neutral-300">{{ inbound.externalHost }}</span>
         </div>
       </div>
 
       <!-- Socks 专属参数 -->
-      <div v-if="inbound.protocol === 'socks'" class="rounded-lg border border-border bg-card p-4 space-y-3 font-mono text-xs">
+      <div
+        v-if="inbound.protocol === 'socks'"
+        class="rounded-lg border border-border bg-card p-4 space-y-3 font-mono text-xs"
+      >
         <div class="flex items-center justify-between border-b border-border/60 pb-2">
           <span class="font-semibold text-foreground uppercase tracking-wider">Socks 代理配置</span>
         </div>
         <div class="grid grid-cols-2 gap-2 text-[11px]">
           <div>
             <span class="block text-[10px] text-muted-foreground">认证方式</span>
-            <span class="text-foreground">{{ parsedSettings.auth === 'password' ? '账号密码认证' : '无认证 (noauth)' }}</span>
+            <span class="text-foreground">{{
+              parsedSettings.auth === 'password' ? '账号密码认证' : '无认证 (noauth)'
+            }}</span>
           </div>
           <div>
             <span class="block text-[10px] text-muted-foreground">UDP 支持</span>
-            <span class="text-foreground">{{ parsedSettings.udp !== false ? '已启用' : '已关闭' }}</span>
+            <span class="text-foreground">{{
+              parsedSettings.udp !== false ? '已启用' : '已关闭'
+            }}</span>
           </div>
           <div v-if="parsedSettings.accounts?.length > 0" class="col-span-2">
             <span class="block text-[10px] text-muted-foreground">认证账号</span>
@@ -90,27 +114,41 @@
       </div>
 
       <!-- HTTP 专属参数 -->
-      <div v-if="inbound.protocol === 'http'" class="rounded-lg border border-border bg-card p-4 space-y-3 font-mono text-xs">
+      <div
+        v-if="inbound.protocol === 'http'"
+        class="rounded-lg border border-border bg-card p-4 space-y-3 font-mono text-xs"
+      >
         <div class="flex items-center justify-between border-b border-border/60 pb-2">
           <span class="font-semibold text-foreground uppercase tracking-wider">HTTP 代理配置</span>
         </div>
         <div class="text-[11px]">
           <span class="block text-[10px] text-muted-foreground">认证配置</span>
           <span class="text-foreground">
-            {{ parsedSettings.accounts?.length > 0 ? `用户名: ${parsedSettings.accounts[0].user}` : '无认证 (匿名代理)' }}
+            {{
+              parsedSettings.accounts?.length > 0
+                ? `用户名：${parsedSettings.accounts[0].user}`
+                : '无认证 (匿名代理)'
+            }}
           </span>
         </div>
       </div>
 
       <!-- dokodemo-door 专属参数 -->
-      <div v-if="inbound.protocol === 'dokodemo-door'" class="rounded-lg border border-border bg-card p-4 space-y-3 font-mono text-xs">
+      <div
+        v-if="inbound.protocol === 'dokodemo-door'"
+        class="rounded-lg border border-border bg-card p-4 space-y-3 font-mono text-xs"
+      >
         <div class="flex items-center justify-between border-b border-border/60 pb-2">
-          <span class="font-semibold text-foreground uppercase tracking-wider">dokodemo-door 转发目标</span>
+          <span class="font-semibold text-foreground uppercase tracking-wider"
+            >dokodemo-door 转发目标</span
+          >
         </div>
         <div class="grid grid-cols-3 gap-2 text-[11px]">
           <div>
             <span class="block text-[10px] text-muted-foreground">目标地址</span>
-            <span class="text-foreground font-semibold">{{ parsedSettings.address || '127.0.0.1' }}</span>
+            <span class="text-foreground font-semibold">{{
+              parsedSettings.address || '127.0.0.1'
+            }}</span>
           </div>
           <div>
             <span class="block text-[10px] text-muted-foreground">目标端口</span>
@@ -124,18 +162,27 @@
       </div>
 
       <!-- Shadowsocks 专属参数 -->
-      <div v-if="inbound.protocol === 'shadowsocks'" class="rounded-lg border border-border bg-card p-4 space-y-3 font-mono text-xs">
+      <div
+        v-if="inbound.protocol === 'shadowsocks'"
+        class="rounded-lg border border-border bg-card p-4 space-y-3 font-mono text-xs"
+      >
         <div class="flex items-center justify-between border-b border-border/60 pb-2">
-          <span class="font-semibold text-foreground uppercase tracking-wider">Shadowsocks 节点参数</span>
+          <span class="font-semibold text-foreground uppercase tracking-wider"
+            >Shadowsocks 节点参数</span
+          >
         </div>
         <div class="grid grid-cols-2 gap-2 text-[11px]">
           <div>
             <span class="block text-[10px] text-muted-foreground">加密算法 (Method)</span>
-            <span class="text-cyan-400 font-semibold">{{ parsedSettings.method || '2022-blake3-aes-128-gcm' }}</span>
+            <span class="text-cyan-400 font-semibold">{{
+              parsedSettings.method || '2022-blake3-aes-128-gcm'
+            }}</span>
           </div>
           <div>
             <span class="block text-[10px] text-muted-foreground">运行模式</span>
-            <span class="text-foreground">{{ parsedSettings.password ? '单用户密码模式' : '多用户 Sub-Key 派生模式' }}</span>
+            <span class="text-foreground">{{
+              parsedSettings.password ? '单用户密码模式' : '多用户 Sub-Key 派生模式'
+            }}</span>
           </div>
         </div>
       </div>
@@ -145,7 +192,9 @@
         <div class="flex items-center justify-between border-b border-border/60 pb-2">
           <div class="flex items-center gap-2">
             <Shield class="w-3.5 h-3.5 text-neutral-300" />
-            <span class="font-mono font-semibold text-foreground text-xs uppercase tracking-wider">REALITY 伪装配置与合规状态</span>
+            <span class="font-mono font-semibold text-foreground text-xs uppercase tracking-wider"
+              >REALITY 伪装配置与合规状态</span
+            >
           </div>
           <Button
             variant="outline"
@@ -162,20 +211,28 @@
         <div class="grid grid-cols-1 sm:grid-cols-2 gap-2 font-mono text-[11px]">
           <div class="p-2 rounded bg-neutral-900/80 border border-border/40">
             <span class="block text-[10px] text-muted-foreground">回落伪装目标 (Dest)</span>
-            <span class="text-foreground">{{ getInboundRealityField(inbound, 'dest') || '-' }}</span>
+            <span class="text-foreground">{{
+              getInboundRealityField(inbound, 'dest') || '-'
+            }}</span>
           </div>
           <div class="p-2 rounded bg-neutral-900/80 border border-border/40">
             <span class="block text-[10px] text-muted-foreground">SNI 域名列表</span>
-            <span class="text-foreground">{{ getInboundRealityField(inbound, 'serverNames') || '-' }}</span>
+            <span class="text-foreground">{{
+              getInboundRealityField(inbound, 'serverNames') || '-'
+            }}</span>
           </div>
         </div>
 
         <!-- Public Key & ShortIDs -->
         <div class="space-y-1.5 font-mono text-[11px]">
-          <div class="p-2 rounded bg-neutral-900/80 border border-border/40 flex items-center justify-between">
+          <div
+            class="p-2 rounded bg-neutral-900/80 border border-border/40 flex items-center justify-between"
+          >
             <div class="min-w-0 pr-2">
               <span class="block text-[10px] text-muted-foreground">Short ID</span>
-              <span class="text-foreground truncate">{{ getInboundRealityField(inbound, 'shortIds') || '0123456789abcdef' }}</span>
+              <span class="text-foreground truncate">{{
+                getInboundRealityField(inbound, 'shortIds') || '0123456789abcdef'
+              }}</span>
             </div>
             <Button
               variant="ghost"
@@ -191,24 +248,38 @@
 
         <!-- Reality Detailed Check Items -->
         <div v-if="inboundRealityStatus" class="pt-2 border-t border-border/40 space-y-2">
-          <span class="text-[10px] font-mono uppercase text-muted-foreground tracking-wider">巡检明细 (Inspection Results)</span>
+          <span class="text-[10px] font-mono uppercase text-muted-foreground tracking-wider"
+            >巡检明细 (Inspection Results)</span
+          >
           <div
             v-for="(item, idx) in inboundRealityStatus.items"
             :key="idx"
             class="p-2.5 rounded-md border text-[11px] font-mono space-y-1"
-            :class="item.status === 'ok' ? 'bg-neutral-900/60 border-neutral-800' : item.status === 'warning' ? 'bg-amber-500/5 border-amber-500/20' : 'bg-rose-500/5 border-rose-500/20'"
+            :class="
+              item.status === 'ok'
+                ? 'bg-neutral-900/60 border-neutral-800'
+                : item.status === 'warning'
+                  ? 'bg-amber-500/5 border-amber-500/20'
+                  : 'bg-rose-500/5 border-rose-500/20'
+            "
           >
             <div class="flex items-center justify-between">
               <span class="text-foreground font-semibold">{{ item.serverName }}</span>
               <span
                 class="px-1.5 py-0.2 rounded text-[10px] font-semibold"
-                :class="item.status === 'ok' ? 'text-emerald-400 bg-emerald-500/10' : item.status === 'warning' ? 'text-amber-400 bg-amber-500/10' : 'text-rose-400 bg-rose-500/10'"
+                :class="
+                  item.status === 'ok'
+                    ? 'text-emerald-400 bg-emerald-500/10'
+                    : item.status === 'warning'
+                      ? 'text-amber-400 bg-amber-500/10'
+                      : 'text-rose-400 bg-rose-500/10'
+                "
               >
                 {{ item.status.toUpperCase() }}
               </span>
             </div>
             <div class="flex items-center justify-between text-[10px] text-muted-foreground">
-              <span>目标: {{ item.dest }}</span>
+              <span>目标：{{ item.dest }}</span>
               <span v-if="item.daysLeft >= 0">证书剩 {{ item.daysLeft }} 天</span>
               <span>{{ item.tlsVersion || 'TLS' }} / {{ item.latencyMs || 0 }}ms</span>
             </div>
@@ -223,14 +294,23 @@
       </div>
 
       <!-- Sniffing 嗅探配置卡片 -->
-      <div v-if="parsedSniffing && parsedSniffing.enabled" class="rounded-lg border border-border bg-card p-4 space-y-3 font-mono text-xs">
+      <div
+        v-if="parsedSniffing && parsedSniffing.enabled"
+        class="rounded-lg border border-border bg-card p-4 space-y-3 font-mono text-xs"
+      >
         <div class="flex items-center justify-between border-b border-border/60 pb-2">
-          <span class="font-semibold text-foreground uppercase tracking-wider">流量嗅探 (Sniffing)</span>
+          <span class="font-semibold text-foreground uppercase tracking-wider"
+            >流量嗅探 (Sniffing)</span
+          >
           <div class="flex items-center gap-1.5">
             <Badge variant="outline" class="text-[10px]">
               {{ parsedSniffing.routeOnly ? '仅限路由 (RouteOnly)' : '覆写连接目标' }}
             </Badge>
-            <Badge v-if="parsedSniffing.metadataOnly" variant="secondary" class="text-[10px] bg-cyan-950/40 text-cyan-400 border-cyan-800/40">
+            <Badge
+              v-if="parsedSniffing.metadataOnly"
+              variant="secondary"
+              class="text-[10px] bg-cyan-950/40 text-cyan-400 border-cyan-800/40"
+            >
               MetadataOnly
             </Badge>
           </div>
@@ -239,24 +319,39 @@
         <div class="space-y-2 text-[11px]">
           <div>
             <span class="block text-[10px] text-muted-foreground">嗅探目标协议 (DestOverride)</span>
-            <span class="text-foreground uppercase">{{ (parsedSniffing.destOverride || []).join(', ') || 'HTTP, TLS, QUIC' }}</span>
+            <span class="text-foreground uppercase">{{
+              (parsedSniffing.destOverride || []).join(', ') || 'HTTP, TLS, QUIC'
+            }}</span>
           </div>
           <div v-if="parsedSniffing.domainsExcluded?.length">
-            <span class="block text-[10px] text-muted-foreground">排除覆写域名 (DomainsExcluded)</span>
-            <span class="text-foreground break-all">{{ parsedSniffing.domainsExcluded.join(', ') }}</span>
+            <span class="block text-[10px] text-muted-foreground"
+              >排除覆写域名 (DomainsExcluded)</span
+            >
+            <span class="text-foreground break-all">{{
+              parsedSniffing.domainsExcluded.join(', ')
+            }}</span>
           </div>
           <div v-if="parsedSniffing.ipsExcluded?.length">
             <span class="block text-[10px] text-muted-foreground">排除覆写 IP (IPsExcluded)</span>
-            <span class="text-foreground break-all">{{ parsedSniffing.ipsExcluded.join(', ') }}</span>
+            <span class="text-foreground break-all">{{
+              parsedSniffing.ipsExcluded.join(', ')
+            }}</span>
           </div>
         </div>
       </div>
 
       <!-- 3. SubRoutes (单端口多出口) -->
-      <div v-if="inbound.subRoutes?.length" class="rounded-lg border border-border bg-card p-4 space-y-3">
+      <div
+        v-if="inbound.subRoutes?.length"
+        class="rounded-lg border border-border bg-card p-4 space-y-3"
+      >
         <div class="flex items-center justify-between border-b border-border/60 pb-2">
-          <span class="font-mono font-semibold text-foreground text-xs uppercase tracking-wider">分流订阅线路 (Sub-Routes)</span>
-          <span class="text-[10px] font-mono text-muted-foreground">共 {{ inbound.subRoutes.length }} 条</span>
+          <span class="font-mono font-semibold text-foreground text-xs uppercase tracking-wider"
+            >分流订阅线路 (Sub-Routes)</span
+          >
+          <span class="text-[10px] font-mono text-muted-foreground"
+            >共 {{ inbound.subRoutes.length }} 条</span
+          >
         </div>
 
         <div class="space-y-2">
@@ -266,8 +361,12 @@
             class="p-2.5 rounded-md border border-border/60 bg-neutral-900/60 font-mono text-[11px] flex items-center justify-between"
           >
             <div class="flex items-center gap-2">
-              <span class="px-1.5 py-0.5 rounded bg-neutral-800 text-neutral-300 font-bold">#{{ sr.routeId }}</span>
-              <span class="text-foreground font-sans font-medium">{{ sr.name || ('线路 #' + sr.routeId) }}</span>
+              <span class="px-1.5 py-0.5 rounded bg-neutral-800 text-neutral-300 font-bold"
+                >#{{ sr.routeId }}</span
+              >
+              <span class="text-foreground font-sans font-medium">{{
+                sr.name || '线路 #' + sr.routeId
+              }}</span>
               <span class="text-neutral-500 text-[10px]">➔ {{ sr.outboundTag || 'direct' }}</span>
             </div>
             <div class="flex items-center gap-1.5">
@@ -283,10 +382,17 @@
       </div>
 
       <!-- 4. Authorized Users -->
-      <div v-if="['vless', 'vmess', 'trojan', 'shadowsocks'].includes(inbound.protocol)" class="rounded-lg border border-border bg-card p-4 space-y-3">
+      <div
+        v-if="['vless', 'vmess', 'trojan', 'shadowsocks'].includes(inbound.protocol)"
+        class="rounded-lg border border-border bg-card p-4 space-y-3"
+      >
         <div class="flex items-center justify-between border-b border-border/60 pb-2">
-          <span class="font-mono font-semibold text-foreground text-xs uppercase tracking-wider">已关联授权用户</span>
-          <span class="text-[10px] font-mono text-muted-foreground">{{ getClientCount(inbound, usersList) }} 位用户</span>
+          <span class="font-mono font-semibold text-foreground text-xs uppercase tracking-wider"
+            >已关联授权用户</span
+          >
+          <span class="text-[10px] font-mono text-muted-foreground"
+            >{{ getClientCount(inbound, usersList) }} 位用户</span
+          >
         </div>
 
         <div class="flex flex-wrap gap-1.5 max-h-36 overflow-y-auto">
@@ -298,7 +404,10 @@
             <span class="w-1.5 h-1.5 rounded-full bg-neutral-500"></span>
             <span>{{ email }}</span>
           </span>
-          <span v-if="!getAssignedUserEmails(inbound, usersList).length" class="text-[11px] text-muted-foreground font-mono">
+          <span
+            v-if="!getAssignedUserEmails(inbound, usersList).length"
+            class="text-[11px] text-muted-foreground font-mono"
+          >
             暂无绑定用户
           </span>
         </div>
@@ -306,13 +415,7 @@
     </div>
 
     <template #footer>
-      <Button
-        variant="outline"
-        size="sm"
-        @click="emit('update:modelValue', false)"
-      >
-        关闭
-      </Button>
+      <Button variant="outline" size="sm" @click="emit('update:modelValue', false)"> 关闭 </Button>
       <Button
         v-if="inbound"
         variant="secondary"
@@ -322,20 +425,10 @@
       >
         访问日志
       </Button>
-      <Button
-        v-if="inbound"
-        variant="destructive"
-        size="sm"
-        @click="emit('delete', inbound.id)"
-      >
+      <Button v-if="inbound" variant="destructive" size="sm" @click="emit('delete', inbound.id)">
         删除节点
       </Button>
-      <Button
-        v-if="inbound"
-        variant="default"
-        size="sm"
-        @click="inbound && emit('edit', inbound)"
-      >
+      <Button v-if="inbound" variant="default" size="sm" @click="inbound && emit('edit', inbound)">
         编辑配置
       </Button>
     </template>

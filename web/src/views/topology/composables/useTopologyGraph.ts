@@ -14,20 +14,24 @@ export function formatRuleSummary(rule: any): string {
   const parts: string[] = []
   if (rule.domain && Array.isArray(rule.domain) && rule.domain.length > 0) {
     const list = rule.domain.map((d: string) => d.replace(/^(geosite:|domain:)/, ''))
-    parts.push(`域名: ${list.slice(0, 2).join(', ')}${list.length > 2 ? ` (+${list.length - 2})` : ''}`)
+    parts.push(
+      `域名：${list.slice(0, 2).join(', ')}${list.length > 2 ? ` (+${list.length - 2})` : ''}`
+    )
   }
   if (rule.ip && Array.isArray(rule.ip) && rule.ip.length > 0) {
     const list = rule.ip.map((i: string) => i.replace(/^geoip:/, ''))
-    parts.push(`IP: ${list.slice(0, 2).join(', ')}${list.length > 2 ? ` (+${list.length - 2})` : ''}`)
+    parts.push(
+      `IP：${list.slice(0, 2).join(', ')}${list.length > 2 ? ` (+${list.length - 2})` : ''}`
+    )
   }
   if (rule.port) {
-    parts.push(`端口: ${rule.port}`)
+    parts.push(`端口：${rule.port}`)
   }
   if (rule.protocol && Array.isArray(rule.protocol) && rule.protocol.length > 0) {
-    parts.push(`协议: ${rule.protocol.join(',')}`)
+    parts.push(`协议：${rule.protocol.join(',')}`)
   }
   if (rule.network) {
-    parts.push(`网络: ${rule.network}`)
+    parts.push(`网络：${rule.network}`)
   }
   return parts.length > 0 ? parts.join(' | ') : '默认规则'
 }
@@ -37,7 +41,7 @@ export function useTopologyGraph(
   outbounds: Ref<any[]>,
   routing: Ref<any>,
   users: Ref<any[]>,
-  showGlobalRulesRef?: Ref<boolean>,
+  showGlobalRulesRef?: Ref<boolean>
 ) {
   const innerShowGlobalRules = showGlobalRulesRef || ref(false)
   const hiddenGlobalGroupsCount = ref(0)
@@ -50,9 +54,7 @@ export function useTopologyGraph(
 
     // 2. Filter routing rules: exclude 'api' outbound and SubRoute shadow rules (vlessRoute)
     const rawRules = routing.value?.rules || []
-    const routingRules = rawRules.filter(
-      (r: any) => r && r.outboundTag !== 'api' && !r.vlessRoute,
-    )
+    const routingRules = rawRules.filter((r: any) => r && r.outboundTag !== 'api' && !r.vlessRoute)
     const userList = users.value || []
 
     const refCountMap = new Map<string, number>()
@@ -73,7 +75,7 @@ export function useTopologyGraph(
         }
       }
 
-      let status: TopologyNode['status'] = 'normal'
+      let status: TopologyNode['status']
       if (inb.enabled === false) {
         status = 'paused'
       } else if (inb.isAlive === false) {
@@ -112,7 +114,7 @@ export function useTopologyGraph(
       targetId: string,
       status: LinkStatus,
       category: ChannelCategory,
-      label?: string,
+      label?: string
     ) => {
       const edgeId = `e-${sourceId}-${targetId}`
       if (edgeIdSet.has(edgeId)) return
@@ -177,7 +179,7 @@ export function useTopologyGraph(
       const gatewayTagsStr = items.map((item) => item.inb.tag).join(', ')
 
       const isAnyActive = items.some(
-        (item) => item.sr.enabled !== false && item.inb.enabled !== false,
+        (item) => item.sr.enabled !== false && item.inb.enabled !== false
       )
       const channelStatus: TopologyNode['status'] = !isAnyActive
         ? 'paused'
@@ -187,7 +189,11 @@ export function useTopologyGraph(
 
       let totalClientCount = 0
       for (const item of items) {
-        if (item.sr.allowedUsers && Array.isArray(item.sr.allowedUsers) && item.sr.allowedUsers.length > 0) {
+        if (
+          item.sr.allowedUsers &&
+          Array.isArray(item.sr.allowedUsers) &&
+          item.sr.allowedUsers.length > 0
+        ) {
           totalClientCount += item.sr.allowedUsers.length
         } else {
           const inbNodeId = `inb-${item.inb.id || item.inb.tag}`
@@ -224,20 +230,12 @@ export function useTopologyGraph(
       for (const item of items) {
         const inbNodeId = `inb-${item.inb.id || item.inb.tag}`
         const isItemEnabled = item.sr.enabled !== false && item.inb.enabled !== false
-        const linkStatus: LinkStatus = !isItemEnabled
-          ? 'paused'
-          : isBlocked
-            ? 'blocked'
-            : 'active'
+        const linkStatus: LinkStatus = !isItemEnabled ? 'paused' : isBlocked ? 'blocked' : 'active'
         addEdge(inbNodeId, chId, linkStatus, 'subroute', `Route #${routeId}`)
       }
 
       // Channel -> Outbound edge
-      const outLinkStatus: LinkStatus = !isAnyActive
-        ? 'paused'
-        : isBlocked
-          ? 'blocked'
-          : 'active'
+      const outLinkStatus: LinkStatus = !isAnyActive ? 'paused' : isBlocked ? 'blocked' : 'active'
       addEdge(chId, targetOutId, outLinkStatus, 'subroute', targetOutTag)
     }
 
@@ -291,7 +289,9 @@ export function useTopologyGraph(
               type: 'channel',
               category: 'scoped_rule',
               title: ruleTitle,
-              subtitle: !hasSpecificConditions ? `专属直通 ➔ ${targetOutTag}` : `入站 [${inTag}] 专属规则`,
+              subtitle: !hasSpecificConditions
+                ? `专属直通 ➔ ${targetOutTag}`
+                : `入站 [${inTag}] 专属规则`,
               tag: targetOutTag,
               protocol: 'rule',
               status: matchedInb.enabled === false ? 'paused' : isBlocked ? 'blocked' : 'normal',
@@ -327,7 +327,8 @@ export function useTopologyGraph(
 
     for (const [targetOutTag, groupRules] of globalRulesByTarget.entries()) {
       totalCount++
-      const isSystem = targetOutTag === 'direct' || targetOutTag === 'block' || targetOutTag === 'blackhole'
+      const isSystem =
+        targetOutTag === 'direct' || targetOutTag === 'block' || targetOutTag === 'blackhole'
       const isReferencedBySubRoute = subRouteTargetTags.has(targetOutTag)
       // Auto-retain 1 aggregated capsule for non-system outbounds (e.g. warp-out) not referenced by SubRoute
       const isAutoRetained = !isSystem && !isReferencedBySubRoute
@@ -359,8 +360,8 @@ export function useTopologyGraph(
       }
       const tagsSummary = Array.from(tagsSet).slice(0, 3).join(', ')
 
-      let title = ''
-      let subtitle = ''
+      let title: string
+      let subtitle: string
       if (isBlocked) {
         title = `全局拦截`
         subtitle = `${groupRules.length}条拦截规则${tagsSummary ? ': ' + tagsSummary : ''}`
@@ -536,7 +537,7 @@ export function useTopologyGraph(
   // Bidirectional Traversal for Hover Highlighting
   const computeActiveSubgraph = (
     targetNodeId: string | null,
-    targetEdgeId: string | null,
+    targetEdgeId: string | null
   ): HoverHighlightState => {
     if (!targetNodeId && !targetEdgeId) {
       return {
@@ -622,4 +623,3 @@ export function useTopologyGraph(
     totalGlobalGroupsCount,
   }
 }
-

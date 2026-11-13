@@ -3,15 +3,12 @@
     :class="[
       'inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md text-[11px] font-mono border font-medium transition-colors select-none',
       variantClasses[variant],
-      customClass
+      customClass,
     ]"
   >
     <span
       v-if="dot"
-      :class="[
-        'w-1.5 h-1.5 rounded-full shrink-0',
-        dotColor || dotColorByVariant[variant]
-      ]"
+      :class="['w-1.5 h-1.5 rounded-full shrink-0', dotColor || dotColorByVariant[variant]]"
     />
     <slot />
   </span>

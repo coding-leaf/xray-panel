@@ -1,12 +1,16 @@
 <template>
-  <div class="relative min-h-screen flex items-center justify-center p-4 sm:p-6 lg:p-8 bg-background text-foreground selection:bg-neutral-800 selection:text-foreground">
+  <main
+    class="relative min-h-screen flex items-center justify-center p-4 sm:p-6 lg:p-8 bg-background text-foreground selection:bg-neutral-800 selection:text-foreground"
+  >
     <!-- Login Container -->
     <div class="w-full max-w-[400px] relative z-10 my-auto">
       <!-- Status Pill -->
       <div class="flex justify-center mb-5">
-        <div class="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-xs font-mono">
+        <div
+          class="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-xs font-mono"
+        >
           <span class="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
-          <span>系统服务已就绪 · Ready</span>
+          <span>系统服务已就绪</span>
         </div>
       </div>
 
@@ -14,10 +18,14 @@
       <div class="rounded-lg bg-card border border-border p-6 sm:p-8 shadow-xl">
         <!-- Brand Logo Header -->
         <div class="text-center mb-6">
-          <div class="w-12 h-12 mx-auto mb-3.5 rounded-md bg-neutral-900 border border-border flex items-center justify-center">
+          <div
+            class="w-12 h-12 mx-auto mb-3.5 rounded-md bg-neutral-900 border border-border flex items-center justify-center"
+          >
             <ShieldCheck class="w-6 h-6 text-foreground" />
           </div>
-          <h1 class="text-lg font-semibold tracking-tight text-foreground font-mono">System Management Console</h1>
+          <h1 class="text-lg font-semibold tracking-tight text-foreground font-mono">
+            System Management Console
+          </h1>
           <p class="text-xs text-muted-foreground mt-1">云网控制面板 · 分布式运维调度中心</p>
         </div>
 
@@ -25,18 +33,29 @@
         <form @submit.prevent="handleLogin" class="space-y-4">
           <!-- Username Field -->
           <div>
-            <label class="block text-xs font-medium text-muted-foreground mb-1.5 font-mono">
+            <label
+              for="login-username"
+              class="block text-xs font-medium text-muted-foreground mb-1.5 font-mono"
+            >
               管理员账号
             </label>
             <div class="relative flex items-center">
-              <div class="absolute left-3 flex items-center pointer-events-none text-muted-foreground">
+              <div
+                class="absolute left-3 flex items-center pointer-events-none text-muted-foreground"
+              >
                 <User class="w-4 h-4" />
               </div>
               <input
+                id="login-username"
                 v-model="username"
+                name="username"
                 type="text"
                 required
                 autocomplete="username"
+                autocorrect="off"
+                autocapitalize="none"
+                spellcheck="false"
+                enterkeyhint="next"
                 placeholder="admin"
                 class="w-full h-9 pl-9 pr-3 bg-neutral-950 border border-border rounded-md text-xs font-mono text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring focus:border-neutral-500 transition-colors"
               />
@@ -46,7 +65,10 @@
           <!-- Password Field -->
           <div>
             <div class="flex items-center justify-between mb-1.5">
-              <label class="block text-xs font-medium text-muted-foreground font-mono">
+              <label
+                for="login-password"
+                class="block text-xs font-medium text-muted-foreground font-mono"
+              >
                 登录密码
               </label>
               <span v-if="capsLockOn" class="text-[11px] text-amber-400 font-mono">
@@ -54,14 +76,19 @@
               </span>
             </div>
             <div class="relative flex items-center">
-              <div class="absolute left-3 flex items-center pointer-events-none text-muted-foreground">
+              <div
+                class="absolute left-3 flex items-center pointer-events-none text-muted-foreground"
+              >
                 <Lock class="w-4 h-4" />
               </div>
               <input
+                id="login-password"
                 v-model="password"
+                name="password"
                 :type="showPassword ? 'text' : 'password'"
                 required
                 autocomplete="current-password"
+                enterkeyhint="done"
                 placeholder="••••••••"
                 @keyup="checkCapsLock"
                 @keydown="checkCapsLock"
@@ -71,6 +98,8 @@
                 type="button"
                 @click="showPassword = !showPassword"
                 class="absolute right-2.5 text-muted-foreground hover:text-foreground transition-colors p-1"
+                :aria-pressed="showPassword"
+                :aria-label="showPassword ? '隐藏密码' : '显示密码'"
                 :title="showPassword ? '隐藏密码' : '显示密码'"
               >
                 <EyeOff v-if="showPassword" class="w-3.5 h-3.5" />
@@ -82,29 +111,43 @@
           <!-- 2FA TOTP Dynamic Code Field -->
           <div v-if="require2FA" class="pt-1">
             <div class="flex items-center justify-between mb-1.5">
-              <label class="block text-xs font-medium text-foreground font-mono">
+              <label for="login-totp" class="block text-xs font-medium text-foreground font-mono">
                 两步验证动态口令 (2FA)
               </label>
               <span class="text-[11px] text-muted-foreground font-mono">6 位动态码</span>
             </div>
             <div class="relative flex items-center">
-              <div class="absolute left-3 flex items-center pointer-events-none text-muted-foreground">
+              <div
+                class="absolute left-3 flex items-center pointer-events-none text-muted-foreground"
+              >
                 <KeyRound class="w-4 h-4" />
               </div>
               <input
+                id="login-totp"
                 v-model="passcode"
+                name="passcode"
                 type="text"
+                inputmode="numeric"
+                pattern="\d{6}"
                 maxlength="6"
+                autocomplete="one-time-code"
+                autocorrect="off"
+                autocapitalize="none"
+                spellcheck="false"
+                enterkeyhint="done"
                 placeholder="000000"
                 class="w-full h-9 pl-9 pr-3 bg-neutral-950 border border-border rounded-md text-xs font-mono tracking-[0.25em] text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring focus:border-neutral-500 transition-colors"
               />
             </div>
-            <p class="text-[11px] text-muted-foreground mt-1">请打开身份验证器 (Google Authenticator) 输入动态码</p>
+            <p class="text-[11px] text-muted-foreground mt-1">
+              请打开身份验证器 (Google Authenticator) 输入动态码
+            </p>
           </div>
 
           <!-- Error Notification Banner -->
           <div
             v-if="errorMsg"
+            role="alert"
             class="p-2.5 rounded-md bg-rose-500/10 border border-rose-500/20 text-rose-400 text-xs flex items-center gap-2"
           >
             <AlertCircle class="w-4 h-4 shrink-0 text-rose-400" />
@@ -124,18 +167,16 @@
           </div>
 
           <!-- Submit Button -->
-          <Button
-            type="submit"
-            :loading="loading"
-            class="w-full mt-2 h-9 text-xs"
-          >
+          <Button type="submit" :loading="loading" class="w-full mt-2 h-9 text-xs">
             <span>立即登录控制台</span>
             <ArrowRight v-if="!loading" class="w-3.5 h-3.5 ml-1.5" />
           </Button>
         </form>
 
         <!-- Security Trust Badges -->
-        <div class="mt-6 pt-4 border-t border-border flex items-center justify-around text-[11px] text-muted-foreground font-mono">
+        <div
+          class="mt-6 pt-4 border-t border-border flex items-center justify-around text-[11px] text-muted-foreground font-mono"
+        >
           <span class="flex items-center gap-1.5">
             <span class="w-1.5 h-1.5 rounded-full bg-neutral-500"></span>
             TLS 1.3 加密
@@ -158,7 +199,7 @@
         © 2026 System Management Console. All rights reserved.
       </p>
     </div>
-  </div>
+  </main>
 </template>
 
 <script setup lang="ts">

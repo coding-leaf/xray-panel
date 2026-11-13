@@ -15,7 +15,10 @@ export class UserSubscriptionService {
     if (!user) return []
     let tags: string[] = []
     if (user.inboundTags) {
-      tags = user.inboundTags.split(',').map((s: string) => s.trim()).filter(Boolean)
+      tags = user.inboundTags
+        .split(',')
+        .map((s: string) => s.trim())
+        .filter(Boolean)
     } else if (user.inboundTag) {
       tags = [user.inboundTag]
     }
@@ -28,7 +31,11 @@ export class UserSubscriptionService {
   }
 
   /** 计算指定 Inbound 标签下用户可见的有效分流线路数量 */
-  static getSubRoutesCount(tag: string, availableInbounds: any[] = [], user?: UserItem | null): number {
+  static getSubRoutesCount(
+    tag: string,
+    availableInbounds: any[] = [],
+    user?: UserItem | null
+  ): number {
     const inb = availableInbounds.find((i: any) => i.tag === tag)
     if (!inb) return 0
     const isVless = !inb.protocol || inb.protocol.toLowerCase() === 'vless'
@@ -42,7 +49,7 @@ export class UserSubscriptionService {
         }
         return true
       }).length
-    } catch (_e) {
+    } catch {
       return 0
     }
   }

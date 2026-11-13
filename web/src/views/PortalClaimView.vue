@@ -1,9 +1,13 @@
 <template>
-  <div class="relative min-h-screen flex items-center justify-center p-4 sm:p-6 lg:p-8 bg-background text-foreground selection:bg-neutral-800 selection:text-foreground">
+  <main
+    class="relative min-h-screen flex items-center justify-center p-4 sm:p-6 lg:p-8 bg-background text-foreground selection:bg-neutral-800 selection:text-foreground"
+  >
     <div class="w-full max-w-xl relative z-10 my-auto py-8">
       <!-- Status Badge -->
       <div class="flex justify-center mb-5">
-        <div class="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-neutral-900 border border-border text-neutral-300 text-xs font-mono">
+        <div
+          class="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-neutral-900 border border-border text-neutral-300 text-xs font-mono"
+        >
           <Shield class="w-3.5 h-3.5 text-neutral-400" />
           <span>分布式网管接入点 · 节点运维受保护</span>
         </div>
@@ -13,28 +17,43 @@
       <div class="rounded-lg bg-card border border-border p-6 sm:p-8 shadow-xl">
         <!-- Header -->
         <div class="text-center mb-6">
-          <div class="w-12 h-12 mx-auto mb-3.5 rounded-md bg-neutral-900 border border-border flex items-center justify-center">
+          <div
+            class="w-12 h-12 mx-auto mb-3.5 rounded-md bg-neutral-900 border border-border flex items-center justify-center"
+          >
             <KeyRound class="w-6 h-6 text-foreground" />
           </div>
-          <h1 class="text-lg font-semibold tracking-tight text-foreground font-mono">分布式网管接入点</h1>
-          <p class="text-xs text-muted-foreground mt-1 font-mono">Distributed Network Operations Point</p>
+          <h1 class="text-lg font-semibold tracking-tight text-foreground font-mono">
+            分布式网管接入点
+          </h1>
+          <p class="text-xs text-muted-foreground mt-1 font-mono">
+            Distributed Network Operations Point
+          </p>
         </div>
 
         <!-- Phase 1: Input Ticket Form -->
-        <div v-if="!payload" class="space-y-4">
+        <form v-if="!payload" @submit.prevent="handleClaim" class="space-y-4">
           <div>
-            <label class="block text-xs font-medium text-muted-foreground mb-2 text-center font-mono">
+            <label
+              for="portal-claim-code"
+              class="block text-xs font-medium text-muted-foreground mb-2 text-center font-mono"
+            >
               请输入 6 位提取凭据 (一次性安全码)
             </label>
             <div class="relative max-w-xs mx-auto">
               <input
+                id="portal-claim-code"
                 ref="codeInputRef"
                 v-model="inputCode"
+                name="code"
                 type="text"
                 maxlength="8"
-                placeholder="如: 7K9X2P"
+                autocomplete="one-time-code"
+                autocorrect="off"
+                autocapitalize="characters"
+                spellcheck="false"
+                enterkeyhint="done"
+                placeholder="如：7K9X2P"
                 @input="handleInputFormat"
-                @keydown.enter="handleClaim"
                 class="w-full bg-neutral-950 border border-border rounded-md px-4 py-3 text-center text-2xl font-mono font-bold tracking-[0.4em] text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring focus:border-neutral-500 transition-colors uppercase"
               />
             </div>
@@ -44,7 +63,11 @@
           </div>
 
           <!-- Error Notification Alert -->
-          <div v-if="errorMessage" class="p-2.5 rounded-md bg-rose-500/10 border border-rose-500/20 flex items-start gap-2.5 text-rose-400 text-xs">
+          <div
+            v-if="errorMessage"
+            role="alert"
+            class="p-2.5 rounded-md bg-rose-500/10 border border-rose-500/20 flex items-start gap-2.5 text-rose-400 text-xs"
+          >
             <AlertCircle class="w-4 h-4 shrink-0 mt-0.5 text-rose-400" />
             <div class="flex-1 font-mono leading-snug">
               <span>{{ errorMessage }}</span>
@@ -52,7 +75,7 @@
           </div>
 
           <Button
-            @click="handleClaim"
+            type="submit"
             :disabled="loading || !inputCode.trim()"
             :loading="loading"
             class="w-full h-10 text-xs font-medium"
@@ -60,12 +83,14 @@
             <span>{{ loading ? '正在验证凭据...' : '立即提取配置' }}</span>
             <ArrowRight v-if="!loading" class="w-3.5 h-3.5 ml-1.5" />
           </Button>
-        </div>
+        </form>
 
         <!-- Phase 2: Dual-Track Delivery Display -->
         <div v-else class="space-y-5">
           <!-- Auto-burn Countdown Bar -->
-          <div class="p-3 rounded-md bg-amber-500/10 border border-amber-500/20 flex items-center justify-between text-xs text-amber-400 font-mono">
+          <div
+            class="p-3 rounded-md bg-amber-500/10 border border-amber-500/20 flex items-center justify-between text-xs text-amber-400 font-mono"
+          >
             <div class="flex items-center gap-2">
               <Flame class="w-4 h-4 text-amber-400 animate-pulse" />
               <span>内存安全自毁倒计时</span>
@@ -78,9 +103,13 @@
             <div class="flex items-center justify-between">
               <div class="flex items-center gap-2">
                 <span class="w-2 h-2 rounded-full bg-emerald-400"></span>
-                <h3 class="text-xs font-semibold text-foreground tracking-wide font-mono">轨道 1：急救连接节点</h3>
+                <h3 class="text-xs font-semibold text-foreground tracking-wide font-mono">
+                  轨道 1：急救连接节点
+                </h3>
               </div>
-              <span class="text-[11px] font-mono px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+              <span
+                class="text-[11px] font-mono px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/20"
+              >
                 {{ payload.emergency_nodes?.length || 0 }} 个节点
               </span>
             </div>
@@ -90,13 +119,10 @@
             </p>
 
             <!-- Main Action: Copy all emergency nodes -->
-            <Button
-              @click="copyEmergencyNodes"
-              class="w-full h-9 text-xs"
-            >
+            <Button @click="copyEmergencyNodes" class="w-full h-9 text-xs">
               <Check v-if="copiedNodes" class="w-3.5 h-3.5 mr-1.5 text-emerald-400" />
               <Copy v-else class="w-3.5 h-3.5 mr-1.5" />
-              <span>{{ copiedNodes ? '已成功复制全部节点链接！' : '一键复制全部急救节点' }}</span>
+              <span>{{ copiedNodes ? '已复制全部节点链接' : '一键复制全部急救节点' }}</span>
             </Button>
 
             <!-- Fallback Textarea for Mobile/WeChat -->
@@ -107,6 +133,7 @@
               <textarea
                 readonly
                 rows="3"
+                aria-label="急救节点链接列表"
                 @click="selectTarget"
                 :value="joinedNodes"
                 class="w-full bg-neutral-900 border border-border rounded-md p-2 font-mono text-[11px] text-neutral-300 focus:outline-none focus:border-neutral-500 select-all"
@@ -116,6 +143,8 @@
             <!-- Quick Client Instructions Accordion -->
             <div class="pt-2 border-t border-border">
               <button
+                type="button"
+                :aria-expanded="showGuide"
                 @click="showGuide = !showGuide"
                 class="w-full flex items-center justify-between text-xs text-muted-foreground hover:text-foreground transition-colors py-1"
               >
@@ -123,10 +152,16 @@
                   <HelpCircle class="w-3.5 h-3.5 text-muted-foreground" />
                   <span>各客户端一键导入指引</span>
                 </span>
-                <ChevronDown class="w-3.5 h-3.5 transition-transform" :class="{ 'rotate-180': showGuide }" />
+                <ChevronDown
+                  class="w-3.5 h-3.5 transition-transform"
+                  :class="{ 'rotate-180': showGuide }"
+                />
               </button>
 
-              <div v-if="showGuide" class="mt-2 space-y-2 text-[11px] text-muted-foreground bg-neutral-900 p-3 rounded-md border border-border">
+              <div
+                v-if="showGuide"
+                class="mt-2 space-y-2 text-[11px] text-muted-foreground bg-neutral-900 p-3 rounded-md border border-border"
+              >
                 <div>
                   <strong class="text-neutral-200">Android 客户端：</strong>
                   点击右上角「+」号 ➔ 选择「从剪贴板导入」➔ 启动连接。
@@ -148,9 +183,13 @@
             <div class="flex items-center justify-between">
               <div class="flex items-center gap-2">
                 <span class="w-2 h-2 rounded-full bg-blue-400"></span>
-                <h3 class="text-xs font-semibold text-foreground tracking-wide font-mono">轨道 2：长效自动更新订阅</h3>
+                <h3 class="text-xs font-semibold text-foreground tracking-wide font-mono">
+                  轨道 2：长效自动更新订阅
+                </h3>
               </div>
-              <span class="text-[11px] font-mono px-2 py-0.5 rounded bg-neutral-800 text-neutral-300 border border-border">
+              <span
+                class="text-[11px] font-mono px-2 py-0.5 rounded bg-neutral-800 text-neutral-300 border border-border"
+              >
                 长效保障
               </span>
             </div>
@@ -162,6 +201,7 @@
             <div class="flex items-center gap-2">
               <input
                 readonly
+                aria-label="订阅链接"
                 :value="payload.subscription_url"
                 @click="selectTarget"
                 class="flex-1 h-9 bg-neutral-900 border border-border rounded-md px-3 text-xs font-mono text-neutral-300 focus:outline-none focus:border-neutral-500 select-all"
@@ -178,14 +218,19 @@
               </Button>
             </div>
 
-            <div class="p-2.5 rounded-md bg-neutral-900 border border-border text-[11px] text-muted-foreground leading-normal">
-              💡 <span class="font-medium text-foreground">使用建议：</span>添加订阅后，建议在客户端配置中开启<strong>「通过代理更新订阅」</strong>以保证在复杂网络下持续稳定同步。
+            <div
+              class="p-2.5 rounded-md bg-neutral-900 border border-border text-[11px] text-muted-foreground leading-normal"
+            >
+              💡
+              <span class="font-medium text-foreground">使用建议：</span
+              >添加订阅后，建议在客户端配置中开启<strong>「通过代理更新订阅」</strong>以保证在复杂网络下持续稳定同步。
             </div>
           </div>
 
           <!-- Manual Reset / Destroy Button -->
           <div class="pt-2 text-center">
             <button
+              type="button"
               @click="resetPortal"
               class="text-xs text-muted-foreground hover:text-rose-400 transition-colors inline-flex items-center gap-1 font-mono"
             >
@@ -199,10 +244,12 @@
       <!-- Footer Info -->
       <div class="text-center mt-6 text-xs text-muted-foreground space-y-1 font-mono">
         <p>端到端加密与访问控制已启用 · 阅后即焚保护机制</p>
-        <p class="text-[10px] text-neutral-600">NetOps Version 1.3 · Distributed Network Operations Hub</p>
+        <p class="text-[10px] text-neutral-600">
+          NetOps Version 1.3 · Distributed Network Operations Hub
+        </p>
       </div>
     </div>
-  </div>
+  </main>
 </template>
 
 <script setup lang="ts">
@@ -244,7 +291,7 @@ const joinedNodes = computed(() => {
 const handleInputFormat = () => {
   let val = inputCode.value
   // 全角转半角
-  val = val.replace(/[\uFF01-\uFF5E]/g, (ch) => String.fromCharCode(ch.charCodeAt(0) - 0xFEE0))
+  val = val.replace(/[\uFF01-\uFF5E]/g, (ch) => String.fromCharCode(ch.charCodeAt(0) - 0xfee0))
   // 替换全角空格
   val = val.replace(/\u3000/g, ' ')
   // 移除所有空格并转为大写
@@ -296,7 +343,7 @@ const handleClaim = async () => {
     payload.value = res
     startCountdown()
   } catch (err: any) {
-    errorMessage.value = typeof err === 'string' ? err : (err.message || '凭据无效、已过期或已被销毁')
+    errorMessage.value = typeof err === 'string' ? err : err.message || '凭据无效、已过期或已被销毁'
   } finally {
     loading.value = false
   }

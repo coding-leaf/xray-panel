@@ -2,8 +2,12 @@
   <Drawer
     :model-value="modelValue"
     @update:model-value="emit('update:modelValue', $event)"
-    :title="isEditing ? `编辑入站: ${form.tag}` : '添加新入站节点'"
-    :description="isEditing ? '修改入站端口、传输层安全与关联授权用户' : '分层配置 Xray 协议、网络传输层与 Reality 密钥'"
+    :title="isEditing ? `编辑入站：${form.tag}` : '添加新入站节点'"
+    :description="
+      isEditing
+        ? '修改入站端口、传输层安全与关联授权用户'
+        : '分层配置 Xray 协议、网络传输层与 REALITY 密钥'
+    "
     width="w-full sm:max-w-xl md:max-w-2xl lg:max-w-3xl"
   >
     <form id="inbound-form" @submit.prevent="saveInbound" class="space-y-4 text-xs">
@@ -11,53 +15,27 @@
       <SectionCard title="① 基础网络与端口设置">
         <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
           <FormField label="节点标识 (Tag)" required>
-            <Input
-              v-model="form.tag"
-              type="text"
-              required
-              placeholder="vless-reality"
-            />
+            <Input v-model="form.tag" type="text" required placeholder="vless-reality" />
           </FormField>
 
           <FormField label="节点备注 (Remark)" hint="订阅时展示的节点名称">
-            <Input
-              v-model="form.remark"
-              type="text"
-              placeholder="例如：🇭🇰 香港 01 BGP"
-            />
+            <Input v-model="form.remark" type="text" placeholder="例如：🇭🇰 香港 01 BGP" />
           </FormField>
 
           <FormField label="监听 IP">
-            <Input
-              v-model="form.listen"
-              type="text"
-              placeholder="0.0.0.0"
-            />
+            <Input v-model="form.listen" type="text" placeholder="0.0.0.0" />
           </FormField>
 
           <FormField label="内部监听端口 (Port)" required>
-            <Input
-              v-model.number="form.port"
-              type="number"
-              required
-              placeholder="443"
-            />
+            <Input v-model.number="form.port" type="number" required placeholder="443" />
           </FormField>
 
           <FormField label="外部公网端口 (External Port)" hint="前置 Nginx 反代或映射端口">
-            <Input
-              v-model.number="form.externalPort"
-              type="number"
-              placeholder="443 (默认443)"
-            />
+            <Input v-model.number="form.externalPort" type="number" placeholder="443 (默认443)" />
           </FormField>
 
           <FormField label="显示排序权重 (Sort Order)" hint="数值越小越靠前 (默认 0)">
-            <Input
-              v-model.number="form.sortOrder"
-              type="number"
-              placeholder="0"
-            />
+            <Input v-model.number="form.sortOrder" type="number" placeholder="0" />
           </FormField>
 
           <div class="sm:col-span-2">
@@ -77,13 +55,23 @@
           class="p-2.5 rounded-md bg-amber-500/10 border border-amber-500/20 text-amber-300 text-[11px] flex items-start gap-2"
         >
           <AlertTriangle class="w-3.5 h-3.5 text-amber-400 shrink-0 mt-0.5" />
-          <span>当前配置了 Reality 伪装，但公网端口为 <b>{{ form.externalPort || form.port }}</b>（非 443）。监听非 443 端口可能存在 GFW 嗅探阻断风险，建议映射为 443 端口。</span>
+          <span
+            >当前配置了 REALITY 伪装，但公网端口为 <b>{{ form.externalPort || form.port }}</b>（非
+            443）。监听非 443 端口可能存在 GFW 嗅探阻断风险，建议映射为 443 端口。</span
+          >
         </div>
       </SectionCard>
 
       <!-- 2. 入站协议与传输层 -->
       <SectionCard title="② 协议与传输层 (定义节点级流控)">
-        <div class="grid grid-cols-1 gap-3" :class="['socks', 'http', 'dokodemo-door'].includes(form.protocol) ? 'sm:grid-cols-1' : 'sm:grid-cols-3'">
+        <div
+          class="grid grid-cols-1 gap-3"
+          :class="
+            ['socks', 'http', 'dokodemo-door'].includes(form.protocol)
+              ? 'sm:grid-cols-1'
+              : 'sm:grid-cols-3'
+          "
+        >
           <FormField label="入站协议 (Protocol)">
             <select
               v-model="form.protocol"
@@ -122,7 +110,12 @@
                 @change="onSecurityChange"
                 class="w-full bg-neutral-950 border border-border rounded-md px-3 h-9 text-foreground font-mono focus:outline-none focus:ring-1 focus:ring-ring"
               >
-                <option v-if="isRealitySupported && !['vmess', 'shadowsocks'].includes(form.protocol)" value="reality">REALITY (推荐)</option>
+                <option
+                  v-if="isRealitySupported && !['vmess', 'shadowsocks'].includes(form.protocol)"
+                  value="reality"
+                >
+                  REALITY (推荐)
+                </option>
                 <option value="tls">TLS</option>
                 <option value="none">None (无加密)</option>
               </select>
@@ -135,33 +128,56 @@
           v-if="['socks', 'http', 'dokodemo-door'].includes(form.protocol)"
           class="p-2.5 rounded bg-neutral-950 border border-border text-muted-foreground text-xs font-mono"
         >
-          该协议在面板中作为应用层原生代理/端口转发管理，目前面板策略暂未开放传输层流控与 TLS/REALITY 包装。
+          该协议在面板中作为应用层原生代理/端口转发管理，目前面板策略暂未开放传输层流控与
+          TLS/REALITY 包装。
         </div>
 
         <!-- Flow Policy -->
         <div v-if="form.protocol === 'vless'" class="pt-2 border-t border-border/40">
           <div class="flex items-center justify-between mb-1">
-            <label class="text-muted-foreground font-mono text-[11px]">默认流控模式 (Flow Policy)</label>
-            <span class="text-[10px] text-muted-foreground">分配给该节点的用户将继承此策略 (仅适用于 TCP + TLS/REALITY)</span>
+            <label class="text-muted-foreground font-mono text-[11px]"
+              >默认流控模式 (Flow Policy)</label
+            >
+            <span class="text-[10px] text-muted-foreground"
+              >分配给该节点的用户将继承此策略 (仅适用于 TCP + TLS/REALITY)</span
+            >
           </div>
           <select
             v-model="form.vlessFlow"
             :disabled="form.network !== 'tcp' || !['reality', 'tls'].includes(form.security)"
             class="w-full bg-neutral-950 border border-border rounded-md px-3 h-9 text-foreground font-mono focus:outline-none focus:ring-1 focus:ring-ring disabled:opacity-40"
           >
-            <option v-if="form.network === 'tcp' && ['reality', 'tls'].includes(form.security)" value="xtls-rprx-vision">xtls-rprx-vision (XTLS Vision 极速流控 - 推荐)</option>
-            <option v-if="form.network === 'tcp' && ['reality', 'tls'].includes(form.security)" value="xtls-rprx-vision-udp443">xtls-rprx-vision-udp443</option>
+            <option
+              v-if="form.network === 'tcp' && ['reality', 'tls'].includes(form.security)"
+              value="xtls-rprx-vision"
+            >
+              xtls-rprx-vision (XTLS Vision 极速流控 - 推荐)
+            </option>
+            <option
+              v-if="form.network === 'tcp' && ['reality', 'tls'].includes(form.security)"
+              value="xtls-rprx-vision-udp443"
+            >
+              xtls-rprx-vision-udp443
+            </option>
             <option value="none">none (无流控 - 适用 XHTTP / gRPC / WS 等)</option>
           </select>
         </div>
 
         <!-- XHTTP options -->
-        <div v-if="!['socks', 'http', 'dokodemo-door'].includes(form.protocol) && form.network === 'xhttp'" class="pt-2 border-t border-border/40 grid grid-cols-1 sm:grid-cols-2 gap-3">
+        <div
+          v-if="
+            !['socks', 'http', 'dokodemo-door'].includes(form.protocol) && form.network === 'xhttp'
+          "
+          class="pt-2 border-t border-border/40 grid grid-cols-1 sm:grid-cols-2 gap-3"
+        >
           <FormField label="XHTTP 路径 (Path)">
             <Input v-model="form.xhttpPath" placeholder="/split" />
           </FormField>
           <FormField label="XHTTP 模式">
-            <select v-model="form.xhttpMode" class="w-full bg-neutral-950 border border-border rounded-md px-3 h-9 text-foreground font-mono focus:outline-none focus:ring-1 focus:ring-ring">
+            <select
+              v-model="form.xhttpMode"
+              class="w-full bg-neutral-950 border border-border rounded-md px-3 h-9 text-foreground font-mono focus:outline-none focus:ring-1 focus:ring-ring"
+            >
               <option value="auto">auto (自动)</option>
               <option value="stream-up">stream-up</option>
               <option value="packet-up">packet-up</option>
@@ -170,21 +186,37 @@
         </div>
 
         <!-- WS options -->
-        <div v-if="!['socks', 'http', 'dokodemo-door'].includes(form.protocol) && form.network === 'ws'" class="pt-2 border-t border-border/40">
+        <div
+          v-if="
+            !['socks', 'http', 'dokodemo-door'].includes(form.protocol) && form.network === 'ws'
+          "
+          class="pt-2 border-t border-border/40"
+        >
           <FormField label="WebSocket 路径">
             <Input v-model="form.wsPath" placeholder="/ws" />
           </FormField>
         </div>
 
         <!-- gRPC options -->
-        <div v-if="!['socks', 'http', 'dokodemo-door'].includes(form.protocol) && form.network === 'grpc'" class="pt-2 border-t border-border/40">
+        <div
+          v-if="
+            !['socks', 'http', 'dokodemo-door'].includes(form.protocol) && form.network === 'grpc'
+          "
+          class="pt-2 border-t border-border/40"
+        >
           <FormField label="gRPC 服务名">
             <Input v-model="form.grpcService" placeholder="xray-grpc" />
           </FormField>
         </div>
 
         <!-- HTTPUpgrade options -->
-        <div v-if="!['socks', 'http', 'dokodemo-door'].includes(form.protocol) && form.network === 'httpupgrade'" class="pt-2 border-t border-border/40 grid grid-cols-1 sm:grid-cols-2 gap-3">
+        <div
+          v-if="
+            !['socks', 'http', 'dokodemo-door'].includes(form.protocol) &&
+            form.network === 'httpupgrade'
+          "
+          class="pt-2 border-t border-border/40 grid grid-cols-1 sm:grid-cols-2 gap-3"
+        >
           <FormField label="HTTPUpgrade 路径 (Path)">
             <Input v-model="form.httpupgradePath" placeholder="/httpupgrade" />
           </FormField>
@@ -194,10 +226,18 @@
         </div>
 
         <!-- mKCP options -->
-        <div v-if="!['socks', 'http', 'dokodemo-door'].includes(form.protocol) && form.network === 'mkcp'" class="pt-2 border-t border-border/40 space-y-3">
+        <div
+          v-if="
+            !['socks', 'http', 'dokodemo-door'].includes(form.protocol) && form.network === 'mkcp'
+          "
+          class="pt-2 border-t border-border/40 space-y-3"
+        >
           <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <FormField label="头部伪装类型 (Header Type)">
-              <select v-model="form.kcpHeaderType" class="w-full bg-neutral-950 border border-border rounded-md px-3 h-9 text-foreground font-mono focus:outline-none focus:ring-1 focus:ring-ring">
+              <select
+                v-model="form.kcpHeaderType"
+                class="w-full bg-neutral-950 border border-border rounded-md px-3 h-9 text-foreground font-mono focus:outline-none focus:ring-1 focus:ring-ring"
+              >
                 <option value="none">none (无伪装)</option>
                 <option value="srtp">srtp (伪装视频通话)</option>
                 <option value="utp">utp (伪装 BT 下载)</option>
@@ -225,21 +265,38 @@
             </FormField>
           </div>
           <div class="flex items-center">
-            <label class="flex items-center gap-2 cursor-pointer text-muted-foreground hover:text-foreground">
-              <input type="checkbox" v-model="form.kcpCongestion" class="rounded bg-neutral-950 border-border text-neutral-200" />
+            <label
+              class="flex items-center gap-2 cursor-pointer text-muted-foreground hover:text-foreground"
+            >
+              <input
+                type="checkbox"
+                v-model="form.kcpCongestion"
+                class="rounded bg-neutral-950 border-border text-neutral-200"
+              />
               <span>启用拥塞控制 (Congestion Control)</span>
             </label>
           </div>
         </div>
 
         <!-- PROXY Protocol (Sockopt) -->
-        <div v-if="!['socks', 'http', 'dokodemo-door'].includes(form.protocol)" class="pt-2 border-t border-border/40">
+        <div
+          v-if="!['socks', 'http', 'dokodemo-door'].includes(form.protocol)"
+          class="pt-2 border-t border-border/40"
+        >
           <div class="flex items-center justify-between">
-            <label class="flex items-center gap-2 cursor-pointer text-muted-foreground hover:text-foreground">
-              <input type="checkbox" v-model="form.acceptProxyProtocol" class="rounded bg-neutral-950 border-border text-neutral-200" />
+            <label
+              class="flex items-center gap-2 cursor-pointer text-muted-foreground hover:text-foreground"
+            >
+              <input
+                type="checkbox"
+                v-model="form.acceptProxyProtocol"
+                class="rounded bg-neutral-950 border-border text-neutral-200"
+              />
               <span>接收 PROXY Protocol (反代透传真实 IP)</span>
             </label>
-            <span class="text-[10px] text-muted-foreground">streamSettings.sockopt.acceptProxyProtocol</span>
+            <span class="text-[10px] text-muted-foreground"
+              >streamSettings.sockopt.acceptProxyProtocol</span
+            >
           </div>
         </div>
       </SectionCard>
@@ -262,14 +319,23 @@
           </FormField>
 
           <div class="flex items-center pt-6">
-            <label class="flex items-center gap-2 cursor-pointer text-muted-foreground hover:text-foreground">
-              <input type="checkbox" v-model="form.socksUdp" class="rounded bg-neutral-950 border-border text-neutral-200" />
+            <label
+              class="flex items-center gap-2 cursor-pointer text-muted-foreground hover:text-foreground"
+            >
+              <input
+                type="checkbox"
+                v-model="form.socksUdp"
+                class="rounded bg-neutral-950 border-border text-neutral-200"
+              />
               <span>开启 UDP 转发支持 (UDP Support)</span>
             </label>
           </div>
         </div>
 
-        <div v-if="form.socksAuth === 'password'" class="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2 border-t border-border/40">
+        <div
+          v-if="form.socksAuth === 'password'"
+          class="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2 border-t border-border/40"
+        >
           <FormField label="Socks 认证用户名">
             <Input v-model="form.socksUsername" placeholder="用户名" />
           </FormField>
@@ -292,8 +358,14 @@
             <Input v-model.number="form.httpTimeout" type="number" min="0" placeholder="300" />
           </FormField>
           <div class="flex items-center pt-6">
-            <label class="flex items-center gap-2 cursor-pointer text-muted-foreground hover:text-foreground">
-              <input type="checkbox" v-model="form.httpAllowTransparent" class="rounded bg-neutral-950 border-border text-neutral-200" />
+            <label
+              class="flex items-center gap-2 cursor-pointer text-muted-foreground hover:text-foreground"
+            >
+              <input
+                type="checkbox"
+                v-model="form.httpAllowTransparent"
+                class="rounded bg-neutral-950 border-border text-neutral-200"
+              />
               <span>允许透明代理 (AllowTransparent)</span>
             </label>
           </div>
@@ -323,8 +395,14 @@
             <Input v-model.number="form.dokoTimeout" type="number" min="0" placeholder="300" />
           </FormField>
           <div class="flex items-center pt-6 sm:col-span-2">
-            <label class="flex items-center gap-2 cursor-pointer text-muted-foreground hover:text-foreground">
-              <input type="checkbox" v-model="form.dokoFollowRedirect" class="rounded bg-neutral-950 border-border text-neutral-200" />
+            <label
+              class="flex items-center gap-2 cursor-pointer text-muted-foreground hover:text-foreground"
+            >
+              <input
+                type="checkbox"
+                v-model="form.dokoFollowRedirect"
+                class="rounded bg-neutral-950 border-border text-neutral-200"
+              />
               <span>跟随透明代理重定向 (FollowRedirect - TProxy/Redirect 必选)</span>
             </label>
           </div>
@@ -348,7 +426,10 @@
             </select>
           </FormField>
 
-          <FormField label="服务密码 (Password / 单用户模式)" hint="若留空且关联下方授权用户，则由用户 Sub-Key 派生">
+          <FormField
+            label="服务密码 (Password / 单用户模式)"
+            hint="若留空且关联下方授权用户，则由用户 Sub-Key 派生"
+          >
             <Input v-model="form.ssPassword" placeholder="留空则使用下方关联用户的密钥" />
           </FormField>
 
@@ -364,8 +445,14 @@
           </FormField>
 
           <div class="flex items-center pt-6">
-            <label class="flex items-center gap-2 cursor-pointer text-muted-foreground hover:text-foreground">
-              <input type="checkbox" v-model="form.ssIvCheck" class="rounded bg-neutral-950 border-border text-neutral-200" />
+            <label
+              class="flex items-center gap-2 cursor-pointer text-muted-foreground hover:text-foreground"
+            >
+              <input
+                type="checkbox"
+                v-model="form.ssIvCheck"
+                class="rounded bg-neutral-950 border-border text-neutral-200"
+              />
               <span>启用重放攻击防护 (IV Check)</span>
             </label>
           </div>
@@ -376,11 +463,23 @@
       <SectionCard v-if="form.protocol === 'vmess'" title="VMess 协议参数">
         <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <FormField label="AlterId (额外ID)" hint="0 为启用 AEAD 认证 (推荐)">
-            <Input v-model.number="form.vmessAlterId" type="number" min="0" max="65535" placeholder="0" />
+            <Input
+              v-model.number="form.vmessAlterId"
+              type="number"
+              min="0"
+              max="65535"
+              placeholder="0"
+            />
           </FormField>
           <div class="flex items-center pt-6">
-            <label class="flex items-center gap-2 cursor-pointer text-muted-foreground hover:text-foreground">
-              <input type="checkbox" v-model="form.vmessDisableInsecure" class="rounded bg-neutral-950 border-border text-neutral-200" />
+            <label
+              class="flex items-center gap-2 cursor-pointer text-muted-foreground hover:text-foreground"
+            >
+              <input
+                type="checkbox"
+                v-model="form.vmessDisableInsecure"
+                class="rounded bg-neutral-950 border-border text-neutral-200"
+              />
               <span>禁止不安全加密算法 (DisableInsecureEncryption)</span>
             </label>
           </div>
@@ -399,7 +498,10 @@
 
       <!-- 3. REALITY 伪装与安全配置 -->
       <SectionCard
-        v-if="!['socks', 'http', 'dokodemo-door', 'shadowsocks', 'vmess'].includes(form.protocol) && form.security === 'reality'"
+        v-if="
+          !['socks', 'http', 'dokodemo-door', 'shadowsocks', 'vmess'].includes(form.protocol) &&
+          form.security === 'reality'
+        "
         title="③ REALITY 伪装与密钥"
       >
         <template #actions>
@@ -428,9 +530,21 @@
           <Input v-model="form.realityPrivateKey" placeholder="base64 私钥" />
         </FormField>
 
-        <div v-if="form.realityPublicKey" class="p-2.5 rounded bg-neutral-950 border border-border text-[11px] font-mono text-muted-foreground flex items-center justify-between">
-          <span class="truncate pr-2"><b>Public Key:</b> <span class="text-foreground">{{ form.realityPublicKey }}</span></span>
-          <Button type="button" variant="ghost" size="sm" class="h-6 px-2 text-[10px]" @click="copyText(form.realityPublicKey)">
+        <div
+          v-if="form.realityPublicKey"
+          class="p-2.5 rounded bg-neutral-950 border border-border text-[11px] font-mono text-muted-foreground flex items-center justify-between"
+        >
+          <span class="truncate pr-2"
+            ><b>Public Key:</b>
+            <span class="text-foreground">{{ form.realityPublicKey }}</span></span
+          >
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            class="h-6 px-2 text-[10px]"
+            @click="copyText(form.realityPublicKey)"
+          >
             复制公钥
           </Button>
         </div>
@@ -453,7 +567,10 @@
 
       <!-- TLS 配置 -->
       <SectionCard
-        v-else-if="!['socks', 'http', 'dokodemo-door', 'shadowsocks'].includes(form.protocol) && form.security === 'tls'"
+        v-else-if="
+          !['socks', 'http', 'dokodemo-door', 'shadowsocks'].includes(form.protocol) &&
+          form.security === 'tls'
+        "
         title="③ TLS 证书配置"
       >
         <FormField label="SNI 域名 (ServerName)">
@@ -489,21 +606,37 @@
             v-if="['vless', 'trojan'].includes(form.protocol)"
             class="flex items-center gap-2 cursor-pointer text-muted-foreground hover:text-foreground"
           >
-            <input type="checkbox" v-model="form.fallbacksEnabled" class="rounded bg-neutral-950 border-border text-neutral-200" />
+            <input
+              type="checkbox"
+              v-model="form.fallbacksEnabled"
+              class="rounded bg-neutral-950 border-border text-neutral-200"
+            />
             <span>启用网站回落 (Fallbacks)</span>
           </label>
-          <label class="flex items-center gap-2 cursor-pointer text-muted-foreground hover:text-foreground">
-            <input type="checkbox" v-model="form.sniffingEnabled" class="rounded bg-neutral-950 border-border text-neutral-200" />
+          <label
+            class="flex items-center gap-2 cursor-pointer text-muted-foreground hover:text-foreground"
+          >
+            <input
+              type="checkbox"
+              v-model="form.sniffingEnabled"
+              class="rounded bg-neutral-950 border-border text-neutral-200"
+            />
             <span>启用域名嗅探 (Sniffing)</span>
           </label>
         </div>
 
-        <div v-if="['vless', 'trojan'].includes(form.protocol) && form.fallbacksEnabled" class="pt-2 border-t border-border/40 grid grid-cols-1 sm:grid-cols-2 gap-3">
+        <div
+          v-if="['vless', 'trojan'].includes(form.protocol) && form.fallbacksEnabled"
+          class="pt-2 border-t border-border/40 grid grid-cols-1 sm:grid-cols-2 gap-3"
+        >
           <FormField label="回落目标地址/端口">
             <Input v-model="form.fallbackDest" placeholder="80 或 127.0.0.1:80" />
           </FormField>
           <FormField label="PROXY Protocol (xver)">
-            <select v-model.number="form.fallbackXver" class="w-full bg-neutral-950 border border-border rounded-md px-3 h-9 text-foreground font-mono focus:outline-none focus:ring-1 focus:ring-ring">
+            <select
+              v-model.number="form.fallbackXver"
+              class="w-full bg-neutral-950 border border-border rounded-md px-3 h-9 text-foreground font-mono focus:outline-none focus:ring-1 focus:ring-ring"
+            >
               <option :value="0">0 (关闭)</option>
               <option :value="1">1 (v1)</option>
               <option :value="2">2 (v2)</option>
@@ -519,25 +652,50 @@
 
         <div v-if="form.sniffingEnabled" class="pt-2 border-t border-border/40 space-y-3">
           <div class="flex items-center justify-between">
-            <label class="flex items-center gap-2 cursor-pointer text-muted-foreground hover:text-foreground">
-              <input type="checkbox" v-model="form.sniffingRouteOnly" class="rounded bg-neutral-950 border-border text-neutral-200" />
+            <label
+              class="flex items-center gap-2 cursor-pointer text-muted-foreground hover:text-foreground"
+            >
+              <input
+                type="checkbox"
+                v-model="form.sniffingRouteOnly"
+                class="rounded bg-neutral-950 border-border text-neutral-200"
+              />
               <span>仅限路由 (RouteOnly)</span>
             </label>
-            <span class="text-[10px] text-muted-foreground">嗅探域名仅用于路由分流决策，不修改目标连接目标地址</span>
+            <span class="text-[10px] text-muted-foreground"
+              >嗅探域名仅用于路由分流决策，不修改目标连接目标地址</span
+            >
           </div>
           <div>
-            <label class="block text-muted-foreground font-mono text-[11px] mb-1.5">探测目标协议 (DestOverride)</label>
+            <label class="block text-muted-foreground font-mono text-[11px] mb-1.5"
+              >探测目标协议 (DestOverride)</label
+            >
             <div class="flex flex-wrap gap-4">
-              <label v-for="dest in ['http', 'tls', 'quic', 'fakedns']" :key="dest" class="flex items-center gap-1.5 cursor-pointer text-muted-foreground hover:text-foreground">
-                <input type="checkbox" :value="dest" v-model="form.sniffingDestOverride" class="rounded bg-neutral-950 border-border text-neutral-200" />
+              <label
+                v-for="dest in ['http', 'tls', 'quic', 'fakedns']"
+                :key="dest"
+                class="flex items-center gap-1.5 cursor-pointer text-muted-foreground hover:text-foreground"
+              >
+                <input
+                  type="checkbox"
+                  :value="dest"
+                  v-model="form.sniffingDestOverride"
+                  class="rounded bg-neutral-950 border-border text-neutral-200"
+                />
                 <span class="font-mono text-xs uppercase">{{ dest }}</span>
               </label>
             </div>
           </div>
 
           <div class="flex items-center justify-between">
-            <label class="flex items-center gap-2 cursor-pointer text-muted-foreground hover:text-foreground">
-              <input type="checkbox" v-model="form.sniffingMetadataOnly" class="rounded bg-neutral-950 border-border text-neutral-200" />
+            <label
+              class="flex items-center gap-2 cursor-pointer text-muted-foreground hover:text-foreground"
+            >
+              <input
+                type="checkbox"
+                v-model="form.sniffingMetadataOnly"
+                class="rounded bg-neutral-950 border-border text-neutral-200"
+              />
               <span>仅嗅探连接元数据 (MetadataOnly, 适用于 FakeDNS)</span>
             </label>
             <span class="text-[10px] text-muted-foreground">仅嗅探元数据，不读取握手数据包</span>
@@ -547,14 +705,11 @@
             <FormField label="排除嗅探覆写域名 (DomainsExcluded, 逗号分隔)">
               <Input
                 v-model="form.sniffingDomainsExcluded"
-                placeholder="例如: apple.com, example.com"
+                placeholder="例如：apple.com, example.com"
               />
             </FormField>
             <FormField label="排除嗅探覆写 IP/CIDR (IPsExcluded, 逗号分隔)">
-              <Input
-                v-model="form.sniffingIpsExcluded"
-                placeholder="例如: 127.0.0.1, 10.0.0.0/8"
-              />
+              <Input v-model="form.sniffingIpsExcluded" placeholder="例如：127.0.0.1, 10.0.0.0/8" />
             </FormField>
           </div>
         </div>
@@ -565,8 +720,10 @@
         <template #header>
           <div>
             <span>⑤ 分流订阅线路 (Sub-Routes)</span>
-            <p class="text-[10px] text-muted-foreground mt-0.5 normal-case tracking-normal font-normal">
-              所有线路共用该入站的单端口与 Reality 密钥，订阅导出多个节点
+            <p
+              class="text-[10px] text-muted-foreground mt-0.5 normal-case tracking-normal font-normal"
+            >
+              所有线路共用该入站的单端口与 REALITY 密钥，订阅导出多个节点
             </p>
           </div>
         </template>
@@ -593,7 +750,9 @@
             <div class="flex flex-col sm:flex-row items-stretch sm:items-end gap-2">
               <!-- Route ID -->
               <div class="w-full sm:w-14 shrink-0">
-                <label class="block text-[10px] text-muted-foreground font-mono mb-1 truncate">ID</label>
+                <label class="block text-[10px] text-muted-foreground font-mono mb-1 truncate"
+                  >ID</label
+                >
                 <input
                   v-model.number="sr.routeId"
                   type="number"
@@ -604,7 +763,11 @@
 
               <!-- 排序 SortOrder -->
               <div class="w-full sm:w-14 shrink-0">
-                <label class="block text-[10px] text-muted-foreground font-mono mb-1 truncate" title="显示排序权重 (数值越小越靠前)">排序</label>
+                <label
+                  class="block text-[10px] text-muted-foreground font-mono mb-1 truncate"
+                  title="显示排序权重 (数值越小越靠前)"
+                  >排序</label
+                >
                 <input
                   v-model.number="sr.sortOrder"
                   type="number"
@@ -616,7 +779,9 @@
 
               <!-- 线路名称 -->
               <div class="flex-1 min-w-[120px]">
-                <label class="block text-[10px] text-muted-foreground mb-1 truncate">线路名称</label>
+                <label class="block text-[10px] text-muted-foreground mb-1 truncate"
+                  >线路名称</label
+                >
                 <input
                   v-model="sr.name"
                   type="text"
@@ -627,7 +792,9 @@
 
               <!-- 目标出站 -->
               <div class="w-full sm:w-36 shrink-0">
-                <label class="block text-[10px] text-muted-foreground mb-1 truncate">目标出站</label>
+                <label class="block text-[10px] text-muted-foreground mb-1 truncate"
+                  >目标出站</label
+                >
                 <select
                   v-model="sr.outboundTag"
                   class="w-full bg-neutral-900 border border-border rounded px-2 h-8 text-foreground font-mono text-xs focus:outline-none focus:ring-1 focus:ring-ring"
@@ -640,7 +807,9 @@
 
               <!-- 授权用户 Popover Trigger -->
               <div class="relative shrink-0">
-                <label class="block text-[10px] text-muted-foreground mb-1 truncate">授权用户</label>
+                <label class="block text-[10px] text-muted-foreground mb-1 truncate"
+                  >授权用户</label
+                >
                 <button
                   type="button"
                   @click.stop="toggleSubRoutePopover(index)"
@@ -649,7 +818,9 @@
                     isSubRouteAllOpen(sr)
                       ? 'border-border bg-neutral-900 text-muted-foreground hover:text-foreground hover:border-neutral-700'
                       : 'border-border bg-neutral-900 text-foreground font-medium hover:border-neutral-700',
-                    activeSubRoutePopoverIndex === index ? 'ring-1 ring-ring border-neutral-600' : ''
+                    activeSubRoutePopoverIndex === index
+                      ? 'ring-1 ring-ring border-neutral-600'
+                      : '',
                   ]"
                 >
                   <span
@@ -657,7 +828,9 @@
                     :class="isSubRouteAllOpen(sr) ? 'bg-neutral-500' : 'bg-emerald-400'"
                   />
                   <span class="truncate max-w-[110px]">
-                    {{ isSubRouteAllOpen(sr) ? '全员开放' : `已选 ${sr.allowedUsers?.length || 0} 人` }}
+                    {{
+                      isSubRouteAllOpen(sr) ? '全员开放' : `已选 ${sr.allowedUsers?.length || 0} 人`
+                    }}
                   </span>
                   <ChevronDown
                     class="w-3 h-3 text-muted-foreground transition-transform duration-150 shrink-0"
@@ -674,7 +847,9 @@
                   <!-- Search input -->
                   <div class="p-2 border-b border-border/60">
                     <div class="relative">
-                      <Search class="w-3.5 h-3.5 text-muted-foreground absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+                      <Search
+                        class="w-3.5 h-3.5 text-muted-foreground absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none"
+                      />
                       <input
                         ref="userSearchInputRef"
                         v-model="subRouteUserSearch"
@@ -696,13 +871,24 @@
                     >
                       <span
                         class="w-3.5 h-3.5 rounded-full border flex items-center justify-center shrink-0 transition-colors"
-                        :class="isSubRouteAllOpen(sr) ? 'border-foreground' : 'border-neutral-600 group-hover:border-neutral-500'"
+                        :class="
+                          isSubRouteAllOpen(sr)
+                            ? 'border-foreground'
+                            : 'border-neutral-600 group-hover:border-neutral-500'
+                        "
                       >
-                        <span v-if="isSubRouteAllOpen(sr)" class="w-1.5 h-1.5 rounded-full bg-foreground" />
+                        <span
+                          v-if="isSubRouteAllOpen(sr)"
+                          class="w-1.5 h-1.5 rounded-full bg-foreground"
+                        />
                       </span>
                       <span
                         class="text-xs"
-                        :class="isSubRouteAllOpen(sr) ? 'text-foreground font-medium' : 'text-muted-foreground group-hover:text-foreground'"
+                        :class="
+                          isSubRouteAllOpen(sr)
+                            ? 'text-foreground font-medium'
+                            : 'text-muted-foreground group-hover:text-foreground'
+                        "
                       >
                         全员开放 (不限制具体用户)
                       </span>
@@ -714,13 +900,24 @@
                     >
                       <span
                         class="w-3.5 h-3.5 rounded-full border flex items-center justify-center shrink-0 transition-colors"
-                        :class="!isSubRouteAllOpen(sr) ? 'border-foreground' : 'border-neutral-600 group-hover:border-neutral-500'"
+                        :class="
+                          !isSubRouteAllOpen(sr)
+                            ? 'border-foreground'
+                            : 'border-neutral-600 group-hover:border-neutral-500'
+                        "
                       >
-                        <span v-if="!isSubRouteAllOpen(sr)" class="w-1.5 h-1.5 rounded-full bg-foreground" />
+                        <span
+                          v-if="!isSubRouteAllOpen(sr)"
+                          class="w-1.5 h-1.5 rounded-full bg-foreground"
+                        />
                       </span>
                       <span
                         class="text-xs"
-                        :class="!isSubRouteAllOpen(sr) ? 'text-foreground font-medium' : 'text-muted-foreground group-hover:text-foreground'"
+                        :class="
+                          !isSubRouteAllOpen(sr)
+                            ? 'text-foreground font-medium'
+                            : 'text-muted-foreground group-hover:text-foreground'
+                        "
                       >
                         指定具体用户
                       </span>
@@ -737,15 +934,24 @@
                     >
                       <div
                         class="w-3.5 h-3.5 rounded border flex items-center justify-center shrink-0 transition-colors"
-                        :class="isSubRouteUserSelected(sr, u.email)
-                          ? 'bg-foreground border-foreground text-background'
-                          : 'border-neutral-600 bg-neutral-900 group-hover:border-neutral-500'"
+                        :class="
+                          isSubRouteUserSelected(sr, u.email)
+                            ? 'bg-foreground border-foreground text-background'
+                            : 'border-neutral-600 bg-neutral-900 group-hover:border-neutral-500'
+                        "
                       >
-                        <Check v-if="isSubRouteUserSelected(sr, u.email)" class="w-2.5 h-2.5 stroke-[3]" />
+                        <Check
+                          v-if="isSubRouteUserSelected(sr, u.email)"
+                          class="w-2.5 h-2.5 stroke-[3]"
+                        />
                       </div>
                       <span
                         class="truncate font-mono text-[11px]"
-                        :class="isSubRouteUserSelected(sr, u.email) ? 'text-foreground font-medium' : 'text-muted-foreground group-hover:text-foreground'"
+                        :class="
+                          isSubRouteUserSelected(sr, u.email)
+                            ? 'text-foreground font-medium'
+                            : 'text-muted-foreground group-hover:text-foreground'
+                        "
                       >
                         {{ u.email }}
                       </span>
@@ -791,7 +997,9 @@
 
               <!-- 启用 & 删除 操作 -->
               <div class="flex items-center gap-2 pt-1 sm:pt-0 shrink-0 h-8">
-                <label class="flex items-center gap-1 cursor-pointer text-muted-foreground hover:text-foreground text-[11px] select-none h-8 px-1">
+                <label
+                  class="flex items-center gap-1 cursor-pointer text-muted-foreground hover:text-foreground text-[11px] select-none h-8 px-1"
+                >
                   <input
                     type="checkbox"
                     v-model="sr.enabled"
@@ -813,7 +1021,10 @@
             </div>
           </div>
         </div>
-        <div v-else class="text-center py-3 text-muted-foreground font-mono text-[11px] border border-dashed border-border rounded">
+        <div
+          v-else
+          class="text-center py-3 text-muted-foreground font-mono text-[11px] border border-dashed border-border rounded"
+        >
           暂未配置分流线路（将仅作为单一常规节点导出）
         </div>
       </SectionCard>
@@ -833,7 +1044,9 @@
           </button>
         </template>
 
-        <div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2 max-h-48 overflow-y-auto p-2 bg-neutral-950 rounded-md border border-border">
+        <div
+          class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2 max-h-48 overflow-y-auto p-2 bg-neutral-950 rounded-md border border-border"
+        >
           <label
             v-for="u in usersList"
             :key="u.email"
@@ -848,9 +1061,14 @@
               />
               <span class="text-foreground truncate">{{ u.email }}</span>
             </div>
-            <span class="text-muted-foreground text-[10px] shrink-0">{{ u.uuid?.substring(0, 6) }}...</span>
+            <span class="text-muted-foreground text-[10px] shrink-0"
+              >{{ u.uuid?.substring(0, 6) }}...</span
+            >
           </label>
-          <div v-if="!usersList.length" class="col-span-full text-center py-3 text-muted-foreground text-[11px]">
+          <div
+            v-if="!usersList.length"
+            class="col-span-full text-center py-3 text-muted-foreground text-[11px]"
+          >
             暂无用户，可在「用户与订阅」模块中创建
           </div>
         </div>
@@ -858,21 +1076,10 @@
     </form>
 
     <template #footer>
-      <Button
-        type="button"
-        variant="outline"
-        size="sm"
-        @click="emit('update:modelValue', false)"
-      >
+      <Button type="button" variant="outline" size="sm" @click="emit('update:modelValue', false)">
         取消
       </Button>
-      <Button
-        type="submit"
-        form="inbound-form"
-        variant="default"
-        size="sm"
-        :loading="saving"
-      >
+      <Button type="submit" form="inbound-form" variant="default" size="sm" :loading="saving">
         <span>{{ saving ? '保存中...' : '保存节点并重载核心' }}</span>
       </Button>
     </template>
@@ -881,15 +1088,7 @@
 
 <script setup lang="ts">
 import { ref, computed, watch, nextTick, onMounted, onUnmounted } from 'vue'
-import {
-  AlertTriangle,
-  Key,
-  Plus,
-  Search,
-  ChevronDown,
-  Check,
-  Trash2,
-} from 'lucide-vue-next'
+import { AlertTriangle, Key, Plus, Search, ChevronDown, Check, Trash2 } from 'lucide-vue-next'
 import Drawer from '../../../components/ui/Drawer.vue'
 import Button from '../../../components/ui/Button.vue'
 import Input from '../../../components/ui/Input.vue'
@@ -939,9 +1138,7 @@ const isAllUsersSelected = computed(() => {
 const filteredUsersForSubRoute = computed(() => {
   const query = subRouteUserSearch.value.trim().toLowerCase()
   if (!query) return props.usersList
-  return props.usersList.filter((u: any) =>
-    (u.email || '').toLowerCase().includes(query)
-  )
+  return props.usersList.filter((u: any) => (u.email || '').toLowerCase().includes(query))
 })
 
 const toggleSelectAllUsers = () => {
@@ -961,7 +1158,11 @@ const onNetworkChange = () => {
   }
   if (form.value.network !== 'tcp') {
     form.value.vlessFlow = 'none'
-  } else if (form.value.protocol === 'vless' && ['reality', 'tls'].includes(form.value.security) && !form.value.vlessFlow) {
+  } else if (
+    form.value.protocol === 'vless' &&
+    ['reality', 'tls'].includes(form.value.security) &&
+    !form.value.vlessFlow
+  ) {
     form.value.vlessFlow = 'xtls-rprx-vision'
   }
 }
@@ -996,7 +1197,8 @@ const onProtocolChange = () => {
     form.value.vlessFlow = ''
   } else if (form.value.protocol === 'vless') {
     if (form.value.network === 'tcp' && ['reality', 'tls'].includes(form.value.security)) {
-      if (!form.value.vlessFlow || form.value.vlessFlow === 'none') form.value.vlessFlow = 'xtls-rprx-vision'
+      if (!form.value.vlessFlow || form.value.vlessFlow === 'none')
+        form.value.vlessFlow = 'xtls-rprx-vision'
     } else {
       form.value.vlessFlow = 'none'
     }
@@ -1075,7 +1277,10 @@ const toggleSubRouteUser = (sr: any, email: string) => {
 
 const addSubRoute = () => {
   if (!form.value.subRoutes) form.value.subRoutes = []
-  const currentMax = form.value.subRoutes.reduce((max: number, sr: any) => Math.max(max, sr.routeId || 0), 0)
+  const currentMax = form.value.subRoutes.reduce(
+    (max: number, sr: any) => Math.max(max, sr.routeId || 0),
+    0
+  )
   const nextId = currentMax + 1
   form.value.subRoutes.push({
     id: Math.random().toString(36).substring(2, 9),
@@ -1128,31 +1333,42 @@ const initFormData = () => {
     let srs: SubRouteItem[] = []
     try {
       srs = JSON.parse(inb.subRoutesJson || '[]')
-    } catch (e) {}
-    form.value.subRoutes = srs.length > 0 ? srs.map((r: any) => ({
-      ...r,
-      name: r.name || r.remark || '',
-      sortOrder: Number(r.sortOrder || 0),
-      allowedUsers: Array.isArray(r.allowedUsers) ? r.allowedUsers : [],
-    })) : []
+    } catch {
+      /* ignore */
+    }
+    form.value.subRoutes =
+      srs.length > 0
+        ? srs.map((r: any) => ({
+            ...r,
+            name: r.name || r.remark || '',
+            sortOrder: Number(r.sortOrder || 0),
+            allowedUsers: Array.isArray(r.allowedUsers) ? r.allowedUsers : [],
+          }))
+        : []
 
     let settings: any = {}
     try {
       settings = JSON.parse(inb.settingsJson || '{}')
-    } catch (e) {}
+    } catch {
+      /* ignore */
+    }
 
     let stream: any = {}
     try {
       const rawStream = inb.streamSettingsJson || inb.streamSettings
-      stream = typeof rawStream === 'string' ? JSON.parse(rawStream || '{}') : (rawStream || {})
-    } catch (e) {}
+      stream = typeof rawStream === 'string' ? JSON.parse(rawStream || '{}') : rawStream || {}
+    } catch {
+      /* ignore */
+    }
 
-    const isTcp = (stream.network || inb.protocol === 'vless' ? (stream.network || 'tcp') : 'tcp') === 'tcp'
+    const isTcp =
+      (stream.network || inb.protocol === 'vless' ? stream.network || 'tcp' : 'tcp') === 'tcp'
     const isTlsOrReality = ['reality', 'tls'].includes(stream.security || 'none')
     if (settings.flow !== undefined) {
-      form.value.vlessFlow = (settings.flow === '' || settings.flow === 'none') ? 'none' : settings.flow
+      form.value.vlessFlow =
+        settings.flow === '' || settings.flow === 'none' ? 'none' : settings.flow
     } else if (inb.protocol === 'vless') {
-      form.value.vlessFlow = (isTcp && isTlsOrReality) ? 'xtls-rprx-vision' : 'none'
+      form.value.vlessFlow = isTcp && isTlsOrReality ? 'xtls-rprx-vision' : 'none'
     } else {
       form.value.vlessFlow = 'none'
     }
@@ -1234,7 +1450,8 @@ const initFormData = () => {
     }
 
     if (inb.protocol === 'vmess') {
-      form.value.vmessAlterId = settings.default?.alterId !== undefined ? Number(settings.default.alterId) : 0
+      form.value.vmessAlterId =
+        settings.default?.alterId !== undefined ? Number(settings.default.alterId) : 0
       form.value.vmessDisableInsecure = settings.disableInsecureEncryption === true
     } else {
       form.value.vmessAlterId = 0
@@ -1296,10 +1513,13 @@ const initFormData = () => {
       form.value.realityPrivateKey = stream.realitySettings.privateKey || ''
       form.value.realityShortIds = (stream.realitySettings.shortIds || []).join(', ')
     }
-    form.value.clientFingerprint = stream.realitySettings?.fingerprint || stream.tlsSettings?.fingerprint || ''
+    form.value.clientFingerprint =
+      stream.realitySettings?.fingerprint || stream.tlsSettings?.fingerprint || ''
     if (stream.tlsSettings) {
       form.value.tlsServerName = stream.tlsSettings.serverName || ''
-      form.value.tlsAlpn = Array.isArray(stream.tlsSettings.alpn) ? stream.tlsSettings.alpn.join(', ') : ''
+      form.value.tlsAlpn = Array.isArray(stream.tlsSettings.alpn)
+        ? stream.tlsSettings.alpn.join(', ')
+        : ''
       if (stream.tlsSettings.certificates?.length > 0) {
         form.value.tlsCertFile = stream.tlsSettings.certificates[0].certificateFile || ''
         form.value.tlsKeyFile = stream.tlsSettings.certificates[0].keyFile || ''
@@ -1316,7 +1536,7 @@ const initFormData = () => {
 
     if (stream.sockopt) {
       form.value.acceptProxyProtocol = stream.sockopt.acceptProxyProtocol === true
-      const { acceptProxyProtocol, ...restSockopt } = stream.sockopt
+      const { acceptProxyProtocol: _acceptProxyProtocol, ...restSockopt } = stream.sockopt
       form.value.rawSockopt = Object.keys(restSockopt).length > 0 ? restSockopt : undefined
     } else {
       form.value.acceptProxyProtocol = false
@@ -1326,16 +1546,23 @@ const initFormData = () => {
     let sniff: any = {}
     try {
       const rawSniff = inb.sniffingJson || inb.sniffing
-      sniff = typeof rawSniff === 'string' ? JSON.parse(rawSniff || '{}') : (rawSniff || {})
-    } catch (e) {}
+      sniff = typeof rawSniff === 'string' ? JSON.parse(rawSniff || '{}') : rawSniff || {}
+    } catch {
+      /* ignore */
+    }
     form.value.sniffingEnabled = sniff.enabled !== false
     form.value.sniffingRouteOnly = sniff.routeOnly === true
-    form.value.sniffingDestOverride = Array.isArray(sniff.destOverride) && sniff.destOverride.length > 0
-      ? sniff.destOverride
-      : ['http', 'tls', 'quic']
+    form.value.sniffingDestOverride =
+      Array.isArray(sniff.destOverride) && sniff.destOverride.length > 0
+        ? sniff.destOverride
+        : ['http', 'tls', 'quic']
     form.value.sniffingMetadataOnly = sniff.metadataOnly === true
-    form.value.sniffingDomainsExcluded = Array.isArray(sniff.domainsExcluded) ? sniff.domainsExcluded.join(', ') : ''
-    form.value.sniffingIpsExcluded = Array.isArray(sniff.ipsExcluded) ? sniff.ipsExcluded.join(', ') : ''
+    form.value.sniffingDomainsExcluded = Array.isArray(sniff.domainsExcluded)
+      ? sniff.domainsExcluded.join(', ')
+      : ''
+    form.value.sniffingIpsExcluded = Array.isArray(sniff.ipsExcluded)
+      ? sniff.ipsExcluded.join(', ')
+      : ''
   } else {
     form.value = getDefaultInboundFormData(props.usersList)
     generateRealityKey()
@@ -1355,7 +1582,10 @@ watch(
 )
 
 const saveInbound = async () => {
-  if (!['socks', 'http', 'dokodemo-door', 'shadowsocks', 'vmess'].includes(form.value.protocol) && form.value.security === 'reality') {
+  if (
+    !['socks', 'http', 'dokodemo-door', 'shadowsocks', 'vmess'].includes(form.value.protocol) &&
+    form.value.security === 'reality'
+  ) {
     if (!form.value.realityTarget?.trim()) {
       toast.error('请填写 REALITY 目标伪装网站 (Target)')
       return
@@ -1391,10 +1621,18 @@ const saveInbound = async () => {
         const has = currentTags.includes(form.value.tag)
         if (shouldHave && !has) {
           currentTags.push(form.value.tag)
-          await api.put(`/users/${u.id}`, { ...u, inboundTags: currentTags.join(','), inboundTag: currentTags[0] })
+          await api.put(`/users/${u.id}`, {
+            ...u,
+            inboundTags: currentTags.join(','),
+            inboundTag: currentTags[0],
+          })
         } else if (!shouldHave && has) {
           const nextTags = currentTags.filter((t: string) => t !== form.value.tag)
-          await api.put(`/users/${u.id}`, { ...u, inboundTags: nextTags.join(','), inboundTag: nextTags[0] || '' })
+          await api.put(`/users/${u.id}`, {
+            ...u,
+            inboundTags: nextTags.join(','),
+            inboundTag: nextTags[0] || '',
+          })
         }
       }
     }
@@ -1402,7 +1640,7 @@ const saveInbound = async () => {
     emit('update:modelValue', false)
     emit('saved')
   } catch (err: any) {
-    toast.error('保存失败: ' + err)
+    toast.error('保存失败：' + err)
   } finally {
     saving.value = false
   }

@@ -3,7 +3,9 @@
     :data-node-id="node.id"
     class="relative rounded-xl border bg-card px-3.5 py-2.5 transition-all duration-200 select-none group"
     :class="[
-      isActive ? 'border-cyan-400/80 shadow-[0_0_15px_rgba(34,211,238,0.15)] ring-1 ring-cyan-400/50' : 'border-border hover:border-border/80',
+      isActive
+        ? 'border-cyan-400/80 shadow-[0_0_15px_rgba(34,211,238,0.15)] ring-1 ring-cyan-400/50'
+        : 'border-border hover:border-border/80',
       isDimmed ? 'opacity-25 grayscale-[30%]' : 'opacity-100',
     ]"
     @mouseenter="$emit('hover', node.id)"
@@ -33,7 +35,10 @@
         </span>
 
         <!-- Gateway Name -->
-        <span class="font-bold text-xs sm:text-sm font-mono text-foreground truncate max-w-[110px]" :title="node.tag">
+        <span
+          class="font-bold text-xs sm:text-sm font-mono text-foreground truncate max-w-[110px]"
+          :title="node.tag"
+        >
           {{ node.tag }}
         </span>
 
@@ -84,9 +89,13 @@
     </div>
 
     <!-- Line 2: Port · Users · Traffic -->
-    <div class="flex items-center justify-between text-[11px] font-mono text-muted-foreground mt-1.5 pt-1 border-t border-border/40">
+    <div
+      class="flex items-center justify-between text-[11px] font-mono text-muted-foreground mt-1.5 pt-1 border-t border-border/40"
+    >
       <div class="flex items-center gap-1 truncate">
-        <span class="text-cyan-400/90 font-semibold">:{{ node.externalPort || node.listenPort }}</span>
+        <span class="text-cyan-400/90 font-semibold"
+          >:{{ node.externalPort || node.listenPort }}</span
+        >
         <span class="text-neutral-600">·</span>
         <span>{{ node.metrics?.clientCount || 0 }} 用户</span>
       </div>

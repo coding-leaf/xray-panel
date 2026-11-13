@@ -1,6 +1,9 @@
 <template>
   <Teleport to="body">
-    <div v-if="modelValue" class="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 overflow-y-auto">
+    <div
+      v-if="modelValue"
+      class="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 overflow-y-auto"
+    >
       <!-- Backdrop -->
       <transition
         enter-active-class="transition-opacity duration-200 ease-out"
@@ -10,11 +13,7 @@
         leave-from-class="opacity-100"
         leave-to-class="opacity-0"
       >
-        <div
-          v-if="modelValue"
-          class="fixed inset-0 bg-black/75"
-          @click="close"
-        />
+        <div v-if="modelValue" class="fixed inset-0 bg-black/75" @click="close" />
       </transition>
 
       <!-- Modal Content Panel -->
@@ -28,25 +27,40 @@
       >
         <div
           v-if="modelValue"
+          ref="panelRef"
+          tabindex="-1"
+          role="dialog"
+          aria-modal="true"
+          :aria-labelledby="title ? titleId : undefined"
           :class="[
-            'relative z-10 w-full bg-neutral-950 border border-border rounded-lg shadow-2xl flex flex-col overflow-hidden max-h-[90vh]',
-            sizeClass
+            'relative z-10 w-full bg-neutral-950 border border-border rounded-lg shadow-2xl flex flex-col overflow-hidden max-h-[90vh] focus:outline-none',
+            sizeClass,
           ]"
         >
           <!-- Header -->
           <slot name="header">
-            <div v-if="title || $slots.header" class="h-14 px-5 border-b border-border flex items-center justify-between shrink-0 bg-card">
+            <div
+              v-if="title || $slots.header"
+              class="h-14 px-5 border-b border-border flex items-center justify-between shrink-0 bg-card"
+            >
               <div class="min-w-0 pr-3">
-                <h3 class="text-sm font-semibold text-foreground truncate flex items-center gap-2">
+                <h3
+                  :id="title ? titleId : undefined"
+                  class="text-sm font-semibold text-foreground truncate flex items-center gap-2"
+                >
                   <slot name="icon" />
                   <span>{{ title }}</span>
                 </h3>
-                <p v-if="description" class="text-[11px] text-muted-foreground truncate mt-0.5 font-mono">
+                <p
+                  v-if="description"
+                  class="text-[11px] text-muted-foreground truncate mt-0.5 font-mono"
+                >
                   {{ description }}
                 </p>
               </div>
               <button
                 type="button"
+                aria-label="关闭"
                 @click="close"
                 class="h-7 w-7 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted/60 flex items-center justify-center transition-colors"
                 title="关闭 (Esc)"
@@ -65,7 +79,10 @@
           </div>
 
           <!-- Footer -->
-          <div v-if="$slots.footer" class="p-3.5 pb-[max(0.875rem,env(safe-area-inset-bottom))] border-t border-border bg-card shrink-0 flex items-center justify-end gap-2.5">
+          <div
+            v-if="$slots.footer"
+            class="p-3.5 pb-[max(0.875rem,env(safe-area-inset-bottom))] border-t border-border bg-card shrink-0 flex items-center justify-end gap-2.5"
+          >
             <slot name="footer" />
           </div>
         </div>
@@ -75,8 +92,9 @@
 </template>
 
 <script setup lang="ts">
-import { computed, watch, onMounted, onUnmounted } from 'vue'
+import { ref, computed, watch, nextTick, onMounted, onUnmounted } from 'vue'
 import { X } from 'lucide-vue-next'
+import { nextUid } from '../../utils/uid'
 
 interface ModalProps {
   modelValue: boolean
@@ -90,6 +108,10 @@ const props = withDefaults(defineProps<ModalProps>(), {
   description: '',
   size: 'md',
 })
+
+const titleId = nextUid('modal-title')
+const panelRef = ref<HTMLElement | null>(null)
+let previousActiveElement: HTMLElement | null = null
 
 const sizeMap: Record<NonNullable<ModalProps['size']>, string> = {
   sm: 'max-w-md',
@@ -106,6 +128,13 @@ const emit = defineEmits<{
   (e: 'close'): void
 }>()
 
+const restoreFocus = () => {
+  if (previousActiveElement && previousActiveElement.isConnected) {
+    previousActiveElement.focus()
+  }
+  previousActiveElement = null
+}
+
 const close = () => {
   emit('update:modelValue', false)
   emit('close')
@@ -121,9 +150,15 @@ watch(
   () => props.modelValue,
   (val) => {
     if (val) {
+      previousActiveElement =
+        document.activeElement instanceof HTMLElement ? document.activeElement : null
       document.body.style.overflow = 'hidden'
+      nextTick(() => {
+        panelRef.value?.focus()
+      })
     } else {
       document.body.style.overflow = ''
+      restoreFocus()
     }
   }
 )
@@ -135,5 +170,6 @@ onMounted(() => {
 onUnmounted(() => {
   window.removeEventListener('keydown', handleKeyDown)
   document.body.style.overflow = ''
+  restoreFocus()
 })
 </script>

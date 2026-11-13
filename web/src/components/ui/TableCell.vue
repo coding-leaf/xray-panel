@@ -1,10 +1,5 @@
 <template>
-  <td
-    :class="[
-      'p-3.5 align-middle text-xs text-foreground',
-      customClass
-    ]"
-  >
+  <td :class="['p-3.5 align-middle text-xs text-foreground', customClass]">
     <slot />
   </td>
 </template>

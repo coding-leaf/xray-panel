@@ -1,11 +1,15 @@
 <template>
   <div class="space-y-4">
     <!-- Header -->
-    <div class="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 pb-2 border-b border-border/60">
+    <div
+      class="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 pb-2 border-b border-border/60"
+    >
       <div>
         <div class="flex items-center gap-2">
           <h1 class="text-lg font-semibold text-foreground tracking-tight">Xray 原始配置管理</h1>
-          <span class="px-2 py-0.5 rounded text-[10px] font-mono bg-neutral-900 border border-border text-cyan-400">
+          <span
+            class="px-2 py-0.5 rounded text-[10px] font-mono bg-neutral-900 border border-border text-cyan-400"
+          >
             config.json
           </span>
         </div>
@@ -15,36 +19,16 @@
       </div>
 
       <div class="flex flex-wrap items-center gap-2">
-        <Button
-          variant="secondary"
-          size="sm"
-          @click="openSnapshotsModal"
-        >
+        <Button variant="secondary" size="sm" @click="openSnapshotsModal">
           <History class="w-3.5 h-3.5 mr-1" />
           <span>版本历史</span>
         </Button>
-        <Button
-          variant="secondary"
-          size="sm"
-          @click="formatJSON"
-        >
-          美化 JSON
-        </Button>
-        <Button
-          variant="secondary"
-          size="sm"
-          :loading="validating"
-          @click="validateConfig"
-        >
+        <Button variant="secondary" size="sm" @click="formatJSON"> 美化 JSON </Button>
+        <Button variant="secondary" size="sm" :loading="validating" @click="validateConfig">
           <CheckCircle2 class="w-3.5 h-3.5 mr-1 text-cyan-400" />
           <span>{{ validating ? '校验中...' : '测试有效性' }}</span>
         </Button>
-        <Button
-          variant="default"
-          size="sm"
-          :loading="saving"
-          @click="saveConfig"
-        >
+        <Button variant="default" size="sm" :loading="saving" @click="saveConfig">
           <Save class="w-3.5 h-3.5 mr-1" />
           <span>{{ saving ? '保存并重载中...' : '保存并重载 Xray' }}</span>
         </Button>
@@ -55,18 +39,29 @@
     <div
       v-if="testResult"
       class="p-3 rounded-lg border text-xs flex items-start gap-2.5 font-mono"
-      :class="testResult.valid ? 'bg-emerald-950/20 border-emerald-800/40 text-emerald-300' : 'bg-rose-950/20 border-rose-800/40 text-rose-300'"
+      :class="
+        testResult.valid
+          ? 'bg-emerald-950/20 border-emerald-800/40 text-emerald-300'
+          : 'bg-rose-950/20 border-rose-800/40 text-rose-300'
+      "
     >
-      <component :is="testResult.valid ? CheckCircle2 : AlertCircle" class="w-4 h-4 mt-0.5 shrink-0" />
+      <component
+        :is="testResult.valid ? CheckCircle2 : AlertCircle"
+        class="w-4 h-4 mt-0.5 shrink-0"
+      />
       <div class="space-y-0.5">
-        <p class="font-bold font-sans">{{ testResult.valid ? '✅ 配置校验通过' : '❌ 配置存在错误' }}</p>
+        <p class="font-bold font-sans">
+          {{ testResult.valid ? '✅ 配置校验通过' : '❌ 配置存在错误' }}
+        </p>
         <p class="text-[11px] opacity-90">{{ testResult.message }}</p>
       </div>
     </div>
 
     <!-- Code Editor Area -->
     <div class="rounded-lg border border-border bg-neutral-950 overflow-hidden relative">
-      <div class="flex items-center justify-between px-3.5 py-2 bg-neutral-900 border-b border-border text-xs text-muted-foreground font-mono">
+      <div
+        class="flex items-center justify-between px-3.5 py-2 bg-neutral-900 border-b border-border text-xs text-muted-foreground font-mono"
+      >
         <span>config.json</span>
         <span class="text-[11px]">UTF-8 / JSON</span>
       </div>
@@ -79,7 +74,10 @@
     </div>
 
     <!-- History Snapshots Modal -->
-    <div v-if="showSnapshots" class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/75">
+    <div
+      v-if="showSnapshots"
+      class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/75"
+    >
       <div class="w-full max-w-lg p-5 rounded-lg border border-border bg-card shadow-2xl space-y-4">
         <div class="flex items-center justify-between pb-2 border-b border-border">
           <div>
@@ -87,9 +85,18 @@
               <History class="w-4 h-4 text-cyan-400" />
               <span>配置文件历史快照</span>
             </h2>
-            <p class="text-xs text-muted-foreground mt-0.5">保存前自动备份的快照版本，支持一键安全回滚</p>
+            <p class="text-xs text-muted-foreground mt-0.5">
+              保存前自动备份的快照版本，支持一键安全回滚
+            </p>
           </div>
-          <button @click="showSnapshots = false" class="text-muted-foreground hover:text-foreground text-base">✕</button>
+          <button
+            type="button"
+            aria-label="关闭"
+            @click="showSnapshots = false"
+            class="text-muted-foreground hover:text-foreground text-base"
+          >
+            ✕
+          </button>
         </div>
 
         <div class="space-y-2 max-h-80 overflow-y-auto">
@@ -99,7 +106,9 @@
             class="p-2.5 bg-neutral-950 rounded-md border border-border flex items-center justify-between gap-3 hover:border-neutral-700 transition-colors"
           >
             <div class="space-y-0.5 text-xs font-mono">
-              <span class="font-bold text-foreground text-[11px]">{{ snap.remark || '系统自动快照' }}</span>
+              <span class="font-bold text-foreground text-[11px]">{{
+                snap.remark || '系统自动快照'
+              }}</span>
               <p class="text-[10px] text-muted-foreground">{{ formatDate(snap.createdAt) }}</p>
             </div>
 
@@ -120,13 +129,7 @@
         </div>
 
         <div class="flex justify-end pt-2 border-t border-border">
-          <Button
-            variant="secondary"
-            size="sm"
-            @click="showSnapshots = false"
-          >
-            关闭
-          </Button>
+          <Button variant="secondary" size="sm" @click="showSnapshots = false"> 关闭 </Button>
         </div>
       </div>
     </div>
@@ -155,7 +158,7 @@ const fetchRawConfig = async () => {
     const res: any = await api.get('/config/raw')
     rawContent.value = typeof res === 'string' ? res : JSON.stringify(res, null, 4)
   } catch (err: any) {
-    toast.error('加载配置失败: ' + err)
+    toast.error('加载配置失败：' + err)
   }
 }
 
@@ -165,7 +168,7 @@ const openSnapshotsModal = async () => {
     snapshots.value = res || []
     showSnapshots.value = true
   } catch (err: any) {
-    toast.error('获取快照列表失败: ' + err)
+    toast.error('获取快照列表失败：' + err)
   }
 }
 
@@ -174,11 +177,11 @@ const rollbackToSnapshot = async (id: number) => {
   rollingBack.value = true
   try {
     await api.post(`/config/snapshots/${id}/rollback`)
-    toast.success('已成功回滚至历史版本并重载 Xray 核心！')
+    toast.success('已回滚至历史版本并重载 Xray 核心')
     showSnapshots.value = false
     await fetchRawConfig()
   } catch (err: any) {
-    toast.error('回滚失败: ' + err)
+    toast.error('回滚失败：' + err)
   } finally {
     rollingBack.value = false
   }
@@ -190,7 +193,7 @@ const formatJSON = () => {
     rawContent.value = JSON.stringify(obj, null, 4)
     toast.info('JSON 配置已格式化排版')
   } catch (err: any) {
-    toast.error('无法美化，JSON 语法存在错误: ' + err.message)
+    toast.error('无法美化，JSON 语法存在错误：' + err.message)
   }
 }
 
@@ -201,7 +204,10 @@ const validateConfig = async () => {
     const res: any = await api.post('/config/validate', rawContent.value, {
       headers: { 'Content-Type': 'application/json' },
     })
-    testResult.value = { valid: true, message: res.message || 'Xray 核心已成功解析并确认此配置有效！' }
+    testResult.value = {
+      valid: true,
+      message: res.message || 'Xray 核心已解析并确认此配置有效',
+    }
   } catch (err: any) {
     testResult.value = { valid: false, message: typeof err === 'string' ? err : '校验未通过' }
   } finally {
@@ -217,10 +223,10 @@ const saveConfig = async () => {
     await api.post('/config/save', rawContent.value, {
       headers: { 'Content-Type': 'application/json' },
     })
-    testResult.value = { valid: true, message: '配置已成功保存落盘并完成重载！' }
+    testResult.value = { valid: true, message: '配置已保存落盘并完成重载' }
     await fetchRawConfig()
   } catch (err: any) {
-    testResult.value = { valid: false, message: '保存失败: ' + err }
+    testResult.value = { valid: false, message: '保存失败：' + err }
   } finally {
     saving.value = false
   }

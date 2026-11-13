@@ -6,14 +6,16 @@
 
 ## 构建与类型门禁
 
-交付前端改动前必须通过两条命令（均以 `web/` 为工作目录）：
+交付前端改动前必须通过以下门禁命令（均以 `web/` 为工作目录）：
 
 ```bash
-cd web && mise x -- npm run typecheck   # vue-tsc --noEmit
-cd web && mise x -- npm run build       # vite build
+cd web && mise x -- npm run format:check  # prettier --check
+cd web && mise x -- npm run lint          # eslint . (0 errors, 0 warnings)
+cd web && mise x -- npm run typecheck     # vue-tsc --noEmit
+cd web && mise x -- npm run build         # vite build
 ```
 
-`web/package.json:6-13` 提供的完整脚本：
+`web/package.json` 提供的完整脚本：
 
 | 脚本 | 命令 | 用途 |
 |------|------|------|
@@ -22,7 +24,19 @@ cd web && mise x -- npm run build       # vite build
 | `build` | `vite build` | 生产构建，输出 `web/dist` |
 | `build:demo` | `vite build --mode demo` | demo 构建 |
 | `typecheck` | `vue-tsc --noEmit` | 类型检查 |
+| `lint` | `eslint .` | ESLint 9 Flat Config 静态与 Vue 规则检查 |
+| `lint:fix` | `eslint . --fix` | 自动修复可修复的 Lint 问题 |
+| `format` | `prettier --write "src/**/*.{vue,ts,js,css}" index.html` | Prettier 代码格式化（无分号、单引号、2 空格） |
+| `format:check` | `prettier --check "src/**/*.{vue,ts,js,css}" index.html` | Prettier 格式一致性校验 |
 | `preview` | `vite preview` | 预览构建产物 |
+
+---
+
+## `modern-web-guidance` 兼容与保守增强策略
+
+- **兼容基线与浮层骨架**：面向跨桌面与移动端 WebView 稳定性，核心浮层 `Modal.vue` / `Drawer.vue` 保留既有 `Teleport + Transition` DOM 骨架与 Footer 安全区，不强迁原生 `<dialog>` / `@starting-style`；在此之上补齐 `role="dialog"`、`aria-modal="true"`、`aria-labelledby`、`aria-label="关闭"` 及开/关焦点恢复（`nextTick(() => restoreFocus())`）。
+- **表单与通知语义**：登录/认证等表单需补全 `<main>` 地标、`<label for>` 关联、`autocomplete`、`inputmode`、`autocorrect="off"`、`autocapitalize="none"`、`spellcheck="false"` 及显隐开关 `aria-pressed`；`ToastContainer.vue` 使用 `aria-live="polite"` 与 `role="status"`/`role="alert"`。
+- **CSS 渐进增强**：滚动条使用标准 `scrollbar-width: thin` + `scrollbar-color`，并将 `::-webkit-scrollbar*` 封装在 `@supports not (scrollbar-color: auto)` 中；为脉冲与过渡动画提供 `@media (prefers-reduced-motion: reduce)` 降噪。
 
 ---
 
@@ -76,6 +90,9 @@ cd web && mise x -- npm run build       # vite build
   - 开启 REALITY 时，`Target (dest)`、`SNI 域名 (serverNames)`、`私钥 (privateKey)` 为必填项，未填写时必须在提交前通过 Toast 拦截，禁止生成空配置或回退默认占位符；
 - **废弃字段彻底绝迹**：
   - TLS 证书与 streamSettings 表单中严禁出现 `allowInsecure` 选项与对应模型字段；
+- **UI 文案克制与防探测口径**：
+  - 保留 `web/index.html`、`router/index.ts`、`LoginView.vue`、`PortalClaimView.vue`、`App.vue` 的中性防探测外壳（如 `System Management Console`、`XRAY PANEL`、`分布式网管接入点`），并去除无意义双语后缀（如 `· Ready`）；
+  - Toast 与状态文案采用克制中文控制台语气，不使用感叹号 `！` 与冗余“已成功”修饰；拼接冒号统一全角 `：`；中英文/数字间保留半角空格；协议专有名词统一为 `REALITY`、`Mux`、`2FA` 等。
 - **文案语义真实性**：
   - 遇到面板未实现/未开放组合（如 Socks/HTTP streamSettings、VMess+REALITY），文案必须注明为“面板当前管理策略暂未开放/暂仅支持原生监听”，禁止表述为“Xray 不支持”；
   - 出站域名解析策略（`freedom.settings.domainStrategy` / `outbound.targetStrategy`）必须准确区分单栈与双栈优先回退：`UseIPv4` / `UseIPv6` 为仅单栈（无回退），双栈优先回退（`PreferIPv4` / `PreferIPv6`）在 Xray-core 中的唯一合法枚举值为 `UseIPv4v6` / `UseIPv6v4`（直接写入 `"PreferIPv4"` 会触发 Xray Exit Code 23）；同时 `protocol === 'freedom'` 时必须隐藏底部 `targetStrategy` 并将 `"AsIs"` 归一化为 `""`，防止双选择器冲突与回显空白。

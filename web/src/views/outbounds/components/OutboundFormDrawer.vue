@@ -1,20 +1,24 @@
 <template>
   <Drawer
     v-model="isOpen"
-    :title="isEditing ? `编辑出站节点: ${form.tag}` : '添加新出站节点'"
+    :title="isEditing ? `编辑出站节点：${form.tag}` : '添加新出站节点'"
     description="配置将同步回写磁盘 config.json 并平滑重启核心应用"
     width="w-full sm:max-w-xl md:max-w-2xl"
   >
     <form id="outbound-form" @submit.prevent="handleSubmit" class="space-y-4 text-xs">
       <SectionCard title="基本标识与协议">
         <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
-          <FormField label="出站标识 (Tag)" required hint="节点唯一英文标识，如 warp-out 或 proxy-jp">
+          <FormField
+            label="出站标识 (Tag)"
+            required
+            hint="节点唯一英文标识，如 warp-out 或 proxy-jp"
+          >
             <input
               v-model="form.tag"
               type="text"
               required
               :disabled="isEditing"
-              placeholder="例如: warp-out 或 proxy-jp"
+              placeholder="例如：warp-out 或 proxy-jp"
               class="w-full bg-neutral-950 border border-border rounded-md px-3 py-2 text-foreground font-mono focus:outline-none focus:ring-1 focus:ring-ring disabled:opacity-50"
             />
           </FormField>
@@ -44,7 +48,13 @@
       <SectionCard v-if="form.protocol === 'freedom'" title="Freedom 直连策略">
         <FormField
           label="域名解析策略 (domainStrategy)"
-          :hint="['UseIPv4v6', 'UseIPv6v4', 'ForceIPv4v6', 'ForceIPv6v4'].includes(form.freedomDomainStrategy) ? '已选双栈优先回退策略：请确保 DNS 模块查询策略 (queryStrategy) 开启 UseIP 双栈查询，以同时获取 A 与 AAAA 记录' : '控制客户端域名在本地的解析与连接栈行为'"
+          :hint="
+            ['UseIPv4v6', 'UseIPv6v4', 'ForceIPv4v6', 'ForceIPv6v4'].includes(
+              form.freedomDomainStrategy
+            )
+              ? '已选双栈优先回退策略：请确保 DNS 模块查询策略 (queryStrategy) 开启 UseIP 双栈查询，以同时获取 A 与 AAAA 记录'
+              : '控制客户端域名在本地的解析与连接栈行为'
+          "
         >
           <select
             v-model="form.freedomDomainStrategy"
@@ -67,7 +77,10 @@
 
       <!-- Blackhole 专属配置 -->
       <SectionCard v-else-if="form.protocol === 'blackhole'" title="Blackhole 拦截响应">
-        <FormField label="响应类型 (Response Type)" hint="none 为静默丢弃连接，http 为响应 HTTP 403 阻断">
+        <FormField
+          label="响应类型 (Response Type)"
+          hint="none 为静默丢弃连接，http 为响应 HTTP 403 阻断"
+        >
           <select
             v-model="form.blackholeResponse"
             class="w-full bg-neutral-950 border border-border rounded-md px-3 py-2 text-foreground focus:outline-none focus:ring-1 focus:ring-ring font-mono"
@@ -79,7 +92,10 @@
       </SectionCard>
 
       <!-- WireGuard / WARP 专属配置 -->
-      <SectionCard v-else-if="form.protocol === 'wireguard'" title="WireGuard (Cloudflare WARP) 详情">
+      <SectionCard
+        v-else-if="form.protocol === 'wireguard'"
+        title="WireGuard (Cloudflare WARP) 详情"
+      >
         <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <FormField label="Secret Key (私钥)" required>
             <input
@@ -128,8 +144,14 @@
             />
           </FormField>
           <div class="flex items-center pt-6">
-            <label class="flex items-center gap-2 cursor-pointer text-muted-foreground hover:text-foreground">
-              <input type="checkbox" v-model="form.wgNoKernelTun" class="rounded bg-neutral-950 border-border text-neutral-200" />
+            <label
+              class="flex items-center gap-2 cursor-pointer text-muted-foreground hover:text-foreground"
+            >
+              <input
+                type="checkbox"
+                v-model="form.wgNoKernelTun"
+                class="rounded bg-neutral-950 border-border text-neutral-200"
+              />
               <span>禁用系统内核 TUN 模块 (NoKernelTun)</span>
             </label>
           </div>
@@ -138,8 +160,11 @@
 
       <!-- DNS 专属配置 -->
       <SectionCard v-else-if="form.protocol === 'dns'" title="DNS 路由出站">
-        <div class="p-3 rounded bg-neutral-950 border border-border text-muted-foreground text-xs leading-relaxed">
-          由 Xray 内置 DNS 模块发起查询出站，无需额外参数。通常与路由规则 (Routing) 配合，将 DNS 流量定向路由至此 Tag (例如 <code class="text-cyan-400 font-mono">dns-out</code>)。
+        <div
+          class="p-3 rounded bg-neutral-950 border border-border text-muted-foreground text-xs leading-relaxed"
+        >
+          由 Xray 内置 DNS 模块发起查询出站，无需额外参数。通常与路由规则 (Routing) 配合，将 DNS
+          流量定向路由至此 Tag (例如 <code class="text-cyan-400 font-mono">dns-out</code>)。
         </div>
       </SectionCard>
 
@@ -228,7 +253,10 @@
         </div>
 
         <!-- Socks / HTTP 专属可选用户名密码 -->
-        <div v-if="['socks', 'http'].includes(form.protocol)" class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        <div
+          v-if="['socks', 'http'].includes(form.protocol)"
+          class="grid grid-cols-1 sm:grid-cols-2 gap-3"
+        >
           <FormField label="认证用户名 (选填)">
             <input
               v-model="form.proxyUsername"
@@ -248,7 +276,10 @@
         </div>
 
         <!-- 传输层与安全层联动 -->
-        <div v-if="['vless', 'vmess', 'trojan', 'shadowsocks'].includes(form.protocol)" class="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2 border-t border-border">
+        <div
+          v-if="['vless', 'vmess', 'trojan', 'shadowsocks'].includes(form.protocol)"
+          class="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2 border-t border-border"
+        >
           <FormField label="传输协议 (Network)">
             <select
               v-model="form.streamNetwork"
@@ -264,14 +295,26 @@
           </FormField>
           <FormField
             label="安全协议 (Security)"
-            :hint="['vmess', 'shadowsocks'].includes(form.protocol) ? '面板策略当前仅开放 VLESS / Trojan 协议搭配 REALITY 伪装出站' : undefined"
+            :hint="
+              ['vmess', 'shadowsocks'].includes(form.protocol)
+                ? '面板策略当前仅开放 VLESS / Trojan 协议搭配 REALITY 伪装出站'
+                : undefined
+            "
           >
             <select
               v-model="form.streamSecurity"
               @change="onOutboundSecurityChange"
               class="w-full bg-neutral-950 border border-border rounded-md px-3 py-2 text-foreground focus:outline-none focus:ring-1 focus:ring-ring font-mono"
             >
-              <option v-if="['tcp', 'xhttp', 'grpc'].includes(form.streamNetwork) && !['vmess', 'shadowsocks'].includes(form.protocol)" value="reality">REALITY</option>
+              <option
+                v-if="
+                  ['tcp', 'xhttp', 'grpc'].includes(form.streamNetwork) &&
+                  !['vmess', 'shadowsocks'].includes(form.protocol)
+                "
+                value="reality"
+              >
+                REALITY
+              </option>
               <option value="tls">TLS</option>
               <option value="none">None</option>
             </select>
@@ -282,17 +325,25 @@
         <div v-if="form.protocol === 'vless'" class="pt-2 border-t border-border">
           <FormField
             label="流控策略 (Flow / XTLS Vision)"
-            :hint="form.streamNetwork !== 'tcp' || !['reality', 'tls'].includes(form.streamSecurity) ? '* Vision 流控仅适用于 TCP + TLS / REALITY 架构。' : undefined"
+            :hint="
+              form.streamNetwork !== 'tcp' || !['reality', 'tls'].includes(form.streamSecurity)
+                ? '* Vision 流控仅适用于 TCP + TLS / REALITY 架构。'
+                : undefined
+            "
           >
             <template #extra>
               <span class="text-[11px] text-brand-400 font-mono">XTLS / REALITY 极速流控</span>
             </template>
             <select
               v-model="form.vlessFlow"
-              :disabled="form.streamNetwork !== 'tcp' || !['reality', 'tls'].includes(form.streamSecurity)"
+              :disabled="
+                form.streamNetwork !== 'tcp' || !['reality', 'tls'].includes(form.streamSecurity)
+              "
               class="w-full bg-neutral-950 border border-border rounded-md px-3 py-2 text-foreground focus:outline-none focus:ring-1 focus:ring-ring disabled:opacity-40 font-mono"
             >
-              <option value="xtls-rprx-vision">xtls-rprx-vision (XTLS Vision 极速流控 - 推荐)</option>
+              <option value="xtls-rprx-vision">
+                xtls-rprx-vision (XTLS Vision 极速流控 - 推荐)
+              </option>
               <option value="xtls-rprx-vision-udp443">xtls-rprx-vision-udp443</option>
               <option value="none">none (无流控 - 适用于 XHTTP / gRPC / WS 等)</option>
             </select>
@@ -300,7 +351,13 @@
         </div>
 
         <!-- XHTTP 专用参数 -->
-        <div v-if="['vless', 'vmess', 'trojan', 'shadowsocks'].includes(form.protocol) && form.streamNetwork === 'xhttp'" class="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2 border-t border-border/60">
+        <div
+          v-if="
+            ['vless', 'vmess', 'trojan', 'shadowsocks'].includes(form.protocol) &&
+            form.streamNetwork === 'xhttp'
+          "
+          class="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2 border-t border-border/60"
+        >
           <FormField label="XHTTP 路径 (Path)">
             <input
               v-model="form.xhttpPath"
@@ -322,7 +379,13 @@
         </div>
 
         <!-- WS 专用参数 -->
-        <div v-if="['vless', 'vmess', 'trojan', 'shadowsocks'].includes(form.protocol) && form.streamNetwork === 'ws'" class="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2 border-t border-border/60">
+        <div
+          v-if="
+            ['vless', 'vmess', 'trojan', 'shadowsocks'].includes(form.protocol) &&
+            form.streamNetwork === 'ws'
+          "
+          class="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2 border-t border-border/60"
+        >
           <FormField label="WebSocket 路径 (Path)">
             <input
               v-model="form.wsPath"
@@ -335,14 +398,20 @@
             <input
               v-model="form.wsHost"
               type="text"
-              placeholder="例如: example.com"
+              placeholder="例如：example.com"
               class="w-full bg-neutral-950 border border-border rounded-md px-3 py-2 text-foreground font-mono focus:outline-none focus:ring-1 focus:ring-ring"
             />
           </FormField>
         </div>
 
         <!-- HTTPUpgrade 专用参数 -->
-        <div v-if="['vless', 'vmess', 'trojan', 'shadowsocks'].includes(form.protocol) && form.streamNetwork === 'httpupgrade'" class="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2 border-t border-border/60">
+        <div
+          v-if="
+            ['vless', 'vmess', 'trojan', 'shadowsocks'].includes(form.protocol) &&
+            form.streamNetwork === 'httpupgrade'
+          "
+          class="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2 border-t border-border/60"
+        >
           <FormField label="HTTPUpgrade 路径 (Path)">
             <input
               v-model="form.httpupgradePath"
@@ -355,21 +424,24 @@
             <input
               v-model="form.httpupgradeHost"
               type="text"
-              placeholder="例如: example.com"
+              placeholder="例如：example.com"
               class="w-full bg-neutral-950 border border-border rounded-md px-3 py-2 text-foreground font-mono focus:outline-none focus:ring-1 focus:ring-ring"
             />
           </FormField>
         </div>
 
         <!-- REALITY 专属连接参数 -->
-        <div v-if="['vless', 'trojan'].includes(form.protocol) && form.streamSecurity === 'reality'" class="space-y-3 pt-2 border-t border-border/60 bg-neutral-950/60 p-3 rounded-md">
+        <div
+          v-if="['vless', 'trojan'].includes(form.protocol) && form.streamSecurity === 'reality'"
+          class="space-y-3 pt-2 border-t border-border/60 bg-neutral-950/60 p-3 rounded-md"
+        >
           <h4 class="text-xs font-bold text-cyan-400 font-mono">REALITY 握手伪装参数</h4>
           <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <FormField label="SNI 伪装域名 (ServerName)">
               <input
                 v-model="form.realityServerName"
                 type="text"
-                placeholder="例如: apple.com"
+                placeholder="例如：apple.com"
                 class="w-full bg-neutral-950 border border-border rounded-md px-3 py-2 text-foreground font-mono focus:outline-none focus:ring-1 focus:ring-ring"
               />
             </FormField>
@@ -392,7 +464,7 @@
             <input
               v-model="form.realitySpiderX"
               type="text"
-              placeholder="例如: /"
+              placeholder="例如：/"
               class="w-full bg-neutral-950 border border-border rounded-md px-3 py-2 text-foreground font-mono focus:outline-none focus:ring-1 focus:ring-ring"
             />
           </FormField>
@@ -400,7 +472,7 @@
             <input
               v-model="form.realityPublicKey"
               type="text"
-              placeholder="例如: FMdWD0uS9lrXUAoMmTP5e2LLD-mk8vO8JTZmAE9vdww"
+              placeholder="例如：FMdWD0uS9lrXUAoMmTP5e2LLD-mk8vO8JTZmAE9vdww"
               class="w-full bg-neutral-950 border border-border rounded-md px-3 py-2 text-foreground font-mono text-[11px] focus:outline-none focus:ring-1 focus:ring-ring"
             />
           </FormField>
@@ -415,7 +487,13 @@
         </div>
 
         <!-- TLS 专属连接参数 -->
-        <div v-if="['vless', 'vmess', 'trojan', 'shadowsocks'].includes(form.protocol) && form.streamSecurity === 'tls'" class="pt-2 border-t border-border/60 bg-neutral-950/60 p-3 rounded-md space-y-3">
+        <div
+          v-if="
+            ['vless', 'vmess', 'trojan', 'shadowsocks'].includes(form.protocol) &&
+            form.streamSecurity === 'tls'
+          "
+          class="pt-2 border-t border-border/60 bg-neutral-950/60 p-3 rounded-md space-y-3"
+        >
           <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <FormField label="TLS SNI (ServerName)">
               <input
@@ -446,10 +524,16 @@
       <!-- 连接多路复用 (Mux & XUDP) -->
       <SectionCard v-if="isProxyProtocol" title="连接多路复用 (Mux & XUDP)">
         <!-- 互斥提示：XTLS Vision 与 Mux 互斥 -->
-        <div v-if="isVisionFlow" class="p-3 rounded-md bg-amber-500/10 border border-amber-500/30 text-amber-300 text-xs flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 mb-3">
+        <div
+          v-if="isVisionFlow"
+          class="p-3 rounded-md bg-amber-500/10 border border-amber-500/30 text-amber-300 text-xs flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 mb-3"
+        >
           <div class="flex items-center gap-2">
             <AlertTriangle class="w-4 h-4 text-amber-400 shrink-0" />
-            <span>当前启用了 <strong>XTLS Vision 流控</strong>，与 Mux 连接复用互斥。开启 Mux 需关闭 Vision 流控。</span>
+            <span
+              >当前启用了 <strong>XTLS Vision 流控</strong>，与 Mux 连接复用互斥。开启 Mux 需关闭
+              Vision 流控。</span
+            >
           </div>
           <button
             type="button"
@@ -462,8 +546,12 @@
 
         <div class="flex items-center justify-between">
           <div class="space-y-0.5">
-            <span class="font-medium text-foreground text-xs block">启用 Mux 多路复用 (Mux & XUDP)</span>
-            <span class="text-[11px] text-muted-foreground block">聚合 TCP 与 UDP 连接至单条物理通道，大幅降低高延迟网络握手开销</span>
+            <span class="font-medium text-foreground text-xs block"
+              >启用 Mux 多路复用 (Mux & XUDP)</span
+            >
+            <span class="text-[11px] text-muted-foreground block"
+              >聚合 TCP 与 UDP 连接至单条物理通道，大幅降低高延迟网络握手开销</span
+            >
           </div>
           <label class="relative inline-flex items-center cursor-pointer">
             <input
@@ -472,13 +560,21 @@
               @change="handleMuxToggle(($event.target as HTMLInputElement).checked)"
               class="sr-only peer"
             />
-            <div class="w-9 h-5 bg-neutral-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-purple-600"></div>
+            <div
+              class="w-9 h-5 bg-neutral-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-purple-600"
+            ></div>
           </label>
         </div>
 
-        <div v-if="form.muxEnabled && !isVisionFlow" class="space-y-3 pt-3 border-t border-border/50 mt-3">
+        <div
+          v-if="form.muxEnabled && !isVisionFlow"
+          class="space-y-3 pt-3 border-t border-border/50 mt-3"
+        >
           <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <FormField label="TCP 最大并发连接 (concurrency)" hint="默认 8 (范围 1~128)。填写 -1 仅关闭 TCP 复用">
+            <FormField
+              label="TCP 最大并发连接 (concurrency)"
+              hint="默认 8 (范围 1~128)。填写 -1 仅关闭 TCP 复用"
+            >
               <input
                 v-model.number="form.muxConcurrency"
                 type="number"
@@ -489,7 +585,10 @@
               />
             </FormField>
 
-            <FormField label="XUDP 最大并发连接 (xudpConcurrency)" hint="默认 16 (范围 1~1024)。填写 -1 关闭 UDP 复用">
+            <FormField
+              label="XUDP 最大并发连接 (xudpConcurrency)"
+              hint="默认 16 (范围 1~1024)。填写 -1 关闭 UDP 复用"
+            >
               <input
                 v-model.number="form.muxXudpConcurrency"
                 type="number"
@@ -501,7 +600,10 @@
             </FormField>
           </div>
 
-          <FormField label="QUIC / UDP 443 转发策略 (xudpProxyUDP443)" hint="处理对端 443 端口 UDP 流量（主要为 QUIC）的行为">
+          <FormField
+            label="QUIC / UDP 443 转发策略 (xudpProxyUDP443)"
+            hint="处理对端 443 端口 UDP 流量（主要为 QUIC）的行为"
+          >
             <select
               v-model="form.muxXudpProxyUDP443"
               class="w-full bg-neutral-950 border border-border rounded-md px-3 py-2 text-foreground focus:outline-none focus:ring-1 focus:ring-ring font-mono"
@@ -515,14 +617,20 @@
       </SectionCard>
 
       <!-- 高级路由与链式代理 (Relay & Sockopt) -->
-      <SectionCard v-if="form.protocol !== 'blackhole'" title="高级路由与链式代理 (Relay & Sockopt)">
+      <SectionCard
+        v-if="form.protocol !== 'blackhole'"
+        title="高级路由与链式代理 (Relay & Sockopt)"
+      >
         <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
-          <FormField label="前置代理出站 Tag (dialerProxy)" hint="经由此出站节点建立前置连接（用于 WARP 落地、前置中转或双重代理链路）">
+          <FormField
+            label="前置代理出站 Tag (dialerProxy)"
+            hint="经由此出站节点建立前置连接（用于 WARP 落地、前置中转或双重代理链路）"
+          >
             <input
               v-model="form.dialerProxy"
               type="text"
               list="dialer-proxy-options"
-              placeholder="例如: warp-out 或 proxy-pre"
+              placeholder="例如：warp-out 或 proxy-pre"
               class="w-full bg-neutral-950 border border-border rounded-md px-3 py-2 text-foreground font-mono focus:outline-none focus:ring-1 focus:ring-ring"
             />
             <datalist id="dialer-proxy-options">
@@ -530,11 +638,14 @@
             </datalist>
           </FormField>
 
-          <FormField label="出口绑定源 IP (sendThrough)" hint="多 IP 主机出口绑定特定网卡源 IP 或 origin">
+          <FormField
+            label="出口绑定源 IP (sendThrough)"
+            hint="多 IP 主机出口绑定特定网卡源 IP 或 origin"
+          >
             <input
               v-model="form.sendThrough"
               type="text"
-              placeholder="例如: 1.2.3.4 或 origin"
+              placeholder="例如：1.2.3.4 或 origin"
               class="w-full bg-neutral-950 border border-border rounded-md px-3 py-2 text-foreground font-mono focus:outline-none focus:ring-1 focus:ring-ring"
             />
           </FormField>
@@ -543,7 +654,11 @@
         <div v-if="form.protocol !== 'freedom'" class="pt-2">
           <FormField
             label="目标域名解析策略 (targetStrategy)"
-            :hint="['UseIPv4v6', 'UseIPv6v4', 'ForceIPv4v6', 'ForceIPv6v4'].includes(form.targetStrategy) ? '已选双栈优先回退策略：请确保 DNS 模块查询策略 (queryStrategy) 开启 UseIP 双栈查询，以同时获取 A 与 AAAA 记录' : '控制此出站节点连接目标域名时的 DNS 解析行为'"
+            :hint="
+              ['UseIPv4v6', 'UseIPv6v4', 'ForceIPv4v6', 'ForceIPv6v4'].includes(form.targetStrategy)
+                ? '已选双栈优先回退策略：请确保 DNS 模块查询策略 (queryStrategy) 开启 UseIP 双栈查询，以同时获取 A 与 AAAA 记录'
+                : '控制此出站节点连接目标域名时的 DNS 解析行为'
+            "
           >
             <select
               v-model="form.targetStrategy"
@@ -567,16 +682,8 @@
     </form>
 
     <template #footer>
-      <Button variant="secondary" size="sm" @click="isOpen = false">
-        取消
-      </Button>
-      <Button
-        type="submit"
-        form="outbound-form"
-        variant="default"
-        size="sm"
-        :loading="saving"
-      >
+      <Button variant="secondary" size="sm" @click="isOpen = false"> 取消 </Button>
+      <Button type="submit" form="outbound-form" variant="default" size="sm" :loading="saving">
         <span>{{ saving ? '保存中...' : '保存出站配置' }}</span>
       </Button>
     </template>
@@ -592,11 +699,7 @@ import Button from '../../../components/ui/Button.vue'
 import FormField from '../../../components/ui/FormField.vue'
 import SectionCard from '../../../components/ui/SectionCard.vue'
 import type { OutboundItem, OutboundFormState, OutboundPayload } from '../types'
-import {
-  createDefaultOutboundForm,
-  populateOutboundForm,
-  sanitizeOutboundPayload,
-} from '../types'
+import { createDefaultOutboundForm, populateOutboundForm, sanitizeOutboundPayload } from '../types'
 
 const props = defineProps<{
   modelValue: boolean
@@ -623,9 +726,11 @@ const isProxyProtocol = computed(() =>
   ['vless', 'vmess', 'trojan', 'shadowsocks', 'socks', 'http'].includes(form.value.protocol)
 )
 
-const isVisionFlow = computed(() =>
-  form.value.protocol === 'vless' &&
-  (form.value.vlessFlow === 'xtls-rprx-vision' || form.value.vlessFlow === 'xtls-rprx-vision-udp443')
+const isVisionFlow = computed(
+  () =>
+    form.value.protocol === 'vless' &&
+    (form.value.vlessFlow === 'xtls-rprx-vision' ||
+      form.value.vlessFlow === 'xtls-rprx-vision-udp443')
 )
 
 const availableDialerTags = computed(() => {
@@ -690,7 +795,10 @@ const onOutboundProtocolChange = () => {
   } else if (form.value.protocol === 'trojan') {
     form.value.vlessFlow = ''
   } else if (form.value.protocol === 'vless') {
-    if (form.value.streamNetwork === 'tcp' && ['reality', 'tls'].includes(form.value.streamSecurity)) {
+    if (
+      form.value.streamNetwork === 'tcp' &&
+      ['reality', 'tls'].includes(form.value.streamSecurity)
+    ) {
       if (!form.value.vlessFlow) form.value.vlessFlow = 'xtls-rprx-vision'
     } else {
       form.value.vlessFlow = 'none'
@@ -700,7 +808,10 @@ const onOutboundProtocolChange = () => {
 
 const onOutboundSecurityChange = () => {
   if (form.value.protocol === 'vless') {
-    if (form.value.streamNetwork === 'tcp' && ['reality', 'tls'].includes(form.value.streamSecurity)) {
+    if (
+      form.value.streamNetwork === 'tcp' &&
+      ['reality', 'tls'].includes(form.value.streamSecurity)
+    ) {
       if (!form.value.vlessFlow) form.value.vlessFlow = 'xtls-rprx-vision'
     } else {
       form.value.vlessFlow = 'none'
@@ -715,11 +826,17 @@ const onOutboundNetworkChange = () => {
     }
     return
   }
-  if (!['tcp', 'xhttp', 'grpc'].includes(form.value.streamNetwork) && form.value.streamSecurity === 'reality') {
+  if (
+    !['tcp', 'xhttp', 'grpc'].includes(form.value.streamNetwork) &&
+    form.value.streamSecurity === 'reality'
+  ) {
     form.value.streamSecurity = 'tls'
   }
   if (form.value.protocol === 'vless') {
-    if (form.value.streamNetwork === 'tcp' && ['reality', 'tls'].includes(form.value.streamSecurity)) {
+    if (
+      form.value.streamNetwork === 'tcp' &&
+      ['reality', 'tls'].includes(form.value.streamSecurity)
+    ) {
       if (!form.value.vlessFlow) form.value.vlessFlow = 'xtls-rprx-vision'
     } else {
       form.value.vlessFlow = 'none'
@@ -742,7 +859,10 @@ watch(
 )
 
 const handleSubmit = () => {
-  if (['vless', 'trojan'].includes(form.value.protocol) && form.value.streamSecurity === 'reality') {
+  if (
+    ['vless', 'trojan'].includes(form.value.protocol) &&
+    form.value.streamSecurity === 'reality'
+  ) {
     if (!form.value.realityServerName?.trim()) {
       toast.error('请填写 REALITY SNI 伪装域名 (ServerName)')
       return

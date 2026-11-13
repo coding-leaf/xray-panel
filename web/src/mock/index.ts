@@ -21,7 +21,11 @@ function delay<T>(data: T, ms = 120): Promise<T> {
 // 辅助函数：安全 Base64 编码（支持 Unicode 字符串，防止 btoa 异常）
 function safeBtoa(str: string): string {
   try {
-    return btoa(encodeURIComponent(str).replace(/%([0-9A-F]{2})/g, (_, p1) => String.fromCharCode(parseInt(p1, 16))))
+    return btoa(
+      encodeURIComponent(str).replace(/%([0-9A-F]{2})/g, (_, p1) =>
+        String.fromCharCode(parseInt(p1, 16))
+      )
+    )
   } catch {
     return btoa(str)
   }
@@ -175,7 +179,9 @@ export async function handleMockRequest(url: string, method: string, data?: any)
         if (stream.security === 'reality') {
           const reality = stream.realitySettings || {}
           const dest = reality.dest || 'gateway.icloud.com:443'
-          const serverNames = reality.serverNames || (reality.serverName ? [reality.serverName] : ['gateway.icloud.com'])
+          const serverNames =
+            reality.serverNames ||
+            (reality.serverName ? [reality.serverName] : ['gateway.icloud.com'])
           serverNames.forEach((sn: string) => {
             items.push({
               inboundId: inb.id,
@@ -187,14 +193,19 @@ export async function handleMockRequest(url: string, method: string, data?: any)
               details: '域名检测正常 (支持 TLS 1.3 与 ALPN, 证书有效)',
               tlsVersion: 'TLS 1.3',
               alpn: 'h2',
-              certExpiry: new Date(Date.now() + 60 * 86400000).toISOString().replace('T', ' ').substring(0, 19),
+              certExpiry: new Date(Date.now() + 60 * 86400000)
+                .toISOString()
+                .replace('T', ' ')
+                .substring(0, 19),
               daysLeft: 60,
               latencyMs: 38,
               checkedAt: new Date().toISOString(),
             })
           })
         }
-      } catch (e) {}
+      } catch {
+        /* ignore */
+      }
     })
     return delay({
       totalChecked: items.length,
@@ -214,7 +225,9 @@ export async function handleMockRequest(url: string, method: string, data?: any)
         if (stream.security === 'reality') {
           const reality = stream.realitySettings || {}
           const dest = reality.dest || 'gateway.icloud.com:443'
-          const serverNames = reality.serverNames || (reality.serverName ? [reality.serverName] : ['gateway.icloud.com'])
+          const serverNames =
+            reality.serverNames ||
+            (reality.serverName ? [reality.serverName] : ['gateway.icloud.com'])
           serverNames.forEach((sn: string) => {
             items.push({
               inboundId: inb.id,
@@ -226,23 +239,31 @@ export async function handleMockRequest(url: string, method: string, data?: any)
               details: '域名检测正常 (支持 TLS 1.3 与 ALPN, 证书有效)',
               tlsVersion: 'TLS 1.3',
               alpn: 'h2',
-              certExpiry: new Date(Date.now() + 60 * 86400000).toISOString().replace('T', ' ').substring(0, 19),
+              certExpiry: new Date(Date.now() + 60 * 86400000)
+                .toISOString()
+                .replace('T', ' ')
+                .substring(0, 19),
               daysLeft: 60,
               latencyMs: 42,
               checkedAt: new Date().toISOString(),
             })
           })
         }
-      } catch (e) {}
+      } catch {
+        /* ignore */
+      }
     })
-    return delay({
-      totalChecked: items.length,
-      okCount: items.filter((i) => i.status === 'ok').length,
-      warningCount: items.filter((i) => i.status === 'warning').length,
-      errorCount: items.filter((i) => i.status === 'error').length,
-      items,
-      lastCheckAt: new Date().toISOString(),
-    }, 400)
+    return delay(
+      {
+        totalChecked: items.length,
+        okCount: items.filter((i) => i.status === 'ok').length,
+        warningCount: items.filter((i) => i.status === 'warning').length,
+        errorCount: items.filter((i) => i.status === 'error').length,
+        items,
+        lastCheckAt: new Date().toISOString(),
+      },
+      400
+    )
   }
 
   // 4. Outbounds 落地出口
@@ -301,8 +322,11 @@ export async function handleMockRequest(url: string, method: string, data?: any)
 
   if (cleanUrl.endsWith('/users') && method === 'POST') {
     const newId = state.users.reduce((max, u) => Math.max(max, u.id || 0), 0) + 1
-    const subToken = data.subToken || (Math.random().toString(36).substring(2, 18) + Math.random().toString(36).substring(2, 18))
-    const uuid = data.uuid || ('7117295b-4362-4260-a133-' + Math.random().toString(16).substring(2, 14))
+    const subToken =
+      data.subToken ||
+      Math.random().toString(36).substring(2, 18) + Math.random().toString(36).substring(2, 18)
+    const uuid =
+      data.uuid || '7117295b-4362-4260-a133-' + Math.random().toString(16).substring(2, 14)
     let expireTime = 0
     if (data.expireTime !== undefined) {
       expireTime = data.expireTime
@@ -315,7 +339,9 @@ export async function handleMockRequest(url: string, method: string, data?: any)
       uuid,
       remark: data.remark || '',
       inboundTag: Array.isArray(data.inboundTags) ? data.inboundTags[0] : data.inboundTag,
-      inboundTags: Array.isArray(data.inboundTags) ? data.inboundTags.join(',') : (data.inboundTags || data.inboundTag),
+      inboundTags: Array.isArray(data.inboundTags)
+        ? data.inboundTags.join(',')
+        : data.inboundTags || data.inboundTag,
       flow: data.flow || '',
       subToken,
       upBytes: 1024 * 1024 * Math.floor(Math.random() * 50),
@@ -388,7 +414,7 @@ export async function handleMockRequest(url: string, method: string, data?: any)
           email: data.email || current.email,
           uuid: data.uuid || current.uuid,
           subToken: data.subToken || current.subToken,
-          remark: data.remark !== undefined ? data.remark : (current.remark || ''),
+          remark: data.remark !== undefined ? data.remark : current.remark || '',
           expireTime: data.expireTime !== undefined ? data.expireTime : current.expireTime,
           upBytes: current.upBytes,
           downBytes: current.downBytes,
@@ -434,7 +460,9 @@ export async function handleMockRequest(url: string, method: string, data?: any)
     const user = state.users.find((u) => u.id === id)
     const links: string[] = []
 
-    const userInboundTags = (user?.inboundTags || user?.inboundTag || '').split(',').map((s: string) => s.trim())
+    const userInboundTags = (user?.inboundTags || user?.inboundTag || '')
+      .split(',')
+      .map((s: string) => s.trim())
     const assignedInbounds = state.inbounds.filter((inb) => userInboundTags.includes(inb.tag))
 
     for (const inb of assignedInbounds) {
@@ -449,15 +477,20 @@ export async function handleMockRequest(url: string, method: string, data?: any)
           const stream = JSON.parse(inb.streamSettings || '{}')
           if (stream.network) network = stream.network.toLowerCase()
           if (stream.security) security = stream.security.toLowerCase()
-        } catch {}
+        } catch {
+          /* ignore */
+        }
 
-        const isTcpVision = (network === 'tcp' || network === '') && (security === 'reality' || security === 'tls')
+        const isTcpVision =
+          (network === 'tcp' || network === '') && (security === 'reality' || security === 'tls')
         const flowParam = isTcpVision ? `&flow=${user?.flow || 'xtls-rprx-vision'}` : ''
 
         let subRoutes: any[] = []
         try {
           subRoutes = JSON.parse(inb.subRoutesJson || '[]')
-        } catch {}
+        } catch {
+          /* ignore */
+        }
 
         if (subRoutes.length > 0) {
           const enabledSubRoutes = subRoutes.filter((sr: any) => {
@@ -521,7 +554,8 @@ export async function handleMockRequest(url: string, method: string, data?: any)
   const resetTokenMatch = cleanUrl.match(/\/users\/(\d+)\/reset-token$/)
   if (resetTokenMatch && method === 'POST') {
     const id = parseInt(resetTokenMatch[1], 10)
-    const newToken = Math.random().toString(36).substring(2, 18) + Math.random().toString(36).substring(2, 18)
+    const newToken =
+      Math.random().toString(36).substring(2, 18) + Math.random().toString(36).substring(2, 18)
     const user = state.users.find((u) => u.id === id)
     if (user) {
       user.subToken = newToken
@@ -606,7 +640,7 @@ export async function handleMockRequest(url: string, method: string, data?: any)
       clientIp: '127.0.0.1',
       action: 'LOG_CLEAR',
       target: logType,
-      details: '清空日志文件: ' + logType,
+      details: '清空日志文件：' + logType,
       status: 'SUCCESS',
     })
     saveMockState(state)
@@ -770,18 +804,24 @@ export async function handleMockRequest(url: string, method: string, data?: any)
       const tag1 = `[${inbound} ->`
       const tag2 = `[${inbound}]`
       const tag3 = `[${inbound} >>`
-      extraLogs = extraLogs.filter((l: string) => l.includes(tag1) || l.includes(tag2) || l.includes(tag3))
+      extraLogs = extraLogs.filter(
+        (l: string) => l.includes(tag1) || l.includes(tag2) || l.includes(tag3)
+      )
     }
     if (outbound) {
       const out1 = `-> ${outbound}]`
       const out2 = `>> ${outbound}]`
       const out3 = `[${outbound}]`
-      extraLogs = extraLogs.filter((l: string) => l.includes(out1) || l.includes(out2) || l.includes(out3))
+      extraLogs = extraLogs.filter(
+        (l: string) => l.includes(out1) || l.includes(out2) || l.includes(out3)
+      )
     }
     if (level) {
       const normLvl = level === 'WARN' ? 'warning' : level.toLowerCase()
       extraLogs = extraLogs.filter(
-        (l: string) => l.toLowerCase().includes(`[${normLvl}]`) || l.toLowerCase().includes(`[${level.toLowerCase()}]`)
+        (l: string) =>
+          l.toLowerCase().includes(`[${normLvl}]`) ||
+          l.toLowerCase().includes(`[${level.toLowerCase()}]`)
       )
     }
 
@@ -875,7 +915,9 @@ export async function handleMockRequest(url: string, method: string, data?: any)
         if (parsed.routing) state.routing = parsed.routing
         if (parsed.dns) state.dns = parsed.dns
         saveMockState(state)
-      } catch {}
+      } catch {
+        /* ignore */
+      }
     }
     return delay({ success: true })
   }
@@ -885,9 +927,12 @@ export async function handleMockRequest(url: string, method: string, data?: any)
       if (typeof data === 'string') {
         JSON.parse(data)
       }
-      return delay({ valid: true, message: 'Official Xray-core 26.x syntax pre-check 100% passed.' })
+      return delay({
+        valid: true,
+        message: 'Official Xray-core 26.x syntax pre-check 100% passed.',
+      })
     } catch (e: any) {
-      return delay({ valid: false, message: 'JSON 语法错误: ' + (e?.message || 'Invalid syntax') })
+      return delay({ valid: false, message: 'JSON 语法错误：' + (e?.message || 'Invalid syntax') })
     }
   }
 
@@ -914,7 +959,7 @@ export async function handleMockRequest(url: string, method: string, data?: any)
       saveMockState(state)
       return delay({ success: true })
     } catch (e: any) {
-      return delay({ success: false, message: '配置保存失败: ' + e?.message }, 200)
+      return delay({ success: false, message: '配置保存失败：' + e?.message }, 200)
     }
   }
 
@@ -930,7 +975,7 @@ export async function handleMockRequest(url: string, method: string, data?: any)
   }
 
   if (cleanUrl.endsWith('/settings/test-telegram') && method === 'POST') {
-    return delay({ success: true, message: 'Telegram 测试消息已成功发送至管理员客户端' })
+    return delay({ success: true, message: 'Telegram 测试消息已发送至管理员客户端' })
   }
 
   if (cleanUrl.endsWith('/auth/info') && method === 'GET') {
@@ -988,14 +1033,14 @@ export async function handleMockRequest(url: string, method: string, data?: any)
       isUpdating: false,
       percentage: 100,
       step: 'done',
-      message: 'GeoData 规则库已成功更新并平滑重载至 Xray-core 运行时！',
+      message: 'GeoData 规则库已更新并重载至 Xray-core 运行时',
       speedBps: 2450000,
     })
   }
 
   // 12. Service 重启
   if (cleanUrl.endsWith('/service/restart') && method === 'POST') {
-    return delay({ success: true, message: 'Xray 核心已成功平滑重启' })
+    return delay({ success: true, message: 'Xray 核心已重启' })
   }
 
   // 默认返回成功

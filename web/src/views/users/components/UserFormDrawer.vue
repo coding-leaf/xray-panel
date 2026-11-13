@@ -2,8 +2,12 @@
   <Drawer
     :model-value="modelValue"
     @update:model-value="emit('update:modelValue', $event)"
-    :title="isEditing ? `编辑用户: ${form.email}` : '新建用户'"
-    :description="isEditing ? '调整用户的核心凭据、流控策略、授权节点与有效期' : '创建新凭据并自动下发同步至核心节点'"
+    :title="isEditing ? `编辑用户：${form.email}` : '新建用户'"
+    :description="
+      isEditing
+        ? '调整用户的核心凭据、流控策略、授权节点与有效期'
+        : '创建新凭据并自动下发同步至核心节点'
+    "
     width="w-full sm:max-w-xl md:max-w-2xl"
   >
     <form @submit.prevent="saveUser" id="userForm" class="space-y-4 text-xs">
@@ -13,7 +17,11 @@
           <FormField
             label="用户名 / 邮箱"
             :required="true"
-            :hint="isEditing ? '修改邮箱将自动清理 Xray 核心旧凭证，并级联更新各分流线路授权引用' : '创建后将作为订阅唯一索引与 Xray 客户端身份标记'"
+            :hint="
+              isEditing
+                ? '修改邮箱将自动清理 Xray 核心旧凭证，并级联更新各分流线路授权引用'
+                : '创建后将作为订阅唯一索引与 Xray 客户端身份标记'
+            "
           >
             <input
               v-model="form.email"
@@ -27,7 +35,11 @@
           <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <FormField
               label="UUID / 连接密码"
-              :hint="isEditing ? '修改将立即重置 Xray 客户端连接认证凭证' : '选填，留空自动生成标准 RFC4122 v4 UUID'"
+              :hint="
+                isEditing
+                  ? '修改将立即重置 Xray 客户端连接认证凭证'
+                  : '选填，留空自动生成标准 RFC4122 v4 UUID'
+              "
             >
               <div class="flex items-center gap-1.5">
                 <input
@@ -52,7 +64,9 @@
 
             <FormField
               label="订阅安全 Token"
-              :hint="isEditing ? '修改将使该用户的旧订阅链接失效' : '选填，留空自动生成高强度随机 Token'"
+              :hint="
+                isEditing ? '修改将使该用户的旧订阅链接失效' : '选填，留空自动生成高强度随机 Token'
+              "
             >
               <div class="flex items-center gap-1.5">
                 <input
@@ -112,7 +126,10 @@
               v-model="form.enabled"
               class="rounded bg-neutral-900 border-border text-foreground focus:ring-0 cursor-pointer"
             />
-            <label for="form-enabled" class="text-foreground font-medium cursor-pointer select-none">
+            <label
+              for="form-enabled"
+              class="text-foreground font-medium cursor-pointer select-none"
+            >
               账号处于启用状态（禁用后将立即从节点断开）
             </label>
           </div>
@@ -146,7 +163,9 @@
             />
             <div class="min-w-0 font-mono">
               <div class="text-xs font-semibold text-foreground truncate">{{ inb.tag }}</div>
-              <div class="text-[10px] text-muted-foreground uppercase">{{ inb.protocol }} :{{ inb.port }}</div>
+              <div class="text-[10px] text-muted-foreground uppercase">
+                {{ inb.protocol }} :{{ inb.port }}
+              </div>
             </div>
           </label>
         </div>
@@ -169,13 +188,21 @@
             </FormField>
 
             <div>
-              <label class="block text-muted-foreground font-mono text-[11px] mb-1">账号有效期模式 (Expire Mode)</label>
-              <div class="grid grid-cols-3 gap-1.5 p-0.5 bg-neutral-950 border border-border rounded-md h-9 items-center">
+              <label class="block text-muted-foreground font-mono text-[11px] mb-1"
+                >账号有效期模式 (Expire Mode)</label
+              >
+              <div
+                class="grid grid-cols-3 gap-1.5 p-0.5 bg-neutral-950 border border-border rounded-md h-9 items-center"
+              >
                 <button
                   type="button"
                   @click="setExpireMode('never')"
                   class="h-7 text-xs rounded transition-colors font-medium flex items-center justify-center cursor-pointer select-none"
-                  :class="expireMode === 'never' ? 'bg-muted text-foreground' : 'text-muted-foreground hover:text-foreground'"
+                  :class="
+                    expireMode === 'never'
+                      ? 'bg-muted text-foreground'
+                      : 'text-muted-foreground hover:text-foreground'
+                  "
                 >
                   永不过期
                 </button>
@@ -183,7 +210,11 @@
                   type="button"
                   @click="setExpireMode('days')"
                   class="h-7 text-xs rounded transition-colors font-medium flex items-center justify-center cursor-pointer select-none"
-                  :class="expireMode === 'days' ? 'bg-muted text-foreground' : 'text-muted-foreground hover:text-foreground'"
+                  :class="
+                    expireMode === 'days'
+                      ? 'bg-muted text-foreground'
+                      : 'text-muted-foreground hover:text-foreground'
+                  "
                 >
                   {{ isEditing ? '快捷延期' : '按有效天数' }}
                 </button>
@@ -191,7 +222,11 @@
                   type="button"
                   @click="setExpireMode('date')"
                   class="h-7 text-xs rounded transition-colors font-medium flex items-center justify-center cursor-pointer select-none"
-                  :class="expireMode === 'date' ? 'bg-muted text-foreground' : 'text-muted-foreground hover:text-foreground'"
+                  :class="
+                    expireMode === 'date'
+                      ? 'bg-muted text-foreground'
+                      : 'text-muted-foreground hover:text-foreground'
+                  "
                 >
                   指定截止日期
                 </button>
@@ -202,7 +237,10 @@
           <!-- Expire Mode Dynamic Panel -->
           <div class="p-3 rounded-md bg-neutral-950 border border-border/80 space-y-2">
             <!-- Mode 1: Never -->
-            <div v-if="expireMode === 'never'" class="flex items-center justify-between text-xs font-mono text-muted-foreground py-1">
+            <div
+              v-if="expireMode === 'never'"
+              class="flex items-center justify-between text-xs font-mono text-muted-foreground py-1"
+            >
               <span class="text-emerald-400 font-medium">⏳ 账号长期有效，不设到期时间限制。</span>
               <span v-if="isEditing && initialData?.expireTime" class="text-[10px] text-amber-400">
                 (保存后将清除原到期时间并转为永久有效)
@@ -252,12 +290,18 @@
 
               <div class="text-[11px] text-muted-foreground font-mono">
                 <span v-if="!isEditing">
-                  预计到期时间: <span class="text-foreground font-medium">{{ computeCreateExpirePreview(form.expireDays) }}</span>
+                  预计到期时间:
+                  <span class="text-foreground font-medium">{{
+                    computeCreateExpirePreview(form.expireDays)
+                  }}</span>
                 </span>
                 <span v-else>
-                  当前到期: <span class="text-foreground">{{ initialData?.expireTime ? formatDate(initialData.expireTime) : '永久有效' }}</span>
+                  当前到期:
+                  <span class="text-foreground">{{
+                    initialData?.expireTime ? formatDate(initialData.expireTime) : '永久有效'
+                  }}</span>
                   <span v-if="form.extendDays > 0" class="text-emerald-400 ml-2">
-                    → 顺延后预计到期: {{ computeExtendExpirePreview(form.extendDays) }}
+                    → 顺延后预计到期：{{ computeExtendExpirePreview(form.extendDays) }}
                   </span>
                 </span>
               </div>
@@ -323,20 +367,8 @@
     </form>
 
     <template #footer>
-      <Button
-        variant="outline"
-        size="sm"
-        @click="emit('update:modelValue', false)"
-      >
-        取消
-      </Button>
-      <Button
-        variant="default"
-        size="sm"
-        type="submit"
-        form="userForm"
-        :loading="saving"
-      >
+      <Button variant="outline" size="sm" @click="emit('update:modelValue', false)"> 取消 </Button>
+      <Button variant="default" size="sm" type="submit" form="userForm" :loading="saving">
         {{ saving ? '保存中...' : '确认保存' }}
       </Button>
     </template>
@@ -412,7 +444,7 @@ const computeCreateExpirePreview = (days: number): string => {
 const computeExtendExpirePreview = (extendDays: number): string => {
   const current = props.initialData?.expireTime || 0
   const now = Date.now()
-  const base = (!current || current < now) ? now : current
+  const base = !current || current < now ? now : current
   return new Date(base + extendDays * 86400000).toLocaleString()
 }
 
@@ -428,9 +460,10 @@ const setExpireMode = (mode: 'never' | 'days' | 'date') => {
     }
   } else if (mode === 'date') {
     if (!expireDateInput.value) {
-      const base = (props.initialData?.expireTime && props.initialData.expireTime > Date.now())
-        ? props.initialData.expireTime
-        : Date.now() + 30 * 86400000
+      const base =
+        props.initialData?.expireTime && props.initialData.expireTime > Date.now()
+          ? props.initialData.expireTime
+          : Date.now() + 30 * 86400000
       expireDateInput.value = formatDatetimeLocal(base)
     }
   }
@@ -451,7 +484,8 @@ const addDaysToDateInput = (days: number) => {
 }
 
 const MULTI_USER_PROTOCOLS = ['vless', 'vmess', 'trojan', 'shadowsocks', 'shadowsocks-2022']
-const isMultiUserInbound = (inb: any) => MULTI_USER_PROTOCOLS.includes((inb?.protocol || '').toLowerCase())
+const isMultiUserInbound = (inb: any) =>
+  MULTI_USER_PROTOCOLS.includes((inb?.protocol || '').toLowerCase())
 
 const generateUUID = () => {
   if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
@@ -502,7 +536,8 @@ const resetForm = () => {
       remark: u.remark || '',
       selectedTags: UserSubscriptionService.getNodeTags(u, props.availableInbounds),
       flow: u.flow || '',
-      totalGB: u.totalBytes > 0 ? Math.max(0.01, parseFloat((u.totalBytes / 1073741824).toFixed(2))) : 0,
+      totalGB:
+        u.totalBytes > 0 ? Math.max(0.01, parseFloat((u.totalBytes / 1073741824).toFixed(2))) : 0,
       expireTime: u.expireTime || 0,
       expireDays: 0,
       extendDays: 0,
@@ -542,9 +577,7 @@ watch(
   { immediate: true }
 )
 
-const multiUserInbounds = computed(() =>
-  props.availableInbounds.filter(isMultiUserInbound)
-)
+const multiUserInbounds = computed(() => props.availableInbounds.filter(isMultiUserInbound))
 
 const isAllInboundsSelected = computed(() => {
   if (!multiUserInbounds.value.length) return false
@@ -561,7 +594,7 @@ const toggleSelectAllInbounds = () => {
 
 const saveUser = async () => {
   if (!form.value.selectedTags.length) {
-    toast.warning('请至少选择一个归属的入站节点！')
+    toast.warning('请至少选择一个归属的入站节点')
     return
   }
 
@@ -591,16 +624,16 @@ const saveUser = async () => {
 
     if (props.isEditing && form.value.id) {
       await api.put(`/users/${form.value.id}`, payload)
-      toast.success('用户信息与授权节点已保存更新！')
+      toast.success('用户信息与授权节点已更新')
     } else {
       await api.post('/users', payload)
-      toast.success('用户已成功创建并同步至核心节点！')
+      toast.success('用户已创建并同步至核心节点')
     }
 
     emit('update:modelValue', false)
     emit('saved')
   } catch (err: any) {
-    toast.error('保存失败: ' + (err.message || err))
+    toast.error('保存失败：' + (err.message || err))
   } finally {
     saving.value = false
   }

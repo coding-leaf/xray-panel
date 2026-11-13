@@ -17,16 +17,22 @@
           <button
             v-for="d in [7, 14, 30]"
             :key="d"
+            type="button"
             @click="setHistoryDays(d)"
             class="px-2.5 py-1 rounded text-xs font-mono transition-colors"
-            :class="historyDays === d ? 'bg-foreground text-background font-semibold' : 'text-muted-foreground hover:text-foreground'"
+            :class="
+              historyDays === d
+                ? 'bg-foreground text-background font-semibold'
+                : 'text-muted-foreground hover:text-foreground'
+            "
           >
             近 {{ d }} 天
           </button>
         </div>
 
         <div class="text-[11px] font-mono text-muted-foreground">
-          区间总计: <span class="text-foreground font-bold">{{ formatBytes(historySummary.totalAll) }}</span>
+          区间总计:
+          <span class="text-foreground font-bold">{{ formatBytes(historySummary.totalAll) }}</span>
         </div>
       </div>
 
@@ -34,19 +40,27 @@
       <div class="grid grid-cols-2 sm:grid-cols-4 gap-2 font-mono">
         <div class="p-3 bg-card rounded-md border border-border space-y-0.5">
           <span class="text-[10px] text-muted-foreground uppercase">总上行流量</span>
-          <div class="text-xs sm:text-sm font-bold text-emerald-400 truncate">{{ formatBytes(historySummary.totalUp) }}</div>
+          <div class="text-xs sm:text-sm font-bold text-emerald-400 truncate">
+            {{ formatBytes(historySummary.totalUp) }}
+          </div>
         </div>
         <div class="p-3 bg-card rounded-md border border-border space-y-0.5">
           <span class="text-[10px] text-muted-foreground uppercase">总下行流量</span>
-          <div class="text-xs sm:text-sm font-bold text-cyan-400 truncate">{{ formatBytes(historySummary.totalDown) }}</div>
+          <div class="text-xs sm:text-sm font-bold text-cyan-400 truncate">
+            {{ formatBytes(historySummary.totalDown) }}
+          </div>
         </div>
         <div class="p-3 bg-card rounded-md border border-border space-y-0.5">
           <span class="text-[10px] text-muted-foreground uppercase">单日峰值</span>
-          <div class="text-xs sm:text-sm font-bold text-amber-400 truncate">{{ formatBytes(maxDayBytes) }}</div>
+          <div class="text-xs sm:text-sm font-bold text-amber-400 truncate">
+            {{ formatBytes(maxDayBytes) }}
+          </div>
         </div>
         <div class="p-3 bg-card rounded-md border border-border space-y-0.5">
           <span class="text-[10px] text-muted-foreground uppercase">日均消耗</span>
-          <div class="text-xs sm:text-sm font-bold text-foreground truncate">{{ formatBytes(historySummary.avgDay) }}</div>
+          <div class="text-xs sm:text-sm font-bold text-foreground truncate">
+            {{ formatBytes(historySummary.avgDay) }}
+          </div>
         </div>
       </div>
 
@@ -55,31 +69,43 @@
         <div class="flex items-center justify-between text-[11px] font-mono text-muted-foreground">
           <span class="font-medium text-foreground">每日用量走势</span>
           <div class="flex items-center gap-3">
-            <span class="flex items-center gap-1.5"><span class="w-2 h-2 rounded-full bg-emerald-500"></span> 上行</span>
-            <span class="flex items-center gap-1.5"><span class="w-2 h-2 rounded-full bg-cyan-500"></span> 下行</span>
+            <span class="flex items-center gap-1.5"
+              ><span class="w-2 h-2 rounded-full bg-emerald-500"></span> 上行</span
+            >
+            <span class="flex items-center gap-1.5"
+              ><span class="w-2 h-2 rounded-full bg-cyan-500"></span> 下行</span
+            >
           </div>
         </div>
 
         <!-- Active log inspection strip -->
-        <div class="min-h-[36px] px-3 py-1.5 bg-neutral-900 rounded-md border border-border flex flex-wrap items-center justify-between gap-2 text-xs font-mono">
+        <div
+          class="min-h-[36px] px-3 py-1.5 bg-neutral-900 rounded-md border border-border flex flex-wrap items-center justify-between gap-2 text-xs font-mono"
+        >
           <div v-if="activeLog" class="flex flex-wrap items-center gap-x-3 gap-y-1 text-foreground">
             <span class="font-bold text-foreground">{{ activeLog.date }}</span>
             <span class="text-emerald-400">↑ {{ formatBytes(activeLog.upBytes) }}</span>
             <span class="text-cyan-400">↓ {{ formatBytes(activeLog.downBytes) }}</span>
-            <span class="font-bold">总计: {{ formatBytes(activeLog.upBytes + activeLog.downBytes) }}</span>
+            <span class="font-bold"
+              >总计：{{ formatBytes(activeLog.upBytes + activeLog.downBytes) }}</span
+            >
           </div>
-          <div v-else class="text-muted-foreground text-[11px]">
-            悬停或点击柱形查看单日用量详情
-          </div>
+          <div v-else class="text-muted-foreground text-[11px]">悬停或点击柱形查看单日用量详情</div>
         </div>
 
         <!-- Bar visualizer -->
-        <div v-if="loadingHistory" class="flex flex-col items-center justify-center py-10 bg-card rounded-md border border-border text-muted-foreground text-xs font-mono space-y-2">
+        <div
+          v-if="loadingHistory"
+          class="flex flex-col items-center justify-center py-10 bg-card rounded-md border border-border text-muted-foreground text-xs font-mono space-y-2"
+        >
           <Loader2 class="w-5 h-5 animate-spin text-cyan-400" />
           <span>正在加载用量走势...</span>
         </div>
 
-        <div v-else-if="sortedHistoryLogs.length" class="bg-card rounded-md border border-border p-3 overflow-x-auto pb-2">
+        <div
+          v-else-if="sortedHistoryLogs.length"
+          class="bg-card rounded-md border border-border p-3 overflow-x-auto pb-2"
+        >
           <div class="h-36 flex items-end gap-2 pt-2 min-w-full w-max">
             <div
               v-for="log in sortedHistoryLogs"
@@ -113,7 +139,11 @@
               <!-- Date Label -->
               <span
                 class="text-[10px] font-mono transition-colors truncate w-full text-center shrink-0"
-                :class="activeLog?.date === log.date ? 'text-foreground font-bold' : 'text-muted-foreground group-hover:text-foreground'"
+                :class="
+                  activeLog?.date === log.date
+                    ? 'text-foreground font-bold'
+                    : 'text-muted-foreground group-hover:text-foreground'
+                "
               >
                 {{ log.date.substring(5) }}
               </span>
@@ -152,7 +182,9 @@
                   <td class="py-2 px-3 text-foreground font-medium">{{ log.date }}</td>
                   <td class="py-2 px-3 text-emerald-400">{{ formatBytes(log.upBytes) }}</td>
                   <td class="py-2 px-3 text-cyan-400">{{ formatBytes(log.downBytes) }}</td>
-                  <td class="py-2 px-3 text-foreground font-bold">{{ formatBytes(log.upBytes + log.downBytes) }}</td>
+                  <td class="py-2 px-3 text-foreground font-bold">
+                    {{ formatBytes(log.upBytes + log.downBytes) }}
+                  </td>
                 </tr>
                 <tr v-if="!historyLogs.length">
                   <td colspan="4" class="text-center py-4 text-muted-foreground">暂无记录</td>
@@ -165,9 +197,7 @@
     </div>
 
     <template #footer>
-      <Button variant="outline" size="sm" @click="emit('update:modelValue', false)">
-        关闭
-      </Button>
+      <Button variant="outline" size="sm" @click="emit('update:modelValue', false)"> 关闭 </Button>
     </template>
   </Modal>
 </template>

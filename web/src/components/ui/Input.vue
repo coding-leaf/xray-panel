@@ -2,6 +2,7 @@
   <div class="relative flex items-center w-full">
     <slot name="prefix" />
     <input
+      v-bind="$attrs"
       :type="type"
       :value="modelValue"
       :placeholder="placeholder"
@@ -15,7 +16,7 @@
         size === 'sm' ? 'h-8 px-2.5' : 'h-9 px-3',
         $slots.prefix ? 'pl-8' : '',
         $slots.suffix ? 'pr-8' : '',
-        customClass
+        customClass,
       ]"
     />
     <slot name="suffix" />
@@ -23,6 +24,10 @@
 </template>
 
 <script setup lang="ts">
+defineOptions({
+  inheritAttrs: false,
+})
+
 interface Props {
   modelValue?: string | number
   type?: string

@@ -1,14 +1,20 @@
 <template>
   <div class="space-y-4">
     <!-- Header -->
-    <div class="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 pb-2 border-b border-border/60">
+    <div
+      class="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 pb-2 border-b border-border/60"
+    >
       <div>
         <div class="flex items-center gap-2">
-          <h1 class="text-lg font-semibold text-foreground tracking-tight">路由与分流策略 (Routing)</h1>
+          <h1 class="text-lg font-semibold text-foreground tracking-tight">
+            路由与分流策略 (Routing)
+          </h1>
           <Badge variant="outline" class="text-[10px]">
             {{ routingConfig.rules?.length || 0 }} 条规则
           </Badge>
-          <span class="px-2 py-0.5 rounded text-[10px] font-mono bg-amber-500/10 text-amber-400 border border-amber-500/20">
+          <span
+            class="px-2 py-0.5 rounded text-[10px] font-mono bg-amber-500/10 text-amber-400 border border-amber-500/20"
+          >
             修改自动重启核心生效
           </span>
         </div>
@@ -18,21 +24,12 @@
       </div>
 
       <div class="flex items-center gap-2">
-        <Button
-          variant="secondary"
-          size="sm"
-          @click="openAddRuleDrawer"
-        >
+        <Button variant="secondary" size="sm" @click="openAddRuleDrawer">
           <Plus class="w-3.5 h-3.5 mr-1" />
           <span>添加规则</span>
         </Button>
 
-        <Button
-          variant="default"
-          size="sm"
-          :loading="saving"
-          @click="saveAllRouting"
-        >
+        <Button variant="default" size="sm" :loading="saving" @click="saveAllRouting">
           <Check class="w-3.5 h-3.5 mr-1" />
           <span>{{ saving ? '保存中...' : '保存并应用' }}</span>
         </Button>
@@ -48,15 +45,29 @@
           </div>
           <div class="space-y-0.5 text-xs">
             <div class="flex items-center gap-2">
-              <span class="font-semibold text-foreground">GeoData 分流规则库 (geoip.dat & geosite.dat)</span>
-              <span class="px-1.5 py-0.2 rounded text-[10px] font-mono bg-neutral-900 border border-border text-cyan-400">
+              <span class="font-semibold text-foreground"
+                >GeoData 分流规则库 (geoip.dat & geosite.dat)</span
+              >
+              <span
+                class="px-1.5 py-0.2 rounded text-[10px] font-mono bg-neutral-900 border border-border text-cyan-400"
+              >
                 {{ geodataStatus?.platform || 'Xray Core' }}
               </span>
             </div>
             <p class="text-[11px] text-muted-foreground font-mono">
-              GeoIP: {{ geodataStatus?.geoipExists ? `${(geodataStatus.geoipSize / 1048576).toFixed(2)} MB` : '未找到' }} | 
-              GeoSite: {{ geodataStatus?.geositeExists ? `${(geodataStatus.geositeSize / 1048576).toFixed(2)} MB` : '未找到' }} | 
-              路径: {{ geodataStatus?.targetDirectory || './' }}
+              GeoIP:
+              {{
+                geodataStatus?.geoipExists
+                  ? `${(geodataStatus.geoipSize / 1048576).toFixed(2)} MB`
+                  : '未找到'
+              }}
+              | GeoSite:
+              {{
+                geodataStatus?.geositeExists
+                  ? `${(geodataStatus.geositeSize / 1048576).toFixed(2)} MB`
+                  : '未找到'
+              }}
+              | 路径：{{ geodataStatus?.targetDirectory || './' }}
             </p>
           </div>
         </div>
@@ -74,20 +85,26 @@
       </div>
 
       <!-- 实时下载进度条 -->
-      <div v-if="updatingGeo || (geoProgress.percentage > 0 && geoProgress.percentage < 100)" class="p-2.5 bg-neutral-950 rounded-md border border-border space-y-1.5 transition-all">
+      <div
+        v-if="updatingGeo || (geoProgress.percentage > 0 && geoProgress.percentage < 100)"
+        class="p-2.5 bg-neutral-950 rounded-md border border-border space-y-1.5 transition-all"
+      >
         <div class="flex items-center justify-between text-xs font-mono">
           <div class="flex items-center gap-2">
-            <span class="w-1.5 h-1.5 rounded-full" :class="updatingGeo ? 'bg-cyan-400 animate-ping' : 'bg-emerald-400'"></span>
+            <span
+              class="w-1.5 h-1.5 rounded-full"
+              :class="updatingGeo ? 'bg-cyan-400 animate-ping' : 'bg-emerald-400'"
+            ></span>
             <span class="text-muted-foreground text-[11px]">
               {{ geoProgress.message || '正在准备下载...' }}
             </span>
           </div>
-          <span class="font-bold text-cyan-400 text-xs">
-            {{ geoProgress.percentage }}%
-          </span>
+          <span class="font-bold text-cyan-400 text-xs"> {{ geoProgress.percentage }}% </span>
         </div>
 
-        <div class="w-full h-1.5 bg-neutral-900 rounded-full overflow-hidden border border-border/60">
+        <div
+          class="w-full h-1.5 bg-neutral-900 rounded-full overflow-hidden border border-border/60"
+        >
           <div
             class="h-full rounded-full bg-cyan-500 transition-all duration-300"
             :style="{ width: `${geoProgress.percentage}%` }"
@@ -100,15 +117,17 @@
     <div class="grid grid-cols-1 lg:grid-cols-3 gap-3">
       <!-- Strategy Selector -->
       <div class="p-3.5 rounded-lg bg-card border border-border space-y-2">
-        <label class="block text-xs font-semibold text-foreground uppercase tracking-wider font-mono">
+        <label
+          class="block text-xs font-semibold text-foreground uppercase tracking-wider font-mono"
+        >
           域名解析策略 (domainStrategy)
         </label>
         <select
           v-model="routingConfig.domainStrategy"
           class="w-full bg-neutral-950 border border-border rounded-md px-2.5 py-1.5 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-ring font-mono"
         >
-          <option value="IPIfNonMatch">IPIfNonMatch (推荐: 未命中则解析为IP再次匹配)</option>
-          <option value="AsIs">AsIs (保持原样: 仅匹配客户端直发域名)</option>
+          <option value="IPIfNonMatch">IPIfNonMatch (推荐：未命中则解析为 IP 再次匹配)</option>
+          <option value="AsIs">AsIs (保持原样：仅匹配客户端直发域名)</option>
           <option value="IPOnDemand">IPOnDemand (强制实时解析IP匹配)</option>
         </select>
         <p class="text-[11px] text-muted-foreground leading-relaxed">
@@ -127,6 +146,7 @@
 
         <div class="flex flex-wrap gap-2 pt-1">
           <button
+            type="button"
             @click="openPresetWizard('ads')"
             class="px-2.5 py-1.5 rounded-md bg-neutral-950 hover:bg-neutral-900 border border-border text-xs text-muted-foreground hover:text-foreground transition-all flex items-center gap-1.5 font-mono"
           >
@@ -134,6 +154,7 @@
           </button>
 
           <button
+            type="button"
             @click="openPresetWizard('private_ip')"
             class="px-2.5 py-1.5 rounded-md bg-neutral-950 hover:bg-neutral-900 border border-border text-xs text-muted-foreground hover:text-foreground transition-all flex items-center gap-1.5 font-mono"
           >
@@ -141,6 +162,7 @@
           </button>
 
           <button
+            type="button"
             @click="openPresetWizard('bt')"
             class="px-2.5 py-1.5 rounded-md bg-neutral-950 hover:bg-neutral-900 border border-border text-xs text-muted-foreground hover:text-foreground transition-all flex items-center gap-1.5 font-mono"
           >
@@ -148,6 +170,7 @@
           </button>
 
           <button
+            type="button"
             @click="openPresetWizard('smtp')"
             class="px-2.5 py-1.5 rounded-md bg-neutral-950 hover:bg-neutral-900 border border-border text-xs text-muted-foreground hover:text-foreground transition-all flex items-center gap-1.5 font-mono"
           >
@@ -155,6 +178,7 @@
           </button>
 
           <button
+            type="button"
             @click="openPresetWizard('cn')"
             class="px-2.5 py-1.5 rounded-md bg-neutral-950 hover:bg-neutral-900 border border-border text-xs text-muted-foreground hover:text-foreground transition-all flex items-center gap-1.5 font-mono"
           >
@@ -165,15 +189,37 @@
     </div>
 
     <!-- Rules Table-First List (Desktop >= 640px) -->
-    <div class="hidden sm:block relative w-full overflow-hidden rounded-lg border border-border bg-neutral-950">
+    <div
+      class="hidden sm:block relative w-full overflow-hidden rounded-lg border border-border bg-neutral-950"
+    >
       <table class="w-full caption-bottom text-xs border-collapse">
         <thead class="border-b border-border bg-neutral-900 font-mono text-[11px]">
           <tr>
-            <th class="h-9 px-3 text-center align-middle font-medium text-muted-foreground uppercase tracking-wider w-24">次序</th>
-            <th class="h-9 px-3 text-left align-middle font-medium text-muted-foreground uppercase tracking-wider">路由目标 (Target)</th>
-            <th class="h-9 px-3 text-left align-middle font-medium text-muted-foreground uppercase tracking-wider">来源入站 (Inbounds)</th>
-            <th class="h-9 px-3 text-left align-middle font-medium text-muted-foreground uppercase tracking-wider">匹配条件矩阵</th>
-            <th class="h-9 px-3 text-right align-middle font-medium text-muted-foreground uppercase tracking-wider w-44 whitespace-nowrap">操作</th>
+            <th
+              class="h-9 px-3 text-center align-middle font-medium text-muted-foreground uppercase tracking-wider w-24"
+            >
+              次序
+            </th>
+            <th
+              class="h-9 px-3 text-left align-middle font-medium text-muted-foreground uppercase tracking-wider"
+            >
+              路由目标 (Target)
+            </th>
+            <th
+              class="h-9 px-3 text-left align-middle font-medium text-muted-foreground uppercase tracking-wider"
+            >
+              来源入站 (Inbounds)
+            </th>
+            <th
+              class="h-9 px-3 text-left align-middle font-medium text-muted-foreground uppercase tracking-wider"
+            >
+              匹配条件矩阵
+            </th>
+            <th
+              class="h-9 px-3 text-right align-middle font-medium text-muted-foreground uppercase tracking-wider w-44 whitespace-nowrap"
+            >
+              操作
+            </th>
           </tr>
         </thead>
         <tbody class="divide-y divide-border/40">
@@ -189,9 +235,9 @@
             :class="[
               draggedIndex === idx
                 ? 'opacity-30 bg-muted/30 border-dashed border-indigo-500/50'
-                : (dragOverIndex === idx && draggedIndex !== idx
-                    ? 'bg-indigo-500/10 border-t-2 border-indigo-500'
-                    : 'hover:bg-muted/20')
+                : dragOverIndex === idx && draggedIndex !== idx
+                  ? 'bg-indigo-500/10 border-t-2 border-indigo-500'
+                  : 'hover:bg-muted/20',
             ]"
           >
             <!-- 1. Drag Handle & Index / Priority -->
@@ -217,16 +263,27 @@
             <!-- 2. Target Outbound / Balancer -->
             <td class="p-3 align-middle font-mono">
               <div class="flex items-center gap-1.5 flex-wrap">
-                <Badge v-if="rule.balancerTag" variant="secondary" class="bg-cyan-950/50 text-cyan-400 border border-cyan-800/60">
+                <Badge
+                  v-if="rule.balancerTag"
+                  variant="secondary"
+                  class="bg-cyan-950/50 text-cyan-400 border border-cyan-800/60"
+                >
                   LB: {{ rule.balancerTag }}
                 </Badge>
                 <Badge v-else :variant="getOutboundBadgeVariant(rule.outboundTag || '')">
                   {{ rule.outboundTag }}
                 </Badge>
-                <span v-if="rule.tag" class="px-1.5 py-0.5 rounded bg-neutral-800 text-neutral-300 border border-neutral-700 text-[10px]">
+                <span
+                  v-if="rule.tag"
+                  class="px-1.5 py-0.5 rounded bg-neutral-800 text-neutral-300 border border-neutral-700 text-[10px]"
+                >
                   {{ rule.tag }}
                 </span>
-                <span v-if="!rule.balancerTag && rule.outboundTag && !isKnownOutbound(rule.outboundTag)" class="text-amber-400 text-[10px] font-semibold" title="系统中未配置该出站标签">
+                <span
+                  v-if="!rule.balancerTag && rule.outboundTag && !isKnownOutbound(rule.outboundTag)"
+                  class="text-amber-400 text-[10px] font-semibold"
+                  title="系统中未配置该出站标签"
+                >
                   ⚠️ 未知出站
                 </span>
               </div>
@@ -243,37 +300,81 @@
             <!-- 4. Matching Conditions -->
             <td class="p-3 align-middle">
               <div class="flex flex-wrap items-center gap-1.5 font-mono text-[11px]">
-                <span v-if="rule.domainMatcher" class="px-1.5 py-0.5 rounded bg-neutral-800 text-cyan-300 border border-neutral-700">
+                <span
+                  v-if="rule.domainMatcher"
+                  class="px-1.5 py-0.5 rounded bg-neutral-800 text-cyan-300 border border-neutral-700"
+                >
                   matcher: {{ rule.domainMatcher }}
                 </span>
-                <span v-if="rule.vlessRoute" class="px-1.5 py-0.5 rounded bg-indigo-950/60 text-indigo-300 border border-indigo-800/50">
+                <span
+                  v-if="rule.vlessRoute"
+                  class="px-1.5 py-0.5 rounded bg-indigo-950/60 text-indigo-300 border border-indigo-800/50"
+                >
                   vlessRoute: {{ rule.vlessRoute }}
                 </span>
-                <span v-if="rule.user?.length" class="px-1.5 py-0.5 rounded bg-emerald-950/60 text-emerald-300 border border-emerald-800/50">
-                  用户: {{ rule.user.join(', ') }}
+                <span
+                  v-if="rule.user?.length"
+                  class="px-1.5 py-0.5 rounded bg-emerald-950/60 text-emerald-300 border border-emerald-800/50"
+                >
+                  用户：{{ rule.user.join(', ') }}
                 </span>
-                <span v-if="rule.domain?.length" class="px-1.5 py-0.5 rounded bg-blue-950/60 text-blue-300 border border-blue-800/50">
-                  域名: {{ rule.domain.join(', ') }}
+                <span
+                  v-if="rule.domain?.length"
+                  class="px-1.5 py-0.5 rounded bg-blue-950/60 text-blue-300 border border-blue-800/50"
+                >
+                  域名：{{ rule.domain.join(', ') }}
                 </span>
-                <span v-if="rule.ip?.length" class="px-1.5 py-0.5 rounded bg-purple-950/60 text-purple-300 border border-purple-800/50">
-                  IP: {{ rule.ip.join(', ') }}
+                <span
+                  v-if="rule.ip?.length"
+                  class="px-1.5 py-0.5 rounded bg-purple-950/60 text-purple-300 border border-purple-800/50"
+                >
+                  IP：{{ rule.ip.join(', ') }}
                 </span>
-                <span v-if="rule.source?.length" class="px-1.5 py-0.5 rounded bg-teal-950/60 text-teal-300 border border-teal-800/50">
-                  源IP: {{ rule.source.join(', ') }}
+                <span
+                  v-if="rule.source?.length"
+                  class="px-1.5 py-0.5 rounded bg-teal-950/60 text-teal-300 border border-teal-800/50"
+                >
+                  源 IP：{{ rule.source.join(', ') }}
                 </span>
-                <span v-if="rule.sourcePort" class="px-1.5 py-0.5 rounded bg-teal-950/60 text-teal-300 border border-teal-800/50">
-                  源端口: {{ rule.sourcePort }}
+                <span
+                  v-if="rule.sourcePort"
+                  class="px-1.5 py-0.5 rounded bg-teal-950/60 text-teal-300 border border-teal-800/50"
+                >
+                  源端口：{{ rule.sourcePort }}
                 </span>
-                <span v-if="rule.protocol?.length" class="px-1.5 py-0.5 rounded bg-amber-950/60 text-amber-300 border border-amber-800/50">
-                  协议: {{ rule.protocol.join(', ') }}
+                <span
+                  v-if="rule.protocol?.length"
+                  class="px-1.5 py-0.5 rounded bg-amber-950/60 text-amber-300 border border-amber-800/50"
+                >
+                  协议：{{ rule.protocol.join(', ') }}
                 </span>
-                <span v-if="rule.port" class="px-1.5 py-0.5 rounded bg-rose-950/60 text-rose-300 border border-rose-800/50">
-                  端口: {{ rule.port }}
+                <span
+                  v-if="rule.port"
+                  class="px-1.5 py-0.5 rounded bg-rose-950/60 text-rose-300 border border-rose-800/50"
+                >
+                  端口：{{ rule.port }}
                 </span>
-                <span v-if="rule.network" class="px-1.5 py-0.5 rounded bg-neutral-900 text-neutral-300 border border-border">
-                  网络: {{ rule.network }}
+                <span
+                  v-if="rule.network"
+                  class="px-1.5 py-0.5 rounded bg-neutral-900 text-neutral-300 border border-border"
+                >
+                  网络：{{ rule.network }}
                 </span>
-                <span v-if="!rule.domainMatcher && !rule.vlessRoute && !rule.user?.length && !rule.domain?.length && !rule.ip?.length && !rule.source?.length && !rule.sourcePort && !rule.protocol?.length && !rule.port && !rule.network" class="text-muted-foreground text-xs font-sans">
+                <span
+                  v-if="
+                    !rule.domainMatcher &&
+                    !rule.vlessRoute &&
+                    !rule.user?.length &&
+                    !rule.domain?.length &&
+                    !rule.ip?.length &&
+                    !rule.source?.length &&
+                    !rule.sourcePort &&
+                    !rule.protocol?.length &&
+                    !rule.port &&
+                    !rule.network
+                  "
+                  class="text-muted-foreground text-xs font-sans"
+                >
                   无额外限制 (匹配任意流量)
                 </span>
               </div>
@@ -346,9 +447,9 @@
         :class="[
           draggedIndex === idx
             ? 'opacity-30 border-dashed border-indigo-500/60'
-            : (dragOverIndex === idx && draggedIndex !== idx
-                ? 'ring-2 ring-indigo-500/70 bg-indigo-500/10 border-indigo-500'
-                : 'border-border hover:border-border/80')
+            : dragOverIndex === idx && draggedIndex !== idx
+              ? 'ring-2 ring-indigo-500/70 bg-indigo-500/10 border-indigo-500'
+              : 'border-border hover:border-border/80',
         ]"
       >
         <!-- Card Top Bar: Handle + Index Badge + Outbound Tag + Actions -->
@@ -369,7 +470,11 @@
               #{{ Number(idx) + 1 }}
             </button>
             <div class="flex items-center gap-1.5 truncate">
-              <Badge v-if="rule.balancerTag" variant="secondary" class="bg-cyan-950/50 text-cyan-400 border border-cyan-800/60">
+              <Badge
+                v-if="rule.balancerTag"
+                variant="secondary"
+                class="bg-cyan-950/50 text-cyan-400 border border-cyan-800/60"
+              >
                 LB: {{ rule.balancerTag }}
               </Badge>
               <Badge v-else :variant="getOutboundBadgeVariant(rule.outboundTag || '')">
@@ -458,52 +563,63 @@
               v-if="rule.user?.length"
               class="px-1.5 py-0.5 rounded bg-emerald-950/60 text-emerald-300 border border-emerald-800/50 break-all"
             >
-              用户: {{ rule.user.join(', ') }}
+              用户：{{ rule.user.join(', ') }}
             </span>
             <span
               v-if="rule.domain?.length"
               class="px-1.5 py-0.5 rounded bg-blue-950/60 text-blue-300 border border-blue-800/50 break-all"
             >
-              域名: {{ rule.domain.join(', ') }}
+              域名：{{ rule.domain.join(', ') }}
             </span>
             <span
               v-if="rule.ip?.length"
               class="px-1.5 py-0.5 rounded bg-purple-950/60 text-purple-300 border border-purple-800/50 break-all"
             >
-              IP: {{ rule.ip.join(', ') }}
+              IP：{{ rule.ip.join(', ') }}
             </span>
             <span
               v-if="rule.source?.length"
               class="px-1.5 py-0.5 rounded bg-teal-950/60 text-teal-300 border border-teal-800/50 break-all"
             >
-              源IP: {{ rule.source.join(', ') }}
+              源 IP：{{ rule.source.join(', ') }}
             </span>
             <span
               v-if="rule.sourcePort"
               class="px-1.5 py-0.5 rounded bg-teal-950/60 text-teal-300 border border-teal-800/50"
             >
-              源端口: {{ rule.sourcePort }}
+              源端口：{{ rule.sourcePort }}
             </span>
             <span
               v-if="rule.protocol?.length"
               class="px-1.5 py-0.5 rounded bg-amber-950/60 text-amber-300 border border-amber-800/50 break-all"
             >
-              协议: {{ rule.protocol.join(', ') }}
+              协议：{{ rule.protocol.join(', ') }}
             </span>
             <span
               v-if="rule.port"
               class="px-1.5 py-0.5 rounded bg-rose-950/60 text-rose-300 border border-rose-800/50"
             >
-              端口: {{ rule.port }}
+              端口：{{ rule.port }}
             </span>
             <span
               v-if="rule.network"
               class="px-1.5 py-0.5 rounded bg-neutral-900 text-neutral-300 border border-border"
             >
-              网络: {{ rule.network }}
+              网络：{{ rule.network }}
             </span>
             <span
-              v-if="!rule.domainMatcher && !rule.vlessRoute && !rule.user?.length && !rule.domain?.length && !rule.ip?.length && !rule.source?.length && !rule.sourcePort && !rule.protocol?.length && !rule.port && !rule.network"
+              v-if="
+                !rule.domainMatcher &&
+                !rule.vlessRoute &&
+                !rule.user?.length &&
+                !rule.domain?.length &&
+                !rule.ip?.length &&
+                !rule.source?.length &&
+                !rule.sourcePort &&
+                !rule.protocol?.length &&
+                !rule.port &&
+                !rule.network
+              "
               class="text-muted-foreground text-[11px] font-sans"
             >
               无额外限制 (匹配任意流量)
@@ -534,10 +650,12 @@
           <input
             v-model="ruleForm.tag"
             type="text"
-            placeholder="例如: block-ads, proxy-google, route-vip"
+            placeholder="例如：block-ads, proxy-google, route-vip"
             class="w-full bg-neutral-950 border border-border rounded-md px-3 py-2 text-foreground font-mono text-[11px] focus:outline-none focus:ring-1 focus:ring-ring"
           />
-          <p class="text-[10px] text-muted-foreground mt-0.5">为该规则指定便于识别的标识或备注信息</p>
+          <p class="text-[10px] text-muted-foreground mt-0.5">
+            为该规则指定便于识别的标识或备注信息
+          </p>
         </div>
 
         <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -547,11 +665,21 @@
               <label class="text-foreground font-medium">路由目标 (Target)</label>
               <div class="flex items-center gap-2 text-[11px] font-mono">
                 <label class="inline-flex items-center gap-1 cursor-pointer">
-                  <input type="radio" v-model="ruleForm.targetType" value="outbound" class="text-cyan-500" />
+                  <input
+                    type="radio"
+                    v-model="ruleForm.targetType"
+                    value="outbound"
+                    class="text-cyan-500"
+                  />
                   <span>出站</span>
                 </label>
                 <label class="inline-flex items-center gap-1 cursor-pointer">
-                  <input type="radio" v-model="ruleForm.targetType" value="balancer" class="text-cyan-500" />
+                  <input
+                    type="radio"
+                    v-model="ruleForm.targetType"
+                    value="balancer"
+                    class="text-cyan-500"
+                  />
                   <span>负载均衡组</span>
                 </label>
               </div>
@@ -569,7 +697,10 @@
               </select>
 
               <input
-                v-if="ruleForm.outboundTag === '__custom__' || !availableOutboundTags.includes(ruleForm.outboundTag)"
+                v-if="
+                  ruleForm.outboundTag === '__custom__' ||
+                  !availableOutboundTags.includes(ruleForm.outboundTag)
+                "
                 v-model="ruleForm.customOutboundTag"
                 type="text"
                 placeholder="输入自定义 OutboundTag"
@@ -581,10 +712,12 @@
               <input
                 v-model="ruleForm.balancerTag"
                 type="text"
-                placeholder="例如: balancer-all, lb-us"
+                placeholder="例如：balancer-all, lb-us"
                 class="w-full bg-neutral-950 border border-border rounded-md px-3 py-2 text-foreground font-mono text-[11px] focus:outline-none focus:ring-1 focus:ring-ring"
               />
-              <p class="text-[10px] text-muted-foreground">将流量导向配置中定义的负载均衡组 (balancerTag)</p>
+              <p class="text-[10px] text-muted-foreground">
+                将流量导向配置中定义的负载均衡组 (balancerTag)
+              </p>
             </div>
           </div>
 
@@ -622,11 +755,18 @@
             <option value="">默认 (跟随核心全局设置)</option>
             <option value="hybrid">hybrid (混合双模匹配 - 推荐)</option>
             <option value="linear">linear (线性规则匹配)</option>
-            <option v-if="ruleForm.domainMatcher && !['hybrid', 'linear'].includes(ruleForm.domainMatcher)" :value="ruleForm.domainMatcher">
+            <option
+              v-if="
+                ruleForm.domainMatcher && !['hybrid', 'linear'].includes(ruleForm.domainMatcher)
+              "
+              :value="ruleForm.domainMatcher"
+            >
               {{ ruleForm.domainMatcher }} (保留已有)
             </option>
           </select>
-          <p class="text-[10px] text-muted-foreground mt-0.5">Xray 域名匹配加速算法，留空使用全局设置</p>
+          <p class="text-[10px] text-muted-foreground mt-0.5">
+            Xray 域名匹配加速算法，留空使用全局设置
+          </p>
         </div>
 
         <div>
@@ -636,10 +776,12 @@
           <input
             v-model="ruleForm.vlessRoute"
             type="text"
-            placeholder="例如: 1 或 2 或 1,2 或 100-200 (匹配客户端 VLESS UUID 中携带的 16 位路由编号)"
+            placeholder="例如：1 或 2 或 1,2 或 100-200 (匹配客户端 VLESS UUID 中携带的 16 位路由编号)"
             class="w-full bg-neutral-950 border border-border rounded-md px-3 py-2 text-foreground font-mono text-[11px] focus:outline-none focus:ring-1 focus:ring-ring"
           />
-          <p class="text-[10px] text-muted-foreground mt-0.5">Xray 官方 VLESS 协议级多节点路由分流条件，支持单值、列表或范围匹配</p>
+          <p class="text-[10px] text-muted-foreground mt-0.5">
+            Xray 官方 VLESS 协议级多节点路由分流条件，支持单值、列表或范围匹配
+          </p>
         </div>
 
         <div>
@@ -652,11 +794,15 @@
             placeholder="user1@example.com, user2@example.com (匹配指定用户的 Email 分流)"
             class="w-full bg-neutral-950 border border-border rounded-md px-3 py-2 text-foreground font-mono text-[11px] focus:outline-none focus:ring-1 focus:ring-ring"
           />
-          <p class="text-[10px] text-muted-foreground mt-0.5">按用户 Email 进行分流（支持多用户分流至指定出口）</p>
+          <p class="text-[10px] text-muted-foreground mt-0.5">
+            按用户 Email 进行分流（支持多用户分流至指定出口）
+          </p>
         </div>
 
         <div>
-          <label class="block text-foreground mb-1 font-medium">域名匹配列表 (Domain，多个用逗号或换行隔开)</label>
+          <label class="block text-foreground mb-1 font-medium"
+            >域名匹配列表 (Domain，多个用逗号或换行隔开)</label
+          >
           <textarea
             v-model="ruleForm.domainStr"
             rows="3"
@@ -666,7 +812,9 @@
         </div>
 
         <div>
-          <label class="block text-foreground mb-1 font-medium">IP 匹配列表 (IP，多个用逗号或换行隔开)</label>
+          <label class="block text-foreground mb-1 font-medium"
+            >IP 匹配列表 (IP，多个用逗号或换行隔开)</label
+          >
           <textarea
             v-model="ruleForm.ipStr"
             rows="3"
@@ -678,22 +826,28 @@
         <!-- 客户端源 IP (source) 与 源端口 (sourcePort) -->
         <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <div>
-            <label class="block text-foreground mb-1 font-medium">客户端源 IP / CIDR (Source，可选)</label>
+            <label class="block text-foreground mb-1 font-medium"
+              >客户端源 IP / CIDR (Source，可选)</label
+            >
             <textarea
               v-model="ruleForm.sourceStr"
               rows="2"
-              placeholder="例如: 192.168.1.0/24, 10.0.0.1, geoip:private"
+              placeholder="例如：192.168.1.0/24, 10.0.0.1, geoip:private"
               class="w-full bg-neutral-950 border border-border rounded-md p-2.5 text-foreground font-mono text-[11px] focus:outline-none focus:ring-1 focus:ring-ring leading-relaxed"
             ></textarea>
-            <p class="text-[10px] text-muted-foreground mt-0.5">根据客户端来源 IP/CIDR 分流，多个用逗号或换行隔开</p>
+            <p class="text-[10px] text-muted-foreground mt-0.5">
+              根据客户端来源 IP/CIDR 分流，多个用逗号或换行隔开
+            </p>
           </div>
 
           <div>
-            <label class="block text-foreground mb-1 font-medium">客户端源端口 (SourcePort，可选)</label>
+            <label class="block text-foreground mb-1 font-medium"
+              >客户端源端口 (SourcePort，可选)</label
+            >
             <input
               v-model="ruleForm.sourcePort"
               type="text"
-              placeholder="例如: 1024-65535 或 50000"
+              placeholder="例如：1024-65535 或 50000"
               class="w-full bg-neutral-950 border border-border rounded-md px-3 py-2 text-foreground font-mono focus:outline-none focus:ring-1 focus:ring-ring"
             />
             <p class="text-[10px] text-muted-foreground mt-0.5">客户端源端口范围或单端口</p>
@@ -736,29 +890,32 @@
       </form>
 
       <template #footer>
-        <Button variant="secondary" size="sm" @click="showRuleDrawer = false">
-          取消
-        </Button>
-        <Button
-          type="submit"
-          form="rule-form"
-          variant="default"
-          size="sm"
-        >
+        <Button variant="secondary" size="sm" @click="showRuleDrawer = false"> 取消 </Button>
+        <Button type="submit" form="rule-form" variant="default" size="sm">
           <span>确认并暂存</span>
         </Button>
       </template>
     </Drawer>
 
     <!-- Smart Preset Wizard Modal -->
-    <div v-if="showPresetModal" class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/75">
+    <div
+      v-if="showPresetModal"
+      class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/75"
+    >
       <div class="w-full max-w-md p-5 rounded-lg border border-border bg-card shadow-2xl space-y-4">
         <div class="flex items-center justify-between pb-2 border-b border-border">
           <div>
             <h2 class="text-sm font-bold text-foreground">{{ presetData.title }}</h2>
             <p class="text-xs text-muted-foreground mt-0.5">{{ presetData.description }}</p>
           </div>
-          <button @click="showPresetModal = false" class="text-muted-foreground hover:text-foreground text-base">✕</button>
+          <button
+            type="button"
+            aria-label="关闭"
+            @click="showPresetModal = false"
+            class="text-muted-foreground hover:text-foreground text-base"
+          >
+            ✕
+          </button>
         </div>
 
         <div class="space-y-3 text-xs">
@@ -774,11 +931,18 @@
             </select>
           </div>
 
-          <div v-if="!availableOutboundTags.includes(presetData.selectedOutbound)" class="p-2.5 rounded-md bg-amber-950/40 border border-amber-800/50 text-amber-300 text-[11px]">
-            ⚠️ 当前系统中未检测到 <code>{{ presetData.selectedOutbound }}</code> 出站，请选择现有出站或先在「出站代理」页面创建。
+          <div
+            v-if="!availableOutboundTags.includes(presetData.selectedOutbound)"
+            class="p-2.5 rounded-md bg-amber-950/40 border border-amber-800/50 text-amber-300 text-[11px]"
+          >
+            ⚠️ 当前系统中未检测到
+            <code>{{ presetData.selectedOutbound }}</code>
+            出站，请选择现有出站或先在「出站代理」页面创建。
           </div>
 
-          <div class="p-3 rounded-md bg-neutral-950 border border-border space-y-1 font-mono text-[11px] text-muted-foreground">
+          <div
+            class="p-3 rounded-md bg-neutral-950 border border-border space-y-1 font-mono text-[11px] text-muted-foreground"
+          >
             <span class="block text-foreground font-bold">即将注入的匹配条件:</span>
             <div v-for="(rule, i) in presetData.rules" :key="i">
               - {{ formatRuleSummary(rule) }}
@@ -787,20 +951,8 @@
         </div>
 
         <div class="flex justify-end gap-2.5 pt-2 border-t border-border">
-          <Button
-            variant="secondary"
-            size="sm"
-            @click="showPresetModal = false"
-          >
-            取消
-          </Button>
-          <Button
-            variant="default"
-            size="sm"
-            @click="confirmInjectPreset"
-          >
-            确认注入规则
-          </Button>
+          <Button variant="secondary" size="sm" @click="showPresetModal = false"> 取消 </Button>
+          <Button variant="default" size="sm" @click="confirmInjectPreset"> 确认注入规则 </Button>
         </div>
       </div>
     </div>
@@ -814,11 +966,16 @@
     >
       <form @submit.prevent="confirmQuickReorder" class="space-y-4 text-xs">
         <div class="space-y-3">
-          <div class="p-3 rounded-md bg-neutral-900 border border-border flex items-center justify-between font-mono">
+          <div
+            class="p-3 rounded-md bg-neutral-900 border border-border flex items-center justify-between font-mono"
+          >
             <span class="text-muted-foreground">当前规则与次序:</span>
             <div class="flex items-center gap-1.5">
               <span class="text-foreground font-bold">#{{ reorderSourceIndex + 1 }}</span>
-              <Badge v-if="currentReorderRule" :variant="getOutboundBadgeVariant(currentReorderRule.outboundTag)">
+              <Badge
+                v-if="currentReorderRule"
+                :variant="getOutboundBadgeVariant(currentReorderRule.outboundTag)"
+              >
                 {{ currentReorderRule.outboundTag }}
               </Badge>
             </div>
@@ -826,7 +983,7 @@
 
           <div class="space-y-1.5">
             <label class="block text-foreground font-medium">
-              目标新位次 (范围: 1 ~ {{ routingConfig.rules?.length || 1 }})
+              目标新位次 (范围：1 ~ {{ routingConfig.rules?.length || 1 }})
             </label>
             <input
               ref="reorderInputRef"
@@ -845,21 +1002,10 @@
         </div>
 
         <div class="flex justify-end gap-2.5 pt-2 border-t border-border">
-          <Button
-            variant="secondary"
-            size="sm"
-            type="button"
-            @click="showReorderModal = false"
-          >
+          <Button variant="secondary" size="sm" type="button" @click="showReorderModal = false">
             取消
           </Button>
-          <Button
-            variant="default"
-            size="sm"
-            type="submit"
-          >
-            确认调整
-          </Button>
+          <Button variant="default" size="sm" type="submit"> 确认调整 </Button>
         </div>
       </form>
     </Modal>
@@ -868,7 +1014,17 @@
 
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted, computed } from 'vue'
-import { Plus, Check, Edit3, Trash2, Database, RotateCw, GripVertical, ArrowUp, ArrowDown } from 'lucide-vue-next'
+import {
+  Plus,
+  Check,
+  Edit3,
+  Trash2,
+  Database,
+  RotateCw,
+  GripVertical,
+  ArrowUp,
+  ArrowDown,
+} from 'lucide-vue-next'
 import Button from '../components/ui/Button.vue'
 import Badge from '../components/ui/Badge.vue'
 import Drawer from '../components/ui/Drawer.vue'
@@ -967,7 +1123,7 @@ const pollGeoProgress = async () => {
         }
         updatingGeo.value = false
         if (res.step === 'done') {
-          toast.success(res.message || 'GeoData 规则库更新成功！')
+          toast.success(res.message || 'GeoData 规则库已更新')
           await fetchGeoStatus()
           setTimeout(() => {
             geoProgress.value.percentage = 0
@@ -994,7 +1150,7 @@ const updateGeoData = async () => {
     progressTimer = setInterval(pollGeoProgress, 500)
   } catch (err: any) {
     updatingGeo.value = false
-    toast.error('触发更新失败: ' + err)
+    toast.error('触发更新失败：' + err)
   }
 }
 
@@ -1061,7 +1217,9 @@ const isKnownOutbound = (tag: string) => {
 const openAddRuleDrawer = () => {
   isEditingRule.value = false
   editingIndex.value = -1
-  const defaultOutbound = availableOutboundTags.value.includes('block') ? 'block' : (availableOutboundTags.value[0] || 'direct')
+  const defaultOutbound = availableOutboundTags.value.includes('block')
+    ? 'block'
+    : availableOutboundTags.value[0] || 'direct'
   ruleForm.value = {
     tag: '',
     targetType: 'outbound',
@@ -1103,8 +1261,10 @@ const editRule = (idx: number) => {
   ruleForm.value = {
     tag: r.tag || '',
     targetType: r.balancerTag ? 'balancer' : 'outbound',
-    outboundTag: isCustom ? '__custom__' : (r.outboundTag || availableOutboundTags.value[0] || 'direct'),
-    customOutboundTag: isCustom ? (r.outboundTag || '') : '',
+    outboundTag: isCustom
+      ? '__custom__'
+      : r.outboundTag || availableOutboundTags.value[0] || 'direct',
+    customOutboundTag: isCustom ? r.outboundTag || '' : '',
     balancerTag: r.balancerTag || '',
     domainMatcher: r.domainMatcher || '',
     selectedInboundTag: '',
@@ -1212,7 +1372,9 @@ const saveRuleInDrawer = () => {
     Boolean(newRule.vlessRoute)
 
   if (!hasMatchCondition) {
-    toast.error('请至少配置一项匹配条件 (域名/IP/源IP/源端口/目的端口/网络/协议/入站/用户/VLESS路由)')
+    toast.error(
+      '请至少配置一项匹配条件 (域名/IP/源IP/源端口/目的端口/网络/协议/入站/用户/VLESS路由)'
+    )
     return
   }
 
@@ -1265,7 +1427,14 @@ const onDrop = (idx: number) => {
   const fromIdx = draggedIndex.value
   const toIdx = idx
   const rules = routingConfig.value.rules
-  if (rules && fromIdx !== toIdx && fromIdx >= 0 && fromIdx < rules.length && toIdx >= 0 && toIdx < rules.length) {
+  if (
+    rules &&
+    fromIdx !== toIdx &&
+    fromIdx >= 0 &&
+    fromIdx < rules.length &&
+    toIdx >= 0 &&
+    toIdx < rules.length
+  ) {
     const [moved] = rules.splice(fromIdx, 1)
     rules.splice(toIdx, 0, moved)
   }
@@ -1325,15 +1494,17 @@ const confirmQuickReorder = () => {
 
 // 智能预设向导 (Smart Preset Wizard)
 const openPresetWizard = (type: string) => {
-  let defOutbound = 'block'
+  let defOutbound: string
   if (type === 'cn') {
     defOutbound = availableOutboundTags.value.includes('warp-out')
       ? 'warp-out'
-      : (availableOutboundTags.value.includes('direct') ? 'direct' : availableOutboundTags.value[0] || 'direct')
+      : availableOutboundTags.value.includes('direct')
+        ? 'direct'
+        : availableOutboundTags.value[0] || 'direct'
   } else {
     defOutbound = availableOutboundTags.value.includes('block')
       ? 'block'
-      : (availableOutboundTags.value[0] || 'block')
+      : availableOutboundTags.value[0] || 'block'
   }
 
   if (type === 'ads') {
@@ -1394,14 +1565,14 @@ const confirmInjectPreset = () => {
 const formatRuleSummary = (rule: any) => {
   if (rule.tag) return `[${rule.tag}]`
   if (rule.vlessRoute) return `vlessRoute: ${rule.vlessRoute}`
-  if (rule.user?.length) return `用户: ${rule.user.join(', ')}`
-  if (rule.domain?.length) return `域名: ${rule.domain.join(', ')}`
-  if (rule.ip?.length) return `IP: ${rule.ip.join(', ')}`
-  if (rule.source?.length) return `源IP: ${rule.source.join(', ')}`
-  if (rule.sourcePort) return `源端口: ${rule.sourcePort}`
-  if (rule.protocol?.length) return `协议: ${rule.protocol.join(', ')}`
-  if (rule.port) return `端口: ${rule.port} (${rule.network || '全部'})`
-  if (rule.balancerTag) return `Balancer: ${rule.balancerTag}`
+  if (rule.user?.length) return `用户：${rule.user.join(', ')}`
+  if (rule.domain?.length) return `域名：${rule.domain.join(', ')}`
+  if (rule.ip?.length) return `IP：${rule.ip.join(', ')}`
+  if (rule.source?.length) return `源 IP：${rule.source.join(', ')}`
+  if (rule.sourcePort) return `源端口：${rule.sourcePort}`
+  if (rule.protocol?.length) return `协议：${rule.protocol.join(', ')}`
+  if (rule.port) return `端口：${rule.port} (${rule.network || '全部'})`
+  if (rule.balancerTag) return `Balancer：${rule.balancerTag}`
   return JSON.stringify(rule)
 }
 
@@ -1409,16 +1580,18 @@ const saveAllRouting = async () => {
   saving.value = true
   try {
     await api.post('/routing', routingConfig.value)
-    toast.success('路由分流配置已保存并平滑生效！')
+    toast.success('路由分流配置已保存并生效')
     await fetchAllDependencies()
   } catch (err: any) {
-    toast.error('保存失败: ' + err)
+    toast.error('保存失败：' + err)
   } finally {
     saving.value = false
   }
 }
 
-const getOutboundBadgeVariant = (tag: string): 'default' | 'secondary' | 'outline' | 'destructive' => {
+const getOutboundBadgeVariant = (
+  tag: string
+): 'default' | 'secondary' | 'outline' | 'destructive' => {
   switch (tag?.toLowerCase()) {
     case 'direct':
       return 'default'

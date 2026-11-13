@@ -2,15 +2,17 @@
   <Drawer
     :model-value="modelValue"
     @update:model-value="emit('update:modelValue', $event)"
-    :title="`用户巡检: ${user?.email || ''}`"
-    :description="`UUID: ${user?.uuid || '未分配'} · 独立 Token 聚合订阅${user?.remark ? ' · 备注: ' + user.remark : ''}`"
+    :title="`用户巡检：${user?.email || ''}`"
+    :description="`UUID：${user?.uuid || '未分配'} · 独立 Token 聚合订阅${user?.remark ? ' · 备注：' + user.remark : ''}`"
     width="w-full sm:max-w-xl md:max-w-2xl"
   >
     <div v-if="user" class="space-y-4 text-xs">
       <!-- 1. Quick Action & Status Header Card -->
       <div class="rounded-lg border border-border bg-card p-4 space-y-3">
         <div class="flex items-center justify-between border-b border-border/60 pb-2">
-          <span class="font-mono font-semibold text-foreground text-xs uppercase tracking-wider">实时状态与快捷操作</span>
+          <span class="font-mono font-semibold text-foreground text-xs uppercase tracking-wider"
+            >实时状态与快捷操作</span
+          >
           <div class="flex items-center gap-1.5">
             <Badge :variant="getUserBadgeVariant(user)" :dot="true">
               {{ getUserStatusText(user) }}
@@ -61,7 +63,9 @@
         </div>
 
         <div v-if="user.remark" class="pt-2 border-t border-border/40 flex items-start gap-2">
-          <span class="text-[10px] text-muted-foreground uppercase font-mono shrink-0 pt-0.5">用户备注:</span>
+          <span class="text-[10px] text-muted-foreground uppercase font-mono shrink-0 pt-0.5"
+            >用户备注:</span
+          >
           <span class="text-xs text-foreground font-medium select-all">{{ user.remark }}</span>
         </div>
       </div>
@@ -69,7 +73,9 @@
       <!-- 2. Quota & Bandwidth Diagnostics -->
       <div class="rounded-lg border border-border bg-card p-4 space-y-3">
         <div class="flex items-center justify-between border-b border-border/60 pb-2">
-          <span class="font-mono font-semibold text-foreground text-xs uppercase tracking-wider">流量配额与消耗</span>
+          <span class="font-mono font-semibold text-foreground text-xs uppercase tracking-wider"
+            >流量配额与消耗</span
+          >
           <Button
             variant="ghost"
             size="sm"
@@ -110,11 +116,15 @@
         <div v-if="user.totalBytes > 0" class="space-y-1.5 pt-1">
           <div class="flex items-center justify-between text-[11px] font-mono">
             <span class="text-muted-foreground">配额使用率</span>
-            <span :class="getTrafficPercent(user) > 90 ? 'text-rose-400 font-bold' : 'text-foreground'">
+            <span
+              :class="getTrafficPercent(user) > 90 ? 'text-rose-400 font-bold' : 'text-foreground'"
+            >
               {{ getTrafficPercent(user).toFixed(1) }}%
             </span>
           </div>
-          <div class="w-full h-2 bg-neutral-900 rounded-full overflow-hidden border border-border/40">
+          <div
+            class="w-full h-2 bg-neutral-900 rounded-full overflow-hidden border border-border/40"
+          >
             <div
               class="h-full rounded-full transition-all"
               :class="getTrafficProgressClass(user)"
@@ -127,7 +137,9 @@
       <!-- 3. Lifecycle & Cycle Settings -->
       <div class="rounded-lg border border-border bg-card p-4 space-y-3">
         <div class="flex items-center justify-between border-b border-border/60 pb-2">
-          <span class="font-mono font-semibold text-foreground text-xs uppercase tracking-wider">有效期与重置周期</span>
+          <span class="font-mono font-semibold text-foreground text-xs uppercase tracking-wider"
+            >有效期与重置周期</span
+          >
           <div class="flex items-center gap-1">
             <Button
               variant="ghost"
@@ -173,7 +185,9 @@
       <!-- 4. Security & Credentials -->
       <div class="rounded-lg border border-border bg-card p-4 space-y-3">
         <div class="flex items-center justify-between border-b border-border/60 pb-2">
-          <span class="font-mono font-semibold text-foreground text-xs uppercase tracking-wider">认证凭据与密钥</span>
+          <span class="font-mono font-semibold text-foreground text-xs uppercase tracking-wider"
+            >认证凭据与密钥</span
+          >
           <Button
             variant="ghost"
             size="sm"
@@ -186,21 +200,30 @@
 
         <div class="space-y-2.5 font-mono">
           <div>
-            <label class="text-[10px] text-muted-foreground uppercase block mb-1">UUID / 密码</label>
+            <label class="text-[10px] text-muted-foreground uppercase block mb-1"
+              >UUID / 密码</label
+            >
             <div class="flex items-center gap-1.5">
               <input
                 :value="user.uuid"
                 readonly
                 class="flex-1 bg-neutral-950 border border-border rounded-md px-2.5 py-1 text-xs text-foreground font-mono select-all focus:outline-none"
               />
-              <Button variant="secondary" size="sm" class="h-7 px-2" @click="copyText(user.uuid || '')">
+              <Button
+                variant="secondary"
+                size="sm"
+                class="h-7 px-2"
+                @click="copyText(user.uuid || '')"
+              >
                 <Copy class="w-3 h-3" />
               </Button>
             </div>
           </div>
 
           <div>
-            <label class="text-[10px] text-muted-foreground uppercase block mb-1">订阅安全 Token</label>
+            <label class="text-[10px] text-muted-foreground uppercase block mb-1"
+              >订阅安全 Token</label
+            >
             <div class="flex items-center gap-1.5">
               <input
                 :value="user.subToken || '未生成'"
@@ -220,34 +243,49 @@
           </div>
 
           <div>
-            <label class="text-[10px] text-muted-foreground uppercase block mb-1">通用聚合订阅 URL</label>
+            <label class="text-[10px] text-muted-foreground uppercase block mb-1"
+              >通用聚合订阅 URL</label
+            >
             <div class="flex items-center gap-1.5">
               <input
                 :value="UserSubscriptionService.getDirectTokenSubUrl(user)"
                 readonly
                 class="flex-1 bg-neutral-950 border border-border rounded-md px-2.5 py-1 text-xs text-foreground font-mono select-all focus:outline-none"
               />
-              <Button variant="secondary" size="sm" class="h-7 px-2" @click="copyText(UserSubscriptionService.getDirectTokenSubUrl(user))">
+              <Button
+                variant="secondary"
+                size="sm"
+                class="h-7 px-2"
+                @click="copyText(UserSubscriptionService.getDirectTokenSubUrl(user))"
+              >
                 <Copy class="w-3 h-3" />
               </Button>
             </div>
           </div>
 
           <div>
-            <label class="text-[10px] text-muted-foreground uppercase block mb-1">流控策略 (Flow)</label>
+            <label class="text-[10px] text-muted-foreground uppercase block mb-1"
+              >流控策略 (Flow)</label
+            >
             <div class="flex items-center gap-2">
-              <Badge v-if="user.flow === 'xtls-rprx-vision'" variant="outline" class="text-xs text-cyan-400 border-cyan-500/30 font-mono">
+              <Badge
+                v-if="user.flow === 'xtls-rprx-vision'"
+                variant="outline"
+                class="text-xs text-cyan-400 border-cyan-500/30 font-mono"
+              >
                 xtls-rprx-vision (强制启用 Vision)
               </Badge>
-              <Badge v-else-if="user.flow === 'none'" variant="outline" class="text-xs text-neutral-400 border-neutral-700 font-mono">
+              <Badge
+                v-else-if="user.flow === 'none'"
+                variant="outline"
+                class="text-xs text-neutral-400 border-neutral-700 font-mono"
+              >
                 none (显式禁用流控)
               </Badge>
               <Badge v-else-if="user.flow" variant="outline" class="text-xs font-mono">
                 {{ user.flow }}
               </Badge>
-              <span v-else class="text-xs text-muted-foreground font-mono">
-                跟随节点默认策略
-              </span>
+              <span v-else class="text-xs text-muted-foreground font-mono"> 跟随节点默认策略 </span>
             </div>
           </div>
         </div>
@@ -278,16 +316,23 @@
             <div class="min-w-0 pr-2">
               <div class="text-xs font-semibold text-foreground truncate">{{ tag }}</div>
               <div class="text-[10px] text-muted-foreground mt-0.5">
-                <span v-if="getInboundMeta(tag)">{{ getInboundMeta(tag)?.protocol?.toUpperCase() }} :{{ getInboundMeta(tag)?.port }}</span>
+                <span v-if="getInboundMeta(tag)"
+                  >{{ getInboundMeta(tag)?.protocol?.toUpperCase() }} :{{
+                    getInboundMeta(tag)?.port
+                  }}</span
+                >
                 <span v-else>自定义接入点</span>
-                <span v-if="getSubRoutesCount(tag, user)" class="text-cyan-400 font-bold ml-1.5">({{ getSubRoutesCount(tag, user) }}条线路)</span>
+                <span v-if="getSubRoutesCount(tag, user)" class="text-cyan-400 font-bold ml-1.5"
+                  >({{ getSubRoutesCount(tag, user) }}条线路)</span
+                >
               </div>
             </div>
-            <Badge variant="outline" class="text-[10px] shrink-0 font-mono">
-              已授权
-            </Badge>
+            <Badge variant="outline" class="text-[10px] shrink-0 font-mono"> 已授权 </Badge>
           </div>
-          <div v-if="!getNodeTags(user).length" class="col-span-2 text-center py-4 text-muted-foreground text-xs font-mono">
+          <div
+            v-if="!getNodeTags(user).length"
+            class="col-span-2 text-center py-4 text-muted-foreground text-xs font-mono"
+          >
             暂未绑定入站节点，请点击编辑进行关联
           </div>
         </div>
@@ -296,27 +341,15 @@
 
     <template #footer>
       <div v-if="user" class="flex items-center justify-between w-full">
-        <Button
-          variant="destructive"
-          size="sm"
-          @click="emit('delete', user.id)"
-        >
+        <Button variant="destructive" size="sm" @click="emit('delete', user.id)">
           <Trash2 class="w-3.5 h-3.5 mr-1" />
           <span>删除用户</span>
         </Button>
         <div class="flex items-center gap-2">
-          <Button
-            variant="outline"
-            size="sm"
-            @click="emit('update:modelValue', false)"
-          >
+          <Button variant="outline" size="sm" @click="emit('update:modelValue', false)">
             关闭
           </Button>
-          <Button
-            variant="default"
-            size="sm"
-            @click="emit('edit', user)"
-          >
+          <Button variant="default" size="sm" @click="emit('edit', user)">
             <Edit class="w-3.5 h-3.5 mr-1" />
             <span>编辑配置</span>
           </Button>
@@ -327,14 +360,7 @@
 </template>
 
 <script setup lang="ts">
-import {
-  Copy,
-  QrCode,
-  BarChart2,
-  RotateCcw,
-  Edit,
-  Trash2,
-} from 'lucide-vue-next'
+import { Copy, QrCode, BarChart2, RotateCcw, Edit, Trash2 } from 'lucide-vue-next'
 import { copyText } from '../../../utils/clipboard'
 import { formatBytes, formatDate } from '../../../utils/format'
 import { UserSubscriptionService } from '../services/subscription'
@@ -348,7 +374,9 @@ interface Props {
   modelValue: boolean
   user?: UserItem | null
   availableInbounds: any[]
-  getUserBadgeVariant: (user: UserItem) => 'default' | 'secondary' | 'outline' | 'success' | 'warning' | 'destructive'
+  getUserBadgeVariant: (
+    user: UserItem
+  ) => 'default' | 'secondary' | 'outline' | 'success' | 'warning' | 'destructive'
   getUserStatusText: (user: UserItem) => string
   getTrafficPercent: (user: UserItem) => number
   getTrafficProgressClass: (user: UserItem) => string

@@ -1,32 +1,51 @@
 <template>
   <div class="space-y-4">
     <!-- Header & Controls Bar -->
-    <div class="flex flex-col lg:flex-row items-start lg:items-center justify-between gap-3 pb-2 border-b border-border/60">
+    <div
+      class="flex flex-col lg:flex-row items-start lg:items-center justify-between gap-3 pb-2 border-b border-border/60"
+    >
       <div>
         <div class="flex items-center gap-2">
           <h1 class="text-lg font-semibold text-foreground tracking-tight">运行、访问与审计日志</h1>
-          <span class="text-[10px] px-2 py-0.5 rounded font-mono bg-neutral-900 text-cyan-400 border border-border">
+          <span
+            class="text-[10px] px-2 py-0.5 rounded font-mono bg-neutral-900 text-cyan-400 border border-border"
+          >
             Lightweight Inspector
           </span>
         </div>
-        <p class="text-xs text-muted-foreground mt-0.5">后端定块秒级解析 Xray 客户端访问流向、路由决策、错误诊断与管理审计轨迹</p>
+        <p class="text-xs text-muted-foreground mt-0.5">
+          后端定块秒级解析 Xray 客户端访问流向、路由决策、错误诊断与管理审计轨迹
+        </p>
       </div>
 
       <div class="flex flex-wrap items-center gap-2">
         <!-- View Mode (Table / Terminal) - 仅在非审计模式下展示 -->
-        <div v-if="logType !== 'audit'" class="bg-neutral-900 p-0.5 rounded-md border border-border flex">
+        <div
+          v-if="logType !== 'audit'"
+          class="bg-neutral-900 p-0.5 rounded-md border border-border flex"
+        >
           <button
+            type="button"
             @click="viewMode = 'table'"
             class="px-2.5 py-1 rounded text-xs font-semibold transition-all flex items-center gap-1.5"
-            :class="viewMode === 'table' ? 'bg-neutral-800 text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'"
+            :class="
+              viewMode === 'table'
+                ? 'bg-neutral-800 text-foreground shadow-sm'
+                : 'text-muted-foreground hover:text-foreground'
+            "
           >
             <Table class="w-3.5 h-3.5" />
             <span>结构化表格</span>
           </button>
           <button
+            type="button"
             @click="viewMode = 'terminal'"
             class="px-2.5 py-1 rounded text-xs font-semibold transition-all flex items-center gap-1.5"
-            :class="viewMode === 'terminal' ? 'bg-neutral-800 text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'"
+            :class="
+              viewMode === 'terminal'
+                ? 'bg-neutral-800 text-foreground shadow-sm'
+                : 'text-muted-foreground hover:text-foreground'
+            "
           >
             <Terminal class="w-3.5 h-3.5" />
             <span>原始终端</span>
@@ -36,23 +55,38 @@
         <!-- Log Type (Access / Error / Audit) -->
         <div class="bg-neutral-900 p-0.5 rounded-md border border-border flex">
           <button
+            type="button"
             @click="switchType('access')"
             class="px-2.5 py-1 rounded text-xs font-semibold transition-all"
-            :class="logType === 'access' ? 'bg-emerald-950/60 text-emerald-300 border border-emerald-800/50' : 'text-muted-foreground hover:text-foreground'"
+            :class="
+              logType === 'access'
+                ? 'bg-emerald-950/60 text-emerald-300 border border-emerald-800/50'
+                : 'text-muted-foreground hover:text-foreground'
+            "
           >
             访问 (Access)
           </button>
           <button
+            type="button"
             @click="switchType('error')"
             class="px-2.5 py-1 rounded text-xs font-semibold transition-all"
-            :class="logType === 'error' ? 'bg-rose-950/60 text-rose-300 border border-rose-800/50' : 'text-muted-foreground hover:text-foreground'"
+            :class="
+              logType === 'error'
+                ? 'bg-rose-950/60 text-rose-300 border border-rose-800/50'
+                : 'text-muted-foreground hover:text-foreground'
+            "
           >
             错误 (Error)
           </button>
           <button
+            type="button"
             @click="switchType('audit')"
             class="px-2.5 py-1 rounded text-xs font-semibold transition-all"
-            :class="logType === 'audit' ? 'bg-purple-950/60 text-purple-300 border border-purple-800/50' : 'text-muted-foreground hover:text-foreground'"
+            :class="
+              logType === 'audit'
+                ? 'bg-purple-950/60 text-purple-300 border border-purple-800/50'
+                : 'text-muted-foreground hover:text-foreground'
+            "
           >
             审计 (Audit)
           </button>
@@ -60,16 +94,26 @@
 
         <!-- Auto Refresh Toggle (默认关闭以保持零后台开销) -->
         <button
+          type="button"
           @click="toggleAutoRefresh"
           class="px-2.5 py-1.5 rounded-md text-xs border transition-all flex items-center gap-1.5 font-mono"
-          :class="autoRefresh ? 'bg-emerald-500/10 text-emerald-300 border-emerald-500/30 font-semibold' : 'bg-neutral-950 text-muted-foreground border-border'"
+          :class="
+            autoRefresh
+              ? 'bg-emerald-500/10 text-emerald-300 border-emerald-500/30 font-semibold'
+              : 'bg-neutral-950 text-muted-foreground border-border'
+          "
         >
-          <span class="w-1.5 h-1.5 rounded-full" :class="autoRefresh ? 'bg-emerald-400 animate-ping' : 'bg-neutral-600'"></span>
+          <span
+            class="w-1.5 h-1.5 rounded-full"
+            :class="autoRefresh ? 'bg-emerald-400 animate-ping' : 'bg-neutral-600'"
+          ></span>
           <span>{{ autoRefresh ? '自动刷新 (5s)' : '按需加载' }}</span>
         </button>
 
         <!-- Refresh Button -->
         <button
+          type="button"
+          aria-label="手动刷新"
           @click="fetchLogs"
           :disabled="loading"
           class="p-1.5 rounded-md bg-neutral-950 hover:bg-neutral-900 text-muted-foreground hover:text-foreground border border-border transition-colors"
@@ -80,6 +124,7 @@
 
         <!-- Clear Logs Button (Context-aware) -->
         <button
+          type="button"
           @click="showClearModal = true"
           class="px-2.5 py-1.5 rounded-md bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 border border-rose-500/30 transition-all flex items-center gap-1 text-xs font-semibold"
           :title="logType === 'audit' ? '清空审计记录' : '清空日志文件'"
@@ -91,9 +136,13 @@
     </div>
 
     <!-- Filters & Selectors Card -->
-    <div class="p-3 rounded-lg bg-card border border-border flex flex-col md:flex-row items-stretch md:items-center justify-between gap-2.5">
+    <div
+      class="p-3 rounded-lg bg-card border border-border flex flex-col md:flex-row items-stretch md:items-center justify-between gap-2.5"
+    >
       <!-- Search Input -->
-      <div class="flex items-center gap-2 flex-1 bg-neutral-950 px-2.5 py-1.5 rounded-md border border-border focus-within:ring-1 focus-within:ring-ring transition-colors">
+      <div
+        class="flex items-center gap-2 flex-1 bg-neutral-950 px-2.5 py-1.5 rounded-md border border-border focus-within:ring-1 focus-within:ring-ring transition-colors"
+      >
         <Search class="w-3.5 h-3.5 text-muted-foreground shrink-0" />
         <input
           v-model="searchKeyword"
@@ -102,7 +151,13 @@
           :placeholder="searchPlaceholder"
           class="w-full bg-transparent text-foreground focus:outline-none placeholder:text-muted-foreground font-mono text-xs"
         />
-        <button v-if="searchKeyword" @click="clearKeyword" class="text-muted-foreground hover:text-foreground text-xs">
+        <button
+          v-if="searchKeyword"
+          type="button"
+          aria-label="清除搜索关键字"
+          @click="clearKeyword"
+          class="text-muted-foreground hover:text-foreground text-xs"
+        >
           ✕
         </button>
       </div>
@@ -110,7 +165,10 @@
       <!-- Filters depending on type -->
       <div class="flex flex-wrap items-center gap-2 shrink-0">
         <!-- Inbound Dropdown Filter (Access Mode) -->
-        <div v-if="logType === 'access'" class="flex items-center gap-1.5 bg-black/40 px-3 py-1.5 rounded-xl border border-gray-800 text-xs">
+        <div
+          v-if="logType === 'access'"
+          class="flex items-center gap-1.5 bg-black/40 px-3 py-1.5 rounded-xl border border-gray-800 text-xs"
+        >
           <Radio class="w-3.5 h-3.5 text-cyan-400 shrink-0" />
           <span class="text-gray-400 shrink-0">入站:</span>
           <select
@@ -119,14 +177,22 @@
             class="bg-transparent text-white font-mono font-medium focus:outline-none cursor-pointer pr-2 text-xs"
           >
             <option value="" class="bg-gray-900 text-gray-300">全部入站</option>
-            <option v-for="tag in inboundOptions" :key="tag" :value="tag" class="bg-gray-900 text-cyan-300">
+            <option
+              v-for="tag in inboundOptions"
+              :key="tag"
+              :value="tag"
+              class="bg-gray-900 text-cyan-300"
+            >
               {{ tag }}
             </option>
           </select>
         </div>
 
         <!-- Outbound Dropdown Filter (Access Mode) -->
-        <div v-if="logType === 'access'" class="flex items-center gap-1.5 bg-black/40 px-3 py-1.5 rounded-xl border border-gray-800 text-xs">
+        <div
+          v-if="logType === 'access'"
+          class="flex items-center gap-1.5 bg-black/40 px-3 py-1.5 rounded-xl border border-gray-800 text-xs"
+        >
           <Send class="w-3.5 h-3.5 text-emerald-400 shrink-0" />
           <span class="text-gray-400 shrink-0">出站:</span>
           <select
@@ -135,14 +201,22 @@
             class="bg-transparent text-white font-mono font-medium focus:outline-none cursor-pointer pr-2 text-xs"
           >
             <option value="" class="bg-gray-900 text-gray-300">全部出站</option>
-            <option v-for="tag in outboundOptions" :key="tag" :value="tag" class="bg-gray-900 text-emerald-300">
+            <option
+              v-for="tag in outboundOptions"
+              :key="tag"
+              :value="tag"
+              class="bg-gray-900 text-emerald-300"
+            >
               {{ tag }}
             </option>
           </select>
         </div>
 
         <!-- User Dropdown Filter (Access Mode) -->
-        <div v-if="logType === 'access'" class="flex items-center gap-1.5 bg-black/40 px-3 py-1.5 rounded-xl border border-gray-800 text-xs">
+        <div
+          v-if="logType === 'access'"
+          class="flex items-center gap-1.5 bg-black/40 px-3 py-1.5 rounded-xl border border-gray-800 text-xs"
+        >
           <User class="w-3.5 h-3.5 text-indigo-400 shrink-0" />
           <span class="text-gray-400 shrink-0">用户:</span>
           <select
@@ -150,14 +224,22 @@
             class="bg-transparent text-white font-mono font-medium focus:outline-none cursor-pointer pr-2 text-xs"
           >
             <option value="" class="bg-gray-900 text-gray-300">全部用户</option>
-            <option v-for="email in userOptions" :key="email" :value="email" class="bg-gray-900 text-indigo-300">
+            <option
+              v-for="email in userOptions"
+              :key="email"
+              :value="email"
+              class="bg-gray-900 text-indigo-300"
+            >
               {{ email }}
             </option>
           </select>
         </div>
 
         <!-- Level Filter (Error Mode) -->
-        <div v-else-if="logType === 'error'" class="flex items-center gap-1.5 bg-black/40 px-3 py-1.5 rounded-xl border border-gray-800 text-xs">
+        <div
+          v-else-if="logType === 'error'"
+          class="flex items-center gap-1.5 bg-black/40 px-3 py-1.5 rounded-xl border border-gray-800 text-xs"
+        >
           <ShieldAlert class="w-3.5 h-3.5 text-amber-400 shrink-0" />
           <span class="text-gray-400 shrink-0">级别:</span>
           <select
@@ -173,7 +255,10 @@
         </div>
 
         <!-- Action Category Filter (Audit Mode) -->
-        <div v-else-if="logType === 'audit'" class="flex items-center gap-1.5 bg-black/40 px-3 py-1.5 rounded-xl border border-gray-800 text-xs">
+        <div
+          v-else-if="logType === 'audit'"
+          class="flex items-center gap-1.5 bg-black/40 px-3 py-1.5 rounded-xl border border-gray-800 text-xs"
+        >
           <ShieldCheck class="w-3.5 h-3.5 text-purple-400 shrink-0" />
           <span class="text-gray-400 shrink-0">动作:</span>
           <select
@@ -181,7 +266,12 @@
             @change="fetchLogs"
             class="bg-transparent text-white font-mono font-medium focus:outline-none cursor-pointer pr-2 text-xs max-w-[160px] truncate"
           >
-            <option v-for="opt in auditActionOptions" :key="opt.value" :value="opt.value" class="bg-gray-900 text-gray-300">
+            <option
+              v-for="opt in auditActionOptions"
+              :key="opt.value"
+              :value="opt.value"
+              class="bg-gray-900 text-gray-300"
+            >
               {{ opt.label }}
             </option>
           </select>
@@ -213,10 +303,17 @@
 
         <!-- Sort Order (Desc / Asc) -->
         <button
+          type="button"
           @click="toggleSortOrder"
           class="px-3 py-2 rounded-xl text-xs border transition-all flex items-center gap-1.5 shadow-sm font-mono"
-          :class="sortOrder === 'desc' ? 'bg-indigo-500/15 text-indigo-300 border-indigo-500/30 font-semibold' : 'bg-gray-900/80 text-gray-400 border-gray-800'"
-          :title="sortOrder === 'desc' ? '当前：最新记录在顶端 (倒序)' : '当前：旧记录在顶端 (正序)'"
+          :class="
+            sortOrder === 'desc'
+              ? 'bg-indigo-500/15 text-indigo-300 border-indigo-500/30 font-semibold'
+              : 'bg-gray-900/80 text-gray-400 border-gray-800'
+          "
+          :title="
+            sortOrder === 'desc' ? '当前：最新记录在顶端 (倒序)' : '当前：旧记录在顶端 (正序)'
+          "
         >
           <ArrowUpDown class="w-3.5 h-3.5" />
           <span>{{ sortOrder === 'desc' ? '最新在顶' : '正序排列' }}</span>
@@ -228,30 +325,67 @@
     <div v-if="logType === 'access' && viewMode === 'table'" class="space-y-3">
       <!-- Desktop Access Table -->
       <div v-if="isDesktop" class="rounded-lg border border-border overflow-hidden bg-neutral-950">
-        <div class="px-4 py-2.5 bg-neutral-900 border-b border-border flex items-center justify-between text-xs">
+        <div
+          class="px-4 py-2.5 bg-neutral-900 border-b border-border flex items-center justify-between text-xs"
+        >
           <div class="flex items-center gap-2 font-mono text-foreground font-semibold">
             <span class="w-2 h-2 rounded-full bg-emerald-400"></span>
             <span>结构化访问记录 (共 {{ filteredAccessLogs.length }} 条)</span>
           </div>
           <div class="flex items-center gap-2">
-            <span v-if="selectedInbound" class="text-cyan-400 font-mono text-[11px] bg-neutral-950 px-2 py-0.5 rounded border border-border flex items-center gap-1">
-              入站节点: {{ selectedInbound }}
-              <button @click="selectedInbound = ''; onInboundSelectChange()" class="hover:text-white" title="清除入站过滤">✕</button>
+            <span
+              v-if="selectedInbound"
+              class="text-cyan-400 font-mono text-[11px] bg-neutral-950 px-2 py-0.5 rounded border border-border flex items-center gap-1"
+            >
+              入站节点：{{ selectedInbound }}
+              <button
+                type="button"
+                aria-label="清除入站过滤"
+                @click="clearInboundFilter"
+                class="hover:text-white"
+                title="清除入站过滤"
+              >
+                ✕
+              </button>
             </span>
-            <span v-if="selectedOutbound" class="text-emerald-400 font-mono text-[11px] bg-neutral-950 px-2 py-0.5 rounded border border-border flex items-center gap-1">
-              出站分流: {{ selectedOutbound }}
-              <button @click="selectedOutbound = ''; fetchLogs()" class="hover:text-white" title="清除出站过滤">✕</button>
+            <span
+              v-if="selectedOutbound"
+              class="text-emerald-400 font-mono text-[11px] bg-neutral-950 px-2 py-0.5 rounded border border-border flex items-center gap-1"
+            >
+              出站分流：{{ selectedOutbound }}
+              <button
+                type="button"
+                aria-label="清除出站过滤"
+                @click="clearOutboundFilter"
+                class="hover:text-white"
+                title="清除出站过滤"
+              >
+                ✕
+              </button>
             </span>
-            <span v-if="selectedUserEmail" class="text-indigo-400 font-mono text-[11px] bg-neutral-950 px-2 py-0.5 rounded border border-border flex items-center gap-1">
-              过滤用户: {{ selectedUserEmail }}
-              <button @click="selectedUserEmail = ''" class="hover:text-white" title="清除用户过滤">✕</button>
+            <span
+              v-if="selectedUserEmail"
+              class="text-indigo-400 font-mono text-[11px] bg-neutral-950 px-2 py-0.5 rounded border border-border flex items-center gap-1"
+            >
+              过滤用户：{{ selectedUserEmail }}
+              <button
+                type="button"
+                aria-label="清除用户过滤"
+                @click="selectedUserEmail = ''"
+                class="hover:text-white"
+                title="清除用户过滤"
+              >
+                ✕
+              </button>
             </span>
           </div>
         </div>
 
         <div class="overflow-x-auto max-h-[620px] overflow-y-auto">
           <table class="w-full text-left text-xs border-collapse font-sans">
-            <thead class="text-muted-foreground bg-neutral-900 border-b border-border sticky top-0 z-10 text-[11px] font-mono uppercase tracking-wider">
+            <thead
+              class="text-muted-foreground bg-neutral-900 border-b border-border sticky top-0 z-10 text-[11px] font-mono uppercase tracking-wider"
+            >
               <tr>
                 <th class="py-3 px-4">时间</th>
                 <th class="py-3 px-4">用户 Email</th>
@@ -299,7 +433,7 @@
                       v-if="row.inbound_tag"
                       @click="syncRouteQuery('access', row.inbound_tag)"
                       class="px-2 py-0.5 rounded text-[11px] font-bold font-mono bg-cyan-500/10 text-cyan-300 border border-cyan-500/30 hover:bg-cyan-500/20 cursor-pointer transition-all"
-                      :title="'点击以此入站过滤: ' + row.inbound_tag"
+                      :title="'点击以此入站过滤：' + row.inbound_tag"
                     >
                       {{ row.inbound_tag }}
                     </span>
@@ -308,7 +442,7 @@
                       class="px-2 py-0.5 rounded text-[11px] font-bold font-mono border cursor-pointer hover:brightness-125 transition-all"
                       :class="getRouteBadgeClass(row.outbound_tag || row.route)"
                       @click="setFilterOutbound(row.outbound_tag || row.route)"
-                      :title="'点击以此出站过滤: ' + (row.outbound_tag || row.route || 'direct')"
+                      :title="'点击以此出站过滤：' + (row.outbound_tag || row.route || 'direct')"
                     >
                       {{ row.outbound_tag || row.route || 'direct' }}
                     </span>
@@ -318,7 +452,7 @@
                     class="px-2.5 py-1 rounded-lg text-[11px] font-bold border cursor-pointer hover:brightness-125 transition-all"
                     :class="getRouteBadgeClass(row.route)"
                     @click="setFilterOutbound(row.route)"
-                    :title="'点击以此出站过滤: ' + (row.route || 'direct')"
+                    :title="'点击以此出站过滤：' + (row.route || 'direct')"
                   >
                     {{ row.route || 'direct' }}
                   </span>
@@ -328,7 +462,11 @@
                 <td class="py-3 px-4 text-center whitespace-nowrap">
                   <span
                     class="px-2 py-0.5 rounded text-[10px] font-semibold font-mono"
-                    :class="row.action === 'accepted' ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' : 'bg-rose-500/10 text-rose-400 border border-rose-500/20'"
+                    :class="
+                      row.action === 'accepted'
+                        ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
+                        : 'bg-rose-500/10 text-rose-400 border border-rose-500/20'
+                    "
                   >
                     {{ row.action || 'accepted' }}
                   </span>
@@ -356,7 +494,11 @@
             <span class="text-muted-foreground">{{ row.time }}</span>
             <span
               class="px-2 py-0.5 rounded text-[10px] font-bold"
-              :class="row.action === 'accepted' ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/30' : 'bg-rose-500/15 text-rose-400 border border-rose-500/30'"
+              :class="
+                row.action === 'accepted'
+                  ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/30'
+                  : 'bg-rose-500/15 text-rose-400 border border-rose-500/30'
+              "
             >
               {{ row.action || 'accepted' }}
             </span>
@@ -368,14 +510,21 @@
             <span class="text-foreground">{{ row.target }}</span>
           </div>
 
-          <div class="flex items-center justify-between text-[11px] font-mono pt-1.5 border-t border-border/50">
-            <span class="text-indigo-300 font-medium truncate max-w-[140px]">{{ row.email || '匿名' }}</span>
-            <div v-if="row.inbound_tag || row.outbound_tag" class="flex items-center gap-1 shrink-0">
+          <div
+            class="flex items-center justify-between text-[11px] font-mono pt-1.5 border-t border-border/50"
+          >
+            <span class="text-indigo-300 font-medium truncate max-w-[140px]">{{
+              row.email || '匿名'
+            }}</span>
+            <div
+              v-if="row.inbound_tag || row.outbound_tag"
+              class="flex items-center gap-1 shrink-0"
+            >
               <span
                 v-if="row.inbound_tag"
                 @click="syncRouteQuery('access', row.inbound_tag)"
                 class="px-1.5 py-0.5 rounded text-[10px] font-bold bg-neutral-900 text-cyan-300 border border-border cursor-pointer hover:bg-neutral-800 transition-all"
-                :title="'点击以此入站过滤: ' + row.inbound_tag"
+                :title="'点击以此入站过滤：' + row.inbound_tag"
               >
                 {{ row.inbound_tag }}
               </span>
@@ -384,7 +533,7 @@
                 class="px-1.5 py-0.5 rounded text-[10px] font-bold border cursor-pointer hover:brightness-125 transition-all"
                 :class="getRouteBadgeClass(row.outbound_tag || row.route)"
                 @click="setFilterOutbound(row.outbound_tag || row.route)"
-                :title="'点击以此出站过滤: ' + (row.outbound_tag || row.route || 'direct')"
+                :title="'点击以此出站过滤：' + (row.outbound_tag || row.route || 'direct')"
               >
                 {{ row.outbound_tag || row.route || 'direct' }}
               </span>
@@ -394,14 +543,17 @@
               class="px-2 py-0.5 rounded text-[10px] font-bold border shrink-0 cursor-pointer hover:brightness-125 transition-all"
               :class="getRouteBadgeClass(row.route)"
               @click="setFilterOutbound(row.route)"
-              :title="'点击以此出站过滤: ' + (row.route || 'direct')"
+              :title="'点击以此出站过滤：' + (row.route || 'direct')"
             >
               {{ row.route || 'direct' }}
             </span>
           </div>
         </div>
 
-        <div v-if="!filteredAccessLogs.length" class="text-center py-12 text-muted-foreground font-sans text-xs rounded-lg bg-card border border-border">
+        <div
+          v-if="!filteredAccessLogs.length"
+          class="text-center py-12 text-muted-foreground font-sans text-xs rounded-lg bg-card border border-border"
+        >
           暂无符合条件的访问记录
         </div>
       </div>
@@ -411,19 +563,21 @@
     <div v-else-if="logType === 'error' && viewMode === 'table'" class="space-y-3">
       <!-- Desktop Error Table -->
       <div v-if="isDesktop" class="rounded-lg border border-border overflow-hidden bg-neutral-950">
-        <div class="px-4 py-2.5 bg-neutral-900 border-b border-border flex items-center justify-between text-xs">
+        <div
+          class="px-4 py-2.5 bg-neutral-900 border-b border-border flex items-center justify-between text-xs"
+        >
           <div class="flex items-center gap-2 font-mono text-foreground font-semibold">
             <span class="w-2 h-2 rounded-full bg-rose-400"></span>
             <span>结构化错误与诊断报告 (共 {{ filteredErrorLogs.length }} 条)</span>
           </div>
-          <div class="text-muted-foreground font-mono text-[11px]">
-            后端即时故障诊断
-          </div>
+          <div class="text-muted-foreground font-mono text-[11px]">后端即时故障诊断</div>
         </div>
 
         <div class="overflow-x-auto max-h-[620px] overflow-y-auto">
           <table class="w-full text-left text-[13px] border-collapse font-sans">
-            <thead class="text-muted-foreground bg-neutral-900 border-b border-border sticky top-0 z-10 text-xs font-semibold uppercase tracking-wider">
+            <thead
+              class="text-muted-foreground bg-neutral-900 border-b border-border sticky top-0 z-10 text-xs font-semibold uppercase tracking-wider"
+            >
               <tr>
                 <th class="py-3 px-4">时间</th>
                 <th class="py-3 px-4">级别</th>
@@ -452,7 +606,9 @@
 
                 <!-- Module -->
                 <td class="py-3 px-4 whitespace-nowrap">
-                  <span class="px-2 py-0.5 rounded bg-gray-800/80 text-gray-300 border border-gray-700 text-[11px]">
+                  <span
+                    class="px-2 py-0.5 rounded bg-gray-800/80 text-gray-300 border border-gray-700 text-[11px]"
+                  >
                     {{ row.module || 'core' }}
                   </span>
                 </td>
@@ -462,8 +618,11 @@
                   <div class="flex items-start gap-2">
                     <span class="font-mono text-gray-300">{{ row.message }}</span>
                   </div>
-                  <div v-if="row.smartTip" class="mt-1 text-[11px] text-amber-300/90 flex items-center gap-1 font-mono">
-                    <span>💡 诊断建议: {{ row.smartTip }}</span>
+                  <div
+                    v-if="row.smartTip"
+                    class="mt-1 text-[11px] text-amber-300/90 flex items-center gap-1 font-mono"
+                  >
+                    <span>💡 诊断建议：{{ row.smartTip }}</span>
                   </div>
                 </td>
               </tr>
@@ -496,17 +655,28 @@
           </div>
 
           <div class="text-[11px] font-mono text-muted-foreground flex items-center gap-1.5">
-            <span class="px-1.5 py-0.5 rounded bg-neutral-900 text-neutral-300 border border-border text-[10px]">{{ row.module || 'core' }}</span>
+            <span
+              class="px-1.5 py-0.5 rounded bg-neutral-900 text-neutral-300 border border-border text-[10px]"
+              >{{ row.module || 'core' }}</span
+            >
           </div>
 
-          <div class="text-xs font-mono text-foreground break-all leading-relaxed">{{ row.message }}</div>
+          <div class="text-xs font-mono text-foreground break-all leading-relaxed">
+            {{ row.message }}
+          </div>
 
-          <div v-if="row.smartTip" class="text-[11px] text-amber-300 bg-amber-950/40 p-2.5 rounded-md border border-amber-800/50 font-mono">
+          <div
+            v-if="row.smartTip"
+            class="text-[11px] text-amber-300 bg-amber-950/40 p-2.5 rounded-md border border-amber-800/50 font-mono"
+          >
             💡 {{ row.smartTip }}
           </div>
         </div>
 
-        <div v-if="!filteredErrorLogs.length" class="text-center py-12 text-muted-foreground font-sans text-xs rounded-lg bg-card border border-border">
+        <div
+          v-if="!filteredErrorLogs.length"
+          class="text-center py-12 text-muted-foreground font-sans text-xs rounded-lg bg-card border border-border"
+        >
           暂无匹配的错误诊断日志
         </div>
       </div>
@@ -516,7 +686,9 @@
     <div v-else-if="logType === 'audit'" class="space-y-3">
       <!-- Desktop Audit Table -->
       <div v-if="isDesktop" class="rounded-lg border border-border overflow-hidden bg-neutral-950">
-        <div class="px-4 py-2.5 bg-neutral-900 border-b border-border flex items-center justify-between text-xs">
+        <div
+          class="px-4 py-2.5 bg-neutral-900 border-b border-border flex items-center justify-between text-xs"
+        >
           <div class="flex items-center gap-2 font-mono text-foreground font-semibold">
             <span class="w-2 h-2 rounded-full bg-purple-400"></span>
             <span>管理审查日志 (共 {{ auditTotal }} 条记录)</span>
@@ -528,7 +700,9 @@
 
         <div class="overflow-x-auto max-h-[620px] overflow-y-auto">
           <table class="w-full text-left text-[13px] border-collapse font-sans">
-            <thead class="text-muted-foreground bg-neutral-900 border-b border-border sticky top-0 z-10 text-xs font-semibold uppercase tracking-wider">
+            <thead
+              class="text-muted-foreground bg-neutral-900 border-b border-border sticky top-0 z-10 text-xs font-semibold uppercase tracking-wider"
+            >
               <tr>
                 <th class="py-3 px-4">操作时间</th>
                 <th class="py-3 px-4">操作人</th>
@@ -547,11 +721,15 @@
                 class="hover:bg-white/[0.03] transition-colors"
               >
                 <!-- Time -->
-                <td class="py-3 px-4 text-gray-400 whitespace-nowrap">{{ formatAuditTime(row.createdAt) }}</td>
+                <td class="py-3 px-4 text-gray-400 whitespace-nowrap">
+                  {{ formatAuditTime(row.createdAt) }}
+                </td>
 
                 <!-- Operator -->
                 <td class="py-3 px-4 whitespace-nowrap">
-                  <span class="px-2 py-0.5 rounded bg-gray-800/80 text-purple-300 border border-purple-500/20 font-semibold text-[11px]">
+                  <span
+                    class="px-2 py-0.5 rounded bg-gray-800/80 text-purple-300 border border-purple-500/20 font-semibold text-[11px]"
+                  >
                     {{ row.operator || 'system' }}
                   </span>
                 </td>
@@ -570,7 +748,10 @@
                 </td>
 
                 <!-- Target -->
-                <td class="py-3 px-4 text-gray-200 font-medium whitespace-nowrap max-w-[150px] truncate" :title="row.target">
+                <td
+                  class="py-3 px-4 text-gray-200 font-medium whitespace-nowrap max-w-[150px] truncate"
+                  :title="row.target"
+                >
                   {{ row.target || '-' }}
                 </td>
 
@@ -578,20 +759,28 @@
                 <td class="py-3 px-4 text-center whitespace-nowrap">
                   <span
                     class="px-2 py-0.5 rounded text-[10px] font-semibold"
-                    :class="row.status === 'SUCCESS' ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' : 'bg-rose-500/10 text-rose-400 border border-rose-500/20'"
+                    :class="
+                      row.status === 'SUCCESS'
+                        ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
+                        : 'bg-rose-500/10 text-rose-400 border border-rose-500/20'
+                    "
                   >
                     {{ row.status || 'SUCCESS' }}
                   </span>
                 </td>
 
                 <!-- Details Preview -->
-                <td class="py-3 px-4 text-gray-300 font-sans text-xs max-w-[280px] truncate" :title="row.details">
+                <td
+                  class="py-3 px-4 text-gray-300 font-sans text-xs max-w-[280px] truncate"
+                  :title="row.details"
+                >
                   {{ row.details || '-' }}
                 </td>
 
                 <!-- Action / Detail Button -->
                 <td class="py-3 px-4 text-center whitespace-nowrap">
                   <button
+                    type="button"
                     @click="selectedAuditDetail = row"
                     class="px-2.5 py-1 rounded-lg text-[11px] bg-gray-800/80 hover:bg-gray-700 text-indigo-300 border border-gray-700 transition-colors inline-flex items-center gap-1 font-sans font-medium"
                   >
@@ -611,12 +800,15 @@
         </div>
 
         <!-- Audit Pagination Bar -->
-        <div class="px-5 py-3 bg-gray-950/80 border-t border-gray-800 flex items-center justify-between text-xs font-mono">
+        <div
+          class="px-5 py-3 bg-gray-950/80 border-t border-gray-800 flex items-center justify-between text-xs font-mono"
+        >
           <div class="text-gray-400">
             共 {{ auditTotal }} 条记录，当前第 {{ auditPage }} / {{ auditTotalPages }} 页
           </div>
           <div class="flex items-center gap-2">
             <button
+              type="button"
               @click="changeAuditPage(auditPage - 1)"
               :disabled="auditPage <= 1"
               class="px-3 py-1.5 rounded-lg border border-gray-800 bg-gray-900 text-gray-300 hover:text-white disabled:opacity-40 disabled:cursor-not-allowed transition-all flex items-center gap-1"
@@ -625,6 +817,7 @@
               <span>上一页</span>
             </button>
             <button
+              type="button"
               @click="changeAuditPage(auditPage + 1)"
               :disabled="auditPage >= auditTotalPages"
               class="px-3 py-1.5 rounded-lg border border-gray-800 bg-gray-900 text-gray-300 hover:text-white disabled:opacity-40 disabled:cursor-not-allowed transition-all flex items-center gap-1"
@@ -647,14 +840,20 @@
             <span class="text-muted-foreground">{{ formatAuditTime(row.createdAt) }}</span>
             <span
               class="px-2 py-0.5 rounded text-[10px] font-bold"
-              :class="row.status === 'SUCCESS' ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/30' : 'bg-rose-500/15 text-rose-400 border border-rose-500/30'"
+              :class="
+                row.status === 'SUCCESS'
+                  ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/30'
+                  : 'bg-rose-500/15 text-rose-400 border border-rose-500/30'
+              "
             >
               {{ row.status || 'SUCCESS' }}
             </span>
           </div>
 
           <div class="flex items-center justify-between text-[11px] font-mono">
-            <span class="text-purple-300 font-semibold">{{ row.operator || 'system' }} ({{ row.clientIp || '-' }})</span>
+            <span class="text-purple-300 font-semibold"
+              >{{ row.operator || 'system' }} ({{ row.clientIp || '-' }})</span
+            >
             <span
               class="px-2 py-0.5 rounded text-[10px] font-bold border"
               :class="getAuditActionBadge(row.action)"
@@ -664,16 +863,19 @@
           </div>
 
           <div class="text-foreground font-sans text-xs break-all">
-            <span class="text-muted-foreground font-mono">对象: </span>
+            <span class="text-muted-foreground font-mono">对象：</span>
             <span class="font-semibold text-foreground">{{ row.target || '-' }}</span>
           </div>
 
-          <div class="text-muted-foreground font-sans text-xs bg-neutral-950 p-2 rounded-md border border-border break-all line-clamp-2">
+          <div
+            class="text-muted-foreground font-sans text-xs bg-neutral-950 p-2 rounded-md border border-border break-all line-clamp-2"
+          >
             {{ row.details || '-' }}
           </div>
 
           <div class="pt-1 flex justify-end">
             <button
+              type="button"
               @click="selectedAuditDetail = row"
               class="px-2.5 py-1 rounded-md text-xs bg-neutral-900 hover:bg-neutral-800 text-indigo-300 border border-border transition-colors flex items-center gap-1 font-sans"
             >
@@ -683,15 +885,22 @@
           </div>
         </div>
 
-        <div v-if="!displayedAuditLogs.length" class="text-center py-12 text-muted-foreground font-sans text-xs rounded-lg bg-card border border-border">
+        <div
+          v-if="!displayedAuditLogs.length"
+          class="text-center py-12 text-muted-foreground font-sans text-xs rounded-lg bg-card border border-border"
+        >
           暂无匹配的管理审查日志
         </div>
 
         <!-- Mobile Pagination -->
-        <div v-if="displayedAuditLogs.length" class="flex items-center justify-between p-3 rounded-lg bg-card border border-border text-xs font-mono">
+        <div
+          v-if="displayedAuditLogs.length"
+          class="flex items-center justify-between p-3 rounded-lg bg-card border border-border text-xs font-mono"
+        >
           <span class="text-muted-foreground">{{ auditPage }} / {{ auditTotalPages }} 页</span>
           <div class="flex items-center gap-2">
             <button
+              type="button"
               @click="changeAuditPage(auditPage - 1)"
               :disabled="auditPage <= 1"
               class="px-2.5 py-1 rounded-md border border-border bg-neutral-900 text-foreground disabled:opacity-40"
@@ -699,6 +908,7 @@
               上页
             </button>
             <button
+              type="button"
               @click="changeAuditPage(auditPage + 1)"
               :disabled="auditPage >= auditTotalPages"
               class="px-2.5 py-1 rounded-md border border-border bg-neutral-900 text-foreground disabled:opacity-40"
@@ -713,7 +923,9 @@
     <!-- 4. Terminal High-Contrast Log View (Raw Mode) -->
     <div v-else class="rounded-lg border border-border overflow-hidden bg-neutral-950">
       <!-- Terminal Header -->
-      <div class="flex items-center justify-between px-3.5 py-2 bg-neutral-900 border-b border-border text-xs">
+      <div
+        class="flex items-center justify-between px-3.5 py-2 bg-neutral-900 border-b border-border text-xs"
+      >
         <div class="flex items-center gap-2">
           <span class="w-2.5 h-2.5 rounded-full bg-rose-500/80 inline-block"></span>
           <span class="w-2.5 h-2.5 rounded-full bg-amber-500/80 inline-block"></span>
@@ -738,13 +950,18 @@
           class="py-0.5 px-2 rounded hover:bg-neutral-900 transition-colors flex items-start gap-3"
           :class="highlightLine(item.text)"
         >
-          <span class="text-muted-foreground select-none shrink-0 w-10 text-right font-mono text-xs pt-0.5">
+          <span
+            class="text-muted-foreground select-none shrink-0 w-10 text-right font-mono text-xs pt-0.5"
+          >
             {{ Number(idx) + 1 }}
           </span>
           <span class="break-all whitespace-pre-wrap flex-1">{{ item.text }}</span>
         </div>
 
-        <div v-if="!filteredRawLines.length" class="text-center text-muted-foreground py-24 font-sans text-xs">
+        <div
+          v-if="!filteredRawLines.length"
+          class="text-center text-muted-foreground py-24 font-sans text-xs"
+        >
           暂无符合条件的日志记录
         </div>
       </div>
@@ -762,23 +979,31 @@
           </div>
           <div>
             <h3 class="text-sm font-bold text-foreground">
-              {{ logType === 'audit' ? '确认清空管理审查日志' : `确认清空 ${logType === 'access' ? '访问' : '错误'} 日志` }}
+              {{
+                logType === 'audit'
+                  ? '确认清空管理审查日志'
+                  : `确认清空 ${logType === 'access' ? '访问' : '错误'} 日志`
+              }}
             </h3>
             <p class="text-xs text-muted-foreground mt-0.5">高危维护操作，请谨慎确认</p>
           </div>
         </div>
 
-        <div class="bg-rose-950/20 p-3 rounded-md border border-rose-800/40 text-xs text-rose-300 leading-relaxed font-sans">
+        <div
+          class="bg-rose-950/20 p-3 rounded-md border border-rose-800/40 text-xs text-rose-300 leading-relaxed font-sans"
+        >
           <p v-if="logType === 'audit'">
             确定要清空所有管理员操作审查日志吗？清空后历史操作痕迹将不可恢复，且该清空操作本身将被记入新的审计条目。
           </p>
           <p v-else>
-            确定要清空当前的 <strong>xray-{{ logType }}.log</strong> 磁盘文件吗？已记录的数据将被截断置空且无法撤销。
+            确定要清空当前的
+            <strong>xray-{{ logType }}.log</strong> 磁盘文件吗？已记录的数据将被截断置空且无法撤销。
           </p>
         </div>
 
         <div class="flex items-center justify-end gap-2.5 pt-2 border-t border-border">
           <button
+            type="button"
             @click="showClearModal = false"
             :disabled="clearing"
             class="px-3.5 py-1.5 rounded-md text-xs font-semibold text-muted-foreground hover:text-foreground bg-neutral-900 border border-border transition-colors"
@@ -786,6 +1011,7 @@
             取消
           </button>
           <button
+            type="button"
             @click="handleClearConfirm"
             :disabled="clearing"
             class="px-3.5 py-1.5 rounded-md text-xs font-semibold text-white bg-rose-600 hover:bg-rose-500 transition-all flex items-center gap-1.5 disabled:opacity-50"
@@ -803,13 +1029,19 @@
       v-if="selectedAuditDetail"
       class="fixed inset-0 z-50 bg-black/75 flex items-center justify-center p-4 animate-fade-in"
     >
-      <div class="w-full max-w-2xl p-5 rounded-lg border border-border bg-card shadow-2xl space-y-4 max-h-[90vh] flex flex-col">
+      <div
+        class="w-full max-w-2xl p-5 rounded-lg border border-border bg-card shadow-2xl space-y-4 max-h-[90vh] flex flex-col"
+      >
         <div class="flex items-center justify-between pb-2 border-b border-border">
           <div class="flex items-center gap-2">
             <ShieldCheck class="w-4 h-4 text-purple-400" />
-            <h3 class="text-sm font-bold text-foreground">审查日志详细记录 #{{ selectedAuditDetail.id }}</h3>
+            <h3 class="text-sm font-bold text-foreground">
+              审查日志详细记录 #{{ selectedAuditDetail.id }}
+            </h3>
           </div>
           <button
+            type="button"
+            aria-label="关闭"
             @click="selectedAuditDetail = null"
             class="p-1 rounded-md text-muted-foreground hover:text-foreground hover:bg-neutral-800 transition-colors"
           >
@@ -822,11 +1054,15 @@
           <div class="grid grid-cols-2 sm:grid-cols-3 gap-3 text-xs font-mono">
             <div class="bg-black/40 p-3 rounded-xl border border-gray-800/80">
               <span class="text-gray-500 block text-[11px] mb-1">操作时间</span>
-              <span class="text-gray-200">{{ formatAuditTime(selectedAuditDetail.createdAt) }}</span>
+              <span class="text-gray-200">{{
+                formatAuditTime(selectedAuditDetail.createdAt)
+              }}</span>
             </div>
             <div class="bg-black/40 p-3 rounded-xl border border-gray-800/80">
               <span class="text-gray-500 block text-[11px] mb-1">操作人员</span>
-              <span class="text-purple-300 font-semibold">{{ selectedAuditDetail.operator || 'system' }}</span>
+              <span class="text-purple-300 font-semibold">{{
+                selectedAuditDetail.operator || 'system'
+              }}</span>
             </div>
             <div class="bg-black/40 p-3 rounded-xl border border-gray-800/80">
               <span class="text-gray-500 block text-[11px] mb-1">客户端 IP</span>
@@ -849,7 +1085,11 @@
               <span class="text-gray-500 block text-[11px] mb-1">执行状态</span>
               <span
                 class="px-2 py-0.5 rounded text-[10px] font-bold inline-block"
-                :class="selectedAuditDetail.status === 'SUCCESS' ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/30' : 'bg-rose-500/15 text-rose-400 border border-rose-500/30'"
+                :class="
+                  selectedAuditDetail.status === 'SUCCESS'
+                    ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/30'
+                    : 'bg-rose-500/15 text-rose-400 border border-rose-500/30'
+                "
               >
                 {{ selectedAuditDetail.status || 'SUCCESS' }}
               </span>
@@ -859,7 +1099,9 @@
           <!-- Full Details Payload -->
           <div class="space-y-1.5">
             <span class="text-xs font-semibold text-gray-300">变更记录详情与载荷</span>
-            <div class="bg-black/60 p-4 rounded-xl border border-gray-800 font-mono text-xs text-gray-200 break-all whitespace-pre-wrap select-text max-h-[280px] overflow-y-auto leading-relaxed">
+            <div
+              class="bg-black/60 p-4 rounded-xl border border-gray-800 font-mono text-xs text-gray-200 break-all whitespace-pre-wrap select-text max-h-[280px] overflow-y-auto leading-relaxed"
+            >
               {{ selectedAuditDetail.details || '(无附加详情)' }}
             </div>
           </div>
@@ -867,6 +1109,7 @@
 
         <div class="pt-3 border-t border-gray-800 flex justify-end">
           <button
+            type="button"
             @click="selectedAuditDetail = null"
             class="px-4 py-2 rounded-xl text-xs font-semibold text-white bg-indigo-600 hover:bg-indigo-500 transition-colors shadow-md"
           >
@@ -926,7 +1169,9 @@ let isUnmounted = false
 const auditPage = ref(1)
 const auditPageSize = ref(50)
 const auditTotal = ref(0)
-const auditTotalPages = computed(() => Math.max(1, Math.ceil(auditTotal.value / auditPageSize.value)))
+const auditTotalPages = computed(() =>
+  Math.max(1, Math.ceil(auditTotal.value / auditPageSize.value))
+)
 
 // 弹窗状态
 const showClearModal = ref(false)
@@ -1008,7 +1253,7 @@ const syncRouteQuery = (type: 'access' | 'error' | 'audit', inbound?: string) =>
   const currentType = (route.query.type as string) || 'access'
   const currentInbound = (route.query.inbound as string) || ''
   const targetType = type
-  const targetInbound = type === 'access' ? (inbound || '') : ''
+  const targetInbound = type === 'access' ? inbound || '' : ''
 
   if (currentType === targetType && currentInbound === targetInbound) {
     fetchLogs()
@@ -1027,6 +1272,16 @@ const syncRouteQuery = (type: 'access' | 'error' | 'audit', inbound?: string) =>
 
 const onInboundSelectChange = () => {
   syncRouteQuery('access', selectedInbound.value)
+}
+
+const clearInboundFilter = () => {
+  selectedInbound.value = ''
+  onInboundSelectChange()
+}
+
+const clearOutboundFilter = () => {
+  selectedOutbound.value = ''
+  fetchLogs()
 }
 
 const switchType = (type: 'access' | 'error' | 'audit') => {
@@ -1086,7 +1341,7 @@ const fetchLogs = async () => {
   } catch (err: any) {
     if (isUnmounted || requestId !== currentRequestId) return
     console.error('Failed to fetch logs', err)
-    toast.error('获取日志失败: ' + (err?.message || err))
+    toast.error('获取日志失败：' + (err?.message || err))
   } finally {
     if (!isUnmounted && requestId === currentRequestId) {
       loading.value = false
@@ -1199,7 +1454,7 @@ const handleClearConfirm = async () => {
     showClearModal.value = false
     await fetchLogs()
   } catch (err: any) {
-    toast.error('清空失败: ' + (err?.message || err))
+    toast.error('清空失败：' + (err?.message || err))
   } finally {
     clearing.value = false
   }
@@ -1279,7 +1534,8 @@ const keyedErrorEntries = computed(() =>
   withStableKeys(
     rawErrorEntries.value,
     (item) =>
-      item.raw || `${item.time || ''}|${item.level || ''}|${item.module || ''}|${item.message || ''}`
+      item.raw ||
+      `${item.time || ''}|${item.level || ''}|${item.module || ''}|${item.message || ''}`
   )
 )
 
@@ -1419,8 +1675,10 @@ const getAuditActionBadge = (action: string) => {
   if (a.startsWith('INBOUND_')) return 'bg-cyan-500/10 text-cyan-300 border-cyan-500/30'
   if (a.startsWith('OUTBOUND_')) return 'bg-indigo-500/10 text-indigo-300 border-indigo-500/30'
   if (a.startsWith('ROUTING_')) return 'bg-emerald-500/10 text-emerald-300 border-emerald-500/30'
-  if (a.startsWith('CONFIG_') || a.startsWith('SETTING_')) return 'bg-purple-500/10 text-purple-300 border-purple-500/30'
-  if (a.startsWith('LOG_') || a.startsWith('AUDIT_')) return 'bg-rose-500/10 text-rose-300 border-rose-500/30'
+  if (a.startsWith('CONFIG_') || a.startsWith('SETTING_'))
+    return 'bg-purple-500/10 text-purple-300 border-purple-500/30'
+  if (a.startsWith('LOG_') || a.startsWith('AUDIT_'))
+    return 'bg-rose-500/10 text-rose-300 border-rose-500/30'
   return 'bg-gray-800 text-gray-300 border-gray-700'
 }
 
@@ -1445,7 +1703,13 @@ const formatAuditTime = (timeStr: string) => {
 const highlightLine = (line: string) => {
   const lower = line.toLowerCase()
   if (lower.includes('warn') || lower.includes('[warning]')) return 'text-amber-300 bg-amber-500/5'
-  if (lower.includes('error') || lower.includes('[error]') || lower.includes('failed') || lower.includes('rejected')) return 'text-rose-300 bg-rose-500/10 font-bold'
+  if (
+    lower.includes('error') ||
+    lower.includes('[error]') ||
+    lower.includes('failed') ||
+    lower.includes('rejected')
+  )
+    return 'text-rose-300 bg-rose-500/10 font-bold'
   if (lower.includes('accepted')) return 'text-emerald-300'
   if (lower.includes('warp')) return 'text-cyan-300'
   if (lower.includes('doh')) return 'text-indigo-300'

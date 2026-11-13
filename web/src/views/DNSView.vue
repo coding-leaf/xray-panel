@@ -1,14 +1,20 @@
 <template>
   <div class="space-y-4">
     <!-- Header -->
-    <div class="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 pb-2 border-b border-border/60">
+    <div
+      class="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 pb-2 border-b border-border/60"
+    >
       <div>
         <div class="flex items-center gap-2">
-          <h1 class="text-lg font-semibold text-foreground tracking-tight">DNS 模块显式配置 (DNS)</h1>
+          <h1 class="text-lg font-semibold text-foreground tracking-tight">
+            DNS 模块显式配置 (DNS)
+          </h1>
           <Badge variant="outline" class="text-[10px] font-mono">
             {{ dnsConfig.servers?.length || 0 }} 个上游池
           </Badge>
-          <span class="px-2 py-0.5 rounded text-[10px] font-mono bg-amber-500/10 text-amber-400 border border-amber-500/20">
+          <span
+            class="px-2 py-0.5 rounded text-[10px] font-mono bg-amber-500/10 text-amber-400 border border-amber-500/20"
+          >
             修改自动重启核心生效
           </span>
         </div>
@@ -17,12 +23,7 @@
         </p>
       </div>
 
-      <Button
-        variant="default"
-        size="sm"
-        :loading="saving"
-        @click="saveDNS"
-      >
+      <Button variant="default" size="sm" :loading="saving" @click="saveDNS">
         <Check class="w-3.5 h-3.5 mr-1" />
         <span>{{ saving ? '保存中...' : '保存并应用' }}</span>
       </Button>
@@ -30,14 +31,18 @@
 
     <!-- Strategy & Basic Settings -->
     <div class="p-4 rounded-lg bg-card border border-border space-y-3">
-      <h2 class="text-xs font-semibold text-foreground uppercase tracking-wider font-mono flex items-center gap-1.5">
+      <h2
+        class="text-xs font-semibold text-foreground uppercase tracking-wider font-mono flex items-center gap-1.5"
+      >
         <Globe class="w-3.5 h-3.5 text-cyan-400" />
         <span>① DNS 解析全局策略</span>
       </h2>
 
       <div class="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">
         <div>
-          <label class="block text-muted-foreground mb-1 font-medium">查询策略 (queryStrategy)</label>
+          <label class="block text-muted-foreground mb-1 font-medium"
+            >查询策略 (queryStrategy)</label
+          >
           <select
             v-model="dnsConfig.queryStrategy"
             class="w-full bg-neutral-950 border border-border rounded-md px-2.5 py-1.5 text-foreground font-mono focus:outline-none focus:ring-1 focus:ring-ring"
@@ -49,7 +54,9 @@
         </div>
 
         <div>
-          <label class="block text-muted-foreground mb-1 font-medium">客户端 ECS IP (clientIp 可选)</label>
+          <label class="block text-muted-foreground mb-1 font-medium"
+            >客户端 ECS IP (clientIp 可选)</label
+          >
           <input
             v-model="dnsConfig.clientIp"
             type="text"
@@ -62,7 +69,11 @@
           <label class="block text-muted-foreground mb-1 font-medium">DNS 缓存机制</label>
           <div class="flex items-center gap-3 mt-2 text-foreground">
             <label class="flex items-center gap-2 cursor-pointer">
-              <input type="checkbox" v-model="dnsConfig.disableCache" class="rounded bg-neutral-950 border-border text-brand-500 focus:ring-0" />
+              <input
+                type="checkbox"
+                v-model="dnsConfig.disableCache"
+                class="rounded bg-neutral-950 border-border text-brand-500 focus:ring-0"
+              />
               <span class="text-xs">禁用内存缓存 (disableCache)</span>
             </label>
           </div>
@@ -73,7 +84,9 @@
     <!-- Quick Preset DNS Providers -->
     <div class="p-4 rounded-lg bg-card border border-border space-y-3">
       <div class="flex items-center justify-between">
-        <h2 class="text-xs font-semibold text-foreground uppercase tracking-wider font-mono flex items-center gap-1.5">
+        <h2
+          class="text-xs font-semibold text-foreground uppercase tracking-wider font-mono flex items-center gap-1.5"
+        >
           <Server class="w-3.5 h-3.5 text-cyan-400" />
           <span>② DNS 上游服务器列表 (Servers)</span>
         </h2>
@@ -84,30 +97,35 @@
       <div class="flex flex-wrap gap-2 pt-1 border-t border-border/60">
         <span class="text-xs text-muted-foreground self-center mr-1">快捷添加:</span>
         <button
+          type="button"
           @click="addServer('https://1.1.1.1/dns-query')"
           class="px-2.5 py-1 rounded-md bg-neutral-950 hover:bg-neutral-900 text-muted-foreground hover:text-foreground border border-border text-[11px] font-mono transition-colors"
         >
           + Cloudflare DoH (1.1.1.1)
         </button>
         <button
+          type="button"
           @click="addServer('https://dns.google/dns-query')"
           class="px-2.5 py-1 rounded-md bg-neutral-950 hover:bg-neutral-900 text-muted-foreground hover:text-foreground border border-border text-[11px] font-mono transition-colors"
         >
           + Google DoH (8.8.8.8)
         </button>
         <button
+          type="button"
           @click="addServer('223.5.5.5')"
           class="px-2.5 py-1 rounded-md bg-neutral-950 hover:bg-neutral-900 text-muted-foreground hover:text-foreground border border-border text-[11px] font-mono transition-colors"
         >
           + 阿里 DNS (223.5.5.5)
         </button>
         <button
+          type="button"
           @click="addServer('119.29.29.29')"
           class="px-2.5 py-1 rounded-md bg-neutral-950 hover:bg-neutral-900 text-muted-foreground hover:text-foreground border border-border text-[11px] font-mono transition-colors"
         >
           + 腾讯 DNSPod (119.29.29.29)
         </button>
         <button
+          type="button"
           @click="addServer('localhost')"
           class="px-2.5 py-1 rounded-md bg-neutral-950 hover:bg-neutral-900 text-muted-foreground hover:text-foreground border border-border text-[11px] font-mono transition-colors"
         >
@@ -123,7 +141,9 @@
           class="p-2.5 bg-neutral-950 rounded-md border border-border flex items-center justify-between gap-3"
         >
           <div class="flex items-center gap-2.5 flex-1">
-            <span class="w-5 h-5 rounded bg-neutral-900 border border-border flex items-center justify-center font-mono text-[10px] text-muted-foreground font-bold shrink-0">
+            <span
+              class="w-5 h-5 rounded bg-neutral-900 border border-border flex items-center justify-center font-mono text-[10px] text-muted-foreground font-bold shrink-0"
+            >
               {{ Number(idx) + 1 }}
             </span>
             <input
@@ -167,6 +187,7 @@
         </div>
 
         <button
+          type="button"
           @click="addCustomServer"
           class="w-full py-2 rounded-md border border-dashed border-border hover:border-neutral-500 text-muted-foreground hover:text-foreground transition-colors flex items-center justify-center gap-1 text-xs font-mono"
         >
@@ -178,12 +199,15 @@
 
     <!-- Static Hosts Mapping -->
     <div class="p-4 rounded-lg bg-card border border-border space-y-2.5">
-      <h2 class="text-xs font-semibold text-foreground uppercase tracking-wider font-mono flex items-center gap-1.5">
+      <h2
+        class="text-xs font-semibold text-foreground uppercase tracking-wider font-mono flex items-center gap-1.5"
+      >
         <Layers class="w-3.5 h-3.5 text-indigo-400" />
         <span>③ 静态 Hosts 域名映射 (可选)</span>
       </h2>
       <p class="text-[11px] text-muted-foreground leading-relaxed">
-        可将特定域名强制重定向到指定 IP 或别名（格式如 <code>domain.com: 127.0.0.1</code> 或 <code>geosite:category-ads-all: 127.0.0.1</code>）
+        可将特定域名强制重定向到指定 IP 或别名（格式如 <code>domain.com: 127.0.0.1</code> 或
+        <code>geosite:category-ads-all: 127.0.0.1</code>）
       </p>
 
       <textarea
@@ -306,10 +330,10 @@ const saveDNS = async () => {
     dnsConfig.value.hosts = hostsMap
 
     await api.post('/dns', dnsConfig.value)
-    toast.success('DNS 模块配置已保存并平滑生效！')
+    toast.success('DNS 模块配置已保存并生效')
     await fetchDNS()
   } catch (err: any) {
-    toast.error('保存失败: ' + err)
+    toast.error('保存失败：' + err)
   } finally {
     saving.value = false
   }

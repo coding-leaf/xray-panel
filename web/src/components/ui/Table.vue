@@ -1,5 +1,10 @@
 <template>
-  <div :class="['relative w-full overflow-auto rounded-lg border border-border bg-neutral-950', customClass]">
+  <div
+    :class="[
+      'relative w-full overflow-auto rounded-lg border border-border bg-neutral-950',
+      customClass,
+    ]"
+  >
     <table class="w-full caption-bottom text-xs border-collapse">
       <slot />
     </table>

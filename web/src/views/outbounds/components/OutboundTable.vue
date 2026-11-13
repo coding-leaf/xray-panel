@@ -1,14 +1,20 @@
 <template>
   <div class="space-y-4">
     <!-- Top Action & Filter Header -->
-    <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-2 border-b border-border/60">
+    <div
+      class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-2 border-b border-border/60"
+    >
       <div>
         <div class="flex items-center gap-2">
-          <h1 class="text-lg font-semibold text-foreground tracking-tight">出站代理管理 (Outbounds)</h1>
+          <h1 class="text-lg font-semibold text-foreground tracking-tight">
+            出站代理管理 (Outbounds)
+          </h1>
           <Badge variant="outline" class="text-[10px]">
             {{ filteredOutbounds.length }} 个节点
           </Badge>
-          <span class="px-2 py-0.5 rounded text-[10px] font-mono bg-amber-500/10 text-amber-400 border border-amber-500/20">
+          <span
+            class="px-2 py-0.5 rounded text-[10px] font-mono bg-amber-500/10 text-amber-400 border border-amber-500/20"
+          >
             修改自动重启核心生效
           </span>
         </div>
@@ -19,11 +25,7 @@
 
       <!-- Action Buttons -->
       <div class="flex items-center gap-2">
-        <Button
-          variant="default"
-          size="sm"
-          @click="emit('create')"
-        >
+        <Button variant="default" size="sm" @click="emit('create')">
           <Plus class="w-3.5 h-3.5 mr-1" />
           <span>添加出站节点</span>
         </Button>
@@ -65,16 +67,42 @@
     </div>
 
     <!-- Main Table View (Desktop) -->
-    <div class="hidden sm:block relative w-full overflow-x-auto rounded-lg border border-border bg-neutral-950">
+    <div
+      class="hidden sm:block relative w-full overflow-x-auto rounded-lg border border-border bg-neutral-950"
+    >
       <table class="w-full caption-bottom text-xs border-collapse">
         <thead class="border-b border-border bg-neutral-900">
           <tr>
-            <th class="h-9 px-3.5 text-left align-middle font-mono text-[11px] font-medium text-muted-foreground uppercase tracking-wider">节点标识 (Tag)</th>
-            <th class="h-9 px-3.5 text-left align-middle font-mono text-[11px] font-medium text-muted-foreground uppercase tracking-wider">出站协议</th>
-            <th class="h-9 px-3.5 text-left align-middle font-mono text-[11px] font-medium text-muted-foreground uppercase tracking-wider">传输与安全</th>
-            <th class="h-9 px-3.5 text-left align-middle font-mono text-[11px] font-medium text-muted-foreground uppercase tracking-wider">目标端点 / 地址</th>
-            <th class="h-9 px-3.5 text-left align-middle font-mono text-[11px] font-medium text-muted-foreground uppercase tracking-wider">配置摘要</th>
-            <th class="h-9 px-3.5 text-right align-middle font-mono text-[11px] font-medium text-muted-foreground uppercase tracking-wider">操作</th>
+            <th
+              class="h-9 px-3.5 text-left align-middle font-mono text-[11px] font-medium text-muted-foreground uppercase tracking-wider"
+            >
+              节点标识 (Tag)
+            </th>
+            <th
+              class="h-9 px-3.5 text-left align-middle font-mono text-[11px] font-medium text-muted-foreground uppercase tracking-wider"
+            >
+              出站协议
+            </th>
+            <th
+              class="h-9 px-3.5 text-left align-middle font-mono text-[11px] font-medium text-muted-foreground uppercase tracking-wider"
+            >
+              传输与安全
+            </th>
+            <th
+              class="h-9 px-3.5 text-left align-middle font-mono text-[11px] font-medium text-muted-foreground uppercase tracking-wider"
+            >
+              目标端点 / 地址
+            </th>
+            <th
+              class="h-9 px-3.5 text-left align-middle font-mono text-[11px] font-medium text-muted-foreground uppercase tracking-wider"
+            >
+              配置摘要
+            </th>
+            <th
+              class="h-9 px-3.5 text-right align-middle font-mono text-[11px] font-medium text-muted-foreground uppercase tracking-wider"
+            >
+              操作
+            </th>
           </tr>
         </thead>
         <tbody class="divide-y divide-border/40">
@@ -89,7 +117,10 @@
             <td class="p-3.5 align-middle">
               <div class="flex items-center gap-2">
                 <span class="font-mono font-semibold text-foreground text-xs">{{ ob.tag }}</span>
-                <span v-if="ob.tag === 'direct' || ob.tag === 'block'" class="text-[10px] font-mono px-1 py-0.2 rounded bg-neutral-800 text-neutral-400 border border-neutral-700">
+                <span
+                  v-if="ob.tag === 'direct' || ob.tag === 'block'"
+                  class="text-[10px] font-mono px-1 py-0.2 rounded bg-neutral-800 text-neutral-400 border border-neutral-700"
+                >
                   系统默认
                 </span>
               </div>
@@ -107,20 +138,50 @@
 
             <!-- 3. Network & Security -->
             <td class="p-3.5 align-middle font-mono">
-              <div v-if="getOutboundStreamInfo(ob).network || getOutboundStreamInfo(ob).security || parseMuxConfig(ob.mux) || parseDialerProxy(ob.streamSettings) || ob.sendThrough" class="flex items-center gap-1.5 flex-wrap">
-                <span v-if="getOutboundStreamInfo(ob).network" class="px-1.5 py-0.5 rounded text-[10px] bg-neutral-900 border border-border text-neutral-300">
+              <div
+                v-if="
+                  getOutboundStreamInfo(ob).network ||
+                  getOutboundStreamInfo(ob).security ||
+                  parseMuxConfig(ob.mux) ||
+                  parseDialerProxy(ob.streamSettings) ||
+                  ob.sendThrough
+                "
+                class="flex items-center gap-1.5 flex-wrap"
+              >
+                <span
+                  v-if="getOutboundStreamInfo(ob).network"
+                  class="px-1.5 py-0.5 rounded text-[10px] bg-neutral-900 border border-border text-neutral-300"
+                >
                   {{ getOutboundStreamInfo(ob).network.toUpperCase() }}
                 </span>
-                <span v-if="getOutboundStreamInfo(ob).security && getOutboundStreamInfo(ob).security !== 'none'" class="px-1.5 py-0.5 rounded text-[10px] bg-cyan-950/60 border border-cyan-800/50 text-cyan-300">
+                <span
+                  v-if="
+                    getOutboundStreamInfo(ob).security &&
+                    getOutboundStreamInfo(ob).security !== 'none'
+                  "
+                  class="px-1.5 py-0.5 rounded text-[10px] bg-cyan-950/60 border border-cyan-800/50 text-cyan-300"
+                >
                   {{ getOutboundStreamInfo(ob).security.toUpperCase() }}
                 </span>
-                <span v-if="parseMuxConfig(ob.mux)" class="px-1.5 py-0.5 rounded text-[10px] bg-purple-950/60 border border-purple-800/50 text-purple-300 font-semibold" :title="'多路复用: ' + parseMuxSummary(ob.mux)">
+                <span
+                  v-if="parseMuxConfig(ob.mux)"
+                  class="px-1.5 py-0.5 rounded text-[10px] bg-purple-950/60 border border-purple-800/50 text-purple-300 font-semibold"
+                  :title="'多路复用：' + parseMuxSummary(ob.mux)"
+                >
                   MUX
                 </span>
-                <span v-if="parseDialerProxy(ob.streamSettings)" class="px-1.5 py-0.5 rounded text-[10px] bg-amber-950/60 border border-amber-800/50 text-amber-300 font-medium" :title="'前置代理: ' + parseDialerProxy(ob.streamSettings)">
+                <span
+                  v-if="parseDialerProxy(ob.streamSettings)"
+                  class="px-1.5 py-0.5 rounded text-[10px] bg-amber-950/60 border border-amber-800/50 text-amber-300 font-medium"
+                  :title="'前置代理：' + parseDialerProxy(ob.streamSettings)"
+                >
                   🔗 {{ parseDialerProxy(ob.streamSettings) }}
                 </span>
-                <span v-if="ob.sendThrough" class="px-1.5 py-0.5 rounded text-[10px] bg-blue-950/60 border border-blue-800/50 text-blue-300 font-mono" :title="'出口源 IP: ' + ob.sendThrough">
+                <span
+                  v-if="ob.sendThrough"
+                  class="px-1.5 py-0.5 rounded text-[10px] bg-blue-950/60 border border-blue-800/50 text-blue-300 font-mono"
+                  :title="'出口源 IP: ' + ob.sendThrough"
+                >
                   IP: {{ ob.sendThrough }}
                 </span>
               </div>
@@ -134,7 +195,10 @@
 
             <!-- 5. Settings Summary -->
             <td class="p-3.5 align-middle">
-              <div class="text-[11px] font-mono text-muted-foreground max-w-[240px] truncate" :title="formatSettingsSummary(ob)">
+              <div
+                class="text-[11px] font-mono text-muted-foreground max-w-[240px] truncate"
+                :title="formatSettingsSummary(ob)"
+              >
                 {{ formatSettingsSummary(ob) }}
               </div>
             </td>
@@ -194,14 +258,19 @@
         :class="[
           selectedTag === ob.tag
             ? 'border-indigo-500/70 bg-indigo-500/5'
-            : 'border-border hover:border-border/80'
+            : 'border-border hover:border-border/80',
         ]"
       >
         <!-- Card Top Bar: Tag + System Default Badge + Protocol Badge -->
         <div class="flex items-center justify-between gap-2 pb-2 border-b border-border/50">
           <div class="flex items-center gap-1.5 min-w-0">
-            <span class="font-mono font-semibold text-foreground text-xs truncate">{{ ob.tag }}</span>
-            <span v-if="ob.tag === 'direct' || ob.tag === 'block'" class="text-[10px] font-mono px-1 py-0.2 rounded bg-neutral-800 text-neutral-400 border border-neutral-700 shrink-0">
+            <span class="font-mono font-semibold text-foreground text-xs truncate">{{
+              ob.tag
+            }}</span>
+            <span
+              v-if="ob.tag === 'direct' || ob.tag === 'block'"
+              class="text-[10px] font-mono px-1 py-0.2 rounded bg-neutral-800 text-neutral-400 border border-neutral-700 shrink-0"
+            >
               系统默认
             </span>
           </div>
@@ -220,39 +289,79 @@
         <div class="space-y-1.5 text-xs font-mono">
           <div class="flex items-center justify-between">
             <span class="text-muted-foreground text-[11px] shrink-0">目标端点:</span>
-            <span class="text-foreground text-[11px] truncate ml-2 text-right" :title="getTargetEndpoint(ob)">
+            <span
+              class="text-foreground text-[11px] truncate ml-2 text-right"
+              :title="getTargetEndpoint(ob)"
+            >
               {{ getTargetEndpoint(ob) }}
             </span>
           </div>
 
-          <div v-if="getOutboundStreamInfo(ob).network || getOutboundStreamInfo(ob).security || parseMuxConfig(ob.mux) || parseDialerProxy(ob.streamSettings) || ob.sendThrough" class="flex items-center justify-between">
+          <div
+            v-if="
+              getOutboundStreamInfo(ob).network ||
+              getOutboundStreamInfo(ob).security ||
+              parseMuxConfig(ob.mux) ||
+              parseDialerProxy(ob.streamSettings) ||
+              ob.sendThrough
+            "
+            class="flex items-center justify-between"
+          >
             <span class="text-muted-foreground text-[11px]">传输与链路:</span>
             <div class="flex items-center gap-1.5 flex-wrap justify-end">
-              <span v-if="getOutboundStreamInfo(ob).network" class="px-1.5 py-0.5 rounded text-[10px] bg-neutral-900 border border-border text-neutral-300">
+              <span
+                v-if="getOutboundStreamInfo(ob).network"
+                class="px-1.5 py-0.5 rounded text-[10px] bg-neutral-900 border border-border text-neutral-300"
+              >
                 {{ getOutboundStreamInfo(ob).network.toUpperCase() }}
               </span>
-              <span v-if="getOutboundStreamInfo(ob).security && getOutboundStreamInfo(ob).security !== 'none'" class="px-1.5 py-0.5 rounded text-[10px] bg-cyan-950/60 border border-cyan-800/50 text-cyan-300">
+              <span
+                v-if="
+                  getOutboundStreamInfo(ob).security &&
+                  getOutboundStreamInfo(ob).security !== 'none'
+                "
+                class="px-1.5 py-0.5 rounded text-[10px] bg-cyan-950/60 border border-cyan-800/50 text-cyan-300"
+              >
                 {{ getOutboundStreamInfo(ob).security.toUpperCase() }}
               </span>
-              <span v-if="parseMuxConfig(ob.mux)" class="px-1.5 py-0.5 rounded text-[10px] bg-purple-950/60 border border-purple-800/50 text-purple-300 font-semibold" :title="'多路复用: ' + parseMuxSummary(ob.mux)">
+              <span
+                v-if="parseMuxConfig(ob.mux)"
+                class="px-1.5 py-0.5 rounded text-[10px] bg-purple-950/60 border border-purple-800/50 text-purple-300 font-semibold"
+                :title="'多路复用：' + parseMuxSummary(ob.mux)"
+              >
                 MUX
               </span>
-              <span v-if="parseDialerProxy(ob.streamSettings)" class="px-1.5 py-0.5 rounded text-[10px] bg-amber-950/60 border border-amber-800/50 text-amber-300 font-medium" :title="'前置代理: ' + parseDialerProxy(ob.streamSettings)">
+              <span
+                v-if="parseDialerProxy(ob.streamSettings)"
+                class="px-1.5 py-0.5 rounded text-[10px] bg-amber-950/60 border border-amber-800/50 text-amber-300 font-medium"
+                :title="'前置代理：' + parseDialerProxy(ob.streamSettings)"
+              >
                 🔗 {{ parseDialerProxy(ob.streamSettings) }}
               </span>
-              <span v-if="ob.sendThrough" class="px-1.5 py-0.5 rounded text-[10px] bg-blue-950/60 border border-blue-800/50 text-blue-300 font-mono" :title="'出口源 IP: ' + ob.sendThrough">
+              <span
+                v-if="ob.sendThrough"
+                class="px-1.5 py-0.5 rounded text-[10px] bg-blue-950/60 border border-blue-800/50 text-blue-300 font-mono"
+                :title="'出口源 IP: ' + ob.sendThrough"
+              >
                 IP: {{ ob.sendThrough }}
               </span>
             </div>
           </div>
 
-          <div v-if="formatSettingsSummary(ob)" class="pt-1 border-t border-border/30 text-[11px] text-muted-foreground truncate" :title="formatSettingsSummary(ob)">
+          <div
+            v-if="formatSettingsSummary(ob)"
+            class="pt-1 border-t border-border/30 text-[11px] text-muted-foreground truncate"
+            :title="formatSettingsSummary(ob)"
+          >
             {{ formatSettingsSummary(ob) }}
           </div>
         </div>
 
         <!-- Card Action Buttons -->
-        <div class="pt-2 border-t border-border/40 flex flex-wrap items-center justify-end gap-1.5" @click.stop>
+        <div
+          class="pt-2 border-t border-border/40 flex flex-wrap items-center justify-end gap-1.5"
+          @click.stop
+        >
           <Button
             variant="ghost"
             size="sm"
@@ -288,7 +397,10 @@
       </div>
 
       <!-- Empty State for Mobile -->
-      <div v-if="filteredOutbounds.length === 0" class="p-8 text-center rounded-lg border border-border bg-neutral-950 text-muted-foreground">
+      <div
+        v-if="filteredOutbounds.length === 0"
+        class="p-8 text-center rounded-lg border border-border bg-neutral-950 text-muted-foreground"
+      >
         <p class="text-xs">未找到符合条件的出站节点</p>
       </div>
     </div>
@@ -329,7 +441,10 @@ const protocolFilter = ref('all')
 
 const filteredOutbounds = computed(() => {
   return props.outbounds.filter((ob) => {
-    if (protocolFilter.value !== 'all' && ob.protocol?.toLowerCase() !== protocolFilter.value.toLowerCase()) {
+    if (
+      protocolFilter.value !== 'all' &&
+      ob.protocol?.toLowerCase() !== protocolFilter.value.toLowerCase()
+    ) {
       return false
     }
     if (!searchQuery.value) return true

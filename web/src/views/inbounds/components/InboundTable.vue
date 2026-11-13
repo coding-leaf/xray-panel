@@ -1,18 +1,52 @@
 <template>
   <div class="w-full">
     <!-- Desktop Table View -->
-    <div class="hidden sm:block relative w-full overflow-x-auto rounded-lg border border-border bg-neutral-950">
+    <div
+      class="hidden sm:block relative w-full overflow-x-auto rounded-lg border border-border bg-neutral-950"
+    >
       <table class="w-full caption-bottom text-xs border-collapse">
         <thead class="border-b border-border bg-neutral-900">
           <tr>
-            <th class="h-9 px-3.5 text-left align-middle font-mono text-[11px] font-medium text-muted-foreground uppercase tracking-wider">节点标识 (Tag)</th>
-            <th class="h-9 px-3.5 text-left align-middle font-mono text-[11px] font-medium text-muted-foreground uppercase tracking-wider">协议与流控</th>
-            <th class="h-9 px-3.5 text-left align-middle font-mono text-[11px] font-medium text-muted-foreground uppercase tracking-wider">端口映射与网络</th>
-            <th class="h-9 px-3.5 text-left align-middle font-mono text-[11px] font-medium text-muted-foreground uppercase tracking-wider">传输安全 / 伪装</th>
-            <th class="h-9 px-3.5 text-left align-middle font-mono text-[11px] font-medium text-muted-foreground uppercase tracking-wider">用户与线路</th>
-            <th class="h-9 px-3.5 text-left align-middle font-mono text-[11px] font-medium text-muted-foreground uppercase tracking-wider">累计流量</th>
-            <th class="h-9 px-3.5 text-left align-middle font-mono text-[11px] font-medium text-muted-foreground uppercase tracking-wider">端口状态</th>
-            <th class="h-9 px-3.5 text-right align-middle font-mono text-[11px] font-medium text-muted-foreground uppercase tracking-wider">操作</th>
+            <th
+              class="h-9 px-3.5 text-left align-middle font-mono text-[11px] font-medium text-muted-foreground uppercase tracking-wider"
+            >
+              节点标识 (Tag)
+            </th>
+            <th
+              class="h-9 px-3.5 text-left align-middle font-mono text-[11px] font-medium text-muted-foreground uppercase tracking-wider"
+            >
+              协议与流控
+            </th>
+            <th
+              class="h-9 px-3.5 text-left align-middle font-mono text-[11px] font-medium text-muted-foreground uppercase tracking-wider"
+            >
+              端口映射与网络
+            </th>
+            <th
+              class="h-9 px-3.5 text-left align-middle font-mono text-[11px] font-medium text-muted-foreground uppercase tracking-wider"
+            >
+              传输安全 / 伪装
+            </th>
+            <th
+              class="h-9 px-3.5 text-left align-middle font-mono text-[11px] font-medium text-muted-foreground uppercase tracking-wider"
+            >
+              用户与线路
+            </th>
+            <th
+              class="h-9 px-3.5 text-left align-middle font-mono text-[11px] font-medium text-muted-foreground uppercase tracking-wider"
+            >
+              累计流量
+            </th>
+            <th
+              class="h-9 px-3.5 text-left align-middle font-mono text-[11px] font-medium text-muted-foreground uppercase tracking-wider"
+            >
+              端口状态
+            </th>
+            <th
+              class="h-9 px-3.5 text-right align-middle font-mono text-[11px] font-medium text-muted-foreground uppercase tracking-wider"
+            >
+              操作
+            </th>
           </tr>
         </thead>
         <tbody class="divide-y divide-border/40">
@@ -27,11 +61,18 @@
             <td class="p-3.5 align-middle">
               <div class="flex items-center gap-2">
                 <span class="font-mono font-semibold text-foreground text-xs">{{ inb.tag }}</span>
-                <span v-if="inb.routeId && inb.routeId > 0 && (!inb.subRoutes || inb.subRoutes.length === 0)" class="text-[10px] font-mono px-1 py-0.2 rounded bg-neutral-800 text-neutral-300 border border-neutral-700">
+                <span
+                  v-if="
+                    inb.routeId && inb.routeId > 0 && (!inb.subRoutes || inb.subRoutes.length === 0)
+                  "
+                  class="text-[10px] font-mono px-1 py-0.2 rounded bg-neutral-800 text-neutral-300 border border-neutral-700"
+                >
                   #{{ inb.routeId }}
                 </span>
               </div>
-              <div class="text-[11px] text-muted-foreground mt-0.5 font-mono truncate max-w-[200px]">
+              <div
+                class="text-[11px] text-muted-foreground mt-0.5 font-mono truncate max-w-[200px]"
+              >
                 {{ inb.listen || '0.0.0.0' }}:{{ inb.port }}
               </div>
             </td>
@@ -42,7 +83,10 @@
                 <Badge :variant="getProtocolBadgeVariant(inb.protocol)">
                   {{ inb.protocol?.toUpperCase() }}
                 </Badge>
-                <span v-if="inb.protocol === 'vless' && getNodeFlow(inb) !== 'none'" class="text-[10px] font-mono px-1.5 py-0.5 rounded bg-neutral-900 text-neutral-300 border border-neutral-800">
+                <span
+                  v-if="inb.protocol === 'vless' && getNodeFlow(inb) !== 'none'"
+                  class="text-[10px] font-mono px-1.5 py-0.5 rounded bg-neutral-900 text-neutral-300 border border-neutral-800"
+                >
                   {{ getNodeFlow(inb) }}
                 </span>
               </div>
@@ -53,7 +97,9 @@
               <div class="flex items-center gap-1.5 text-xs">
                 <span class="text-foreground">:{{ inb.externalPort || inb.port }}</span>
                 <span class="text-neutral-600">/</span>
-                <span class="text-neutral-400 text-[11px] uppercase">{{ getStreamNetwork(inb) }}</span>
+                <span class="text-neutral-400 text-[11px] uppercase">{{
+                  getStreamNetwork(inb)
+                }}</span>
                 <span
                   v-if="hasProxyProtocol(inb)"
                   class="px-1 py-0.2 rounded text-[10px] font-mono bg-indigo-500/10 text-indigo-400 border border-indigo-500/20"
@@ -61,11 +107,18 @@
                 >
                   PROXY
                 </span>
-                <span v-if="(inb.externalPort || inb.port) !== 443 && isReality(inb)" class="text-amber-400 text-[10px]" title="非443端口Reality存在阻断风险">
+                <span
+                  v-if="(inb.externalPort || inb.port) !== 443 && isReality(inb)"
+                  class="text-amber-400 text-[10px]"
+                  title="非 443 端口 REALITY 存在阻断风险"
+                >
                   ⚠️
                 </span>
               </div>
-              <div v-if="inb.externalHost" class="text-[10px] text-muted-foreground truncate max-w-[150px]">
+              <div
+                v-if="inb.externalHost"
+                class="text-[10px] text-muted-foreground truncate max-w-[150px]"
+              >
                 {{ inb.externalHost }}
               </div>
             </td>
@@ -83,7 +136,10 @@
                     :class="getRealityBadgeClass(getInboundRealityStatus(inb.tag)!.status)"
                     :title="getInboundRealityStatus(inb.tag)!.badgeText"
                   >
-                    <span class="w-1 h-1 rounded-full" :class="getRealityDotClass(getInboundRealityStatus(inb.tag)!.status)"></span>
+                    <span
+                      class="w-1 h-1 rounded-full"
+                      :class="getRealityDotClass(getInboundRealityStatus(inb.tag)!.status)"
+                    ></span>
                     <span>{{ getInboundRealityStatus(inb.tag)!.status.toUpperCase() }}</span>
                   </span>
                 </div>
@@ -95,7 +151,10 @@
               <div class="flex flex-col gap-1">
                 <div class="flex items-center gap-2">
                   <span class="text-foreground">{{ getClientCount(inb, usersList) }} 用户</span>
-                  <span v-if="inb.subRoutes?.length" class="text-[10px] px-1.5 py-0.5 rounded bg-muted/60 text-muted-foreground border border-border/40">
+                  <span
+                    v-if="inb.subRoutes?.length"
+                    class="text-[10px] px-1.5 py-0.5 rounded bg-muted/60 text-muted-foreground border border-border/40"
+                  >
                     {{ inb.subRoutes.length }} 线路
                   </span>
                 </div>
@@ -106,7 +165,9 @@
             <td class="p-3.5 align-middle font-mono text-xs">
               <div class="flex flex-col gap-0.5">
                 <span class="text-neutral-300">↑ {{ formatBytes(inb.upBytes || 0) }}</span>
-                <span class="text-neutral-400 text-[11px]">↓ {{ formatBytes(inb.downBytes || 0) }}</span>
+                <span class="text-neutral-400 text-[11px]"
+                  >↓ {{ formatBytes(inb.downBytes || 0) }}</span
+                >
               </div>
             </td>
 
@@ -168,7 +229,9 @@
               <div class="flex flex-col items-center justify-center gap-2">
                 <Radio class="w-8 h-8 text-neutral-600 mb-1" />
                 <p class="text-xs font-medium text-neutral-300">没有匹配的入站节点</p>
-                <p class="text-[11px] text-muted-foreground">可尝试调整搜索条件，或点击右上角添加新节点</p>
+                <p class="text-[11px] text-muted-foreground">
+                  可尝试调整搜索条件，或点击右上角添加新节点
+                </p>
               </div>
             </td>
           </tr>
@@ -186,20 +249,30 @@
         :class="[
           selectedInbound?.id === inb.id
             ? 'border-indigo-500/70 bg-indigo-500/5'
-            : 'border-border hover:border-border/80'
+            : 'border-border hover:border-border/80',
         ]"
       >
         <!-- Card Top Bar: Tag + RouteID + Protocol + Flow + Alive Status -->
         <div class="flex items-center justify-between gap-2 pb-2 border-b border-border/50">
           <div class="flex items-center gap-1.5 min-w-0">
-            <span class="font-mono font-semibold text-foreground text-xs truncate">{{ inb.tag }}</span>
-            <span v-if="inb.routeId && inb.routeId > 0 && (!inb.subRoutes || inb.subRoutes.length === 0)" class="text-[10px] font-mono px-1 py-0.2 rounded bg-neutral-800 text-neutral-300 border border-neutral-700 shrink-0">
+            <span class="font-mono font-semibold text-foreground text-xs truncate">{{
+              inb.tag
+            }}</span>
+            <span
+              v-if="
+                inb.routeId && inb.routeId > 0 && (!inb.subRoutes || inb.subRoutes.length === 0)
+              "
+              class="text-[10px] font-mono px-1 py-0.2 rounded bg-neutral-800 text-neutral-300 border border-neutral-700 shrink-0"
+            >
               #{{ inb.routeId }}
             </span>
             <Badge :variant="getProtocolBadgeVariant(inb.protocol)" class="shrink-0 text-[10px]">
               {{ inb.protocol?.toUpperCase() }}
             </Badge>
-            <span v-if="inb.protocol === 'vless' && getNodeFlow(inb) !== 'none'" class="text-[10px] font-mono px-1.5 py-0.2 rounded bg-neutral-900 text-neutral-300 border border-neutral-800 shrink-0">
+            <span
+              v-if="inb.protocol === 'vless' && getNodeFlow(inb) !== 'none'"
+              class="text-[10px] font-mono px-1.5 py-0.2 rounded bg-neutral-900 text-neutral-300 border border-neutral-800 shrink-0"
+            >
               {{ getNodeFlow(inb) }}
             </span>
           </div>
@@ -223,7 +296,9 @@
             <div class="flex items-center gap-1 text-foreground mt-0.5">
               <span>:{{ inb.externalPort || inb.port }}</span>
               <span class="text-neutral-600">/</span>
-              <span class="text-neutral-400 text-[11px] uppercase">{{ getStreamNetwork(inb) }}</span>
+              <span class="text-neutral-400 text-[11px] uppercase">{{
+                getStreamNetwork(inb)
+              }}</span>
               <span
                 v-if="hasProxyProtocol(inb)"
                 class="px-1 py-0.2 rounded text-[10px] font-mono bg-indigo-500/10 text-indigo-400 border border-indigo-500/20"
@@ -231,11 +306,18 @@
               >
                 PROXY
               </span>
-              <span v-if="(inb.externalPort || inb.port) !== 443 && isReality(inb)" class="text-amber-400 text-[10px]" title="非443端口Reality存在阻断风险">
+              <span
+                v-if="(inb.externalPort || inb.port) !== 443 && isReality(inb)"
+                class="text-amber-400 text-[10px]"
+                title="非 443 端口 REALITY 存在阻断风险"
+              >
                 ⚠️
               </span>
             </div>
-            <div class="text-[10px] text-muted-foreground truncate" :title="inb.externalHost || `${inb.listen || '0.0.0.0'}:${inb.port}`">
+            <div
+              class="text-[10px] text-muted-foreground truncate"
+              :title="inb.externalHost || `${inb.listen || '0.0.0.0'}:${inb.port}`"
+            >
               {{ inb.externalHost || `${inb.listen || '0.0.0.0'}:${inb.port}` }}
             </div>
           </div>
@@ -252,7 +334,10 @@
                   :class="getRealityBadgeClass(getInboundRealityStatus(inb.tag)!.status)"
                   :title="getInboundRealityStatus(inb.tag)!.badgeText"
                 >
-                  <span class="w-1 h-1 rounded-full" :class="getRealityDotClass(getInboundRealityStatus(inb.tag)!.status)"></span>
+                  <span
+                    class="w-1 h-1 rounded-full"
+                    :class="getRealityDotClass(getInboundRealityStatus(inb.tag)!.status)"
+                  ></span>
                   <span>{{ getInboundRealityStatus(inb.tag)!.status.toUpperCase() }}</span>
                 </span>
               </div>
@@ -264,7 +349,10 @@
         <div class="flex items-center justify-between text-xs font-mono pt-1">
           <div class="flex items-center gap-1.5">
             <span class="text-foreground">{{ getClientCount(inb, usersList) }} 用户</span>
-            <span v-if="inb.subRoutes?.length" class="text-[10px] px-1.5 py-0.5 rounded bg-muted/60 text-muted-foreground border border-border/40">
+            <span
+              v-if="inb.subRoutes?.length"
+              class="text-[10px] px-1.5 py-0.5 rounded bg-muted/60 text-muted-foreground border border-border/40"
+            >
               {{ inb.subRoutes.length }} 线路
             </span>
           </div>
@@ -275,7 +363,10 @@
         </div>
 
         <!-- Card Action Buttons -->
-        <div class="pt-2 border-t border-border/40 flex flex-wrap items-center justify-end gap-1.5" @click.stop>
+        <div
+          class="pt-2 border-t border-border/40 flex flex-wrap items-center justify-end gap-1.5"
+          @click.stop
+        >
           <Button
             variant="ghost"
             size="sm"
@@ -312,10 +403,15 @@
       </div>
 
       <!-- Empty State for Mobile -->
-      <div v-if="!inbounds.length" class="p-8 text-center rounded-lg border border-border bg-neutral-950 text-muted-foreground">
+      <div
+        v-if="!inbounds.length"
+        class="p-8 text-center rounded-lg border border-border bg-neutral-950 text-muted-foreground"
+      >
         <Radio class="w-8 h-8 text-neutral-600 mx-auto mb-1.5" />
         <p class="text-xs font-medium text-neutral-300">没有匹配的入站节点</p>
-        <p class="text-[11px] text-muted-foreground mt-0.5">可尝试调整搜索条件，或点击右上角添加新节点</p>
+        <p class="text-[11px] text-muted-foreground mt-0.5">
+          可尝试调整搜索条件，或点击右上角添加新节点
+        </p>
       </div>
     </div>
   </div>

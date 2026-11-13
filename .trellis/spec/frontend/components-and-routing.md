@@ -7,6 +7,8 @@
 ## SFC 约定与组件分层
 
 - 所有 `.vue` 一律使用 `<script setup lang="ts">`，**禁止 Options API**。
+- **SFC 块顺序与按钮语义**：统一按 `<template>` → `<script setup lang="ts">` → `<style>` 顺序编排（由 ESLint `vue/block-order` 强制）；全站 `<button>` 必须显式声明 `type="button"` 或 `type="submit"`（`vue/html-button-has-type: error`）。
+- **Vue 3.4 唯一 ID 与属性透传约定**：当前锁定 `vue: ^3.4.21`，**不可使用 Vue 3.5+ 的 `useId()`**；无障碍 `aria-labelledby`/`for` 等唯一 ID 统一使用 `web/src/utils/uid.ts` 的 `nextUid(prefix)`。带包裹层的基础输入原语（如 `Input.vue`）必须设置 `defineOptions({ inheritAttrs: false })` 并将 `v-bind="$attrs"` 绑定到内部原生控件，同时保持 `:class="props.class"` 响应式透传。
 - **组件分层**：
   - **原子组件（`web/src/components/ui/`）**：强类型通用原语（如 `Button`, `Input`, `Badge`, `Drawer`, `Modal`, `Table` 系列，以及 `FormField`, `SectionCard` 容器），严格使用 `defineProps` 约束变体、尺寸与状态，基于 CSS 变量语义令牌，负责收敛 Label/Hint/Error 与居中/抽屉浮层深度，禁止散落内联 Hex 颜色。
   - **业务领域子组件（`web/src/views/<feature>/components/`）**：针对 50KB+ 的庞大视图，按领域就近聚合拆分为子组件（如 `InboundTable`, `UserTable`, `OutboundTable`, `OutboundDetailDrawer`, `OutboundFormDrawer`）；重型表单抽屉与大型弹窗（如二维码、趋势图）采用 `defineAsyncComponent` 异步懒加载以优化首屏 chunk 体积。

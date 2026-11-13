@@ -1,23 +1,48 @@
 <template>
   <div class="space-y-6">
     <!-- Top Statistics Bar & Legend -->
-    <div class="flex flex-col md:flex-row items-start md:items-center justify-between gap-4 p-3.5 rounded-lg bg-card border border-border">
+    <div
+      class="flex flex-col md:flex-row items-start md:items-center justify-between gap-4 p-3.5 rounded-lg bg-card border border-border"
+    >
       <!-- Status Summary Chips -->
       <div class="flex flex-wrap items-center gap-2 text-xs font-mono">
-        <span class="px-2.5 py-1 rounded-md bg-muted text-foreground border border-border flex items-center gap-1.5">
+        <span
+          class="px-2.5 py-1 rounded-md bg-muted text-foreground border border-border flex items-center gap-1.5"
+        >
           <span class="w-1.5 h-1.5 rounded-full bg-cyan-400"></span>
-          <span>网关: <strong class="text-cyan-400 font-bold">{{ activeGatewaysCount }}/{{ graph.inboundNodes.length }}</strong> 在线</span>
+          <span
+            >网关:
+            <strong class="text-cyan-400 font-bold"
+              >{{ activeGatewaysCount }}/{{ graph.inboundNodes.length }}</strong
+            >
+            在线</span
+          >
         </span>
 
-        <span class="px-2.5 py-1 rounded-md bg-muted text-foreground border border-border flex items-center gap-1.5">
+        <span
+          class="px-2.5 py-1 rounded-md bg-muted text-foreground border border-border flex items-center gap-1.5"
+        >
           <span class="w-1.5 h-1.5 rounded-full bg-indigo-400"></span>
-          <span>分流线路/规则: <strong class="text-indigo-300 font-bold">{{ graph.channelNodes.length }}</strong> 条</span>
+          <span
+            >分流线路/规则:
+            <strong class="text-indigo-300 font-bold">{{ graph.channelNodes.length }}</strong>
+            条</span
+          >
         </span>
 
-        <span class="px-2.5 py-1 rounded-md bg-muted text-foreground border border-border flex items-center gap-1.5">
+        <span
+          class="px-2.5 py-1 rounded-md bg-muted text-foreground border border-border flex items-center gap-1.5"
+        >
           <span class="w-1.5 h-1.5 rounded-full bg-emerald-400"></span>
-          <span>落地出口: <strong class="text-emerald-400 font-bold">{{ graph.outboundNodes.length }}</strong> 个</span>
-          <span v-if="idleOutboundsCount > 0" class="ml-1 px-1.5 py-0.2 rounded bg-amber-500/20 text-amber-300 text-[10px]">
+          <span
+            >落地出口:
+            <strong class="text-emerald-400 font-bold">{{ graph.outboundNodes.length }}</strong>
+            个</span
+          >
+          <span
+            v-if="idleOutboundsCount > 0"
+            class="ml-1 px-1.5 py-0.2 rounded bg-amber-500/20 text-amber-300 text-[10px]"
+          >
             {{ idleOutboundsCount }} 闲置
           </span>
         </span>
@@ -27,19 +52,31 @@
           type="button"
           @click="$emit('toggleGlobalRules')"
           class="px-2.5 py-1 rounded-md text-xs font-mono transition-colors flex items-center gap-1.5 border"
-          :class="showGlobalRules ? 'bg-sky-500/15 text-sky-300 border-sky-500/35 font-semibold' : 'bg-muted text-muted-foreground border-border hover:text-foreground'"
+          :class="
+            showGlobalRules
+              ? 'bg-sky-500/15 text-sky-300 border-sky-500/35 font-semibold'
+              : 'bg-muted text-muted-foreground border-border hover:text-foreground'
+          "
           :title="showGlobalRules ? '收起全局分流规则' : '展开显示全部底层域名/IP分流规则'"
         >
           <Filter class="w-3 h-3" />
-          <span>{{ showGlobalRules ? '收起全局分流规则' : (hiddenGlobalRulesCount && hiddenGlobalRulesCount > 0 ? `显示全局分流规则 (${hiddenGlobalRulesCount}组)` : '显示全局分流规则') }}</span>
+          <span>{{
+            showGlobalRules
+              ? '收起全局分流规则'
+              : hiddenGlobalRulesCount && hiddenGlobalRulesCount > 0
+                ? `显示全局分流规则 (${hiddenGlobalRulesCount}组)`
+                : '显示全局分流规则'
+          }}</span>
         </button>
       </div>
 
       <!-- Canvas Legend (Visual Guide) -->
       <div class="flex flex-wrap items-center gap-3 text-[11px] text-muted-foreground select-none">
         <span class="flex items-center gap-1">
-          <span class="w-3 h-0.5 bg-cyan-400 rounded-full shadow-[0_0_6px_rgba(34,211,238,0.8)]"></span>
-          <span>脉冲虚线: 活跃分流</span>
+          <span
+            class="w-3 h-0.5 bg-cyan-400 rounded-full shadow-[0_0_6px_rgba(34,211,238,0.8)]"
+          ></span>
+          <span>脉冲虚线：活跃分流</span>
         </span>
         <span class="flex items-center gap-1">
           <span class="w-3 h-0.5 bg-indigo-400/80 rounded-full"></span>
@@ -57,7 +94,10 @@
     </div>
 
     <!-- Desktop Three-Column Canvas with Animated SVG Layer -->
-    <div ref="canvasRef" class="relative hidden lg:block rounded-xl border border-border bg-neutral-950/40 p-5 min-h-[360px]">
+    <div
+      ref="canvasRef"
+      class="relative hidden lg:block rounded-xl border border-border bg-neutral-950/40 p-5 min-h-[360px]"
+    >
       <!-- SVG Connecting Curves Layer -->
       <svg
         class="absolute inset-0 w-full h-full pointer-events-none z-0 overflow-visible"
@@ -83,7 +123,7 @@
             :stroke="getEdgeColor(ce)"
             stroke-dasharray="5 5"
             :stroke-width="ce.isActive ? 2.5 : 1.5"
-            :opacity="ce.isDimmed ? 0.08 : (ce.isActive ? 1 : 0.45)"
+            :opacity="ce.isDimmed ? 0.08 : ce.isActive ? 1 : 0.45"
             class="transition-all duration-200"
           />
 
@@ -95,7 +135,7 @@
             :stroke="getEdgeColor(ce)"
             stroke-dasharray="6 14"
             :stroke-width="ce.isActive ? 2.8 : 1.8"
-            :opacity="ce.isDimmed ? 0.05 : (ce.isActive ? 1 : 0.65)"
+            :opacity="ce.isDimmed ? 0.05 : ce.isActive ? 1 : 0.65"
             :class="ce.isActive ? 'flowing-dash-fast' : 'flowing-dash'"
             class="transition-all duration-200"
           />
@@ -132,6 +172,7 @@
               </h3>
             </div>
             <button
+              type="button"
               @click="$emit('openCreateGateway')"
               class="text-[11px] text-muted-foreground hover:text-foreground font-medium transition-colors"
             >
@@ -165,6 +206,7 @@
               </h3>
             </div>
             <button
+              type="button"
               @click="$emit('openWizard')"
               class="text-[11px] text-muted-foreground hover:text-foreground font-medium transition-colors"
             >
@@ -197,6 +239,7 @@
               </h3>
             </div>
             <button
+              type="button"
               @click="$emit('openCreateExit')"
               class="text-[11px] text-muted-foreground hover:text-foreground font-medium transition-colors"
             >
@@ -247,24 +290,44 @@
             </div>
             <span
               class="text-xs font-mono"
-              :class="unit.status === 'active' ? 'text-emerald-400' : (unit.status === 'blocked' ? 'text-rose-400' : 'text-neutral-500')"
+              :class="
+                unit.status === 'active'
+                  ? 'text-emerald-400'
+                  : unit.status === 'blocked'
+                    ? 'text-rose-400'
+                    : 'text-neutral-500'
+              "
             >
-              {{ unit.status === 'active' ? '● 启用' : (unit.status === 'blocked' ? '● 拦截' : '○ 暂停') }}
+              {{
+                unit.status === 'active'
+                  ? '● 启用'
+                  : unit.status === 'blocked'
+                    ? '● 拦截'
+                    : '○ 暂停'
+              }}
             </span>
           </div>
 
           <!-- Flow Stream: Gateway -> Route -> Exit -->
-          <div class="bg-background p-3 rounded-md border border-border text-xs font-mono space-y-2">
+          <div
+            class="bg-background p-3 rounded-md border border-border text-xs font-mono space-y-2"
+          >
             <div class="flex items-center justify-between">
               <span class="text-muted-foreground">接入网关:</span>
-              <span class="text-cyan-400 font-semibold">{{ unit.inbound.tag }} (:{{ unit.inbound.externalPort || unit.inbound.listenPort }})</span>
+              <span class="text-cyan-400 font-semibold"
+                >{{ unit.inbound.tag }} (:{{
+                  unit.inbound.externalPort || unit.inbound.listenPort
+                }})</span
+              >
             </div>
             <div class="flex items-center justify-center text-neutral-600 text-[10px]">
               <span>↓ {{ unit.channel.title }}</span>
             </div>
             <div class="flex items-center justify-between">
               <span class="text-muted-foreground">落地出口:</span>
-              <span class="text-emerald-400 font-semibold">{{ unit.outbound.tag }} ({{ unit.outbound.protocol }})</span>
+              <span class="text-emerald-400 font-semibold"
+                >{{ unit.outbound.tag }} ({{ unit.outbound.protocol }})</span
+              >
             </div>
           </div>
 
@@ -274,12 +337,14 @@
             class="pt-2 border-t border-border flex items-center justify-between text-xs"
           >
             <button
+              type="button"
               @click="$emit('toggleChannelStatus', unit.channel)"
               class="text-muted-foreground hover:text-foreground font-medium"
             >
               {{ unit.channel.status === 'paused' ? '启用线路' : '暂停线路' }}
             </button>
             <button
+              type="button"
               @click="$emit('deleteChannel', unit.channel)"
               class="text-rose-400 hover:text-rose-300 font-medium"
             >
@@ -310,10 +375,7 @@ import OutboundNodeCard from './OutboundNodeCard.vue'
 interface Props {
   graph: TopologyGraph
   streamPipelines: StreamPipelineUnit[]
-  computeActiveSubgraph: (
-    nodeId: string | null,
-    edgeId: string | null,
-  ) => HoverHighlightState
+  computeActiveSubgraph: (nodeId: string | null, edgeId: string | null) => HoverHighlightState
   showGlobalRules?: boolean
   hiddenGlobalRulesCount?: number
 }

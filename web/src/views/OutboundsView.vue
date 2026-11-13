@@ -84,10 +84,10 @@ const saveOutbound = async (payload: OutboundPayload) => {
   try {
     await api.post('/outbounds', payload)
     showFormDrawer.value = false
-    toast.success('出站配置已保存成功！')
+    toast.success('出站配置已保存')
     await fetchOutbounds()
   } catch (err: any) {
-    toast.error('保存失败: ' + err)
+    toast.error('保存失败：' + err)
   } finally {
     saving.value = false
   }
@@ -97,14 +97,14 @@ const deleteOutbound = async (tag: string) => {
   if (!confirm(`确定删除出站节点 ${tag} 吗？`)) return
   try {
     await api.delete(`/outbounds/${tag}`)
-    toast.success('出站节点已成功删除！')
+    toast.success('出站节点已删除')
     if (selectedOutbound.value?.tag === tag) {
       showInspectorDrawer.value = false
       selectedOutbound.value = null
     }
     await fetchOutbounds()
   } catch (err: any) {
-    toast.error('删除失败: ' + err)
+    toast.error('删除失败：' + err)
   }
 }
 
@@ -115,7 +115,7 @@ const checkRouteQuery = () => {
     if (target) {
       openEditDrawer(target)
     } else {
-      toast.warning('未找到指定的出站节点: ' + editQuery)
+      toast.warning('未找到指定的出站节点：' + editQuery)
     }
   } else if (route.query.action === 'create' || route.query.create) {
     openCreateDrawer()

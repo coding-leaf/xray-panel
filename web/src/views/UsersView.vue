@@ -2,45 +2,74 @@
   <div class="space-y-4">
     <!-- Main User Table -->
     <UserTable
-      :users="users" :filtered-users="filteredUsers"
-      :selected-user-ids="selectedUserIds" :available-inbounds="availableInbounds"
+      :users="users"
+      :filtered-users="filteredUsers"
+      :selected-user-ids="selectedUserIds"
+      :available-inbounds="availableInbounds"
       :current-inspector-user-id="currentInspectorUser?.id"
-      :online-users-count="onlineUsersCount" :enabled-users-count="enabledUsersCount"
-      :attention-users-count="attentionUsersCount" :is-all-users-selected="isAllUsersSelected"
-      v-model:search-query="searchQuery" v-model:status-filter="statusFilter"
-      :is-user-expired="isUserExpired" :get-user-badge-variant="getUserBadgeVariant"
-      :get-user-status-text="getUserStatusText" :get-traffic-percent="getTrafficPercent"
+      :online-users-count="onlineUsersCount"
+      :enabled-users-count="enabledUsersCount"
+      :attention-users-count="attentionUsersCount"
+      :is-all-users-selected="isAllUsersSelected"
+      v-model:search-query="searchQuery"
+      v-model:status-filter="statusFilter"
+      :is-user-expired="isUserExpired"
+      :get-user-badge-variant="getUserBadgeVariant"
+      :get-user-status-text="getUserStatusText"
+      :get-traffic-percent="getTrafficPercent"
       :get-traffic-progress-class="getTrafficProgressClass"
       @update:selected-user-ids="selectedUserIds = $event"
-      @toggle-select-all="toggleSelectAllUsers" @clear-selection="selectedUserIds = []"
-      @add="openAddModal" @inspect="openInspectDrawer" @edit="openEditModal"
-      @share="openShareModal" @history="openHistoryModal" @delete="handleDeleteUser"
-      @batch-renew="batchRenew" @batch-reset-traffic="batchResetTraffic"
-      @batch-set-status="batchSetStatus" @batch-delete="batchDeleteUsers"
+      @toggle-select-all="toggleSelectAllUsers"
+      @clear-selection="selectedUserIds = []"
+      @add="openAddModal"
+      @inspect="openInspectDrawer"
+      @edit="openEditModal"
+      @share="openShareModal"
+      @history="openHistoryModal"
+      @delete="handleDeleteUser"
+      @batch-renew="batchRenew"
+      @batch-reset-traffic="batchResetTraffic"
+      @batch-set-status="batchSetStatus"
+      @batch-delete="batchDeleteUsers"
     />
 
     <!-- User Inspector Drawer (Synchronous) -->
     <UserDetailDrawer
-      v-model="showInspectorDrawer" :user="currentInspectorUser" :available-inbounds="availableInbounds"
-      :get-user-badge-variant="getUserBadgeVariant" :get-user-status-text="getUserStatusText"
-      :get-traffic-percent="getTrafficPercent" :get-traffic-progress-class="getTrafficProgressClass"
-      @edit="openEditModal" @delete="handleDeleteUser" @share="openShareModal"
-      @history="openHistoryModal" @toggle-enabled="toggleUserEnabled"
-      @reset-traffic="resetTraffic" @renew-one="batchRenewOne" @reset-token="handleResetToken"
+      v-model="showInspectorDrawer"
+      :user="currentInspectorUser"
+      :available-inbounds="availableInbounds"
+      :get-user-badge-variant="getUserBadgeVariant"
+      :get-user-status-text="getUserStatusText"
+      :get-traffic-percent="getTrafficPercent"
+      :get-traffic-progress-class="getTrafficProgressClass"
+      @edit="openEditModal"
+      @delete="handleDeleteUser"
+      @share="openShareModal"
+      @history="openHistoryModal"
+      @toggle-enabled="toggleUserEnabled"
+      @reset-traffic="resetTraffic"
+      @renew-one="batchRenewOne"
+      @reset-token="handleResetToken"
     />
 
     <!-- Async Lazy Loaded Form Drawer & Modals -->
     <UserFormDrawer
-      v-if="showFormDrawer" v-model="showFormDrawer"
-      :is-editing="isEditingForm" :initial-data="formUser"
-      :available-inbounds="availableInbounds" @saved="fetchAll"
+      v-if="showFormDrawer"
+      v-model="showFormDrawer"
+      :is-editing="isEditingForm"
+      :initial-data="formUser"
+      :available-inbounds="availableInbounds"
+      @saved="fetchAll"
     />
     <UserShareModal
-      v-if="showShareModal" v-model="showShareModal"
-      :share-data="currentShareData" @reset-token="handleResetToken"
+      v-if="showShareModal"
+      v-model="showShareModal"
+      :share-data="currentShareData"
+      @reset-token="handleResetToken"
     />
     <UserTrafficModal
-      v-if="showHistoryModal" v-model="showHistoryModal"
+      v-if="showHistoryModal"
+      v-model="showHistoryModal"
       :user="currentHistoryUser"
     />
   </div>
@@ -60,16 +89,38 @@ import UserDetailDrawer from './users/components/UserDetailDrawer.vue'
 // Asynchronous lazy-loaded heavy components
 const UserFormDrawer = defineAsyncComponent(() => import('./users/components/UserFormDrawer.vue'))
 const UserShareModal = defineAsyncComponent(() => import('./users/components/UserShareModal.vue'))
-const UserTrafficModal = defineAsyncComponent(() => import('./users/components/UserTrafficModal.vue'))
+const UserTrafficModal = defineAsyncComponent(
+  () => import('./users/components/UserTrafficModal.vue')
+)
 
 const {
-  users, availableInbounds, selectedUserIds, searchQuery, statusFilter,
-  filteredUsers, isAllUsersSelected, onlineUsersCount, enabledUsersCount,
-  attentionUsersCount, isUserExpired, getUserBadgeVariant, getUserStatusText,
-  getTrafficPercent, getTrafficProgressClass, toggleSelectAllUsers,
-  fetchAll, fetchSpeeds, batchRenew, batchRenewOne, batchResetTraffic,
-  batchSetStatus, batchDeleteUsers, toggleUserEnabled, deleteUser,
-  resetTraffic, resetUserSubToken,
+  users,
+  availableInbounds,
+  selectedUserIds,
+  searchQuery,
+  statusFilter,
+  filteredUsers,
+  isAllUsersSelected,
+  onlineUsersCount,
+  enabledUsersCount,
+  attentionUsersCount,
+  isUserExpired,
+  getUserBadgeVariant,
+  getUserStatusText,
+  getTrafficPercent,
+  getTrafficProgressClass,
+  toggleSelectAllUsers,
+  fetchAll,
+  fetchSpeeds,
+  batchRenew,
+  batchRenewOne,
+  batchResetTraffic,
+  batchSetStatus,
+  batchDeleteUsers,
+  toggleUserEnabled,
+  deleteUser,
+  resetTraffic,
+  resetUserSubToken,
 } = useUserList()
 
 // Modal & Drawer States
@@ -77,7 +128,9 @@ const showInspectorDrawer = ref(false)
 const selectedInspectorUser = ref<UserItem | null>(null)
 const currentInspectorUser = computed(() => {
   if (!selectedInspectorUser.value) return null
-  return users.value.find((u) => u.id === selectedInspectorUser.value?.id) || selectedInspectorUser.value
+  return (
+    users.value.find((u) => u.id === selectedInspectorUser.value?.id) || selectedInspectorUser.value
+  )
 })
 
 const showFormDrawer = ref(false)
@@ -114,7 +167,7 @@ const openShareModal = async (user: UserItem) => {
     currentShareData.value = { ...res, user }
     showShareModal.value = true
   } catch (err: any) {
-    toast.error('获取订阅链接失败: ' + (err.message || err))
+    toast.error('获取订阅链接失败：' + (err.message || err))
   }
 }
 

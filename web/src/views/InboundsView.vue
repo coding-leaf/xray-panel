@@ -1,7 +1,9 @@
 <template>
   <div class="space-y-4">
     <!-- Top Action & Filter Header -->
-    <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-2 border-b border-border/60">
+    <div
+      class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-2 border-b border-border/60"
+    >
       <div>
         <div class="flex items-center gap-2">
           <h1 class="text-lg font-semibold text-foreground tracking-tight">入站网关 (Inbounds)</h1>
@@ -10,7 +12,7 @@
           </Badge>
         </div>
         <p class="text-xs text-muted-foreground mt-0.5">
-          管理 Xray 入站代理节点，支持 VLESS Reality 伪装巡检与单端口多出口分流
+          管理 Xray 入站代理节点，支持 VLESS REALITY 伪装巡检与单端口多出口分流
         </p>
       </div>
 
@@ -21,16 +23,12 @@
           size="sm"
           :loading="checkingReality"
           @click="triggerRealityCheck"
-          title="巡检所有 Reality 伪装域名证书与可达性"
+          title="巡检所有 REALITY 伪装域名证书与可达性"
         >
           <ShieldCheck class="w-3.5 h-3.5 mr-1.5 text-emerald-400" />
-          <span>{{ checkingReality ? '检测中...' : '检测 Reality' }}</span>
+          <span>{{ checkingReality ? '检测中...' : '检测 REALITY' }}</span>
         </Button>
-        <Button
-          variant="default"
-          size="sm"
-          @click="openCreateDrawer"
-        >
+        <Button variant="default" size="sm" @click="openCreateDrawer">
           <Plus class="w-3.5 h-3.5 mr-1" />
           <span>添加新入站</span>
         </Button>
@@ -68,9 +66,12 @@
       </div>
 
       <!-- Reality Alert Summary Banner if any warning/error -->
-      <div v-if="realityAlertCount > 0" class="flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-amber-500/10 border border-amber-500/20 text-amber-300 text-xs font-mono">
+      <div
+        v-if="realityAlertCount > 0"
+        class="flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-amber-500/10 border border-amber-500/20 text-amber-300 text-xs font-mono"
+      >
         <AlertTriangle class="w-3.5 h-3.5 text-amber-400 shrink-0" />
-        <span>发现 {{ realityAlertCount }} 个 Reality 目标需关注</span>
+        <span>发现 {{ realityAlertCount }} 个 REALITY 目标需关注</span>
       </div>
     </div>
 
@@ -188,7 +189,7 @@ const handleDelete = async (id: number) => {
 }
 
 const onSaved = async () => {
-  toast.success('节点配置已成功保存并重载核心')
+  toast.success('节点配置已保存并重载核心')
   await fetchAll()
   if (selectedInbound.value) {
     selectedInbound.value = inbounds.value.find((i) => i.id === selectedInbound.value?.id) || null
@@ -204,7 +205,7 @@ const checkRouteQuery = () => {
     if (target) {
       editInbound(target)
     } else {
-      toast.warning('未找到指定的入站节点: ' + editQuery)
+      toast.warning('未找到指定的入站节点：' + editQuery)
     }
   } else if (route.query.action === 'create' || route.query.create) {
     openCreateDrawer()

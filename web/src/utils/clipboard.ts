@@ -18,7 +18,7 @@ export async function copyText(text: string, successMessage = '已复制到剪�
     }
     toast.success(successMessage)
     return true
-  } catch (err) {
+  } catch {
     toast.error('复制失败，请手动选中文本复制')
     return false
   }

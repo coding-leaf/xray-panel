@@ -592,7 +592,7 @@ const DEFAULT_RAW_STATE: MockState = {
       clientIp: '127.0.0.1',
       action: 'INBOUND_UPDATE',
       target: 'vless-reality',
-      details: '更新入站节点配置: 端口 4434',
+      details: '更新入站节点配置：端口 4434',
       status: 'SUCCESS',
     },
     {
@@ -626,8 +626,14 @@ export function loadMockState(): MockState {
         ...parsed,
         settings: { ...DEFAULT_RAW_STATE.settings, ...(parsed.settings || {}) },
         geodata: { ...DEFAULT_RAW_STATE.geodata, ...(parsed.geodata || {}) },
-        snapshots: parsed.snapshots && parsed.snapshots.length ? parsed.snapshots : DEFAULT_RAW_STATE.snapshots,
-        auditLogs: parsed.auditLogs && parsed.auditLogs.length ? parsed.auditLogs : DEFAULT_RAW_STATE.auditLogs,
+        snapshots:
+          parsed.snapshots && parsed.snapshots.length
+            ? parsed.snapshots
+            : DEFAULT_RAW_STATE.snapshots,
+        auditLogs:
+          parsed.auditLogs && parsed.auditLogs.length
+            ? parsed.auditLogs
+            : DEFAULT_RAW_STATE.auditLogs,
       }
     }
   } catch (e) {
@@ -650,4 +656,3 @@ export function resetMockState(): MockState {
   saveMockState(fresh)
   return fresh
 }
-

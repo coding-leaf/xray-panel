@@ -4,13 +4,19 @@
     <div class="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
       <div>
         <div class="flex items-center gap-2.5">
-          <h1 class="text-2xl font-extrabold text-foreground tracking-tight">线路与拓扑中心 (Topology)</h1>
-          <span class="px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-indigo-500/15 text-indigo-400 border border-indigo-500/30 flex items-center gap-1">
+          <h1 class="text-2xl font-extrabold text-foreground tracking-tight">
+            线路与拓扑中心 (Topology)
+          </h1>
+          <span
+            class="px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-indigo-500/15 text-indigo-400 border border-indigo-500/30 flex items-center gap-1"
+          >
             <span class="w-1.5 h-1.5 rounded-full bg-indigo-400 animate-pulse"></span>
             <span>强类型编译器实时拓扑</span>
           </span>
         </div>
-        <p class="text-xs text-muted-foreground mt-0.5">一体化接入网关、分流通道与落地出口，全协议路由流向可视化与 1 步发布</p>
+        <p class="text-xs text-muted-foreground mt-0.5">
+          一体化接入网关、分流通道与落地出口，全协议路由流向可视化与 1 步发布
+        </p>
       </div>
 
       <!-- Action Buttons & View Mode Switcher -->
@@ -21,7 +27,11 @@
             type="button"
             @click="viewMode = 'canvas'"
             class="px-3 py-1.5 rounded-[4px] text-xs font-medium transition-all flex items-center gap-1.5"
-            :class="viewMode === 'canvas' ? 'bg-background text-foreground shadow-sm font-semibold' : 'text-muted-foreground hover:text-foreground'"
+            :class="
+              viewMode === 'canvas'
+                ? 'bg-background text-foreground shadow-sm font-semibold'
+                : 'text-muted-foreground hover:text-foreground'
+            "
           >
             <Workflow class="w-3.5 h-3.5 text-cyan-400" />
             <span>拓扑画布</span>
@@ -30,7 +40,11 @@
             type="button"
             @click="viewMode = 'pools'"
             class="px-3 py-1.5 rounded-[4px] text-xs font-medium transition-all flex items-center gap-1.5"
-            :class="viewMode === 'pools' ? 'bg-background text-foreground shadow-sm font-semibold' : 'text-muted-foreground hover:text-foreground'"
+            :class="
+              viewMode === 'pools'
+                ? 'bg-background text-foreground shadow-sm font-semibold'
+                : 'text-muted-foreground hover:text-foreground'
+            "
           >
             <LayoutGrid class="w-3.5 h-3.5 text-indigo-400" />
             <span>分组卡片池</span>
@@ -38,6 +52,7 @@
         </div>
 
         <button
+          type="button"
           @click="openWizard()"
           class="px-3.5 py-1.5 bg-foreground text-background hover:bg-foreground/90 text-xs font-medium rounded-md transition-colors flex items-center gap-1.5 shadow-sm"
         >
@@ -46,6 +61,7 @@
         </button>
 
         <button
+          type="button"
           @click="openCreateGatewayModal"
           class="px-3 py-1.5 bg-muted text-foreground hover:bg-muted/80 border border-border text-xs font-medium rounded-md transition-colors flex items-center gap-1.5"
         >
@@ -54,6 +70,7 @@
         </button>
 
         <button
+          type="button"
           @click="openCreateExitModal"
           class="px-3 py-1.5 bg-muted text-foreground hover:bg-muted/80 border border-border text-xs font-medium rounded-md transition-colors flex items-center gap-1.5"
         >
@@ -134,17 +151,12 @@ const usersList = ref<any[]>([])
 const showGlobalRules = ref(false)
 
 // Topology Graph Derivation Engine
-const {
-  graph,
-  streamPipelines,
-  computeActiveSubgraph,
-  hiddenGlobalGroupsCount,
-} = useTopologyGraph(
+const { graph, streamPipelines, computeActiveSubgraph, hiddenGlobalGroupsCount } = useTopologyGraph(
   inbounds,
   outbounds,
   routing,
   usersList,
-  showGlobalRules,
+  showGlobalRules
 )
 
 // Aggregate channels for traditional pools view and nextRouteId
@@ -219,7 +231,7 @@ const deleteGateway = async (id: number) => {
     await api.delete(`/inbounds/${id}`)
     toast.success('网关已删除')
     await fetchAll()
-  } catch (e) {
+  } catch {
     toast.error('删除网关失败')
   }
 }
@@ -238,7 +250,7 @@ const deleteOutbound = async (tag: string) => {
     await api.delete(`/outbounds/${tag}`)
     toast.success('出站已删除')
     await fetchAll()
-  } catch (e) {
+  } catch {
     toast.error('删除出站失败')
   }
 }
@@ -254,7 +266,7 @@ const toggleChannelStatus = async (item: any) => {
 
       for (const bound of boundRoutes) {
         const targetGateway = inbounds.value.find(
-          (i) => i.id === bound.inboundId || i.tag === bound.gatewayTag,
+          (i) => i.id === bound.inboundId || i.tag === bound.gatewayTag
         )
         if (targetGateway) {
           const srs = targetGateway.subRoutes || []
@@ -267,7 +279,7 @@ const toggleChannelStatus = async (item: any) => {
             api.put(`/inbounds/${targetGateway.id}`, {
               ...targetGateway,
               subRoutesJson: JSON.stringify(srs),
-            }),
+            })
           )
         }
       }
@@ -306,7 +318,7 @@ const toggleChannelStatus = async (item: any) => {
     }
     toast.success('状态已更新')
     await fetchAll()
-  } catch (err) {
+  } catch {
     toast.error('更新状态失败')
   }
 }
@@ -331,17 +343,17 @@ const deleteChannel = async (item: any) => {
 
       for (const bound of boundRoutes) {
         const targetGateway = inbounds.value.find(
-          (i) => i.id === bound.inboundId || i.tag === bound.gatewayTag,
+          (i) => i.id === bound.inboundId || i.tag === bound.gatewayTag
         )
         if (targetGateway) {
           const srs = (targetGateway.subRoutes || []).filter(
-            (s: any) => s.routeId !== (routeId ?? bound.subRoute?.routeId),
+            (s: any) => s.routeId !== (routeId ?? bound.subRoute?.routeId)
           )
           promises.push(
             api.put(`/inbounds/${targetGateway.id}`, {
               ...targetGateway,
               subRoutesJson: JSON.stringify(srs),
-            }),
+            })
           )
         }
       }
@@ -370,7 +382,7 @@ const deleteChannel = async (item: any) => {
       toast.success('网关及线路已删除')
     }
     await fetchAll()
-  } catch (err) {
+  } catch {
     toast.error('删除线路失败')
   }
 }
@@ -388,7 +400,9 @@ const fetchAll = async () => {
       let srs: any[] = []
       try {
         srs = JSON.parse(ib.subRoutesJson || '[]')
-      } catch (e) {}
+      } catch {
+        /* ignore */
+      }
       return { ...ib, subRoutes: srs }
     })
     outbounds.value = obRes || []

@@ -3,7 +3,9 @@
     :data-node-id="node.id"
     class="relative rounded-xl border bg-card px-3.5 py-2.5 transition-all duration-200 select-none group"
     :class="[
-      isActive ? 'border-indigo-400/80 shadow-[0_0_15px_rgba(129,140,248,0.2)] ring-1 ring-indigo-400/50' : 'border-border hover:border-border/80',
+      isActive
+        ? 'border-indigo-400/80 shadow-[0_0_15px_rgba(129,140,248,0.2)] ring-1 ring-indigo-400/50'
+        : 'border-border hover:border-border/80',
       isDimmed ? 'opacity-25 grayscale-[30%]' : 'opacity-100',
     ]"
     @mouseenter="$emit('hover', node.id)"
@@ -99,15 +101,24 @@
     </div>
 
     <!-- Line 2: Single-line Flow Summary (e.g. ipv4入口, ipv6入口 ➔ out-us2) -->
-    <div class="flex items-center gap-1.5 text-[11px] font-mono text-muted-foreground mt-1.5 pt-1 border-t border-border/40 truncate">
-      <span class="text-cyan-400/90 font-medium truncate max-w-[120px]" :title="node.gatewayTag || '通用入口'">
+    <div
+      class="flex items-center gap-1.5 text-[11px] font-mono text-muted-foreground mt-1.5 pt-1 border-t border-border/40 truncate"
+    >
+      <span
+        class="text-cyan-400/90 font-medium truncate max-w-[120px]"
+        :title="node.gatewayTag || '通用入口'"
+      >
         {{ node.gatewayTag || '通用入口' }}
       </span>
       <span class="text-neutral-500 shrink-0">➔</span>
       <span class="text-indigo-300 font-semibold truncate max-w-[100px]" :title="node.outboundTag">
         {{ node.outboundTag }}
       </span>
-      <span v-if="node.subtitle" class="text-neutral-500 text-[10px] truncate max-w-[100px]" :title="node.subtitle">
+      <span
+        v-if="node.subtitle"
+        class="text-neutral-500 text-[10px] truncate max-w-[100px]"
+        :title="node.subtitle"
+      >
         ({{ node.subtitle }})
       </span>
     </div>

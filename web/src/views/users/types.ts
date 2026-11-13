@@ -75,7 +75,7 @@ export function sanitizeUserPayload(
   if (isEditing) {
     if (form.extendDays > 0) {
       const now = Date.now()
-      const base = (!expireTime || expireTime < now) ? now : expireTime
+      const base = !expireTime || expireTime < now ? now : expireTime
       expireTime = base + form.extendDays * 86400000
     }
   }

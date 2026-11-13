@@ -10,11 +10,7 @@
         leave-from-class="opacity-100"
         leave-to-class="opacity-0"
       >
-        <div
-          v-if="modelValue"
-          class="fixed inset-0 bg-black/65"
-          @click="close"
-        />
+        <div v-if="modelValue" class="fixed inset-0 bg-black/65" @click="close" />
       </transition>
 
       <!-- Drawer Content Panel -->
@@ -28,15 +24,25 @@
       >
         <div
           v-if="modelValue"
+          ref="panelRef"
+          tabindex="-1"
+          role="dialog"
+          aria-modal="true"
+          :aria-labelledby="title ? titleId : undefined"
           :class="[
-            'relative z-10 h-full bg-neutral-950 border-l border-border flex flex-col shadow-2xl overflow-hidden',
-            widthClass
+            'relative z-10 h-full bg-neutral-950 border-l border-border flex flex-col shadow-2xl overflow-hidden focus:outline-none',
+            widthClass,
           ]"
         >
           <!-- Header -->
-          <div class="h-14 px-5 border-b border-border flex items-center justify-between shrink-0 bg-card">
+          <div
+            class="h-14 px-5 border-b border-border flex items-center justify-between shrink-0 bg-card"
+          >
             <div class="min-w-0 pr-3">
-              <h3 class="text-sm font-semibold text-foreground truncate">
+              <h3
+                :id="title ? titleId : undefined"
+                class="text-sm font-semibold text-foreground truncate"
+              >
                 {{ title }}
               </h3>
               <p v-if="description" class="text-[11px] text-muted-foreground truncate mt-0.5">
@@ -45,6 +51,7 @@
             </div>
             <button
               type="button"
+              aria-label="关闭"
               @click="close"
               class="h-7 w-7 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted/60 flex items-center justify-center transition-colors"
               title="关闭 (Esc)"
@@ -59,7 +66,10 @@
           </div>
 
           <!-- Footer -->
-          <div v-if="$slots.footer" class="p-4 pb-[max(1rem,env(safe-area-inset-bottom))] border-t border-border bg-card shrink-0 flex items-center justify-end gap-2.5">
+          <div
+            v-if="$slots.footer"
+            class="p-4 pb-[max(1rem,env(safe-area-inset-bottom))] border-t border-border bg-card shrink-0 flex items-center justify-end gap-2.5"
+          >
             <slot name="footer" />
           </div>
         </div>
@@ -69,8 +79,9 @@
 </template>
 
 <script setup lang="ts">
-import { computed, watch, onMounted, onUnmounted } from 'vue'
+import { ref, computed, watch, nextTick, onMounted, onUnmounted } from 'vue'
 import { X } from 'lucide-vue-next'
+import { nextUid } from '../../utils/uid'
 
 interface Props {
   modelValue: boolean
@@ -85,12 +96,23 @@ const props = withDefaults(defineProps<Props>(), {
   width: 'w-full sm:max-w-xl md:max-w-2xl',
 })
 
+const titleId = nextUid('drawer-title')
+const panelRef = ref<HTMLElement | null>(null)
+let previousActiveElement: HTMLElement | null = null
+
 const widthClass = computed(() => props.width)
 
 const emit = defineEmits<{
   (e: 'update:modelValue', value: boolean): void
   (e: 'close'): void
 }>()
+
+const restoreFocus = () => {
+  if (previousActiveElement && previousActiveElement.isConnected) {
+    previousActiveElement.focus()
+  }
+  previousActiveElement = null
+}
 
 const close = () => {
   emit('update:modelValue', false)
@@ -107,9 +129,15 @@ watch(
   () => props.modelValue,
   (val) => {
     if (val) {
+      previousActiveElement =
+        document.activeElement instanceof HTMLElement ? document.activeElement : null
       document.body.style.overflow = 'hidden'
+      nextTick(() => {
+        panelRef.value?.focus()
+      })
     } else {
       document.body.style.overflow = ''
+      restoreFocus()
     }
   }
 )
@@ -121,5 +149,6 @@ onMounted(() => {
 onUnmounted(() => {
   window.removeEventListener('keydown', handleKeyDown)
   document.body.style.overflow = ''
+  restoreFocus()
 })
 </script>

@@ -1,7 +1,9 @@
 <template>
   <div class="space-y-4">
     <!-- Top Action & Header -->
-    <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-2 border-b border-border/60">
+    <div
+      class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-2 border-b border-border/60"
+    >
       <div>
         <div class="flex items-center gap-2">
           <h1 class="text-lg font-semibold text-foreground tracking-tight">用户与多节点归属管理</h1>
@@ -18,11 +20,7 @@
       </div>
 
       <div class="flex items-center gap-2">
-        <Button
-          variant="default"
-          size="sm"
-          @click="emit('add')"
-        >
+        <Button variant="default" size="sm" @click="emit('add')">
           <Plus class="w-3.5 h-3.5 mr-1" />
           <span>添加用户</span>
         </Button>
@@ -101,7 +99,10 @@
       </div>
 
       <div class="flex items-center justify-between sm:justify-end gap-2 text-xs">
-        <label v-if="filteredUsers.length > 0" class="sm:hidden flex items-center gap-1.5 text-muted-foreground cursor-pointer text-xs">
+        <label
+          v-if="filteredUsers.length > 0"
+          class="sm:hidden flex items-center gap-1.5 text-muted-foreground cursor-pointer text-xs"
+        >
           <input
             type="checkbox"
             :checked="isAllUsersSelected"
@@ -110,7 +111,9 @@
           />
           <span>全选</span>
         </label>
-        <span v-if="selectedUserIds.length > 0" class="text-muted-foreground font-mono">已选 {{ selectedUserIds.length }} 位</span>
+        <span v-if="selectedUserIds.length > 0" class="text-muted-foreground font-mono"
+          >已选 {{ selectedUserIds.length }} 位</span
+        >
       </div>
     </div>
 
@@ -240,16 +243,43 @@
             <!-- Username & Email & SubToken & Remark & Flow -->
             <TableCell>
               <div class="flex items-center gap-1.5 max-w-[220px]">
-                <span class="font-mono font-medium text-foreground text-xs truncate" :title="user.email">{{ user.email }}</span>
-                <Badge v-if="user.flow === 'xtls-rprx-vision'" variant="outline" class="text-[9px] px-1 py-0 text-cyan-400 border-cyan-500/30 font-mono shrink-0">Vision</Badge>
-                <Badge v-else-if="user.flow === 'none'" variant="outline" class="text-[9px] px-1 py-0 text-neutral-400 border-neutral-700 font-mono shrink-0">无流控</Badge>
-                <Badge v-else-if="user.flow" variant="outline" class="text-[9px] px-1 py-0 font-mono shrink-0">{{ user.flow }}</Badge>
+                <span
+                  class="font-mono font-medium text-foreground text-xs truncate"
+                  :title="user.email"
+                  >{{ user.email }}</span
+                >
+                <Badge
+                  v-if="user.flow === 'xtls-rprx-vision'"
+                  variant="outline"
+                  class="text-[9px] px-1 py-0 text-cyan-400 border-cyan-500/30 font-mono shrink-0"
+                  >Vision</Badge
+                >
+                <Badge
+                  v-else-if="user.flow === 'none'"
+                  variant="outline"
+                  class="text-[9px] px-1 py-0 text-neutral-400 border-neutral-700 font-mono shrink-0"
+                  >无流控</Badge
+                >
+                <Badge
+                  v-else-if="user.flow"
+                  variant="outline"
+                  class="text-[9px] px-1 py-0 font-mono shrink-0"
+                  >{{ user.flow }}</Badge
+                >
               </div>
-              <div v-if="user.remark" class="text-[10px] text-neutral-300 truncate max-w-[220px] mt-0.5" :title="user.remark">
+              <div
+                v-if="user.remark"
+                class="text-[10px] text-neutral-300 truncate max-w-[220px] mt-0.5"
+                :title="user.remark"
+              >
                 {{ user.remark }}
               </div>
-              <div class="text-[10px] text-muted-foreground font-mono flex items-center gap-1.5 mt-0.5">
-                <span v-if="user.ipLimit > 0" class="text-amber-400 font-semibold">限 {{ user.ipLimit }} IP</span>
+              <div
+                class="text-[10px] text-muted-foreground font-mono flex items-center gap-1.5 mt-0.5"
+              >
+                <span v-if="user.ipLimit > 0" class="text-amber-400 font-semibold"
+                  >限 {{ user.ipLimit }} IP</span
+                >
                 <span v-else>无IP限制</span>
                 <span>•</span>
                 <span class="truncate max-w-[120px]" :title="user.subToken || '未生成'">
@@ -268,7 +298,9 @@
                   class="text-[10px] px-1.5 py-0 font-mono"
                 >
                   <span>{{ tag }}</span>
-                  <span v-if="getSubRoutesCount(tag, user)" class="text-cyan-400 font-bold ml-0.5">({{ getSubRoutesCount(tag, user) }}线)</span>
+                  <span v-if="getSubRoutesCount(tag, user)" class="text-cyan-400 font-bold ml-0.5"
+                    >({{ getSubRoutesCount(tag, user) }}线)</span
+                  >
                 </Badge>
                 <Badge
                   v-if="getNodeTags(user).length > 3"
@@ -278,7 +310,10 @@
                 >
                   +{{ getNodeTags(user).length - 3 }}
                 </Badge>
-                <span v-if="!getNodeTags(user).length" class="text-[11px] text-muted-foreground font-mono">
+                <span
+                  v-if="!getNodeTags(user).length"
+                  class="text-[11px] text-muted-foreground font-mono"
+                >
                   未分配节点
                 </span>
               </div>
@@ -289,9 +324,14 @@
               <div class="space-y-1">
                 <div class="text-xs text-foreground flex items-center justify-between">
                   <span>{{ formatBytes(user.upBytes + user.downBytes) }}</span>
-                  <span class="text-muted-foreground text-[11px]">/ {{ user.totalBytes > 0 ? formatBytes(user.totalBytes) : '无限制' }}</span>
+                  <span class="text-muted-foreground text-[11px]"
+                    >/ {{ user.totalBytes > 0 ? formatBytes(user.totalBytes) : '无限制' }}</span
+                  >
                 </div>
-                <div v-if="user.totalBytes > 0" class="w-full max-w-[140px] h-1.5 bg-neutral-900 rounded-full overflow-hidden border border-border/40">
+                <div
+                  v-if="user.totalBytes > 0"
+                  class="w-full max-w-[140px] h-1.5 bg-neutral-900 rounded-full overflow-hidden border border-border/40"
+                >
                   <div
                     class="h-full rounded-full transition-all"
                     :class="getTrafficProgressClass(user)"
@@ -303,9 +343,13 @@
 
             <!-- Expire Date & Reset -->
             <TableCell class="font-mono text-[11px]">
-              <div :class="isUserExpired(user) ? 'text-amber-400 font-semibold' : 'text-foreground'">
+              <div
+                :class="isUserExpired(user) ? 'text-amber-400 font-semibold' : 'text-foreground'"
+              >
                 {{ user.expireTime > 0 ? formatDate(user.expireTime) : '永久有效' }}
-                <span v-if="isUserExpired(user)" class="text-[10px] text-rose-400 ml-1">(已到期)</span>
+                <span v-if="isUserExpired(user)" class="text-[10px] text-rose-400 ml-1"
+                  >(已到期)</span
+                >
               </div>
               <div v-if="user.resetDay > 0" class="text-[10px] text-cyan-400/90 mt-0.5">
                 每月 {{ user.resetDay }} 日自动重置
@@ -316,16 +360,15 @@
             <TableCell>
               <div class="space-y-1">
                 <div class="flex items-center gap-1.5">
-                  <Badge
-                    :variant="getUserBadgeVariant(user)"
-                    :dot="true"
-                    class="text-[10px]"
-                  >
+                  <Badge :variant="getUserBadgeVariant(user)" :dot="true" class="text-[10px]">
                     {{ getUserStatusText(user) }}
                   </Badge>
                 </div>
                 <!-- Real-time transfer speed -->
-                <div v-if="user.isOnline && (user.upSpeed > 0 || user.downSpeed > 0)" class="text-[10px] font-mono text-cyan-400 flex items-center gap-1">
+                <div
+                  v-if="user.isOnline && (user.upSpeed > 0 || user.downSpeed > 0)"
+                  class="text-[10px] font-mono text-cyan-400 flex items-center gap-1"
+                >
                   <span>↑{{ formatBytes(user.upSpeed) }}/s</span>
                   <span>↓{{ formatBytes(user.downSpeed) }}/s</span>
                 </div>
@@ -394,7 +437,9 @@
               <div class="flex flex-col items-center justify-center gap-2">
                 <Users class="w-8 h-8 text-neutral-600 mb-1" />
                 <p class="text-xs font-medium text-neutral-300">没有匹配的用户记录</p>
-                <p class="text-[11px] text-muted-foreground">可尝试调整搜索关键字或筛选条件，或点击右上角添加新用户</p>
+                <p class="text-[11px] text-muted-foreground">
+                  可尝试调整搜索关键字或筛选条件，或点击右上角添加新用户
+                </p>
               </div>
             </TableCell>
           </TableRow>
@@ -412,7 +457,9 @@
         :class="[
           selectedUserIds.includes(user.id)
             ? 'border-indigo-500/70 bg-indigo-500/5'
-            : (currentInspectorUserId === user.id ? 'border-border bg-muted/20' : 'border-border hover:border-border/80')
+            : currentInspectorUserId === user.id
+              ? 'border-border bg-muted/20'
+              : 'border-border hover:border-border/80',
         ]"
       >
         <!-- Card Top Bar: Checkbox + Email + Status & Speed -->
@@ -427,18 +474,44 @@
             />
             <div class="min-w-0 flex-1">
               <div class="flex items-center gap-1.5">
-                <span class="font-mono font-medium text-foreground text-xs truncate" :title="user.email">
+                <span
+                  class="font-mono font-medium text-foreground text-xs truncate"
+                  :title="user.email"
+                >
                   {{ user.email }}
                 </span>
-                <Badge v-if="user.flow === 'xtls-rprx-vision'" variant="outline" class="text-[9px] px-1 py-0 text-cyan-400 border-cyan-500/30 font-mono shrink-0">Vision</Badge>
-                <Badge v-else-if="user.flow === 'none'" variant="outline" class="text-[9px] px-1 py-0 text-neutral-400 border-neutral-700 font-mono shrink-0">无流控</Badge>
-                <Badge v-else-if="user.flow" variant="outline" class="text-[9px] px-1 py-0 font-mono shrink-0">{{ user.flow }}</Badge>
+                <Badge
+                  v-if="user.flow === 'xtls-rprx-vision'"
+                  variant="outline"
+                  class="text-[9px] px-1 py-0 text-cyan-400 border-cyan-500/30 font-mono shrink-0"
+                  >Vision</Badge
+                >
+                <Badge
+                  v-else-if="user.flow === 'none'"
+                  variant="outline"
+                  class="text-[9px] px-1 py-0 text-neutral-400 border-neutral-700 font-mono shrink-0"
+                  >无流控</Badge
+                >
+                <Badge
+                  v-else-if="user.flow"
+                  variant="outline"
+                  class="text-[9px] px-1 py-0 font-mono shrink-0"
+                  >{{ user.flow }}</Badge
+                >
               </div>
-              <div v-if="user.remark" class="text-[10px] text-neutral-300 truncate mt-0.5" :title="user.remark">
+              <div
+                v-if="user.remark"
+                class="text-[10px] text-neutral-300 truncate mt-0.5"
+                :title="user.remark"
+              >
                 {{ user.remark }}
               </div>
-              <div class="text-[10px] text-muted-foreground font-mono flex items-center gap-1.5 mt-0.5">
-                <span v-if="user.ipLimit > 0" class="text-amber-400 font-semibold">限 {{ user.ipLimit }} IP</span>
+              <div
+                class="text-[10px] text-muted-foreground font-mono flex items-center gap-1.5 mt-0.5"
+              >
+                <span v-if="user.ipLimit > 0" class="text-amber-400 font-semibold"
+                  >限 {{ user.ipLimit }} IP</span
+                >
                 <span v-else>无IP限制</span>
                 <span>•</span>
                 <span class="truncate max-w-[100px]" :title="user.subToken || '未生成'">
@@ -449,14 +522,13 @@
           </div>
 
           <div class="flex flex-col items-end gap-1 shrink-0">
-            <Badge
-              :variant="getUserBadgeVariant(user)"
-              :dot="true"
-              class="text-[10px]"
-            >
+            <Badge :variant="getUserBadgeVariant(user)" :dot="true" class="text-[10px]">
               {{ getUserStatusText(user) }}
             </Badge>
-            <div v-if="user.isOnline && (user.upSpeed > 0 || user.downSpeed > 0)" class="text-[10px] font-mono text-cyan-400 flex items-center gap-1">
+            <div
+              v-if="user.isOnline && (user.upSpeed > 0 || user.downSpeed > 0)"
+              class="text-[10px] font-mono text-cyan-400 flex items-center gap-1"
+            >
               <span>↑{{ formatBytes(user.upSpeed) }}/s</span>
               <span>↓{{ formatBytes(user.downSpeed) }}/s</span>
             </div>
@@ -474,7 +546,9 @@
               class="text-[10px] px-1.5 py-0 font-mono"
             >
               <span>{{ tag }}</span>
-              <span v-if="getSubRoutesCount(tag, user)" class="text-cyan-400 font-bold ml-0.5">({{ getSubRoutesCount(tag, user) }}线)</span>
+              <span v-if="getSubRoutesCount(tag, user)" class="text-cyan-400 font-bold ml-0.5"
+                >({{ getSubRoutesCount(tag, user) }}线)</span
+              >
             </Badge>
             <Badge
               v-if="getNodeTags(user).length > 3"
@@ -484,7 +558,10 @@
             >
               +{{ getNodeTags(user).length - 3 }}
             </Badge>
-            <span v-if="!getNodeTags(user).length" class="text-[11px] text-muted-foreground font-mono">
+            <span
+              v-if="!getNodeTags(user).length"
+              class="text-[11px] text-muted-foreground font-mono"
+            >
               未分配节点
             </span>
           </div>
@@ -496,10 +573,15 @@
             <span class="text-muted-foreground text-[11px]">流量配额:</span>
             <div class="flex items-center gap-1">
               <span class="text-foreground">{{ formatBytes(user.upBytes + user.downBytes) }}</span>
-              <span class="text-muted-foreground text-[11px]">/ {{ user.totalBytes > 0 ? formatBytes(user.totalBytes) : '无限制' }}</span>
+              <span class="text-muted-foreground text-[11px]"
+                >/ {{ user.totalBytes > 0 ? formatBytes(user.totalBytes) : '无限制' }}</span
+              >
             </div>
           </div>
-          <div v-if="user.totalBytes > 0" class="w-full h-1.5 bg-neutral-900 rounded-full overflow-hidden border border-border/40">
+          <div
+            v-if="user.totalBytes > 0"
+            class="w-full h-1.5 bg-neutral-900 rounded-full overflow-hidden border border-border/40"
+          >
             <div
               class="h-full rounded-full transition-all"
               :class="getTrafficProgressClass(user)"
@@ -514,7 +596,9 @@
           <div class="text-right">
             <span :class="isUserExpired(user) ? 'text-amber-400 font-semibold' : 'text-foreground'">
               {{ user.expireTime > 0 ? formatDate(user.expireTime) : '永久有效' }}
-              <span v-if="isUserExpired(user)" class="text-[10px] text-rose-400 ml-1">(已到期)</span>
+              <span v-if="isUserExpired(user)" class="text-[10px] text-rose-400 ml-1"
+                >(已到期)</span
+              >
             </span>
             <span v-if="user.resetDay > 0" class="text-[10px] text-cyan-400/90 ml-1.5">
               (每月{{ user.resetDay }}日重置)
@@ -523,7 +607,10 @@
         </div>
 
         <!-- Card Action Buttons -->
-        <div class="pt-2 border-t border-border/40 flex flex-wrap items-center justify-between gap-1" @click.stop>
+        <div
+          class="pt-2 border-t border-border/40 flex flex-wrap items-center justify-between gap-1"
+          @click.stop
+        >
           <div class="flex items-center gap-1">
             <Button
               variant="outline"
@@ -586,10 +673,15 @@
       </div>
 
       <!-- Empty State for Mobile -->
-      <div v-if="!filteredUsers.length" class="p-8 text-center rounded-lg border border-border bg-neutral-950 text-muted-foreground">
+      <div
+        v-if="!filteredUsers.length"
+        class="p-8 text-center rounded-lg border border-border bg-neutral-950 text-muted-foreground"
+      >
         <Users class="w-8 h-8 text-neutral-600 mx-auto mb-1.5" />
         <p class="text-xs font-medium text-neutral-300">没有匹配的用户记录</p>
-        <p class="text-[11px] text-muted-foreground mt-0.5">可尝试调整搜索关键字或筛选条件，或点击右上角添加新用户</p>
+        <p class="text-[11px] text-muted-foreground mt-0.5">
+          可尝试调整搜索关键字或筛选条件，或点击右上角添加新用户
+        </p>
       </div>
     </div>
   </div>
@@ -640,7 +732,9 @@ interface Props {
   searchQuery: string
   statusFilter: StatusFilterType
   isUserExpired: (user: UserItem) => boolean
-  getUserBadgeVariant: (user: UserItem) => 'default' | 'secondary' | 'outline' | 'success' | 'warning' | 'destructive'
+  getUserBadgeVariant: (
+    user: UserItem
+  ) => 'default' | 'secondary' | 'outline' | 'success' | 'warning' | 'destructive'
   getUserStatusText: (user: UserItem) => string
   getTrafficPercent: (user: UserItem) => number
   getTrafficProgressClass: (user: UserItem) => string

@@ -157,7 +157,15 @@ export function getDefaultInboundFormData(usersList: any[] = []): InboundFormDat
     routeId: 0,
     sortOrder: 0,
     subRoutes: [
-      { id: '1', name: '🇯🇵 日本原生直连', routeId: 1, sortOrder: 0, outboundTag: 'direct', enabled: true, allowedUsers: [] },
+      {
+        id: '1',
+        name: '🇯🇵 日本原生直连',
+        routeId: 1,
+        sortOrder: 0,
+        outboundTag: 'direct',
+        enabled: true,
+        allowedUsers: [],
+      },
     ],
     boundUserEmail: '',
     protocol: 'vless',
@@ -245,9 +253,10 @@ export function sanitizeInboundPayload(raw: InboundFormData): InboundFormData {
     security: raw.security || 'none',
     sniffingEnabled: raw.sniffingEnabled !== false,
     sniffingRouteOnly: raw.sniffingRouteOnly === true,
-    sniffingDestOverride: Array.isArray(raw.sniffingDestOverride) && raw.sniffingDestOverride.length > 0
-      ? [...raw.sniffingDestOverride]
-      : ['http', 'tls', 'quic'],
+    sniffingDestOverride:
+      Array.isArray(raw.sniffingDestOverride) && raw.sniffingDestOverride.length > 0
+        ? [...raw.sniffingDestOverride]
+        : ['http', 'tls', 'quic'],
     sniffingMetadataOnly: Boolean(raw.sniffingMetadataOnly),
     sniffingDomainsExcluded: (raw.sniffingDomainsExcluded || '').trim(),
     sniffingIpsExcluded: (raw.sniffingIpsExcluded || '').trim(),
@@ -313,7 +322,9 @@ export function sanitizeInboundPayload(raw: InboundFormData): InboundFormData {
       ...sr,
       sortOrder: Number(sr.sortOrder || 0),
     }))
-    clean.selectedUserEmails = Array.isArray(raw.selectedUserEmails) ? [...raw.selectedUserEmails] : []
+    clean.selectedUserEmails = Array.isArray(raw.selectedUserEmails)
+      ? [...raw.selectedUserEmails]
+      : []
     clean.fallbacksEnabled = Boolean(raw.fallbacksEnabled)
     clean.fallbackDest = raw.fallbackDest || '80'
     clean.fallbackXver = raw.fallbackXver || 0
@@ -333,7 +344,9 @@ export function sanitizeInboundPayload(raw: InboundFormData): InboundFormData {
       clean.vlessFlow = ''
     }
   } else if (clean.protocol === 'vmess') {
-    clean.selectedUserEmails = Array.isArray(raw.selectedUserEmails) ? [...raw.selectedUserEmails] : []
+    clean.selectedUserEmails = Array.isArray(raw.selectedUserEmails)
+      ? [...raw.selectedUserEmails]
+      : []
     clean.vlessFlow = ''
     clean.vmessAlterId = Number(raw.vmessAlterId) || 0
     clean.vmessDisableInsecure = Boolean(raw.vmessDisableInsecure)
@@ -341,7 +354,9 @@ export function sanitizeInboundPayload(raw: InboundFormData): InboundFormData {
       clean.security = 'tls'
     }
   } else if (clean.protocol === 'trojan') {
-    clean.selectedUserEmails = Array.isArray(raw.selectedUserEmails) ? [...raw.selectedUserEmails] : []
+    clean.selectedUserEmails = Array.isArray(raw.selectedUserEmails)
+      ? [...raw.selectedUserEmails]
+      : []
     clean.trojanPassword = (raw.trojanPassword || '').trim()
     clean.fallbacksEnabled = Boolean(raw.fallbacksEnabled)
     clean.fallbackDest = raw.fallbackDest || '80'
@@ -356,7 +371,9 @@ export function sanitizeInboundPayload(raw: InboundFormData): InboundFormData {
     clean.ssPassword = raw.ssPassword || ''
     clean.ssNetwork = raw.ssNetwork || 'tcp,udp'
     clean.ssIvCheck = Boolean(raw.ssIvCheck)
-    clean.selectedUserEmails = Array.isArray(raw.selectedUserEmails) ? [...raw.selectedUserEmails] : []
+    clean.selectedUserEmails = Array.isArray(raw.selectedUserEmails)
+      ? [...raw.selectedUserEmails]
+      : []
     clean.security = 'none'
     clean.vlessFlow = ''
   } else if (clean.protocol === 'socks') {
@@ -554,7 +571,7 @@ export function buildSettingsJSON(clean: InboundFormData, usersList: any[] = [])
   // VLESS
   const isTcp = clean.network === 'tcp'
   const isTlsOrReality = clean.security === 'reality' || clean.security === 'tls'
-  const flowVal = (isTcp && isTlsOrReality) ? (clean.vlessFlow || '') : ''
+  const flowVal = isTcp && isTlsOrReality ? clean.vlessFlow || '' : ''
   settings.decryption = 'none'
   if (flowVal) {
     settings.flow = flowVal
@@ -652,9 +669,7 @@ export function buildStreamSettingsJSON(clean: InboundFormData): string {
       .split(',')
       .map((s: string) => s.trim())
       .filter((s: string) => s)
-    const sIds = (clean.realityShortIds || '')
-      .split(',')
-      .map((s: string) => s.trim())
+    const sIds = (clean.realityShortIds || '').split(',').map((s: string) => s.trim())
 
     stream.realitySettings = {
       dest: clean.realityTarget || '',
@@ -677,7 +692,10 @@ export function buildStreamSettingsJSON(clean: InboundFormData): string {
       ...(clean.clientFingerprint ? { fingerprint: clean.clientFingerprint } : {}),
     }
     if (clean.tlsAlpn) {
-      const alpnList = clean.tlsAlpn.split(',').map((s: string) => s.trim()).filter(Boolean)
+      const alpnList = clean.tlsAlpn
+        .split(',')
+        .map((s: string) => s.trim())
+        .filter(Boolean)
       if (alpnList.length > 0) {
         tlsObj.alpn = alpnList
       }
@@ -699,9 +717,10 @@ export function buildStreamSettingsJSON(clean: InboundFormData): string {
 }
 
 export function buildSniffingJSON(clean: InboundFormData): string {
-  const destOverride = (clean.sniffingDestOverride && clean.sniffingDestOverride.length > 0)
-    ? clean.sniffingDestOverride
-    : ['http', 'tls', 'quic']
+  const destOverride =
+    clean.sniffingDestOverride && clean.sniffingDestOverride.length > 0
+      ? clean.sniffingDestOverride
+      : ['http', 'tls', 'quic']
   const sniffingObj: any = {
     enabled: clean.sniffingEnabled,
     destOverride,
@@ -746,7 +765,10 @@ export function buildInboundPayload(raw: InboundFormData, usersList: any[] = [])
         sortOrder: Number(sr.sortOrder || 0),
         outboundTag: sr.outboundTag || 'direct',
         enabled: Boolean(sr.enabled),
-        allowedUsers: Array.isArray(sr.allowedUsers) && sr.allowedUsers.length > 0 ? sr.allowedUsers : undefined,
+        allowedUsers:
+          Array.isArray(sr.allowedUsers) && sr.allowedUsers.length > 0
+            ? sr.allowedUsers
+            : undefined,
       }))
     ),
     boundUserEmail: clean.boundUserEmail || '',

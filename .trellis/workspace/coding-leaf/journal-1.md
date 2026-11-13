@@ -747,3 +747,26 @@
 ### Status
 
 [OK] **Completed**
+
+
+## Session 33: 前端 Prettier/ESLint 工具链、保守语义增强与克制文案统一
+<!-- trellis-session: v=2 fp=a46d730bf59ecd46 -->
+
+**Date**: 2026-11-13
+**Task**: 前端 Prettier/ESLint 工具链、保守语义增强与克制文案统一
+**Branch**: `master`
+
+### Summary
+
+引入 Prettier + ESLint 9（devDependencies），按 modern-web-guidance 保守增强 Modal/Drawer/FormField/Input/Toast/LoginView/PortalClaimView/style.css 语义与可访问性，统一全站克制中文文案与全角冒号/空格排版并更新前端 spec。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `7868b35` | feat(web): 引入 Prettier/ESLint 工具链，保守增强前端语义并统一克制文案 |
+| `6d25c20` | build(web): 同步前端格式与文案优化后的嵌入构建产物 |
+
+### Status
+
+[OK] **Completed**

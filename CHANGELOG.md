@@ -4,6 +4,20 @@
 
 ---
 
+## v2.6.9 (2026-11) - 根治 VLESS Vision 重启覆盖顽疾、流控优先级与启动同步无损统一、前端工程化与无障碍语义增强
+
+- **VLESS Vision 重启覆盖根治与配置同步加固 (VLESS Flow & Config Sync Hardening)**：
+  - **剥离编译态顶层 `inbounds[].settings.flow`**：修复重载 `config.json` 时 Xray-core `VLessInboundConfig.Build()` 将顶层 `settings.flow` 自动回填至省略 `flow` 字段（`flow = "none"`）客户端，导致每次重部署或重启面板后用户流控被静默覆盖为 `xtls-rprx-vision` 的顽疾，流控字段严格下沉至 `clients[].flow` 逐客户端编译；
+  - **全链路流控优先级契约统一**：统一编译器、gRPC 动态热更新与客户端订阅导出三端的生效优先级为「传输层能力门控 (`VLESS + TCP + TLS/REALITY`) -> 用户显式指定 (`none` / `xtls-rprx-vision` / `xtls-rprx-vision-udp443`) -> 入站默认兜底」，解除入站默认设为 `none` 时无法单用户显式开启 Vision 的限制；
+  - **启动同步 (`SyncFromFile`) 无损保留**：修复 `syncFromRawJSONLocked` 在顶层无 `flow` 时反向篡改数据库入站默认流控的缺陷，并在合并磁盘 `streamSettings` 时无损保留面板专属客户端元数据（`realitySettings.{publicKey,fingerprint,spiderX}` 与 `tlsSettings.fingerprint`），防止重启冲刷订阅分享参数；
+  - **前端流控回显与提交对齐**：修正入站列表徽标 `getNodeFlow`、入站抽屉 `isTcp` 运算符优先级与 `sanitizeInboundPayload` 默认流控逻辑，与后端契约严格一致。
+- **前端工程化、无障碍语义与控制台文案规范 (Web Tooling, A11y & Copy Polish)**：
+  - 引入 Prettier + ESLint 扁平配置开发期工具链（`lint` / `format`），统一全量 44 个 Vue SFC 与 20 个 TypeScript 模块的代码风格与块顺序，零运行时依赖增加；
+  - 保守增强 UI 原语无障碍与表单语义：为 `Modal` / `Drawer` / `ToastContainer` 补齐 `role="dialog"`、`aria-modal`、`aria-labelledby` 与 `aria-live`，为 `FormField` 建立唯一 ID 的 `for`/`id` 与 `aria-describedby` 关联，补全登录与 2FA 表单 `autocomplete` / `inputmode="numeric"`，并引入标准 `scrollbar-color` 与 `prefers-reduced-motion` 渐进增强；
+  - 统一全站克制中文控制台提示语、全角冒号、中英文间距与专有名词写法（保留中性防探测标题外壳），并更新面板 `favicon.svg` 图标。
+
+---
+
 ## v2.6.8 (2026-11) - 全栈架构并发清零、批量操作与 SQLite 性能飞跃、网络防线加固与前端瘦身
 
 - **高并发架构一致性与竞态清零 (Concurrency & State Hardening)**：

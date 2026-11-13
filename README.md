@@ -1,7 +1,7 @@
 # Xray Decoupled Panel
 
 <p align="center">
-  <img src="https://img.shields.io/badge/Version-v2.6.8-indigo?style=flat-square" alt="Version">
+  <img src="https://img.shields.io/badge/Version-v2.6.9-indigo?style=flat-square" alt="Version">
   <img src="https://img.shields.io/badge/Go-1.26+-00ADD8?style=flat-square&logo=go" alt="Go Version">
   <img src="https://img.shields.io/badge/Vue-3.4+-4FC08D?style=flat-square&logo=vue.js" alt="Vue Version">
   <img src="https://img.shields.io/badge/License-MIT-green.svg?style=flat-square" alt="License">
@@ -82,7 +82,7 @@ sudo bash deploy/install.sh
 | `-log-level` | `LOG_LEVEL` | `info` | 日志输出级别（`debug`/`info`/`warn`/`error`） |
 | `-service` | `SERVICE_NAME` | `xray` | Xray 守护进程 systemd 服务名 |
 | `-public-url` | `PUBLIC_URL` | `http://127.0.0.1:9000` | 用于生成订阅链接的面板公网访问地址 |
-| `-panel-version` | `PANEL_VERSION` | 编译期注入版本 (`v2.6.8`) | 动态覆盖面板展示版本号（同时支持 `-v` / `-version` 打印版本） |
+| `-panel-version` | `PANEL_VERSION` | 编译期注入版本 (`v2.6.9`) | 动态覆盖面板展示版本号（同时支持 `-v` / `-version` 打印版本） |
 
 ---
 

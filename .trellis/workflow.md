@@ -183,10 +183,10 @@ Complex task: ask the user if you can create a Trellis task and enter the planni
 [/workflow-state:no_task]
 
 [workflow-state:no_task-antigravity]
-No active task. First classify the current turn and ask for task-creation consent before creating any Trellis task.
-Simple conversation / small task: ask only whether this turn should create a Trellis task. If the user says no, skip Trellis for this session.
-Complex task: ask the user if you can create a Trellis task and enter the planning phase. If the user says no, explain, clarify scope, or suggest a smaller split.
-Child-agent model gate: before spawning any Swarm worker or non-trivial subagent (including read-only audit/research agents before a task exists), explicitly ask the user which model to use unless already specified in the prompt — never silently inherit the main-session model or override via env/hooks.
+No active task — **Turn-1 Fast Triage Gate (overrides Plan Mode upfront deep-investigation)**:
+- **Zero heavy reads in `no_task`**: Do NOT read business source files, run `trellis mem` / `git log` / SSH checks, or load `trellis-start` / `trellis-brainstorm` while `Status: no_task`. Respond in <15s to protect main-session context.
+- **Simple conversation / trivial task**: Ask only whether to create a Trellis task (if user says no, handle directly without Trellis).
+- **Non-trivial bug / feature / audit / refactor**: Ask in **ONE combined prompt**: (1) consent to create a Trellis task, AND (2) which `model` child agents should use for isolated read-only research / Phase 2 execution (unless already specified by the user — never silently inherit the main-session model or override via env/hooks).
 [/workflow-state:no_task-antigravity]
 
 <!-- Per-turn breadcrumb: shown when the active task record cannot be read. -->
@@ -229,11 +229,11 @@ Inline mode: skip jsonl curation; Phase 2 reads artifacts/specs via `trellis-bef
 
 [workflow-state:planning-antigravity]
 Load `trellis-brainstorm`; stay in planning.
-Lightweight: `prd.md` can be enough. Complex: finish `prd.md`, `design.md`, and `implement.md`.
-Multi-milestone parent/child trees (`Parent + M1..Mn`): write full `design.md` + `implement.md` + `jsonl` ONLY for `M1` upfront; keep `M2..Mn` as brief stub PRDs (`--no-start`) until each milestone's turn arrives to avoid long silent planning turns.
-Before asking for `task.py start` sign-off, recommend the Phase 2 formation AND explicitly ask the user which model child agents should run on (unless already specified by the user — never silently inherit or override via env/hooks):
-- **Inline** (small / tightly-coupled single-file edit): skip jsonl (`task.py start --allow-empty-context`).
-- **Swarm** (`1 Worker + 1 Verifier` for standard work, or `N Workers + 1 Verifier` for file-disjoint slices): ask user for the Worker/Verifier model (and lightweight `monitor` model if needed), and curate `implement.jsonl` + `check.jsonl` first so `.agent/hooks.json` auto-injects absolute-path specs/artifacts into every Worker & Verifier.
+- **Main-session context budget**: Keep direct reads in the main session to ≤3 targeted file slices. Offload multi-file audits, `trellis mem` / `git` archeology, or SSH diagnostics to an isolated child agent using the user-approved `model` (`invoke_subagent` `research` for sandboxed local file search; read-only `swarm` worker `workspace:"inherit"` when read-only shell/`trellis mem`/SSH or direct `{TASK_DIR}/research/*.md` writes are needed), then read only `{TASK_DIR}/research/*.md` summaries in the main session.
+- **Artifacts**: Lightweight: `prd.md` can be enough. Complex: finish `prd.md`, `design.md`, and `implement.md`. For `Parent + M1..Mn`, write full `design.md` + `implement.md` + `jsonl` ONLY for `M1` upfront; keep `M2..Mn` as brief stub PRDs (`--no-start`) until each milestone's turn arrives.
+- **Phase 2 sign-off gate**: Before asking for `task.py start` sign-off, recommend the Phase 2 formation AND confirm child-agent `model` (if not already approved by the user — never silently inherit or override via env/hooks):
+  - **Inline** (small / tightly-coupled single-file edit): skip jsonl (`task.py start --allow-empty-context`).
+  - **Swarm** (`1 Worker + 1 Verifier` for standard work, or `N Workers + 1 Verifier` for file-disjoint slices): curate `implement.jsonl` + `check.jsonl` first so `.agent/hooks.json` auto-injects absolute-path specs/artifacts into every Worker & Verifier.
 Wait for user approval on artifacts, formation, and child-agent model before running `task.py start` or dispatching agents.
 [/workflow-state:planning-antigravity]
 
@@ -409,7 +409,8 @@ Spawn the research sub-agent:
 
 [Antigravity]
 
-Do quick research in the main session (or delegate multi-topic read-only lookups via `invoke_subagent` `research` / read-only Swarm workers — **only after explicitly asking the user which model child agents should use**, unless already specified by the user) and persist findings into `{TASK_DIR}/research/`.
+- **Small targeted lookup (≤3 file slices)**: inspect directly in the main session and persist key findings into `{TASK_DIR}/research/`.
+- **Heavy audit (>3 files, cross-layer flows, `trellis mem` / `git` history, or SSH diagnostics)**: do NOT bloat the main session — delegate using the user-approved `model` (`invoke_subagent` `research` for sandboxed read-only file search, after which main writes `{TASK_DIR}/research/<topic>.md`; or a read-only `swarm` worker with `workspace:"inherit"` when read-only shell commands or direct writes to `{TASK_DIR}/research/<topic>.md` are needed). Main session reads only the persisted `{TASK_DIR}/research/*.md` summary.
 
 [/Antigravity]
 

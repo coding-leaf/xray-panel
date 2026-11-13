@@ -67,7 +67,8 @@ _TAG_RE = re.compile(
     r"\[workflow-state:([A-Za-z0-9_-]+)\]\s*\n(.*?)\n\s*\[/workflow-state:\1\]",
     re.DOTALL,
 )
-_REVIEWER_KEYWORDS = ("verifier", "review", "check", "qa", "audit")
+_REVIEWER_KEYWORDS = ("verifier", "review", "check", "qa")
+_RESEARCHER_KEYWORDS = ("research", "audit", "investigat", "explor", "scout")
 
 
 # =============================================================================
@@ -269,7 +270,6 @@ def handle_session_start(repo_root: Path, data: dict[str, Any]) -> dict[str, Any
     _ensure_trellis_imports(repo_root)
     from common.active_task import resolve_active_task  # type: ignore[import-not-found]
     from common.paths import get_developer  # type: ignore[import-not-found]
-    from common.workflow_phase import filter_platform, get_phase_index  # type: ignore[import-not-found]
 
     active = resolve_active_task(repo_root, data, platform="antigravity")
     has_own_pointer = bool(active.task_path and active.source_type == "session")
@@ -293,21 +293,16 @@ def handle_session_start(repo_root: Path, data: dict[str, Any]) -> dict[str, Any
     spec_indexes = _collect_spec_indexes(repo_root)
     spec_block = "\n".join(f"  - {p}" for p in spec_indexes) if spec_indexes else "  (none)"
 
-    phase_index = ""
-    try:
-        phase_index = filter_platform(get_phase_index(), "Antigravity").strip()
-    except Exception:
-        pass
-
     msg_parts = [
         "<trellis-session-context>",
         f"Developer: {dev} | Git: {branch} ({dirty_str}) | Active task: {task_line}",
-        "Spec indexes (read relevant index before coding/planning):",
+        "Hook notice: Session state & per-turn <workflow-state> are auto-injected by .agent/hooks.json. "
+        "Do NOT load `trellis-start` / `trellis-continue` or read full `.trellis/workflow.md`; "
+        "fetch single-step detail on demand only via `python ./.trellis/scripts/get_context.py --mode phase --step <step>`.",
+        "Spec indexes (read relevant index ONLY after entering planning/coding, never during no_task triage):",
         spec_block,
+        "</trellis-session-context>",
     ]
-    if phase_index:
-        msg_parts.extend(["", phase_index])
-    msg_parts.append("</trellis-session-context>")
 
     return {
         "injectSteps": [
@@ -531,15 +526,15 @@ def _to_manifest_path(repo_root: Path, raw_path: str) -> str:
 def _build_worker_context_manifest(
     repo_root: Path,
     task_rel: str,
-    is_reviewer: bool,
+    worker_role: str,
 ) -> str:
     task_abs = (repo_root / task_rel).resolve()
     if not task_abs.is_dir():
         return ""
 
-    jsonl_primary = "check.jsonl" if is_reviewer else "implement.jsonl"
+    jsonl_primary = "check.jsonl" if worker_role == "reviewer" else "implement.jsonl"
     curated = _read_curated_jsonl(task_abs, jsonl_primary)
-    if not curated and is_reviewer:
+    if not curated and worker_role == "reviewer":
         curated = _read_curated_jsonl(task_abs, "implement.jsonl")
 
     artifacts = [
@@ -566,6 +561,11 @@ def _build_worker_context_manifest(
         for f_path, reason in curated:
             resolved_path = _to_manifest_path(repo_root, f_path)
             lines.append(f"   - {resolved_path} ({reason})")
+    elif worker_role == "researcher":
+        spec_dir_abs = (repo_root / ".trellis" / "spec").resolve().as_posix()
+        lines.append(
+            f"   - Inspect relevant index files under `{spec_dir_abs}/` for any package/layer you audit."
+        )
     else:
         spec_dir_abs = (repo_root / ".trellis" / "spec").resolve().as_posix()
         lines.append(
@@ -573,7 +573,15 @@ def _build_worker_context_manifest(
             f"or read `{spec_dir_abs}/` index files for every package/layer you touch."
         )
 
-    if is_reviewer:
+    if worker_role == "researcher":
+        lines.extend(
+            [
+                "3. Researcher / Auditor guardrails:",
+                "   - Investigate read-only with exact file:line citations; keep your reply concise and structured so the Coordinator's context window stays lean.",
+                f"   - Do NOT edit product source code or task state (`task.json`); writing research notes ONLY under `{task_abs.as_posix()}/research/*.md` is allowed when write tools are available.",
+            ]
+        )
+    elif worker_role == "reviewer":
         lines.extend(
             [
                 "3. Reviewer / Verifier guardrails:",
@@ -654,8 +662,13 @@ def handle_pre_tool_use(repo_root: Path, data: dict[str, Any]) -> dict[str, Any]
         if not active.task_path or active.stale:
             return {"decision": "allow"}
 
-        is_reviewer = any(kw in worker_name for kw in _REVIEWER_KEYWORDS)
-        manifest = _build_worker_context_manifest(repo_root, active.task_path, is_reviewer)
+        if any(kw in worker_name for kw in _RESEARCHER_KEYWORDS):
+            worker_role = "researcher"
+        elif any(kw in worker_name for kw in _REVIEWER_KEYWORDS):
+            worker_role = "reviewer"
+        else:
+            worker_role = "author"
+        manifest = _build_worker_context_manifest(repo_root, active.task_path, worker_role)
         if not manifest:
             return {"decision": "allow"}
 
@@ -682,8 +695,13 @@ def handle_pre_tool_use(repo_root: Path, data: dict[str, Any]) -> dict[str, Any]
             return {"decision": "allow"}
 
         role_label = f"{type_name} {_str(args.get('Role')).lower()}"
-        is_reviewer = any(kw in role_label for kw in _REVIEWER_KEYWORDS)
-        manifest = _build_worker_context_manifest(repo_root, active.task_path, is_reviewer)
+        if type_name == "research" or any(kw in role_label for kw in _RESEARCHER_KEYWORDS):
+            worker_role = "researcher"
+        elif any(kw in role_label for kw in _REVIEWER_KEYWORDS):
+            worker_role = "reviewer"
+        else:
+            worker_role = "author"
+        manifest = _build_worker_context_manifest(repo_root, active.task_path, worker_role)
         if not manifest:
             return {"decision": "allow"}
 

@@ -1,6 +1,6 @@
 ---
 name: trellis-brainstorm
-description: "Guides collaborative requirements discovery before implementation. Creates task directory, seeds PRD, asks high-value questions one at a time, researches technical choices, and converges on MVP scope. Use when requirements are unclear, there are multiple valid approaches, or the user describes a new feature or complex task."
+description: "Use ONLY in Phase 1 (status=planning) AFTER task-creation consent is granted — never during Status: no_task. Guides collaborative requirements discovery, seeds PRD, asks high-value questions one at a time, and converges on MVP scope."
 ---
 
 # Trellis Brainstorm
@@ -22,6 +22,8 @@ This is mandatory. Before asking the user a question, first check whether the an
 Do not ask the user to confirm facts that the repository can answer. Ask only for product intent, preference, scope, risk tolerance, acceptance behavior, or decisions that remain ambiguous after inspection.
 
 Repository evidence establishes current behavior and technical constraints. The user's intended behavior, feature scope boundaries, and UX preferences are never answerable by repository evidence alone, even when an existing pattern exists; existing patterns are options and recommendation evidence, not decisions.
+
+In Antigravity, respect the main-session context budget: keep direct reads in the main session to ≤3 targeted file slices, and offload multi-file (>3 slices), `trellis mem`, `git` history, or SSH audits to an isolated child agent (using the user-approved `model`) that persists findings to `{TASK_DIR}/research/*.md`.
 
 ---
 

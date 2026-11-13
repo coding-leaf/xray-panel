@@ -1783,7 +1783,11 @@ export default function trellisExtension(pi: {
   ) => void;
   getThinkingLevel?: () => string;
 }): void {
-  if (process.env.TRELLIS_SUBAGENT_CHILD === "1") return;
+  if (
+    process.env.TRELLIS_SUBAGENT_CHILD === "1" ||
+    process.env.PI_SUBAGENT_CHILD === "1"
+  )
+    return;
   // Process-level fallback; call sites with a session context re-resolve via
   // resolveRoot(ctx) so the active project (session cwd) is used instead.
   const root = resolveRoot();

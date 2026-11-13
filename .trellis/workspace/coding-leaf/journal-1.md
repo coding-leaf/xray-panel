@@ -770,3 +770,26 @@
 ### Status
 
 [OK] **Completed**
+
+
+## Session 34: 修复 VLESS Vision 重部署覆盖顽疾并收敛 AGY Trellis 工作流
+<!-- trellis-session: v=2 fp=1a3995787c07b005 -->
+
+**Date**: 2026-11-13
+**Task**: 修复 VLESS Vision 重部署覆盖顽疾并收敛 AGY Trellis 工作流
+**Branch**: `master`
+
+### Summary
+
+剥离编译态顶层 inbounds[].settings.flow 杜绝 Xray 重载回填覆盖 none 用户，统一 User>Inbound 流控优先级，修复 SyncFromFile 反向同步抹除入站流控与 Reality 客户端字段问题，对齐前端回显并升级 AGY Trellis 首轮零深读门禁
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `e09849c` | chore(workflow): 收敛 AGY Trellis 首轮零深读门禁、Hook 瘦身与技能遮蔽 |
+| `fba12a4` | fix(vless): 剥离编译态顶层 settings.flow，统一流控优先级与启动同步无损保留 |
+
+### Status
+
+[OK] **Completed**

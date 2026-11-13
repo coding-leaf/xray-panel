@@ -8,7 +8,7 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 33
+- **Total Sessions**: 34
 - **Last Active**: 2026-11-13
 <!-- @@@/auto:current-status -->
 
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~772 | Active |
+| `journal-1.md` | ~795 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 34 | 2026-11-13 | 修复 VLESS Vision 重部署覆盖顽疾并收敛 AGY Trellis 工作流 | `e09849c`, `fba12a4` | `master` |
 | 33 | 2026-11-13 | 前端 Prettier/ESLint 工具链、保守语义增强与克制文案统一 | `7868b35`, `6d25c20` | `master` |
 | 32 | 2026-11-13 | v2.6.8 全栈架构并发清零、批量性能飞跃与网络防线优化 | `da753ca`, `bdb8ddd`, `e2f7251`, `8a5b726`, `09a77db` | `master` |
 | 31 | 2026-11-09 | 补齐出站UseIPv4v6/UseIPv6v4双栈优先策略与语义闭环 | `a3663ec`, `2b55a54` | `master` |

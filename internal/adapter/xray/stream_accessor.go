@@ -111,16 +111,22 @@ func (a *InboundStreamAccessor) Security() string {
 	return strings.ToLower(strings.TrimSpace(a.StreamSettings.Security))
 }
 
-// ResolveVisionFlow 统一解析 Vision Flow (XTLS Vision)
-// 规则：严格限定为 VLESS 协议且传输为 TCP (空或"tcp") + REALITY 或 TLS。其余组合一律为空。
-func (a *InboundStreamAccessor) ResolveVisionFlow(protocol string) string {
-	if a == nil || !strings.EqualFold(protocol, "vless") {
-		return ""
+// SupportsVisionFlow 判断入站协议与传输/安全层是否具备 XTLS Vision 流控能力
+// 规则：严格限定为 VLESS 协议且传输为 TCP (空或 "tcp") + REALITY 或 TLS。
+func (a *InboundStreamAccessor) SupportsVisionFlow(protocol string) bool {
+	if a == nil || !strings.EqualFold(strings.TrimSpace(protocol), "vless") {
+		return false
 	}
 
 	net := a.Network()
 	sec := a.Security()
-	if (net != "" && net != "tcp") || (sec != "reality" && sec != "tls") {
+	return (net == "" || net == "tcp") && (sec == "reality" || sec == "tls")
+}
+
+// ResolveVisionFlow 统一解析 Vision Flow (XTLS Vision)
+// 规则：严格限定为 VLESS 协议且传输为 TCP (空或"tcp") + REALITY 或 TLS。其余组合一律为空。
+func (a *InboundStreamAccessor) ResolveVisionFlow(protocol string) string {
+	if !a.SupportsVisionFlow(protocol) {
 		return ""
 	}
 

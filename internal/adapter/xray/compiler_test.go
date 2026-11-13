@@ -1979,6 +1979,187 @@ func TestXrayCompiler_PreferIPv4v6Strategies(t *testing.T) {
 	validateWithXrayCore(t, jsonBytes)
 }
 
+func TestXrayCompiler_VLESSFlowOverrideAndPriority(t *testing.T) {
+	compiler := xray.NewXrayCompiler()
+	outbounds := []domain.Outbound{{Tag: "direct", Protocol: "freedom"}}
+
+	t.Run("no top-level settings.flow and mixed per-client flows under inbound vision", func(t *testing.T) {
+		inbounds := []domain.Inbound{
+			{
+				Tag:            "vless-vision-default",
+				Port:           14431,
+				Listen:         "127.0.0.1",
+				Protocol:       "vless",
+				SettingsJSON:   `{"decryption":"none","flow":"xtls-rprx-vision"}`,
+				StreamSettings: `{"network":"tcp","security":"reality","realitySettings":{"dest":"apple.com:443","serverNames":["apple.com"],"privateKey":"SL552CAJYk9fBNX_MvMJCaFmDQ-LHhugYSHYZ4bZXU8","shortIds":["0123456789abcdef"]}}`,
+				Enabled:        true,
+			},
+		}
+		users := []domain.User{
+			{Email: "none@test.com", UUID: "c8402f1a-6df2-4217-a169-23114d640301", Flow: "none", InboundTags: "vless-vision-default", Enabled: true},
+			{Email: "vision@test.com", UUID: "c8402f1a-6df2-4217-a169-23114d640302", Flow: "xtls-rprx-vision", InboundTags: "vless-vision-default", Enabled: true},
+			{Email: "follow@test.com", UUID: "c8402f1a-6df2-4217-a169-23114d640303", Flow: "", InboundTags: "vless-vision-default", Enabled: true},
+		}
+
+		jsonBytes, err := compiler.CompileToJSON(inbounds, outbounds, nil, nil, users)
+		if err != nil {
+			t.Fatalf("CompileToJSON failed: %v", err)
+		}
+
+		var raw map[string]interface{}
+		if err := json.Unmarshal(jsonBytes, &raw); err != nil {
+			t.Fatalf("Unmarshal failed: %v", err)
+		}
+		inb0 := raw["inbounds"].([]interface{})[0].(map[string]interface{})
+		sm := inb0["settings"].(map[string]interface{})
+		if _, hasTopFlow := sm["flow"]; hasTopFlow {
+			t.Fatalf("expected top-level settings.flow to be absent in compiled config.json, got %v", sm["flow"])
+		}
+
+		clients := sm["clients"].([]interface{})
+		gotFlows := make(map[string]interface{})
+		for _, item := range clients {
+			cm := item.(map[string]interface{})
+			gotFlows[cm["email"].(string)] = cm["flow"]
+		}
+		if gotFlows["none@test.com"] != nil {
+			t.Errorf("expected none@test.com client flow to be omitted/nil, got %v", gotFlows["none@test.com"])
+		}
+		if gotFlows["vision@test.com"] != "xtls-rprx-vision" {
+			t.Errorf("expected vision@test.com flow xtls-rprx-vision, got %v", gotFlows["vision@test.com"])
+		}
+		if gotFlows["follow@test.com"] != "xtls-rprx-vision" {
+			t.Errorf("expected follow@test.com flow xtls-rprx-vision, got %v", gotFlows["follow@test.com"])
+		}
+
+		validateWithXrayCore(t, jsonBytes)
+	})
+
+	t.Run("inbound flow=none on TCP+Reality allows explicit user vision while ws blocks it", func(t *testing.T) {
+		inbounds := []domain.Inbound{
+			{
+				Tag:            "vless-tcp-none",
+				Port:           14432,
+				Listen:         "127.0.0.1",
+				Protocol:       "vless",
+				SettingsJSON:   `{"decryption":"none","flow":"none"}`,
+				StreamSettings: `{"network":"tcp","security":"reality","realitySettings":{"dest":"apple.com:443","serverNames":["apple.com"],"privateKey":"SL552CAJYk9fBNX_MvMJCaFmDQ-LHhugYSHYZ4bZXU8","shortIds":["0123456789abcdef"]}}`,
+				Enabled:        true,
+			},
+			{
+				Tag:            "vless-ws-none",
+				Port:           14433,
+				Listen:         "127.0.0.1",
+				Protocol:       "vless",
+				SettingsJSON:   `{"decryption":"none"}`,
+				StreamSettings: `{"network":"ws","security":"none","wsSettings":{"path":"/ws"}}`,
+				Enabled:        true,
+			},
+		}
+		users := []domain.User{
+			{Email: "user-vision@test.com", UUID: "c8402f1a-6df2-4217-a169-23114d640304", Flow: "xtls-rprx-vision", InboundTags: "vless-tcp-none,vless-ws-none", Enabled: true},
+			{Email: "user-follow@test.com", UUID: "c8402f1a-6df2-4217-a169-23114d640305", Flow: "", InboundTags: "vless-tcp-none", Enabled: true},
+		}
+
+		jsonBytes, err := compiler.CompileToJSON(inbounds, outbounds, nil, nil, users)
+		if err != nil {
+			t.Fatalf("CompileToJSON failed: %v", err)
+		}
+
+		var raw map[string]interface{}
+		if err := json.Unmarshal(jsonBytes, &raw); err != nil {
+			t.Fatalf("Unmarshal failed: %v", err)
+		}
+		for _, item := range raw["inbounds"].([]interface{}) {
+			ib := item.(map[string]interface{})
+			tag, _ := ib["tag"].(string)
+			if tag == "api" {
+				continue
+			}
+			sm := ib["settings"].(map[string]interface{})
+			if _, hasTopFlow := sm["flow"]; hasTopFlow {
+				t.Errorf("inbound %s should not have top-level settings.flow, got %v", tag, sm["flow"])
+			}
+			clients := sm["clients"].([]interface{})
+			for _, c := range clients {
+				cm := c.(map[string]interface{})
+				email := cm["email"].(string)
+				if tag == "vless-tcp-none" && email == "user-vision@test.com" && cm["flow"] != "xtls-rprx-vision" {
+					t.Errorf("expected explicit user vision to override inbound none on TCP+Reality, got %v", cm["flow"])
+				}
+				if tag == "vless-tcp-none" && email == "user-follow@test.com" && cm["flow"] != nil {
+					t.Errorf("expected follow user under inbound none to have nil flow, got %v", cm["flow"])
+				}
+				if tag == "vless-ws-none" && cm["flow"] != nil {
+					t.Errorf("expected non-TCP ws inbound to suppress user vision flow, got %v", cm["flow"])
+				}
+			}
+		}
+
+		// gRPC BuildAccountMessage consistency checks
+		reg := xray.DefaultProtocolRegistry()
+		msg, err := reg.BuildAccountMessage(&inbounds[0], &users[0])
+		if err != nil {
+			t.Fatalf("BuildAccountMessage failed: %v", err)
+		}
+		inst, err := msg.GetInstance()
+		if err != nil {
+			t.Fatalf("GetInstance failed: %v", err)
+		}
+		if vlessAcc := inst.(*xproto.VLESSAccount); vlessAcc.Flow != "xtls-rprx-vision" {
+			t.Errorf("gRPC BuildAccountMessage expected xtls-rprx-vision when user overrides inbound none, got %q", vlessAcc.Flow)
+		}
+
+		msgWS, err := reg.BuildAccountMessage(&inbounds[1], &users[0])
+		if err != nil {
+			t.Fatalf("BuildAccountMessage WS failed: %v", err)
+		}
+		instWS, err := msgWS.GetInstance()
+		if err != nil {
+			t.Fatalf("GetInstance WS failed: %v", err)
+		}
+		if vlessAcc := instWS.(*xproto.VLESSAccount); vlessAcc.Flow != "" {
+			t.Errorf("gRPC BuildAccountMessage expected empty flow on WS, got %q", vlessAcc.Flow)
+		}
+	})
+
+	t.Run("inbound flow=xtls-rprx-vision-udp443 + user empty compiles client udp443 without top-level flow", func(t *testing.T) {
+		inbounds := []domain.Inbound{
+			{
+				Tag:            "vless-udp443",
+				Port:           14434,
+				Listen:         "127.0.0.1",
+				Protocol:       "vless",
+				SettingsJSON:   `{"decryption":"none","flow":"xtls-rprx-vision-udp443"}`,
+				StreamSettings: `{"network":"tcp","security":"reality","realitySettings":{"dest":"apple.com:443","serverNames":["apple.com"],"privateKey":"SL552CAJYk9fBNX_MvMJCaFmDQ-LHhugYSHYZ4bZXU8","shortIds":["0123456789abcdef"]}}`,
+				Enabled:        true,
+			},
+		}
+		users := []domain.User{
+			{Email: "follow-udp443@test.com", UUID: "c8402f1a-6df2-4217-a169-23114d640306", Flow: "", InboundTags: "vless-udp443", Enabled: true},
+		}
+
+		jsonBytes, err := compiler.CompileToJSON(inbounds, outbounds, nil, nil, users)
+		if err != nil {
+			t.Fatalf("CompileToJSON failed: %v", err)
+		}
+
+		var raw map[string]interface{}
+		if err := json.Unmarshal(jsonBytes, &raw); err != nil {
+			t.Fatalf("Unmarshal failed: %v", err)
+		}
+		inb0 := raw["inbounds"].([]interface{})[0].(map[string]interface{})
+		sm := inb0["settings"].(map[string]interface{})
+		if _, hasTopFlow := sm["flow"]; hasTopFlow {
+			t.Fatalf("expected top-level settings.flow to be absent for udp443 inbound, got %v", sm["flow"])
+		}
+		c0 := sm["clients"].([]interface{})[0].(map[string]interface{})
+		if c0["flow"] != "xtls-rprx-vision-udp443" {
+			t.Errorf("expected client flow xtls-rprx-vision-udp443, got %v", c0["flow"])
+		}
+	})
+}
+
 
 
 

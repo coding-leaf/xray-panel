@@ -312,33 +312,37 @@ func (s *ConfigService) syncFromRawJSONLocked(ctx context.Context, rawJSON []byt
 			if settingsMap, ok := ib["settings"].(map[string]interface{}); ok {
 				rawFlow, _ := settingsMap["flow"].(string)
 				if strings.TrimSpace(rawFlow) == "" {
-					preserveNone := false
 					if existing != nil {
 						var prevSettings map[string]interface{}
 						if err := json.Unmarshal([]byte(existing.SettingsJSON), &prevSettings); err == nil {
-							if pf, ok := prevSettings["flow"].(string); ok && strings.EqualFold(strings.TrimSpace(pf), "none") {
-								preserveNone = true
+							if pf, ok := prevSettings["flow"].(string); ok && strings.TrimSpace(pf) != "" {
+								settingsMap["flow"] = strings.TrimSpace(pf)
 							}
 						}
-					}
-					hasClientWithFlow := false
-					hasAnyClient := false
-					if clientsRaw, ok := settingsMap["clients"].([]interface{}); ok && len(clientsRaw) > 0 {
-						hasAnyClient = true
-						for _, cRaw := range clientsRaw {
-							if cMap, ok := cRaw.(map[string]interface{}); ok {
-								if cf, _ := cMap["flow"].(string); strings.TrimSpace(cf) != "" {
-									hasClientWithFlow = true
-									break
+					} else {
+						hasClientWithFlow := false
+						hasAnyClient := false
+						if clientsRaw, ok := settingsMap["clients"].([]interface{}); ok && len(clientsRaw) > 0 {
+							hasAnyClient = true
+							for _, cRaw := range clientsRaw {
+								if cMap, ok := cRaw.(map[string]interface{}); ok {
+									if cf, _ := cMap["flow"].(string); strings.TrimSpace(cf) != "" {
+										hasClientWithFlow = true
+										break
+									}
 								}
 							}
 						}
-					}
-					if (preserveNone && !hasClientWithFlow) || (hasAnyClient && !hasClientWithFlow) {
-						settingsMap["flow"] = "none"
+						if hasAnyClient && !hasClientWithFlow {
+							settingsMap["flow"] = "none"
+						}
 					}
 				}
 			}
+		}
+
+		if existing != nil {
+			mergePanelOnlyStreamFields(ib["streamSettings"], existing.StreamSettings)
 		}
 
 		settingsBytes, err := json.Marshal(ib["settings"])
@@ -447,6 +451,48 @@ func (s *ConfigService) syncFromRawJSONLocked(ctx context.Context, rawJSON []byt
 		}
 	}
 	return nil
+}
+
+// mergePanelOnlyStreamFields preserves panel-only client hints in StreamSettings
+// (tlsSettings.fingerprint and realitySettings.{publicKey,fingerprint,spiderX})
+// that XrayCompiler strips when generating server-side config.json.
+func mergePanelOnlyStreamFields(incomingRaw interface{}, prevStreamJSON string) {
+	incStream, ok := incomingRaw.(map[string]interface{})
+	if !ok || incStream == nil || strings.TrimSpace(prevStreamJSON) == "" {
+		return
+	}
+	var prevStream map[string]interface{}
+	if err := json.Unmarshal([]byte(prevStreamJSON), &prevStream); err != nil || prevStream == nil {
+		return
+	}
+
+	if incTLS, ok := incStream["tlsSettings"].(map[string]interface{}); ok {
+		if prevTLS, ok := prevStream["tlsSettings"].(map[string]interface{}); ok {
+			if curFP, _ := incTLS["fingerprint"].(string); strings.TrimSpace(curFP) == "" {
+				if prevFP, _ := prevTLS["fingerprint"].(string); strings.TrimSpace(prevFP) != "" {
+					incTLS["fingerprint"] = strings.TrimSpace(prevFP)
+				}
+			}
+		}
+	}
+
+	if incReal, ok := incStream["realitySettings"].(map[string]interface{}); ok {
+		if prevReal, ok := prevStream["realitySettings"].(map[string]interface{}); ok {
+			incPriv, _ := incReal["privateKey"].(string)
+			prevPriv, _ := prevReal["privateKey"].(string)
+			incPriv = strings.TrimSpace(incPriv)
+			prevPriv = strings.TrimSpace(prevPriv)
+			if prevPriv == "" || incPriv == "" || incPriv == prevPriv {
+				for _, key := range []string{"publicKey", "fingerprint", "spiderX"} {
+					if curVal, _ := incReal[key].(string); strings.TrimSpace(curVal) == "" {
+						if prevVal, _ := prevReal[key].(string); strings.TrimSpace(prevVal) != "" {
+							incReal[key] = prevVal
+						}
+					}
+				}
+			}
+		}
+	}
 }
 
 type statusProvider interface {

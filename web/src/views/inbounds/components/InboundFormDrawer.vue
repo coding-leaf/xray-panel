@@ -139,7 +139,7 @@
               >默认流控模式 (Flow Policy)</label
             >
             <span class="text-[10px] text-muted-foreground"
-              >分配给该节点的用户将继承此策略 (仅适用于 TCP + TLS/REALITY)</span
+              >未单独指定 flow 的用户将继承此策略；用户显式设置优先（仅 TCP + TLS/REALITY 生效）</span
             >
           </div>
           <select
@@ -159,7 +159,7 @@
             >
               xtls-rprx-vision-udp443
             </option>
-            <option value="none">none (无流控 - 适用 XHTTP / gRPC / WS 等)</option>
+            <option value="none">none (无流控 - 节点默认不启用 / 适用 XHTTP、gRPC、WS 等)</option>
           </select>
         </div>
 
@@ -1361,16 +1361,16 @@ const initFormData = () => {
       /* ignore */
     }
 
-    const isTcp =
-      (stream.network || inb.protocol === 'vless' ? stream.network || 'tcp' : 'tcp') === 'tcp'
+    const isTcp = (stream.network || (inb.protocol === 'vless' ? 'tcp' : '')) === 'tcp'
     const isTlsOrReality = ['reality', 'tls'].includes(stream.security || 'none')
-    if (settings.flow !== undefined) {
-      form.value.vlessFlow =
-        settings.flow === '' || settings.flow === 'none' ? 'none' : settings.flow
-    } else if (inb.protocol === 'vless') {
-      form.value.vlessFlow = isTcp && isTlsOrReality ? 'xtls-rprx-vision' : 'none'
-    } else {
+    if (inb.protocol !== 'vless' || !isTcp || !isTlsOrReality) {
       form.value.vlessFlow = 'none'
+    } else if (settings.flow === 'none') {
+      form.value.vlessFlow = 'none'
+    } else if (typeof settings.flow === 'string' && settings.flow.trim() !== '') {
+      form.value.vlessFlow = settings.flow.trim()
+    } else {
+      form.value.vlessFlow = 'xtls-rprx-vision'
     }
 
     const assignedEmails: string[] = []

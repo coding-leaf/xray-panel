@@ -88,12 +88,61 @@
 
 ---
 
-## 8. 启动反向同步与显式空状态防抹除准则 (Startup Sync & Explicit-None Preservation)
+## 8. VLESS Flow 优先级、逐客户端编译与启动反向同步无损契约 (VLESS Flow & Startup Sync Invariants)
 
-- **问题背景**：Xray-core 官方协议对部分字段的“关闭”状态要求在 `config.json` 中完全省略该键（例如 VLESS `settings.flow` 仅允许 `""` 或 `"xtls-rprx-vision"`，传入 `"none"` 会导致核心报错拒绝启动），而面板数据库通过 `"flow": "none"` 区分“显式禁用流控”与“未配置（默认启用 Vision）”。
-- **核心约束**：
-  - 在 `ConfigService.syncFromRawJSON`（面板启动 `SyncFromFile` 或保存原生 JSON）从 `config.json` 反向同步回 SQLite 时，若 `config.json` 中 `vless` 入站的 `settings.flow` 为空且 `clients` 均未开启 `flow`，必须保留数据库中原有的 `"flow": "none"` 标记（或写回 `"flow": "none"`），**严禁直接将省略了 `flow` 的 JSON 覆盖回数据库导致 `"flow": "none"` 丢失并在紧随其后的 `RecompileAndApply` 中死灰复燃为 `xtls-rprx-vision`**；
-  - 对数据库中已存在的用户（`existingUser != nil`），`syncFromRawJSON` 严禁用单个入站编译后的 `client.flow` 反向覆盖用户的全局 `user.Flow` 策略（防止用户设置的 `"none"` 或 `""` 被篡改）。
+### 1. Scope / Trigger
+- **Trigger**: 任何修改 `VLESSAdapter`（编译/gRPC 热更新）、`StreamAccessor`、`protocol.InboundToNodeConfigWithDefaultFP`（订阅/分享链接导出）、`ConfigService.syncFromRawJSONLocked`（启动 `SyncFromFile` / 原生配置保存）或前端入站/用户流控表单回显的路径。
+
+### 2. Signatures
+- `(*StreamAccessor).SupportsVisionFlow(protocol string) bool` (`internal/adapter/xray/stream_accessor.go`)
+- `(*StreamAccessor).ResolveVisionFlow(protocol string) string` (`internal/adapter/xray/stream_accessor.go`)
+- `resolveVLESSClientFlow(inbound *domain.Inbound, user domain.User, accessor *StreamAccessor) string` (`internal/adapter/xray/protocol_adapter.go`)
+- `InboundToNodeConfigWithDefaultFP(ib *domain.Inbound, user *domain.User, host string, defaultFP string) (*NodeConfig, error)` (`internal/protocol/node_converter.go`)
+- `(*ConfigService).syncFromRawJSONLocked(ctx context.Context, rawJSON []byte) error` (`internal/service/config_service.go`)
+
+### 3. Contracts
+- **逐客户端编译铁律（严禁输出顶层 `inbounds[].settings.flow`）**：
+  - Xray-core `infra/conf/vless.go` (`VLessInboundConfig.Build()`) 会将顶层 `inbounds[].settings.flow` 自动回填给所有省略了 `flow` (`""`) 的 `clients[]`；因此 `VLESSAdapter.DecorateSettings` **必须无条件 `delete(settingsMap, "flow")`**，仅在 `inbounds[].settings.clients[].flow` 中逐用户输出流控，而 SQLite `inbound.SettingsJSON` 继续保留节点默认策略。
+- **全链路统一优先级（编译器 = gRPC 热更新 = 订阅导出 = 前端说明）**：
+  1. **传输层能力门禁 (`SupportsVisionFlow`)**：仅当 `protocol == "vless" && network == "tcp" && (security == "tls" || security == "reality")` 时允许非空 Vision 流控，否则强制为 `""`；
+  2. **用户显式策略优先 (`user.Flow`)**：`"none"` -> `""`；非空（如 `"xtls-rprx-vision"` / `"xtls-rprx-vision-udp443"`） -> 原样采用（即使用户所在入站默认设为 `"none"` 也允许单用户显式开启）；
+  3. **入站默认策略兜底 (`ResolveVisionFlow`)**：仅当 `user.Flow == ""`（跟随节点默认）时生效：入站 `"none"` -> `""`，入站显式值 -> 显式值，入站未配置/空值 -> 默认 `"xtls-rprx-vision"`。
+- **启动反向同步 (`syncFromRawJSONLocked`) 无损保留契约**：
+  - 当 `rawFlow == ""` 且 `existing != nil`（已存在于 SQLite 的入站）时，必须原样保留 `existing.SettingsJSON` 中的 `flow` 键值，**严禁根据 `!hasClientWithFlow` 或 `hasClientWithFlow` 反向推导篡改入站默认策略**；仅当 `existing == nil`（首次从外部原生配置导入未知入站）且 `hasAnyClient && !hasClientWithFlow` 时才落盘 `"flow": "none"`；当 `rawFlow != ""`（原生 JSON 编辑器显式指定）时采用 `rawFlow`；
+  - 当 `existing != nil` 时，合并保留编译期被刻意剥离的面板侧客户端字段（`tlsSettings.fingerprint`，以及 `privateKey` 未轮换时的 `realitySettings.{publicKey, fingerprint, spiderX}`），严禁直接用编译态 `streamSettings` 抹除数据库客户端元数据。
+
+### 4. Validation & Error Matrix
+- 非 `TCP + (TLS|REALITY)` 传输层配置任意入站或用户 Vision `flow` -> 编译结果、gRPC 账户与订阅导出均静默收敛为 `""`（前端 `getNodeFlow` 回显 `'none'`）；
+- 同一 VLESS+TCP+REALITY 入站混部 `userA.Flow="none"` 与 `userB.Flow="xtls-rprx-vision"` -> 编译产物无顶层 `settings.flow`，`userA` 省略 `flow`，`userB` 输出 `"xtls-rprx-vision"`，Xray 重载后互不污染。
+
+### 5. Good / Base / Bad Cases
+- **Good**: 入站默认 `xtls-rprx-vision`，中转用户设 `flow="none"`、直连用户设 `flow=""`，反复执行 `SyncFromFile -> RecompileAndApply` 重启后，中转用户始终无流控，且数据库 `realitySettings.publicKey` 完整保留。
+- **Base**: 入站默认 `flow="none"`，普通用户 `flow=""` 保持无流控，特例用户显式设 `flow="xtls-rprx-vision"` 在编译、gRPC 与订阅链接中均正常获得 Vision。
+- **Bad**: 在编译产物保留顶层 `inbounds[].settings.flow`；或在 `existing != nil` 时用 `!hasClientWithFlow` 反推覆盖数据库 `settings.flow`。
+
+### 6. Tests Required
+- `TestXrayCompiler_VLESSFlowOverrideAndPriority` (`internal/adapter/xray/compiler_test.go`)
+- `TestBuildShareLink_FullParameterParity` (`internal/protocol/node_converter_test.go`)
+- `TestConfigService_SyncFromFile_PreservesMixedUsersAndInboundFlowAndStreamSettings` (`internal/service/config_service_test.go`)
+
+### 7. Wrong vs Correct
+#### Wrong
+```go
+// 错误 1：保留顶层 settings.flow，导致 Xray 启动时将省略 flow 的 none 用户覆盖回 vision
+if !strings.EqualFold(flow, "xtls-rprx-vision") { delete(settingsMap, "flow") }
+// 错误 2：入站 flow="none" 提前短路，拦截用户显式配置的 xtls-rprx-vision
+if inboundFlow := accessor.ResolveVisionFlow(inbound.Protocol); inboundFlow == "" { return "" }
+```
+#### Correct
+```go
+// 正确 1：编译产物无条件剥离顶层 settings.flow，仅逐 client 输出
+delete(settingsMap, "flow")
+// 正确 2：先校验传输能力，再按 User 显式设置 > Inbound 默认兜底判定
+if !accessor.SupportsVisionFlow(inbound.Protocol) { return "" }
+if strings.EqualFold(uFlow, "none") { return "" }
+if uFlow != "" { return uFlow }
+return accessor.ResolveVisionFlow(inbound.Protocol)
+```
 
 ---
 

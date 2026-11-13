@@ -64,12 +64,25 @@ export function getNodeFlow(inb: any): string {
   if (inb?.protocol?.toLowerCase() !== 'vless') {
     return 'none'
   }
+  let network = 'tcp'
+  let security = 'none'
+  try {
+    const rawStream = inb?.streamSettingsJson || inb?.streamSettings
+    const stream = typeof rawStream === 'string' ? JSON.parse(rawStream || '{}') : rawStream || {}
+    network = (stream.network || 'tcp').toLowerCase()
+    security = (stream.security || 'none').toLowerCase()
+  } catch {
+    // fallback to defaults
+  }
+  if (network !== 'tcp' || !['tls', 'reality'].includes(security)) {
+    return 'none'
+  }
   try {
     const s = JSON.parse(inb.settingsJson || '{}')
-    if (s.flow !== undefined) return s.flow || 'none'
-    return 'none'
+    const flow = typeof s.flow === 'string' ? s.flow.trim() : ''
+    return flow || 'xtls-rprx-vision'
   } catch {
-    return 'none'
+    return 'xtls-rprx-vision'
   }
 }
 

@@ -106,7 +106,7 @@
 
             <FormField
               label="流控策略模式 (Flow)"
-              hint="配置用户级流控，选择「显式禁用」将强制剥除 flow"
+              hint="用户显式设置优先于节点默认（仅 VLESS + TCP + TLS/REALITY 生效）"
             >
               <select
                 v-model="form.flow"
@@ -114,6 +114,9 @@
               >
                 <option value="">跟随节点默认策略 (推荐)</option>
                 <option value="xtls-rprx-vision">xtls-rprx-vision (强制开启 Vision)</option>
+                <option value="xtls-rprx-vision-udp443">
+                  xtls-rprx-vision-udp443 (强制开启 Vision UDP443)
+                </option>
                 <option value="none">none (显式禁用流控)</option>
               </select>
             </FormField>

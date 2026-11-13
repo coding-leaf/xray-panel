@@ -276,7 +276,7 @@ func TestBuildShareLink_FullParameterParity(t *testing.T) {
 		}
 	})
 
-	t.Run("VLESS TCP REALITY with flow none explicitly disables flow even if user has flow", func(t *testing.T) {
+	t.Run("VLESS TCP REALITY with inbound flow none still allows explicit user vision", func(t *testing.T) {
 		inbound := &domain.Inbound{
 			Tag:            "vless-flow-none",
 			Protocol:       "vless",
@@ -297,8 +297,8 @@ func TestBuildShareLink_FullParameterParity(t *testing.T) {
 		}
 
 		node := protocol.InboundToNodeConfig(inbound, userWithFlow, "", 0)
-		if flow := node.GetParam("flow", ""); flow != "" {
-			t.Errorf("expected empty flow when inbound sets flow none, got: %s", flow)
+		if flow := node.GetParam("flow", ""); flow != "xtls-rprx-vision" {
+			t.Errorf("expected explicit user flow xtls-rprx-vision to override inbound none, got: %s", flow)
 		}
 
 		link := protocol.BuildShareLink(inbound, userWithFlow, "", 0)
@@ -306,8 +306,20 @@ func TestBuildShareLink_FullParameterParity(t *testing.T) {
 		if err != nil {
 			t.Fatalf("failed to parse share link: %v", err)
 		}
-		if qFlow := u.Query().Get("flow"); qFlow != "" {
-			t.Errorf("expected share link flow query param to be empty, got: %s", qFlow)
+		if qFlow := u.Query().Get("flow"); qFlow != "xtls-rprx-vision" {
+			t.Errorf("expected share link flow query param to be xtls-rprx-vision, got: %s", qFlow)
+		}
+
+		userFollow := &domain.User{
+			Email:       "follow-user@example.com",
+			UUID:        "7117295b-4362-0001-a133-b969344dfcd7",
+			InboundTags: "vless-flow-none",
+			Flow:        "",
+			Enabled:     true,
+		}
+		nodeFollow := protocol.InboundToNodeConfig(inbound, userFollow, "", 0)
+		if flow := nodeFollow.GetParam("flow", ""); flow != "" {
+			t.Errorf("expected empty flow when user follows inbound none, got: %s", flow)
 		}
 	})
 

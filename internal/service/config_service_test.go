@@ -336,6 +336,12 @@ func (m *mockStatefulInboundRepo) GetByTag(ctx context.Context, tag string) (*do
 	return nil, domain.ErrNotFound
 }
 
+func (m *mockStatefulInboundRepo) Create(ctx context.Context, inbound *domain.Inbound) error {
+	cp := *inbound
+	m.byTag[inbound.Tag] = &cp
+	return nil
+}
+
 func (m *mockStatefulInboundRepo) Update(ctx context.Context, inbound *domain.Inbound) error {
 	cp := *inbound
 	m.byTag[inbound.Tag] = &cp
@@ -361,6 +367,12 @@ func (m *mockStatefulUserRepo) GetByEmail(ctx context.Context, email string) (*d
 		return &cp, nil
 	}
 	return nil, domain.ErrNotFound
+}
+
+func (m *mockStatefulUserRepo) Create(ctx context.Context, user *domain.User) error {
+	cp := *user
+	m.byEmail[user.Email] = &cp
+	return nil
 }
 
 func (m *mockStatefulUserRepo) Update(ctx context.Context, user *domain.User) error {
@@ -1237,6 +1249,317 @@ func TestConfigService_SaveConfigQuietly_SingleReadAndListAll(t *testing.T) {
 		}
 		if missingCompiler.routing == nil || missingCompiler.routing.DomainStrategy != "IPIfNonMatch" {
 			t.Fatalf("expected default routing fallback, got %+v", missingCompiler.routing)
+		}
+	})
+}
+
+func TestConfigService_SyncFromFile_PreservesMixedUsersAndInboundFlowAndStreamSettings(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("mixed users under inbound flow=none preserve DB settings.flow=none", func(t *testing.T) {
+		inboundRepo := &mockStatefulInboundRepo{
+			byTag: map[string]*domain.Inbound{
+				"vless-none": {
+					ID:             1,
+					Tag:            "vless-none",
+					Port:           443,
+					Listen:         "0.0.0.0",
+					Protocol:       "vless",
+					Enabled:        true,
+					SettingsJSON:   `{"decryption":"none","flow":"none"}`,
+					StreamSettings: `{"network":"tcp","security":"reality","realitySettings":{"dest":"www.microsoft.com:443","serverNames":["www.microsoft.com"],"privateKey":"priv-1","publicKey":"pub-1","fingerprint":"firefox","spiderX":"/custom","shortIds":["0123"]}}`,
+				},
+			},
+		}
+		userRepo := &mockStatefulUserRepo{
+			byEmail: map[string]*domain.User{
+				"follow@test.com": {
+					ID:          1,
+					Email:       "follow@test.com",
+					UUID:        "11111111-1111-4111-8111-111111111111",
+					InboundTags: "vless-none",
+					Flow:        "",
+					Enabled:     true,
+				},
+				"vision@test.com": {
+					ID:          2,
+					Email:       "vision@test.com",
+					UUID:        "22222222-2222-4222-8222-222222222222",
+					InboundTags: "vless-none",
+					Flow:        "xtls-rprx-vision",
+					Enabled:     true,
+				},
+			},
+		}
+		cfgStorage := &mockConfigStorageWithContent{
+			content: []byte(`{"inbounds":[],"outbounds":[{"tag":"direct","protocol":"freedom"}]}`),
+		}
+		compiler := xray.NewXrayCompiler(10085)
+		svc := service.NewConfigService(cfgStorage, nil, inboundRepo, userRepo, nil, compiler)
+
+		if err := svc.RecompileAndApply(ctx, "initial compile"); err != nil {
+			t.Fatalf("RecompileAndApply failed: %v", err)
+		}
+		if err := svc.SyncFromFile(ctx); err != nil {
+			t.Fatalf("SyncFromFile failed: %v", err)
+		}
+		if err := svc.RecompileAndApply(ctx, "restart compile"); err != nil {
+			t.Fatalf("Restart RecompileAndApply failed: %v", err)
+		}
+
+		afterInb, err := inboundRepo.GetByTag(ctx, "vless-none")
+		if err != nil {
+			t.Fatalf("GetByTag failed: %v", err)
+		}
+		var sm map[string]interface{}
+		if err := json.Unmarshal([]byte(afterInb.SettingsJSON), &sm); err != nil {
+			t.Fatalf("Unmarshal SettingsJSON failed: %v", err)
+		}
+		if sm["flow"] != "none" {
+			t.Errorf("expected DB inbound settings.flow to stay 'none' with mixed users, got %v (SettingsJSON=%s)", sm["flow"], afterInb.SettingsJSON)
+		}
+
+		var compiledRoot map[string]interface{}
+		if err := json.Unmarshal(cfgStorage.content, &compiledRoot); err != nil {
+			t.Fatalf("Unmarshal compiled config failed: %v", err)
+		}
+		for _, item := range compiledRoot["inbounds"].([]interface{}) {
+			ib := item.(map[string]interface{})
+			if ib["tag"] != "vless-none" {
+				continue
+			}
+			csm := ib["settings"].(map[string]interface{})
+			if _, exists := csm["flow"]; exists {
+				t.Errorf("expected compiled settings.flow to be absent, got %v", csm["flow"])
+			}
+			for _, c := range csm["clients"].([]interface{}) {
+				cm := c.(map[string]interface{})
+				switch cm["email"] {
+				case "follow@test.com":
+					if cm["flow"] != nil {
+						t.Errorf("expected follow@test.com compiled flow to stay nil, got %v", cm["flow"])
+					}
+				case "vision@test.com":
+					if cm["flow"] != "xtls-rprx-vision" {
+						t.Errorf("expected vision@test.com compiled flow xtls-rprx-vision, got %v", cm["flow"])
+					}
+				}
+			}
+		}
+	})
+
+	t.Run("all none users under inbound flow=xtls-rprx-vision preserve DB settings.flow=xtls-rprx-vision", func(t *testing.T) {
+		inboundRepo := &mockStatefulInboundRepo{
+			byTag: map[string]*domain.Inbound{
+				"vless-vision": {
+					ID:             1,
+					Tag:            "vless-vision",
+					Port:           444,
+					Listen:         "0.0.0.0",
+					Protocol:       "vless",
+					Enabled:        true,
+					SettingsJSON:   `{"decryption":"none","flow":"xtls-rprx-vision"}`,
+					StreamSettings: `{"network":"tcp","security":"reality","realitySettings":{"dest":"www.microsoft.com:443","serverNames":["www.microsoft.com"],"privateKey":"priv-2","shortIds":["0123"]}}`,
+				},
+			},
+		}
+		userRepo := &mockStatefulUserRepo{
+			byEmail: map[string]*domain.User{
+				"only-none@test.com": {
+					ID:          1,
+					Email:       "only-none@test.com",
+					UUID:        "33333333-3333-4333-8333-333333333333",
+					InboundTags: "vless-vision",
+					Flow:        "none",
+					Enabled:     true,
+				},
+			},
+		}
+		cfgStorage := &mockConfigStorageWithContent{
+			content: []byte(`{"inbounds":[],"outbounds":[{"tag":"direct","protocol":"freedom"}]}`),
+		}
+		compiler := xray.NewXrayCompiler(10085)
+		svc := service.NewConfigService(cfgStorage, nil, inboundRepo, userRepo, nil, compiler)
+
+		if err := svc.RecompileAndApply(ctx, "initial compile"); err != nil {
+			t.Fatalf("RecompileAndApply failed: %v", err)
+		}
+		if err := svc.SyncFromFile(ctx); err != nil {
+			t.Fatalf("SyncFromFile failed: %v", err)
+		}
+
+		afterInb, err := inboundRepo.GetByTag(ctx, "vless-vision")
+		if err != nil {
+			t.Fatalf("GetByTag failed: %v", err)
+		}
+		var sm map[string]interface{}
+		if err := json.Unmarshal([]byte(afterInb.SettingsJSON), &sm); err != nil {
+			t.Fatalf("Unmarshal SettingsJSON failed: %v", err)
+		}
+		if sm["flow"] != "xtls-rprx-vision" {
+			t.Errorf("expected DB inbound settings.flow to stay 'xtls-rprx-vision' even when all users are none, got %v (SettingsJSON=%s)", sm["flow"], afterInb.SettingsJSON)
+		}
+	})
+
+	t.Run("panel-only StreamSettings fields survive RecompileAndApply -> SyncFromFile", func(t *testing.T) {
+		inboundRepo := &mockStatefulInboundRepo{
+			byTag: map[string]*domain.Inbound{
+				"vless-reality-fields": {
+					ID:             1,
+					Tag:            "vless-reality-fields",
+					Port:           445,
+					Listen:         "0.0.0.0",
+					Protocol:       "vless",
+					Enabled:        true,
+					SettingsJSON:   `{"decryption":"none","flow":"xtls-rprx-vision"}`,
+					StreamSettings: `{"network":"tcp","security":"reality","realitySettings":{"dest":"www.microsoft.com:443","serverNames":["www.microsoft.com"],"privateKey":"priv-keep","publicKey":"pub-keep","fingerprint":"safari","spiderX":"/spx","shortIds":["abcd"]}}`,
+				},
+				"vless-tls-fields": {
+					ID:             2,
+					Tag:            "vless-tls-fields",
+					Port:           446,
+					Listen:         "0.0.0.0",
+					Protocol:       "vless",
+					Enabled:        true,
+					SettingsJSON:   `{"decryption":"none","flow":"xtls-rprx-vision"}`,
+					StreamSettings: `{"network":"tcp","security":"tls","tlsSettings":{"serverName":"tls.example.com","fingerprint":"firefox"}}`,
+				},
+			},
+		}
+		userRepo := &mockStatefulUserRepo{byEmail: map[string]*domain.User{}}
+		cfgStorage := &mockConfigStorageWithContent{
+			content: []byte(`{"inbounds":[],"outbounds":[{"tag":"direct","protocol":"freedom"}]}`),
+		}
+		compiler := xray.NewXrayCompiler(10085)
+		svc := service.NewConfigService(cfgStorage, nil, inboundRepo, userRepo, nil, compiler)
+
+		if err := svc.RecompileAndApply(ctx, "compile strips client hints"); err != nil {
+			t.Fatalf("RecompileAndApply failed: %v", err)
+		}
+		if err := svc.SyncFromFile(ctx); err != nil {
+			t.Fatalf("SyncFromFile failed: %v", err)
+		}
+
+		rInb, _ := inboundRepo.GetByTag(ctx, "vless-reality-fields")
+		var rStream map[string]interface{}
+		if err := json.Unmarshal([]byte(rInb.StreamSettings), &rStream); err != nil {
+			t.Fatalf("Unmarshal reality StreamSettings failed: %v", err)
+		}
+		rs := rStream["realitySettings"].(map[string]interface{})
+		if rs["publicKey"] != "pub-keep" {
+			t.Errorf("expected realitySettings.publicKey 'pub-keep' preserved, got %v", rs["publicKey"])
+		}
+		if rs["fingerprint"] != "safari" {
+			t.Errorf("expected realitySettings.fingerprint 'safari' preserved, got %v", rs["fingerprint"])
+		}
+		if rs["spiderX"] != "/spx" {
+			t.Errorf("expected realitySettings.spiderX '/spx' preserved, got %v", rs["spiderX"])
+		}
+
+		tInb, _ := inboundRepo.GetByTag(ctx, "vless-tls-fields")
+		var tStream map[string]interface{}
+		if err := json.Unmarshal([]byte(tInb.StreamSettings), &tStream); err != nil {
+			t.Fatalf("Unmarshal tls StreamSettings failed: %v", err)
+		}
+		ts := tStream["tlsSettings"].(map[string]interface{})
+		if ts["fingerprint"] != "firefox" {
+			t.Errorf("expected tlsSettings.fingerprint 'firefox' preserved, got %v", ts["fingerprint"])
+		}
+	})
+
+	t.Run("SaveAndApplyRawConfig honors explicit rawFlow, brand-new inbound import, and key rotation", func(t *testing.T) {
+		inboundRepo := &mockStatefulInboundRepo{
+			byTag: map[string]*domain.Inbound{
+				"existing-rotated": {
+					ID:             1,
+					Tag:            "existing-rotated",
+					Port:           447,
+					Listen:         "127.0.0.1",
+					Protocol:       "vless",
+					Enabled:        true,
+					SettingsJSON:   `{"decryption":"none","flow":"none"}`,
+					StreamSettings: `{"network":"tcp","security":"reality","realitySettings":{"dest":"www.microsoft.com:443","serverNames":["www.microsoft.com"],"privateKey":"old-priv","publicKey":"old-pub","fingerprint":"safari","shortIds":["01"]}}`,
+				},
+			},
+		}
+		userRepo := &mockStatefulUserRepo{byEmail: map[string]*domain.User{}}
+		cfgStorage := &mockConfigStorageWithContent{
+			content: []byte(`{"inbounds":[],"outbounds":[{"tag":"direct","protocol":"freedom"}]}`),
+		}
+		compiler := xray.NewXrayCompiler(10085)
+		svc := service.NewConfigService(cfgStorage, nil, inboundRepo, userRepo, nil, compiler)
+
+		rawCfg := []byte(`{
+			"inbounds": [
+				{
+					"tag": "existing-rotated",
+					"port": 447,
+					"listen": "127.0.0.1",
+					"protocol": "vless",
+					"settings": {
+						"decryption": "none",
+						"flow": "xtls-rprx-vision",
+						"clients": []
+					},
+					"streamSettings": {
+						"network": "tcp",
+						"security": "reality",
+						"realitySettings": {
+							"dest": "www.microsoft.com:443",
+							"serverNames": ["www.microsoft.com"],
+							"privateKey": "new-priv",
+							"shortIds": ["01"]
+						}
+					}
+				},
+				{
+					"tag": "brand-new-noflow",
+					"port": 448,
+					"listen": "127.0.0.1",
+					"protocol": "vless",
+					"settings": {
+						"decryption": "none",
+						"clients": [
+							{"id": "44444444-4444-4444-8444-444444444444", "email": "new-import@test.com"}
+						]
+					},
+					"streamSettings": {
+						"network": "tcp",
+						"security": "tls"
+					}
+				}
+			],
+			"outbounds": [{"tag": "direct", "protocol": "freedom"}]
+		}`)
+
+		if err := svc.SaveAndApplyRawConfig(ctx, rawCfg); err != nil {
+			t.Fatalf("SaveAndApplyRawConfig failed: %v", err)
+		}
+
+		rotInb, err := inboundRepo.GetByTag(ctx, "existing-rotated")
+		if err != nil {
+			t.Fatalf("GetByTag existing-rotated failed: %v", err)
+		}
+		var rotSettings map[string]interface{}
+		_ = json.Unmarshal([]byte(rotInb.SettingsJSON), &rotSettings)
+		if rotSettings["flow"] != "xtls-rprx-vision" {
+			t.Errorf("expected explicit rawFlow xtls-rprx-vision to update DB, got %v", rotSettings["flow"])
+		}
+		var rotStream map[string]interface{}
+		_ = json.Unmarshal([]byte(rotInb.StreamSettings), &rotStream)
+		rotRS := rotStream["realitySettings"].(map[string]interface{})
+		if rotRS["publicKey"] != nil && rotRS["publicKey"] != "" {
+			t.Errorf("expected old publicKey NOT copied when privateKey rotated, got %v", rotRS["publicKey"])
+		}
+
+		newInb, err := inboundRepo.GetByTag(ctx, "brand-new-noflow")
+		if err != nil {
+			t.Fatalf("GetByTag brand-new-noflow failed: %v", err)
+		}
+		var newSettings map[string]interface{}
+		_ = json.Unmarshal([]byte(newInb.SettingsJSON), &newSettings)
+		if newSettings["flow"] != "none" {
+			t.Errorf("expected brand-new inbound import with flowless client to infer flow=none, got %v", newSettings["flow"])
 		}
 	})
 }

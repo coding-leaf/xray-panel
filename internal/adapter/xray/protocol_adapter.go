@@ -141,17 +141,17 @@ func (a *VLESSAdapter) Protocol() string {
 }
 
 func resolveVLESSClientFlow(inbound *domain.Inbound, accessor *InboundStreamAccessor, userFlow string) string {
-	inboundFlow := accessor.ResolveVisionFlow(inbound.Protocol)
-	if inboundFlow == "" {
+	if inbound == nil || !accessor.SupportsVisionFlow(inbound.Protocol) {
 		return ""
 	}
-	if strings.EqualFold(userFlow, "none") {
+	trimmedUserFlow := strings.TrimSpace(userFlow)
+	if strings.EqualFold(trimmedUserFlow, "none") {
 		return ""
 	}
-	if userFlow != "" {
-		return userFlow
+	if trimmedUserFlow != "" {
+		return trimmedUserFlow
 	}
-	return inboundFlow
+	return accessor.ResolveVisionFlow(inbound.Protocol)
 }
 
 func (a *VLESSAdapter) CompileClients(inbound *domain.Inbound, users []domain.User, accessor *InboundStreamAccessor) ([]XrayClient, error) {
@@ -180,14 +180,10 @@ func (a *VLESSAdapter) DecorateSettings(inbound *domain.Inbound, settingsMap map
 	if settingsMap["decryption"] == nil {
 		settingsMap["decryption"] = "none"
 	}
-	// Xray-core VLESS inbound settings only supports "" or "xtls-rprx-vision" (vless.XRV).
-	// Values like "none" will cause Xray-core to reject with:
-	// VLESS "settings.flow" doesn't support "none" in this version
-	if flow, ok := settingsMap["flow"].(string); ok {
-		if !strings.EqualFold(flow, "xtls-rprx-vision") {
-			delete(settingsMap, "flow")
-		}
-	}
+	// Compiled Xray config.json must never emit top-level inbounds[].settings.flow,
+	// because Xray-core's VLessInboundConfig.Build() backfills it onto any client
+	// whose per-client flow is omitted (""). Flow is emitted strictly per client.
+	delete(settingsMap, "flow")
 }
 
 // VMessAdapter VMess 协议适配器

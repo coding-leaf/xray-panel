@@ -333,7 +333,7 @@ export function sanitizeInboundPayload(raw: InboundFormData): InboundFormData {
       clean.fallbackPath = (raw.fallbackPath || '').trim()
     }
     if (clean.network === 'tcp' && ['reality', 'tls'].includes(clean.security)) {
-      if (raw.vlessFlow === 'none' || raw.vlessFlow === '') {
+      if (raw.vlessFlow === 'none') {
         clean.vlessFlow = 'none'
       } else if (raw.vlessFlow) {
         clean.vlessFlow = raw.vlessFlow
@@ -586,8 +586,13 @@ export function buildSettingsJSON(clean: InboundFormData, usersList: any[] = [])
         email: userObj.email,
         level: 0,
       }
-      if (flowVal && flowVal !== 'none') {
-        c.flow = flowVal
+      const userFlow = typeof userObj.flow === 'string' ? userObj.flow.trim() : ''
+      const effectiveClientFlow =
+        userFlow.toLowerCase() === 'none'
+          ? ''
+          : userFlow || (flowVal && flowVal !== 'none' ? flowVal : '')
+      if (effectiveClientFlow && isTcp && isTlsOrReality) {
+        c.flow = effectiveClientFlow
       }
       clients.push(c)
     }

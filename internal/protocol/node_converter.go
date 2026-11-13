@@ -337,10 +337,16 @@ func InboundToNodeConfigWithDefaultFP(inbound *domain.Inbound, user *domain.User
 					customFlow = strings.TrimSpace(f)
 				}
 			}
-			if strings.EqualFold(customFlow, "none") || strings.EqualFold(user.Flow, "none") {
+			uFlow := ""
+			if user != nil {
+				uFlow = strings.TrimSpace(user.Flow)
+			}
+			if strings.EqualFold(uFlow, "none") {
 				flow = ""
-			} else if user.Flow != "" {
-				flow = user.Flow
+			} else if uFlow != "" {
+				flow = uFlow
+			} else if strings.EqualFold(customFlow, "none") {
+				flow = ""
 			} else if customFlow != "" {
 				flow = customFlow
 			} else {

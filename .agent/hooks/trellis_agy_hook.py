@@ -527,6 +527,7 @@ def _build_worker_context_manifest(
     repo_root: Path,
     task_rel: str,
     worker_role: str,
+    dispatch_channel: str = "swarm",
 ) -> str:
     task_abs = (repo_root / task_rel).resolve()
     if not task_abs.is_dir():
@@ -536,6 +537,20 @@ def _build_worker_context_manifest(
     curated = _read_curated_jsonl(task_abs, jsonl_primary)
     if not curated and worker_role == "reviewer":
         curated = _read_curated_jsonl(task_abs, "implement.jsonl")
+
+    # Auto-discover research/*.md notes not yet listed in curated jsonl so research is never missed.
+    if worker_role in ("author", "reviewer"):
+        research_dir = task_abs / "research"
+        if research_dir.is_dir():
+            known_paths = {
+                _to_manifest_path(repo_root, f_path) for f_path, _ in curated
+            }
+            for md_file in sorted(research_dir.glob("*.md")):
+                if md_file.is_file():
+                    md_abs = md_file.resolve().as_posix()
+                    if md_abs not in known_paths:
+                        curated.append((md_abs, "auto-discovered task research note"))
+                        known_paths.add(md_abs)
 
     artifacts = [
         (task_abs / name).as_posix()
@@ -577,28 +592,48 @@ def _build_worker_context_manifest(
         lines.extend(
             [
                 "3. Researcher / Auditor guardrails:",
-                "   - Investigate read-only with exact file:line citations; keep your reply concise and structured so the Coordinator's context window stays lean.",
-                f"   - Do NOT edit product source code or task state (`task.json`); writing research notes ONLY under `{task_abs.as_posix()}/research/*.md` is allowed when write tools are available.",
+                "   - Investigate read-only with exact file:line citations; keep your reply concise and structured so the main session's context window stays lean.",
+                f"   - Write ONLY under `{task_abs.as_posix()}/research/*.md` when write tools are available; list discovered `.trellis/spec/` paths so `implement.jsonl`/`check.jsonl` can be curated in one pass.",
+                "   - Never edit business code, `.trellis/spec/**`, or `task.json`, and redact real public IPs, production domains, tokens, or private keys.",
             ]
         )
     elif worker_role == "reviewer":
-        lines.extend(
-            [
-                "3. Reviewer / Verifier guardrails:",
-                "   - Check all diffs item-by-item against the specs & artifacts above.",
-                "   - Run the project's test/lint/build quality gates to verify.",
-                "   - Report issues to the owning worker by @name; do NOT edit files owned by active authors or `.trellis/**`.",
-            ]
-        )
+        if dispatch_channel == "subagent":
+            lines.extend(
+                [
+                    "3. Check Subagent (`trellis-check`) guardrails:",
+                    "   - Review `git diff` item-by-item against the specs & artifacts above.",
+                    "   - Fix in-scope code/test/lint issues directly and re-run the project's test/lint/build quality gates until green.",
+                    "   - Do NOT run `git commit`/`push`/`merge`, and NEVER modify `.trellis/**` files.",
+                ]
+            )
+        else:
+            lines.extend(
+                [
+                    "3. Reviewer / Verifier guardrails:",
+                    "   - Check all diffs item-by-item against the specs & artifacts above.",
+                    "   - Run the project's test/lint/build quality gates to verify.",
+                    "   - Report issues to the owning worker by @name; do NOT edit files owned by active authors or `.trellis/**`.",
+                ]
+            )
     else:
-        lines.extend(
-            [
-                "3. Worker / Author guardrails:",
-                "   - Follow every spec & contract listed above; run local lint/test/build checks before reporting done.",
-                "   - NEVER modify `.trellis/**` files (task state & specs belong exclusively to the main session).",
-                "   - If running in `workspace:\"share\"`, commit cleanly on your worker branch only; never push to remote.",
-            ]
-        )
+        if dispatch_channel == "subagent":
+            lines.extend(
+                [
+                    "3. Implement Subagent (`trellis-implement`) guardrails:",
+                    "   - Follow every spec & contract listed above; run local lint/test/build checks before reporting done.",
+                    "   - NEVER modify `.trellis/**` files and do NOT run `git commit`, `git push`, or `git merge`.",
+                ]
+            )
+        else:
+            lines.extend(
+                [
+                    "3. Worker / Author guardrails:",
+                    "   - Follow every spec & contract listed above; run local lint/test/build checks before reporting done.",
+                    "   - NEVER modify `.trellis/**` files (task state & specs belong exclusively to the main session).",
+                    "   - If running in `workspace:\"share\"`, commit cleanly on your worker branch only; never push to remote.",
+                ]
+            )
 
     return "\n".join(lines)
 
@@ -668,7 +703,9 @@ def handle_pre_tool_use(repo_root: Path, data: dict[str, Any]) -> dict[str, Any]
             worker_role = "reviewer"
         else:
             worker_role = "author"
-        manifest = _build_worker_context_manifest(repo_root, active.task_path, worker_role)
+        manifest = _build_worker_context_manifest(
+            repo_root, active.task_path, worker_role, dispatch_channel="swarm"
+        )
         if not manifest:
             return {"decision": "allow"}
 
@@ -695,13 +732,21 @@ def handle_pre_tool_use(repo_root: Path, data: dict[str, Any]) -> dict[str, Any]
             return {"decision": "allow"}
 
         role_label = f"{type_name} {_str(args.get('Role')).lower()}"
-        if type_name == "research" or any(kw in role_label for kw in _RESEARCHER_KEYWORDS):
+        if type_name in ("research", "trellis-research") or any(
+            kw in role_label for kw in _RESEARCHER_KEYWORDS
+        ):
             worker_role = "researcher"
-        elif any(kw in role_label for kw in _REVIEWER_KEYWORDS):
+        elif type_name == "trellis-check" or any(
+            kw in role_label for kw in _REVIEWER_KEYWORDS
+        ):
             worker_role = "reviewer"
+        elif type_name == "trellis-implement":
+            worker_role = "author"
         else:
             worker_role = "author"
-        manifest = _build_worker_context_manifest(repo_root, active.task_path, worker_role)
+        manifest = _build_worker_context_manifest(
+            repo_root, active.task_path, worker_role, dispatch_channel="subagent"
+        )
         if not manifest:
             return {"decision": "allow"}
 

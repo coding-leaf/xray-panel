@@ -1,0 +1,6 @@
+{
+  "name": "trellis-agy",
+  "displayName": "Trellis Subagents (AGY)",
+  "version": "1.0.0",
+  "description": "Standard Trellis three-axe subagents (trellis-research, trellis-implement, trellis-check) for Antigravity, 100% compatible with Pi/Claude/Codex task artifacts."
+}

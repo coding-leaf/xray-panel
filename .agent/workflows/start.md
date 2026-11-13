@@ -42,18 +42,20 @@ From Step 1 you know the current task and status. Check the task directory:
   ```bash
   python ./.trellis/scripts/get_context.py --mode phase --step 2.1 --platform antigravity
   ```
-- **No active task** → classify first. For simple conversation / small task, ask only whether this turn should create a Trellis task. For complex work, ask whether you may create a Trellis task and enter planning. If the user says no, skip Trellis for this session. Before dispatching any Swarm worker or non-trivial subagent (even read-only audit/research agents), explicitly ask the user which model child agents should run on unless already specified in the prompt — never silently inherit or override via env/hooks.
+- **No active task** → classify first. For simple conversation / small task, ask only whether this turn should create a Trellis task. For complex work, ask in ONE prompt whether to create a Trellis task and which `model` child agents should use (`flash`/`pro`/`inherit` tier or exact model ID; never silently inherit or override via env/hooks). At Phase 1.4 (`task.py start`), the model autonomously recommends ONE Phase 2 formation (`Subagent 三把斧` vs `Swarm` vs `Inline`) without requiring `/swarm`.
 
 ---
 
-## Skill routing (quick reference)
+## Skill & Agent routing (quick reference)
 
-| User intent | Skill |
+| User intent / Phase | Tool / Skill / Agent |
 |---|---|
 | New feature / unclear requirements | `trellis-brainstorm` |
+| Heavy research (>3 slices / `trellis mem` / SSH) | `invoke_subagent` `trellis-research` (tier model) or read-only `swarm` `researcher` (exact model ID) |
 | About to write code (Inline mode) | `trellis-before-dev` |
-| Multi-agent / Worker + Verifier execution | `swarm` (explicitly confirm child-agent `model` with user; specs auto-injected via `.agent/hooks.json`) |
-| Done coding / quality check | `trellis-check` |
+| Single-track Phase 2 execution (tier model) | `Subagent 三把斧`: `trellis-implement` -> `trellis-check` via `.agent/plugins/trellis-agy` (specs auto-injected via `.agent/hooks.json`) |
+| Multi-slice parallel / adversarial / exact-model Phase 2 | `swarm` (`Worker(s) + verifier`, explicit user-approved `model`, specs auto-injected via `.agent/hooks.json`) |
+| Done coding / quality check | `trellis-check` (subagent or skill) |
 | Stuck / fixed same bug multiple times | `trellis-break-loop` |
 | Learned something worth capturing | `trellis-update-spec` |
 

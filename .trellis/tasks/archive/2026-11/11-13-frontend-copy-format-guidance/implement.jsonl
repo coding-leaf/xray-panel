@@ -1,0 +1,5 @@
+{"file":".trellis/spec/frontend/index.md","reason":"Vue 3 + Tailwind CSS 3 扁平前端架构、零全局 Store 规范与嵌入构建约束"}
+{"file":".trellis/spec/frontend/directory-structure.md","reason":"web/src 目录组织与状态/模块边界"}
+{"file":".trellis/spec/frontend/components-and-routing.md","reason":"SFC 约定、Design Tokens、双抽屉、表格/卡片规范"}
+{"file":".trellis/spec/frontend/quality-guidelines.md","reason":"typecheck/build 门禁、严格代码卫生选项、移动端安全区与协议文案红线"}
+{"file":".trellis/spec/guides/code-reuse-thinking-guide.md","reason":"KISS 极简与跨模块修改复用思考指南"}

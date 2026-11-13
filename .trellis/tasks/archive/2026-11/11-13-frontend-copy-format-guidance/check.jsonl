@@ -1,0 +1,3 @@
+{"file":".trellis/spec/frontend/quality-guidelines.md","reason":"核对前端门禁、文案语义红线、移动端响应式与安全区要求"}
+{"file":".trellis/spec/frontend/components-and-routing.md","reason":"核对 SFC 顺序、Design Tokens、双抽屉与单套 DOM 规范"}
+{"file":".trellis/spec/guides/review-3pass-guide.md","reason":"三遍审查清单，核查格式、可访问性语义与无回归"}

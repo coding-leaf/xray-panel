@@ -4,6 +4,19 @@
 
 ---
 
+## v2.6.10 (2026-11) - 对齐 Xray REALITY 协议机制的域名探测与选站校验强化
+
+- **REALITY 域名探测硬校验补齐 (`internal/adapter/reality` & `internal/domain`)**：
+  - **密钥交换曲线硬性校验**：采集 TLS 协商曲线 `CurveID`，强制要求目标站点返回 `X25519` 或 `X25519MLKEM768`，对仅支持 `P-256` 等曲线的目标直接判定为 `error (KEY_EXCHANGE_UNSUPPORTED)`，消除面板报 `ok` 但 REALITY 实际无法握手的假阴性盲区；
+  - **系统根证书信任链校验**：利用对端 `PeerCertificates`（含中间证书池）执行 `x509.Verify` 校验证书链，自签名或不可信 CA 证书判定为 `error (CERT_UNTRUSTED)`；
+  - **HTTP 重定向与 H2 ALPN 精准识别**：轻量 HTTP 探测保留 `StatusCode` 与 `Location`，检出 `301`/`302`/`303`/`307`/`308` 跳转时给出 `warning (HTTP_REDIRECT)`；区分无 ALPN（`ALPN_MISSING`）与仅支持 `http/1.1`（`ALPN_H2_MISSING`）；
+  - **修复裸 IPv6 `dest` 端口拼接**：`BuildRealityCheckItem` 改用 `net.SplitHostPort` + `net.JoinHostPort`，修复裸 IPv6 目标漏拼端口问题。
+- **抗探测分级语义与配置防呆 (`internal/adapter/xray` & `web/`)**：
+  - **CDN 与高风险域名分级优化**：将 `CDN_DETECTED` 从 `error` 降级为 `warning`（区分“协议不可用”与“ASN 割裂/易触发 WAF 不推荐”），并扩展 CloudFront、Akamai、Fastly 识别；对 `apple`/`icloud` 域名新增 `warning (HIGH_RISK_DOMAIN)`；
+  - **禁止 `serverNames` 通配符与表单引导**：配置编译阶段拦截含 `*` 通配符的 `serverNames`；前端入站表单移除 `gateway.icloud.com` 示例，替换为中性示例并补充选站建议（同地区/相近 ASN、非公共 CDN、无跳转、支持 TLS 1.3 + X25519 + H2）。
+
+---
+
 ## v2.6.9 (2026-11) - 根治 VLESS Vision 重启覆盖顽疾、流控优先级与启动同步无损统一、前端工程化与无障碍语义增强
 
 - **VLESS Vision 重启覆盖根治与配置同步加固 (VLESS Flow & Config Sync Hardening)**：

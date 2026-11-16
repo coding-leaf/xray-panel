@@ -1,0 +1,6 @@
+{"file":".trellis/tasks/11-16-reality-domain-validation-audit/prd.md","reason":"Verify all acceptance criteria are met"}
+{"file":".trellis/tasks/11-16-reality-domain-validation-audit/design.md","reason":"Verify implementation matches contracts and layer boundaries"}
+{"file":".trellis/spec/backend/quality-guidelines.md","reason":"Backend test, vet, and build gates"}
+{"file":".trellis/spec/frontend/quality-guidelines.md","reason":"Frontend build and typecheck gates"}
+{"file":".trellis/spec/guides/cross-layer-thinking-guide.md","reason":"Verify backend status/errorType aligns with frontend rendering"}
+{"file":".trellis/spec/guides/review-3pass-guide.md","reason":"Three-pass quality and security review"}

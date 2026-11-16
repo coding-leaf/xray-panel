@@ -1,0 +1,9 @@
+{"file":".trellis/tasks/11-16-reality-domain-validation-audit/prd.md","reason":"Task requirements and acceptance criteria"}
+{"file":".trellis/tasks/11-16-reality-domain-validation-audit/design.md","reason":"Technical design, ProbeResult and EvaluateRealityProbeInput contracts"}
+{"file":".trellis/tasks/11-16-reality-domain-validation-audit/implement.md","reason":"Implementation plan and verification gates"}
+{"file":".trellis/tasks/11-16-reality-domain-validation-audit/research/reality-probe-audit.md","reason":"Source-verified REALITY protocol mechanics and existing probe audit"}
+{"file":".trellis/spec/backend/directory-structure.md","reason":"Layer boundaries across domain, service, and adapter"}
+{"file":".trellis/spec/backend/error-handling.md","reason":"Explicit error propagation conventions"}
+{"file":".trellis/spec/backend/quality-guidelines.md","reason":"Go quality, testing, and KISS guidelines"}
+{"file":".trellis/spec/frontend/components-and-routing.md","reason":"Vue component conventions"}
+{"file":".trellis/spec/frontend/quality-guidelines.md","reason":"Frontend build and UI guidelines"}

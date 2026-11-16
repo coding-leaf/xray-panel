@@ -1097,6 +1097,25 @@ func TestXrayCompiler_RealityStrictValidation(t *testing.T) {
 			t.Errorf("expected ErrInvalidInput, got %v", err)
 		}
 	})
+
+	t.Run("wildcard serverNames rejected", func(t *testing.T) {
+		inbounds := []domain.Inbound{
+			{
+				Tag:            "vless-reality",
+				Protocol:       "vless",
+				Port:           443,
+				Enabled:        true,
+				StreamSettings: `{"network":"tcp","security":"reality","realitySettings":{"dest":"example.com:443","serverNames":["*.example.com"],"privateKey":"privkey"}}`,
+			},
+		}
+		_, err := compiler.Compile(inbounds, outbounds, nil, nil, nil)
+		if err == nil {
+			t.Fatalf("expected error for wildcard serverNames, got nil")
+		}
+		if !errors.Is(err, domain.ErrInvalidInput) {
+			t.Errorf("expected ErrInvalidInput, got %v", err)
+		}
+	})
 }
 
 func TestXrayCompiler_CustomVlessRouteAndLayering(t *testing.T) {

@@ -348,6 +348,9 @@ func (c *XrayCompiler) compileInbound(inb *domain.Inbound, users []domain.User) 
 			for _, sn := range r.ServerNames {
 				sn = strings.TrimSpace(sn)
 				if sn != "" {
+					if strings.Contains(sn, "*") {
+						return nil, fmt.Errorf("%w: reality serverNames 不支持通配符 (*): %s", domain.ErrInvalidInput, sn)
+					}
 					validSN = append(validSN, sn)
 				}
 			}

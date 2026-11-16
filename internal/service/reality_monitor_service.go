@@ -158,15 +158,19 @@ func (s *RealityMonitorService) CheckAll(ctx context.Context) (domain.RealitySum
 				probeRes.TCPError = probeErr
 			}
 
-			status, errType, details := domain.EvaluateRealityProbe(
-				probeRes.TCPError,
-				probeRes.TLSVersion,
-				probeRes.ALPN,
-				probeRes.Cert,
-				probeRes.Headers,
-				now,
-				task.serverName,
-			)
+			status, errType, details := domain.EvaluateRealityProbeInput(domain.RealityProbeInput{
+				TCPError:      probeRes.TCPError,
+				TLSVersion:    probeRes.TLSVersion,
+				CurveID:       probeRes.CurveID,
+				ALPN:          probeRes.ALPN,
+				Cert:          probeRes.Cert,
+				CertVerifyErr: probeRes.CertVerifyErr,
+				StatusCode:    probeRes.StatusCode,
+				Location:      probeRes.Location,
+				Headers:       probeRes.Headers,
+				Dest:          task.dest,
+				ServerName:    task.serverName,
+			}, now)
 
 			isCDN := errType == domain.ErrTypeCDNDetected
 			item := domain.BuildRealityCheckItem(

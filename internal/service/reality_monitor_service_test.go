@@ -64,8 +64,8 @@ func TestRealityMonitorService_CheckAll_NormalAndAbnormal(t *testing.T) {
 				StreamSettings: `{
 					"security": "reality",
 					"realitySettings": {
-						"dest": "gateway.icloud.com:443",
-						"serverNames": ["gateway.icloud.com"]
+						"dest": "example.com:443",
+						"serverNames": ["example.com"]
 					}
 				}`,
 			},
@@ -94,10 +94,10 @@ func TestRealityMonitorService_CheckAll_NormalAndAbnormal(t *testing.T) {
 
 	prober := &mockRealityProber{
 		results: map[string]*reality.ProbeResult{
-			"gateway.icloud.com": {
+			"example.com": {
 				TLSVersion: tls.VersionTLS13,
 				ALPN:       "h2",
-				Cert:       makeValidCert("gateway.icloud.com", time.Now().Add(60*24*time.Hour)),
+				Cert:       makeValidCert("example.com", time.Now().Add(60*24*time.Hour)),
 				LatencyMs:  30,
 				Headers:    make(http.Header),
 			},

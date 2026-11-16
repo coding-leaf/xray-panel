@@ -165,8 +165,8 @@ func TestProbe_HTTP2HeadersAndCloudflareDetection(t *testing.T) {
 		time.Now(),
 		"example.com",
 	)
-	if status != domain.RealityStatusError || errType != domain.ErrTypeCDNDetected {
-		t.Fatalf("expected CDN_DETECTED error, got status=%s errType=%s", status, errType)
+	if status != domain.RealityStatusWarning || errType != domain.ErrTypeCDNDetected {
+		t.Fatalf("expected CDN_DETECTED warning, got status=%s errType=%s", status, errType)
 	}
 }
 
@@ -260,5 +260,50 @@ func TestProbe_HTTP2ResponseTimeoutDoesNotFailHandshake(t *testing.T) {
 	}
 	if res.ALPN != "h2" {
 		t.Fatalf("expected ALPN 'h2', got %q", res.ALPN)
+	}
+}
+
+func TestProbe_CollectsCurveCertVerifyStatusAndLocation(t *testing.T) {
+	ts := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Location", "https://example.com/login")
+		w.WriteHeader(http.StatusFound)
+	}))
+	ts.EnableHTTP2 = true
+	ts.TLS = &tls.Config{
+		MinVersion: tls.VersionTLS13,
+		MaxVersion: tls.VersionTLS13,
+		NextProtos: []string{"h2", "http/1.1"},
+	}
+	ts.StartTLS()
+	defer ts.Close()
+
+	host, portStr, err := net.SplitHostPort(ts.Listener.Addr().String())
+	if err != nil {
+		t.Fatalf("failed to split host port: %v", err)
+	}
+	port, err := strconv.Atoi(portStr)
+	if err != nil {
+		t.Fatalf("failed to parse port: %v", err)
+	}
+
+	prober := reality.NewDefaultRealityProber()
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+
+	res, err := prober.Probe(ctx, host, port, "example.com")
+	if err != nil {
+		t.Fatalf("prober.Probe returned unexpected error: %v", err)
+	}
+	if res.CurveID == 0 {
+		t.Errorf("expected non-zero CurveID")
+	}
+	if res.CertVerifyErr == nil {
+		t.Errorf("expected CertVerifyErr for httptest self-signed cert, got nil")
+	}
+	if res.StatusCode != http.StatusFound {
+		t.Errorf("expected StatusCode=%d, got %d", http.StatusFound, res.StatusCode)
+	}
+	if res.Location != "https://example.com/login" {
+		t.Errorf("expected Location='https://example.com/login', got %q", res.Location)
 	}
 }

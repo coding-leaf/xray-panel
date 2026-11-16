@@ -519,11 +519,22 @@
 
         <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <FormField label="目标伪装网站 (Target)" required>
-            <Input v-model="form.realityTarget" placeholder="gateway.icloud.com:443" />
+            <Input v-model="form.realityTarget" placeholder="example.com:443" />
           </FormField>
-          <FormField label="SNI 域名列表 (逗号隔开)" required>
-            <Input v-model="form.realityServerNames" placeholder="gateway.icloud.com" />
+          <FormField
+            label="SNI 域名列表 (逗号隔开)"
+            hint="REALITY 仅支持精确域名匹配，请勿使用 * 通配符"
+            required
+          >
+            <Input v-model="form.realityServerNames" placeholder="example.com" />
           </FormField>
+        </div>
+
+        <div
+          class="p-2.5 rounded-md bg-neutral-950 border border-border text-[11px] text-muted-foreground leading-relaxed"
+        >
+          选站建议：优先选择与 VPS 同地区 / 相近 ASN、非公共 CDN、无 HTTP 重定向，且支持 TLS 1.3 +
+          X25519 + H2 的冷门站点；避免使用 Cloudflare 等公共 CDN 及 Apple / iCloud 等大厂域名。
         </div>
 
         <FormField label="Private Key (私钥)" required>

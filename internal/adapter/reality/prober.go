@@ -18,12 +18,16 @@ import (
 
 // ProbeResult stores the network and TLS probing outcome for a Reality target.
 type ProbeResult struct {
-	TCPError   error
-	TLSVersion uint16
-	ALPN       string
-	Cert       *x509.Certificate
-	Headers    http.Header
-	LatencyMs  int64
+	TCPError      error
+	TLSVersion    uint16
+	CurveID       tls.CurveID
+	ALPN          string
+	Cert          *x509.Certificate
+	CertVerifyErr error
+	StatusCode    int
+	Location      string
+	Headers       http.Header
+	LatencyMs     int64
 }
 
 // RealityProber defines the interface for probing a Reality destination.
@@ -123,12 +127,22 @@ func (p *DefaultRealityProber) Probe(ctx context.Context, dest string, port int,
 	tlsState := tlsConn.ConnectionState()
 	result := &ProbeResult{
 		TLSVersion: tlsState.Version,
+		CurveID:    tlsState.CurveID,
 		ALPN:       tlsState.NegotiatedProtocol,
 		LatencyMs:  time.Since(start).Milliseconds(),
 		Headers:    make(http.Header),
 	}
 	if len(tlsState.PeerCertificates) > 0 {
 		result.Cert = tlsState.PeerCertificates[0]
+		intermediates := x509.NewCertPool()
+		for _, ic := range tlsState.PeerCertificates[1:] {
+			intermediates.AddCert(ic)
+		}
+		_, result.CertVerifyErr = tlsState.PeerCertificates[0].Verify(x509.VerifyOptions{
+			DNSName:       sni,
+			Intermediates: intermediates,
+			CurrentTime:   time.Now(),
+		})
 	}
 
 	// 3. Lightweight HTTP GET to read response headers for CDN detection
@@ -138,15 +152,17 @@ func (p *DefaultRealityProber) Probe(ctx context.Context, dest string, port int,
 	}
 	_ = tlsConn.SetDeadline(httpDeadline)
 
+	var statusCode int
+	var headers http.Header
 	if tlsState.NegotiatedProtocol == "h2" {
-		if headers := probeHTTP2Headers(ctx, tlsConn, sni, httpDeadline); headers != nil {
-			result.Headers = headers
-		}
-		return result, nil
+		statusCode, headers = probeHTTP2Headers(ctx, tlsConn, sni, httpDeadline)
+	} else {
+		statusCode, headers = probeHTTP1Headers(ctx, tlsConn, sni)
 	}
-
-	if headers := probeHTTP1Headers(ctx, tlsConn, sni); headers != nil {
+	result.StatusCode = statusCode
+	if headers != nil {
 		result.Headers = headers
+		result.Location = headers.Get("Location")
 	}
 	return result, nil
 }
@@ -159,14 +175,14 @@ func buildProbeURL(sni string) string {
 	return "https://" + host + "/"
 }
 
-func probeHTTP2Headers(ctx context.Context, tlsConn *tls.Conn, sni string, deadline time.Time) http.Header {
+func probeHTTP2Headers(ctx context.Context, tlsConn *tls.Conn, sni string, deadline time.Time) (int, http.Header) {
 	reqCtx, cancel := context.WithDeadline(ctx, deadline)
 	defer cancel()
 
 	tr := &http2.Transport{}
 	cc, err := tr.NewClientConn(tlsConn)
 	if err != nil {
-		return nil
+		return 0, nil
 	}
 	defer func() {
 		_ = cc.Close()
@@ -174,40 +190,40 @@ func probeHTTP2Headers(ctx context.Context, tlsConn *tls.Conn, sni string, deadl
 
 	req, err := http.NewRequestWithContext(reqCtx, http.MethodGet, buildProbeURL(sni), nil)
 	if err != nil {
-		return nil
+		return 0, nil
 	}
 	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
 
 	resp, err := cc.RoundTrip(req)
 	if err != nil || resp == nil {
-		return nil
+		return 0, nil
 	}
 	defer func() {
 		_ = resp.Body.Close()
 	}()
 
 	if resp.StatusCode > 0 {
-		return resp.Header.Clone()
+		return resp.StatusCode, resp.Header.Clone()
 	}
-	return nil
+	return 0, nil
 }
 
-func probeHTTP1Headers(ctx context.Context, tlsConn *tls.Conn, sni string) http.Header {
+func probeHTTP1Headers(ctx context.Context, tlsConn *tls.Conn, sni string) (int, http.Header) {
 	reqStr := fmt.Sprintf("GET / HTTP/1.1\r\nHost: %s\r\nUser-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36\r\nConnection: close\r\n\r\n", sni)
 	if _, err := io.WriteString(tlsConn, reqStr); err != nil {
-		return nil
+		return 0, nil
 	}
 	reader := bufio.NewReader(tlsConn)
 	dummyReq, err := http.NewRequestWithContext(ctx, http.MethodGet, buildProbeURL(sni), nil)
 	if err != nil {
-		return nil
+		return 0, nil
 	}
 	resp, err := http.ReadResponse(reader, dummyReq)
 	if err != nil || resp == nil {
-		return nil
+		return 0, nil
 	}
 	defer func() {
 		_ = resp.Body.Close()
 	}()
-	return resp.Header.Clone()
+	return resp.StatusCode, resp.Header.Clone()
 }

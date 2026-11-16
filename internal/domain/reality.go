@@ -13,22 +13,32 @@ const (
 
 // Error type constants for Reality domain evaluation.
 const (
-	ErrTypeTCPUnreachable     = "TCP_UNREACHABLE"
-	ErrTypeTLSVersionLow      = "TLS_VERSION_LOW"
-	ErrTypeCDNDetected        = "CDN_DETECTED"
-	ErrTypeCertExpired        = "CERT_EXPIRED"
-	ErrTypeCertExpiringSoon   = "CERT_EXPIRING_SOON"
-	ErrTypeCertDomainMismatch = "CERT_DOMAIN_MISMATCH"
-	ErrTypeALPNMissing        = "ALPN_MISSING"
+	ErrTypeTCPUnreachable         = "TCP_UNREACHABLE"
+	ErrTypeTLSVersionLow          = "TLS_VERSION_LOW"
+	ErrTypeKeyExchangeUnsupported = "KEY_EXCHANGE_UNSUPPORTED"
+	ErrTypeCDNDetected            = "CDN_DETECTED"
+	ErrTypeCertExpired            = "CERT_EXPIRED"
+	ErrTypeCertExpiringSoon       = "CERT_EXPIRING_SOON"
+	ErrTypeCertDomainMismatch     = "CERT_DOMAIN_MISMATCH"
+	ErrTypeCertUntrusted          = "CERT_UNTRUSTED"
+	ErrTypeHighRiskDomain         = "HIGH_RISK_DOMAIN"
+	ErrTypeHTTPRedirect           = "HTTP_REDIRECT"
+	ErrTypeALPNMissing            = "ALPN_MISSING"
+	ErrTypeALPNH2Missing          = "ALPN_H2_MISSING"
 
 	// RealityErr* aliases for consistency across packages
-	RealityErrTCPUnreachable     = ErrTypeTCPUnreachable
-	RealityErrTLSVersionLow      = ErrTypeTLSVersionLow
-	RealityErrCDNDetected        = ErrTypeCDNDetected
-	RealityErrCertExpired        = ErrTypeCertExpired
-	RealityErrCertExpiringSoon   = ErrTypeCertExpiringSoon
-	RealityErrCertDomainMismatch = ErrTypeCertDomainMismatch
-	RealityErrALPNMissing        = ErrTypeALPNMissing
+	RealityErrTCPUnreachable         = ErrTypeTCPUnreachable
+	RealityErrTLSVersionLow          = ErrTypeTLSVersionLow
+	RealityErrKeyExchangeUnsupported = ErrTypeKeyExchangeUnsupported
+	RealityErrCDNDetected            = ErrTypeCDNDetected
+	RealityErrCertExpired            = ErrTypeCertExpired
+	RealityErrCertExpiringSoon       = ErrTypeCertExpiringSoon
+	RealityErrCertDomainMismatch     = ErrTypeCertDomainMismatch
+	RealityErrCertUntrusted          = ErrTypeCertUntrusted
+	RealityErrHighRiskDomain         = ErrTypeHighRiskDomain
+	RealityErrHTTPRedirect           = ErrTypeHTTPRedirect
+	RealityErrALPNMissing            = ErrTypeALPNMissing
+	RealityErrALPNH2Missing          = ErrTypeALPNH2Missing
 )
 
 // RealityCheckItem records the detailed check result for a single Reality serverName.

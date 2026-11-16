@@ -1,6 +1,7 @@
 package domain_test
 
 import (
+	"crypto/tls"
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"errors"
@@ -209,8 +210,8 @@ func TestEvaluateRealityProbe(t *testing.T) {
 			NotAfter:  now.Add(30 * 24 * time.Hour),
 		}
 		status, errType, _ := domain.EvaluateRealityProbe(nil, 0x0304, "h2", cert, nil, now, "example.com")
-		if status != domain.RealityStatusError {
-			t.Errorf("expected status %s, got %s", domain.RealityStatusError, status)
+		if status != domain.RealityStatusWarning {
+			t.Errorf("expected status %s, got %s", domain.RealityStatusWarning, status)
 		}
 		if errType != domain.ErrTypeCDNDetected {
 			t.Errorf("expected errType %s, got %s", domain.ErrTypeCDNDetected, errType)
@@ -222,8 +223,8 @@ func TestEvaluateRealityProbe(t *testing.T) {
 		headers := http.Header{}
 		headers.Set("Server", "cloudflare")
 		status, errType, _ := domain.EvaluateRealityProbe(nil, 0x0304, "h2", cert, headers, now, "example.com")
-		if status != domain.RealityStatusError {
-			t.Errorf("expected status %s, got %s", domain.RealityStatusError, status)
+		if status != domain.RealityStatusWarning {
+			t.Errorf("expected status %s, got %s", domain.RealityStatusWarning, status)
 		}
 		if errType != domain.ErrTypeCDNDetected {
 			t.Errorf("expected errType %s, got %s", domain.ErrTypeCDNDetected, errType)
@@ -235,8 +236,8 @@ func TestEvaluateRealityProbe(t *testing.T) {
 		headers := http.Header{}
 		headers.Set("cf-ray", "8f1234567890-SJC")
 		status, errType, _ := domain.EvaluateRealityProbe(nil, 0x0304, "h2", cert, headers, now, "example.com")
-		if status != domain.RealityStatusError {
-			t.Errorf("expected status %s, got %s", domain.RealityStatusError, status)
+		if status != domain.RealityStatusWarning {
+			t.Errorf("expected status %s, got %s", domain.RealityStatusWarning, status)
 		}
 		if errType != domain.ErrTypeCDNDetected {
 			t.Errorf("expected errType %s, got %s", domain.ErrTypeCDNDetected, errType)
@@ -339,4 +340,174 @@ func TestBuildRealityCheckItem(t *testing.T) {
 	if item.DaysLeft != 10 || item.CertDaysLeft != 10 {
 		t.Errorf("expected 10 days left, got %d", item.DaysLeft)
 	}
+
+	t.Run("bare IPv6 dest formatted with brackets and port", func(t *testing.T) {
+		ipv6Item := domain.BuildRealityCheckItem(
+			2,
+			"vless-ipv6",
+			"2606:4700::1",
+			443,
+			"example.com",
+			domain.RealityStatusOk,
+			"",
+			"ok",
+			0x0304,
+			"h2",
+			cert,
+			false,
+			20,
+			now,
+		)
+		if ipv6Item.Dest != "[2606:4700::1]:443" {
+			t.Errorf("expected Dest='[2606:4700::1]:443', got '%s'", ipv6Item.Dest)
+		}
+	})
+}
+
+func TestEvaluateRealityProbeInput(t *testing.T) {
+	now := time.Date(2026, 9, 20, 12, 0, 0, 0, time.UTC)
+
+	makeValidCert := func(dnsName string, notAfter time.Time) *x509.Certificate {
+		return &x509.Certificate{
+			DNSNames: []string{dnsName},
+			Subject: pkix.Name{
+				CommonName:   dnsName,
+				Organization: []string{"Valid Corp"},
+			},
+			Issuer: pkix.Name{
+				CommonName:   "Let's Encrypt Authority",
+				Organization: []string{"Let's Encrypt"},
+			},
+			NotBefore: now.Add(-30 * 24 * time.Hour),
+			NotAfter:  notAfter,
+		}
+	}
+
+	t.Run("unsupported CurveID P256 returns KEY_EXCHANGE_UNSUPPORTED error", func(t *testing.T) {
+		cert := makeValidCert("example.com", now.Add(30*24*time.Hour))
+		status, errType, _ := domain.EvaluateRealityProbeInput(domain.RealityProbeInput{
+			TLSVersion: tls.VersionTLS13,
+			CurveID:    tls.CurveP256,
+			ALPN:       "h2",
+			Cert:       cert,
+			Dest:       "example.com",
+			ServerName: "example.com",
+		}, now)
+		if status != domain.RealityStatusError || errType != domain.ErrTypeKeyExchangeUnsupported {
+			t.Fatalf("expected error (%s), got status=%s errType=%s", domain.ErrTypeKeyExchangeUnsupported, status, errType)
+		}
+	})
+
+	t.Run("supported CurveID X25519 and X25519MLKEM768 pass", func(t *testing.T) {
+		cert := makeValidCert("example.com", now.Add(30*24*time.Hour))
+		for _, curve := range []tls.CurveID{tls.X25519, tls.X25519MLKEM768} {
+			status, errType, _ := domain.EvaluateRealityProbeInput(domain.RealityProbeInput{
+				TLSVersion: tls.VersionTLS13,
+				CurveID:    curve,
+				ALPN:       "h2",
+				Cert:       cert,
+				Dest:       "example.com",
+				ServerName: "example.com",
+			}, now)
+			if status != domain.RealityStatusOk || errType != "" {
+				t.Fatalf("expected ok for curve %v, got status=%s errType=%s", curve, status, errType)
+			}
+		}
+	})
+
+	t.Run("untrusted certificate returns CERT_UNTRUSTED error", func(t *testing.T) {
+		cert := makeValidCert("example.com", now.Add(30*24*time.Hour))
+		status, errType, _ := domain.EvaluateRealityProbeInput(domain.RealityProbeInput{
+			TLSVersion:    tls.VersionTLS13,
+			CurveID:       tls.X25519,
+			ALPN:          "h2",
+			Cert:          cert,
+			CertVerifyErr: errors.New("x509: certificate signed by unknown authority"),
+			Dest:          "example.com",
+			ServerName:    "example.com",
+		}, now)
+		if status != domain.RealityStatusError || errType != domain.ErrTypeCertUntrusted {
+			t.Fatalf("expected error (%s), got status=%s errType=%s", domain.ErrTypeCertUntrusted, status, errType)
+		}
+	})
+
+	t.Run("CDN providers return warning CDN_DETECTED", func(t *testing.T) {
+		cert := makeValidCert("example.com", now.Add(30*24*time.Hour))
+		cases := []struct {
+			name    string
+			headers http.Header
+		}{
+			{"Cloudflare", http.Header{"Cf-Ray": []string{"8f123456-SJC"}}},
+			{"CloudFront", http.Header{"X-Amz-Cf-Id": []string{"abc123"}}},
+			{"Akamai", http.Header{"Server": []string{"AkamaiGHost"}}},
+			{"Fastly", http.Header{"X-Served-By": []string{"cache-sjc10023-SJC"}}},
+		}
+		for _, tc := range cases {
+			t.Run(tc.name, func(t *testing.T) {
+				status, errType, _ := domain.EvaluateRealityProbeInput(domain.RealityProbeInput{
+					TLSVersion: tls.VersionTLS13,
+					CurveID:    tls.X25519,
+					ALPN:       "h2",
+					Cert:       cert,
+					Headers:    tc.headers,
+					Dest:       "example.com",
+					ServerName: "example.com",
+				}, now)
+				if status != domain.RealityStatusWarning || errType != domain.ErrTypeCDNDetected {
+					t.Fatalf("%s: expected warning (%s), got status=%s errType=%s", tc.name, domain.ErrTypeCDNDetected, status, errType)
+				}
+			})
+		}
+	})
+
+	t.Run("apple and icloud domains return warning HIGH_RISK_DOMAIN", func(t *testing.T) {
+		for _, domainName := range []string{"www.apple.com", "gateway.icloud.com"} {
+			cert := makeValidCert(domainName, now.Add(30*24*time.Hour))
+			status, errType, _ := domain.EvaluateRealityProbeInput(domain.RealityProbeInput{
+				TLSVersion: tls.VersionTLS13,
+				CurveID:    tls.X25519,
+				ALPN:       "h2",
+				Cert:       cert,
+				Dest:       domainName,
+				ServerName: domainName,
+			}, now)
+			if status != domain.RealityStatusWarning || errType != domain.ErrTypeHighRiskDomain {
+				t.Fatalf("%s: expected warning (%s), got status=%s errType=%s", domainName, domain.ErrTypeHighRiskDomain, status, errType)
+			}
+		}
+	})
+
+	t.Run("HTTP redirect status codes return warning HTTP_REDIRECT", func(t *testing.T) {
+		cert := makeValidCert("example.com", now.Add(30*24*time.Hour))
+		for _, code := range []int{301, 302, 303, 307, 308} {
+			status, errType, _ := domain.EvaluateRealityProbeInput(domain.RealityProbeInput{
+				TLSVersion: tls.VersionTLS13,
+				CurveID:    tls.X25519,
+				ALPN:       "h2",
+				Cert:       cert,
+				StatusCode: code,
+				Dest:       "example.com",
+				ServerName: "example.com",
+			}, now)
+			if status != domain.RealityStatusWarning || errType != domain.ErrTypeHTTPRedirect {
+				t.Fatalf("code %d: expected warning (%s), got status=%s errType=%s", code, domain.ErrTypeHTTPRedirect, status, errType)
+			}
+		}
+	})
+
+	t.Run("ALPN http/1.1 returns warning ALPN_H2_MISSING", func(t *testing.T) {
+		cert := makeValidCert("example.com", now.Add(30*24*time.Hour))
+		status, errType, _ := domain.EvaluateRealityProbeInput(domain.RealityProbeInput{
+			TLSVersion: tls.VersionTLS13,
+			CurveID:    tls.X25519,
+			ALPN:       "http/1.1",
+			Cert:       cert,
+			StatusCode: 200,
+			Dest:       "example.com",
+			ServerName: "example.com",
+		}, now)
+		if status != domain.RealityStatusWarning || errType != domain.ErrTypeALPNH2Missing {
+			t.Fatalf("expected warning (%s), got status=%s errType=%s", domain.ErrTypeALPNH2Missing, status, errType)
+		}
+	})
 }

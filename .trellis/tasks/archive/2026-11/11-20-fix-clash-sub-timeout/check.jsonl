@@ -1,0 +1,4 @@
+{"file": ".trellis/spec/backend/index.md", "reason": "Backend quality checklist"}
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "Verify subscription export invariants and full test/race gates"}
+{"file": ".trellis/spec/guides/review-3pass-guide.md", "reason": "3-pass review discipline"}
+{"file": ".trellis/tasks/11-20-fix-clash-sub-timeout/research/clash-root-cause.md", "reason": "Verify root cause and template hygiene fixes completely covered"}

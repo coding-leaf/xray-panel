@@ -1,0 +1,4 @@
+{"file": ".trellis/spec/backend/index.md", "reason": "Backend architecture and pre-dev checklist"}
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "Protocol invariants, subscription export contract, and testing gates"}
+{"file": ".trellis/spec/backend/error-handling.md", "reason": "Error handling conventions"}
+{"file": ".trellis/tasks/11-20-fix-clash-sub-timeout/research/clash-root-cause.md", "reason": "Verified root cause, Xray 26.11.9 vs Mihomo ML-KEM details, and exact file anchors"}

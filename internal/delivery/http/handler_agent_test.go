@@ -43,7 +43,7 @@ func setupNodeHTTPTestRouter(t *testing.T) (http.Handler, string) {
 	compiler := xray.NewXrayCompiler(8080)
 	configMgr := xray.NewConfigManager(filepath.Join(t.TempDir(), "xray_config.json"), "")
 
-	nodeSvc := service.NewNodeService(nodeRepo, nodeRepo, inboundRepo, userRepo, compiler)
+	nodeSvc := service.NewNodeService(nodeRepo, inboundRepo, userRepo, compiler)
 	configSvc := service.NewConfigService(configMgr, nil, inboundRepo, userRepo, snapshotRepo, compiler).
 		WithNodeCacheInvalidator(nodeSvc).
 		WithNodeRepo(nodeRepo)

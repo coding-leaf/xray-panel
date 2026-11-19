@@ -11,13 +11,13 @@
             {{ filteredInbounds.length }} 个节点
           </Badge>
           <span
-            v-if="nodeFilter === 'all'"
+            v-if="showAllNodes"
             class="inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-[10px] font-mono bg-neutral-900 text-muted-foreground border border-border"
           >
-            <span>全局筛选：全部节点</span>
+            <span>跨节点总览：全部节点</span>
             <button
               type="button"
-              @click="restoreActiveNodeFilter"
+              @click="showAllNodes = false"
               class="text-sky-400 hover:text-sky-300 underline"
             >
               切回当前节点
@@ -68,19 +68,25 @@
           />
         </div>
 
-        <!-- Node Filter -->
-        <select
-          v-model="nodeFilter"
-          @change="onNodeFilterChange"
-          aria-label="按节点筛选入站"
-          class="h-8 bg-neutral-950 border border-border text-foreground text-xs rounded-md px-2.5 font-mono focus:outline-none focus:ring-1 focus:ring-ring shrink-0"
+        <!-- Show All Nodes Toggle -->
+        <button
+          type="button"
+          :aria-pressed="showAllNodes"
+          @click="showAllNodes = !showAllNodes"
+          class="h-8 px-2.5 rounded-md border text-xs font-mono shrink-0 transition-colors flex items-center gap-1.5"
+          :class="
+            showAllNodes
+              ? 'bg-sky-500/15 border-sky-500/40 text-sky-300'
+              : 'bg-neutral-950 border-border text-muted-foreground hover:text-foreground hover:bg-muted/40'
+          "
+          title="切换查看全部节点的入站总览，关闭时跟随顶栏当前节点"
         >
-          <option value="all">全部节点</option>
-          <option value="0">本机 Master</option>
-          <option v-for="n in nodesList" :key="n.id" :value="String(n.id)">
-            {{ n.name }}{{ n.region ? ` (${n.region})` : '' }}
-          </option>
-        </select>
+          <span
+            class="w-1.5 h-1.5 rounded-full"
+            :class="showAllNodes ? 'bg-sky-400' : 'bg-neutral-600'"
+          ></span>
+          <span>查看全部节点</span>
+        </button>
 
         <!-- Protocol Filter -->
         <select
@@ -186,7 +192,7 @@ const {
   realitySummary,
   searchQuery,
   protocolFilter,
-  nodeFilter,
+  showAllNodes,
   filteredInbounds,
   realityAlertCount,
   fetchAll,
@@ -194,28 +200,20 @@ const {
   deleteInbound,
 } = useInboundList()
 
-const onNodeFilterChange = () => {
-  if (nodeFilter.value !== 'all') {
-    setActiveNode(Number(nodeFilter.value))
-  }
-}
-
-const restoreActiveNodeFilter = () => {
-  nodeFilter.value = String(activeNodeId.value)
-}
-
 const inspectInbound = (inb: InboundItem) => {
   selectedInbound.value = inb
   showInspectorDrawer.value = true
 }
 
 const viewLogs = (inb: InboundItem) => {
-  setActiveNode(Number(inb.nodeId || 0))
+  const targetNodeId = Number(inb.nodeId || 0)
+  setActiveNode(targetNodeId)
   router.push({
     path: '/logs',
     query: {
       type: 'access',
       inbound: inb.tag,
+      nodeId: String(targetNodeId),
     },
   })
 }

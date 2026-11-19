@@ -11,24 +11,13 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"panel/internal/pkg/geodata"
 )
 
 const (
-	defaultXrayAssetsDir        = "/usr/local/share/xray"
-	defaultMinGeoDataFileSize   = int64(100 * 1024) // 100KB guard against HTML error/rate-limit pages
 	defaultGeoDownloadTimeout   = 60 * time.Second
 	geodataRollbackProbeTimeout = 15 * time.Second
-)
-
-var (
-	defaultGeoIPURLs = []string{
-		"https://github.com/v2fly/geoip/releases/latest/download/geoip.dat",
-		"https://github.com/Loyalsoldier/v2ray-rules-dat/releases/latest/download/geoip.dat",
-	}
-	defaultGeoSiteURLs = []string{
-		"https://github.com/v2fly/domain-list-community/releases/latest/download/dlc.dat",
-		"https://github.com/Loyalsoldier/v2ray-rules-dat/releases/latest/download/geosite.dat",
-	}
 )
 
 // GeoDataUpdater downloads and atomically installs updated geoip.dat and geosite.dat files.
@@ -70,23 +59,23 @@ func NewHTTPGeoDataUpdater(cfg HTTPGeoDataUpdaterConfig, reloader ServiceReloade
 	}
 	assetsDir := strings.TrimSpace(cfg.AssetsDir)
 	if assetsDir == "" {
-		assetsDir = defaultXrayAssetsDir
+		assetsDir = geodata.DefaultAssetsDir
 	}
 	geoipURLs := append([]string(nil), cfg.GeoIPURLs...)
 	if len(geoipURLs) == 0 {
-		geoipURLs = append([]string(nil), defaultGeoIPURLs...)
+		geoipURLs = append([]string(nil), geodata.DefaultGeoIPURLs...)
 	}
 	geositeURLs := append([]string(nil), cfg.GeoSiteURLs...)
 	if len(geositeURLs) == 0 {
-		geositeURLs = append([]string(nil), defaultGeoSiteURLs...)
+		geositeURLs = append([]string(nil), geodata.DefaultGeoSiteURLs...)
 	}
 	minSize := cfg.MinFileSize
 	if minSize <= 0 {
-		minSize = defaultMinGeoDataFileSize
+		minSize = geodata.DefaultMinFileSize
 	}
 	client := cfg.HTTPClient
 	if client == nil {
-		client = &http.Client{Timeout: defaultGeoDownloadTimeout}
+		client = geodata.NewHTTPClient(defaultGeoDownloadTimeout)
 	}
 
 	return &HTTPGeoDataUpdater{
@@ -122,13 +111,13 @@ func (u *HTTPGeoDataUpdater) Update(ctx context.Context) (int64, int64, error) {
 		_ = os.Remove(geositeTmp)
 	}()
 
-	geoipSize, err := u.downloadWithFallback(ctx, "geoip.dat", u.geoipURLs, geoipTmp)
+	geoipSize, err := geodata.DownloadWithFallback(ctx, u.client, u.geoipURLs, geoipTmp, u.minFileSize, nil)
 	if err != nil {
-		return 0, 0, err
+		return 0, 0, fmt.Errorf("download geoip.dat: %w", err)
 	}
-	geositeSize, err := u.downloadWithFallback(ctx, "geosite.dat", u.geositeURLs, geositeTmp)
+	geositeSize, err := geodata.DownloadWithFallback(ctx, u.client, u.geositeURLs, geositeTmp, u.minFileSize, nil)
 	if err != nil {
-		return 0, 0, err
+		return 0, 0, fmt.Errorf("download geosite.dat: %w", err)
 	}
 
 	hasGeoIPBak, err := backupIfExists(geoipPath, geoipBak)
@@ -160,64 +149,6 @@ func (u *HTTPGeoDataUpdater) Update(ctx context.Context) (int64, int64, error) {
 	}
 
 	return geoipSize, geositeSize, nil
-}
-
-func (u *HTTPGeoDataUpdater) downloadWithFallback(ctx context.Context, name string, urls []string, tmpPath string) (int64, error) {
-	var errs []error
-	for _, url := range urls {
-		size, err := u.downloadToTemp(ctx, url, tmpPath)
-		if err == nil {
-			return size, nil
-		}
-		errs = append(errs, fmt.Errorf("%s: %w", url, err))
-	}
-	return 0, fmt.Errorf("download %s failed across %d source(s): %w", name, len(urls), errors.Join(errs...))
-}
-
-func (u *HTTPGeoDataUpdater) downloadToTemp(ctx context.Context, url, tmpPath string) (int64, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
-	if err != nil {
-		return 0, fmt.Errorf("build request: %w", err)
-	}
-	resp, err := u.client.Do(req)
-	if err != nil {
-		return 0, fmt.Errorf("http get: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return 0, fmt.Errorf("unexpected status %d", resp.StatusCode)
-	}
-
-	f, err := os.OpenFile(tmpPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o644)
-	if err != nil {
-		return 0, fmt.Errorf("open temp file: %w", err)
-	}
-
-	written, copyErr := io.Copy(f, resp.Body)
-	syncErr := f.Sync()
-	closeErr := f.Close()
-	if copyErr != nil {
-		_ = os.Remove(tmpPath)
-		return 0, fmt.Errorf("stream body: %w", copyErr)
-	}
-	if syncErr != nil {
-		_ = os.Remove(tmpPath)
-		return 0, fmt.Errorf("sync temp file: %w", syncErr)
-	}
-	if closeErr != nil {
-		_ = os.Remove(tmpPath)
-		return 0, fmt.Errorf("close temp file: %w", closeErr)
-	}
-	if err := os.Chmod(tmpPath, 0o644); err != nil {
-		_ = os.Remove(tmpPath)
-		return 0, fmt.Errorf("chmod temp file: %w", err)
-	}
-	if written < u.minFileSize {
-		_ = os.Remove(tmpPath)
-		return 0, fmt.Errorf("downloaded size %d bytes is below minimum %d bytes", written, u.minFileSize)
-	}
-	return written, nil
 }
 
 func (u *HTTPGeoDataUpdater) rollback(

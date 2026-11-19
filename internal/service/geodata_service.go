@@ -3,8 +3,6 @@ package service
 import (
 	"context"
 	"fmt"
-	"io"
-	"net"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -14,6 +12,12 @@ import (
 	"time"
 
 	"panel/internal/domain"
+	"panel/internal/pkg/geodata"
+)
+
+const (
+	defaultGeoDataHTTPTimeout = 180 * time.Second
+	defaultGeoDataJobTimeout  = 6 * time.Minute
 )
 
 type CoreController interface {
@@ -76,8 +80,8 @@ func (s *GeoDataService) getGeoDataDir(ctx context.Context) string {
 	}
 	dir := filepath.Dir(s.xrayBinPath)
 	if runtime.GOOS == "linux" {
-		if _, err := os.Stat("/usr/local/share/xray"); err == nil {
-			return "/usr/local/share/xray"
+		if _, err := os.Stat(geodata.DefaultAssetsDir); err == nil {
+			return geodata.DefaultAssetsDir
 		}
 	}
 	return dir
@@ -142,29 +146,14 @@ func (s *GeoDataService) TriggerUpdate() error {
 	return nil
 }
 
-func newGeoDataHTTPClient() *http.Client {
-	transport := &http.Transport{
-		Proxy: http.ProxyFromEnvironment,
-		DialContext: (&net.Dialer{
-			Timeout:   15 * time.Second,
-			KeepAlive: 30 * time.Second,
-		}).DialContext,
-		TLSHandshakeTimeout:   15 * time.Second,
-		ResponseHeaderTimeout: 30 * time.Second,
-		IdleConnTimeout:       90 * time.Second,
-		ExpectContinueTimeout: 1 * time.Second,
-	}
-	return &http.Client{
-		Timeout:   180 * time.Second,
-		Transport: transport,
-	}
-}
-
 func (s *GeoDataService) runUpdateWorker() {
-	dataDir := s.getGeoDataDir(context.Background())
-	_ = os.MkdirAll(dataDir, 0755)
+	ctx, cancel := context.WithTimeout(context.Background(), defaultGeoDataJobTimeout)
+	defer cancel()
 
-	client := newGeoDataHTTPClient()
+	dataDir := s.getGeoDataDir(ctx)
+	_ = os.MkdirAll(dataDir, 0o755)
+
+	client := geodata.NewHTTPClient(defaultGeoDataHTTPTimeout)
 
 	// 1. 下载 geoip.dat (0% -> 48%)
 	s.setProgress(GeoDataProgress{
@@ -174,25 +163,13 @@ func (s *GeoDataService) runUpdateWorker() {
 		Message:    "正在下载 geoip.dat (IP 归属地规则)...",
 	})
 
-	geoipURLs := []string{
-		"https://github.com/v2fly/geoip/releases/latest/download/geoip.dat",
-		"https://github.com/Loyalsoldier/v2ray-rules-dat/releases/latest/download/geoip.dat",
-	}
-
-	var geoipErr error
-	for _, u := range geoipURLs {
-		geoipErr = s.downloadWithProgress(client, u, filepath.Join(dataDir, "geoip.dat"), 10, 48, "geoip.dat")
-		if geoipErr == nil {
-			break
-		}
-	}
-	if geoipErr != nil {
+	if err := s.downloadWithProgress(ctx, client, geodata.DefaultGeoIPURLs, filepath.Join(dataDir, "geoip.dat"), 10, 48, "geoip.dat"); err != nil {
 		s.setProgress(GeoDataProgress{
 			IsUpdating: false,
 			Step:       "error",
 			Percentage: 0,
-			Message:    "下载 GeoIP 失败: " + geoipErr.Error(),
-			Error:      geoipErr.Error(),
+			Message:    "下载 GeoIP 失败: " + err.Error(),
+			Error:      err.Error(),
 		})
 		return
 	}
@@ -205,25 +182,13 @@ func (s *GeoDataService) runUpdateWorker() {
 		Message:    "正在下载 geosite.dat (域名分类规则)...",
 	})
 
-	geositeURLs := []string{
-		"https://github.com/v2fly/domain-list-community/releases/latest/download/dlc.dat",
-		"https://github.com/Loyalsoldier/v2ray-rules-dat/releases/latest/download/geosite.dat",
-	}
-
-	var geositeErr error
-	for _, u := range geositeURLs {
-		geositeErr = s.downloadWithProgress(client, u, filepath.Join(dataDir, "geosite.dat"), 50, 95, "geosite.dat")
-		if geositeErr == nil {
-			break
-		}
-	}
-	if geositeErr != nil {
+	if err := s.downloadWithProgress(ctx, client, geodata.DefaultGeoSiteURLs, filepath.Join(dataDir, "geosite.dat"), 50, 95, "geosite.dat"); err != nil {
 		s.setProgress(GeoDataProgress{
 			IsUpdating: false,
 			Step:       "error",
 			Percentage: 0,
-			Message:    "下载 GeoSite 失败: " + geositeErr.Error(),
-			Error:      geositeErr.Error(),
+			Message:    "下载 GeoSite 失败: " + err.Error(),
+			Error:      err.Error(),
 		})
 		return
 	}
@@ -237,9 +202,9 @@ func (s *GeoDataService) runUpdateWorker() {
 	})
 
 	if s.manager != nil {
-		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-		_ = s.manager.RestartService(ctx)
-		cancel()
+		restartCtx, restartCancel := context.WithTimeout(context.Background(), 10*time.Second)
+		_ = s.manager.RestartService(restartCtx)
+		restartCancel()
 	}
 
 	time.Sleep(500 * time.Millisecond)
@@ -252,106 +217,71 @@ func (s *GeoDataService) runUpdateWorker() {
 	})
 }
 
-type progressWriter struct {
-	total      int64
-	downloaded int64
-	lastTime   time.Time
-	lastBytes  int64
-	speedBps   int64
-	onProgress func(downloaded, total, speed int64)
-}
-
-func (pw *progressWriter) Write(p []byte) (int, error) {
-	n := len(p)
-	pw.downloaded += int64(n)
-
-	now := time.Now()
-	dur := now.Sub(pw.lastTime)
-	if dur >= 300*time.Millisecond {
-		delta := pw.downloaded - pw.lastBytes
-		if dur.Seconds() > 0 {
-			pw.speedBps = int64(float64(delta) / dur.Seconds())
-		}
-		pw.lastTime = now
-		pw.lastBytes = pw.downloaded
-		if pw.onProgress != nil {
-			pw.onProgress(pw.downloaded, pw.total, pw.speedBps)
-		}
-	}
-	return n, nil
-}
-
-func (s *GeoDataService) downloadWithProgress(client *http.Client, url, destPath string, startPct, endPct int, name string) error {
-	req, err := http.NewRequest(http.MethodGet, url, nil)
-	if err != nil {
-		return err
-	}
-	req.Header.Set("User-Agent", "Xray-Panel-GeoUpdater/1.0")
-
-	resp, err := client.Do(req)
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("HTTP %s", resp.Status)
-	}
-
+func (s *GeoDataService) downloadWithProgress(
+	ctx context.Context,
+	client *http.Client,
+	urls []string,
+	destPath string,
+	startPct, endPct int,
+	name string,
+) error {
 	tmpPath := destPath + ".tmp"
-	f, err := os.Create(tmpPath)
-	if err != nil {
+	lastTime := time.Now()
+	var lastBytes int64
+	var speedBps int64
+
+	onProgress := func(downloaded, total int64) {
+		now := time.Now()
+		dur := now.Sub(lastTime)
+		if dur < 300*time.Millisecond {
+			return
+		}
+		delta := downloaded - lastBytes
+		if delta < 0 {
+			// Mirror fallback restarted download from byte 0.
+			delta = downloaded
+		}
+		if dur.Seconds() > 0 {
+			speedBps = int64(float64(delta) / dur.Seconds())
+		}
+		lastTime = now
+		lastBytes = downloaded
+
+		pct := startPct
+		if total > 0 {
+			progressRatio := float64(downloaded) / float64(total)
+			pct = startPct + int(progressRatio*float64(endPct-startPct))
+		} else {
+			// 未知长度时平滑递增
+			pct = startPct + int(float64(downloaded)/(1024*1024*20)*float64(endPct-startPct))
+		}
+		if pct > endPct {
+			pct = endPct
+		}
+
+		msg := fmt.Sprintf("正在下载 %s (%.1f MB", name, float64(downloaded)/(1024*1024))
+		if total > 0 {
+			msg += fmt.Sprintf(" / %.1f MB", float64(total)/(1024*1024))
+		}
+		if speedBps > 0 {
+			msg += fmt.Sprintf(", %.1f MB/s", float64(speedBps)/(1024*1024))
+		}
+		msg += ")..."
+
+		s.setProgress(GeoDataProgress{
+			IsUpdating:     true,
+			Step:           "downloading_" + name,
+			Percentage:     pct,
+			Message:        msg,
+			DownloadedSize: downloaded,
+			TotalSize:      total,
+			SpeedBps:       speedBps,
+		})
+	}
+
+	if _, err := geodata.DownloadWithFallback(ctx, client, urls, tmpPath, geodata.DefaultMinFileSize, onProgress); err != nil {
 		return err
 	}
-
-	totalSize := resp.ContentLength
-	pw := &progressWriter{
-		total:    totalSize,
-		lastTime: time.Now(),
-		onProgress: func(downloaded, total, speed int64) {
-			pct := startPct
-			if total > 0 {
-				progressRatio := float64(downloaded) / float64(total)
-				pct = startPct + int(progressRatio*float64(endPct-startPct))
-			} else {
-				// 未知长度时平滑递增
-				pct = startPct + int(float64(downloaded)/(1024*1024*20)*float64(endPct-startPct))
-			}
-			if pct > endPct {
-				pct = endPct
-			}
-
-			msg := fmt.Sprintf("正在下载 %s (%.1f MB", name, float64(downloaded)/(1024*1024))
-			if total > 0 {
-				msg += fmt.Sprintf(" / %.1f MB", float64(total)/(1024*1024))
-			}
-			if speed > 0 {
-				msg += fmt.Sprintf(", %.1f MB/s", float64(speed)/(1024*1024))
-			}
-			msg += ")..."
-
-			s.setProgress(GeoDataProgress{
-				IsUpdating:     true,
-				Step:           "downloading_" + name,
-				Percentage:     pct,
-				Message:        msg,
-				DownloadedSize: downloaded,
-				TotalSize:      total,
-				SpeedBps:       speed,
-			})
-		},
-	}
-
-	if _, err := io.Copy(f, io.TeeReader(resp.Body, pw)); err != nil {
-		_ = f.Close()
-		_ = os.Remove(tmpPath)
-		return err
-	}
-	if err := f.Close(); err != nil {
-		_ = os.Remove(tmpPath)
-		return err
-	}
-
 	if err := os.Rename(tmpPath, destPath); err != nil {
 		_ = os.Remove(tmpPath)
 		return err

@@ -219,33 +219,13 @@ func TestNotifyRealityAbnormal(t *testing.T) {
 }
 
 type mockAlertNodeRepo struct {
+	domain.NodeRepository
 	nodes   []domain.Node
 	dailies map[uint][]domain.NodeTrafficDaily
 }
 
-func (m *mockAlertNodeRepo) Create(ctx context.Context, node *domain.Node) error { return nil }
-func (m *mockAlertNodeRepo) Update(ctx context.Context, node *domain.Node) error { return nil }
-func (m *mockAlertNodeRepo) UpdateHeartbeat(ctx context.Context, nodeID uint, req *domain.AgentSyncRequest, seenAt time.Time) error {
-	return nil
-}
-func (m *mockAlertNodeRepo) Delete(ctx context.Context, id uint) error { return nil }
-func (m *mockAlertNodeRepo) GetByID(ctx context.Context, id uint) (*domain.Node, error) {
-	return nil, domain.ErrNotFound
-}
-func (m *mockAlertNodeRepo) GetByTokenHash(ctx context.Context, tokenHash string) (*domain.Node, error) {
-	return nil, domain.ErrNotFound
-}
 func (m *mockAlertNodeRepo) ListAll(ctx context.Context) ([]domain.Node, error) {
 	return m.nodes, nil
-}
-func (m *mockAlertNodeRepo) CountInbounds(ctx context.Context, nodeID uint) (int64, error) {
-	return 0, nil
-}
-func (m *mockAlertNodeRepo) UpdateAutoState(ctx context.Context, nodeID uint, desiredState, reason string) error {
-	return nil
-}
-func (m *mockAlertNodeRepo) ResetCycleTraffic(ctx context.Context, nodeID uint, resetMonth int, restoreActive bool) error {
-	return nil
 }
 func (m *mockAlertNodeRepo) ListRecentDailyTraffic(ctx context.Context, nodeID uint, days int) ([]domain.NodeTrafficDaily, error) {
 	return m.dailies[nodeID], nil

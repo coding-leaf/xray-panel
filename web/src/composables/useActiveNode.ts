@@ -3,6 +3,12 @@ import { getNodeSyncStatus, listNodes, type NodeItem } from '../api/nodes'
 
 const ACTIVE_NODE_STORAGE_KEY = 'xray_panel_active_node_id'
 const PENDING_SYNC_POLL_MS = 5000
+const LIST_POLL_MS = 15000
+
+export interface LoadNodesOptions {
+  silent?: boolean
+  rethrow?: boolean
+}
 
 function readStoredNodeId(): number {
   if (typeof window === 'undefined') return 0
@@ -32,12 +38,15 @@ const activeNodeId = ref<number>(readStoredNodeId())
 const nodesList = ref<NodeItem[]>([])
 const nodesLoading = ref<boolean>(false)
 const subscriberCount = ref<number>(0)
+const listPollSubscribers = ref<number>(0)
 const isDocumentHidden = ref<boolean>(typeof document !== 'undefined' ? document.hidden : false)
 
-let inflightLoad: Promise<NodeItem[]> | null = null
+let inflightLoad: Promise<{ list: NodeItem[]; err: unknown; failed: boolean }> | null = null
 let loadSeq = 0
 let syncPollTimer: ReturnType<typeof setInterval> | null = null
 let syncPollInFlight = false
+let listPollTimer: ReturnType<typeof setInterval> | null = null
+let listPollInFlight = false
 let visibilityBound = false
 
 const activeNode = computed<NodeItem | null>(() => {
@@ -47,11 +56,20 @@ const activeNode = computed<NodeItem | null>(() => {
 
 const isRemoteNode = computed<boolean>(() => activeNodeId.value > 0)
 
+const hasAuthToken = () =>
+  typeof window === 'undefined' || Boolean(window.localStorage.getItem('token'))
+
 const shouldPollPendingSync = computed<boolean>(() => {
   if (subscriberCount.value <= 0 || isDocumentHidden.value) return false
-  if (typeof window !== 'undefined' && !window.localStorage.getItem('token')) return false
+  if (!hasAuthToken()) return false
   if (activeNodeId.value <= 0 || !activeNode.value) return false
   return getNodeSyncStatus(activeNode.value) === 'pending'
+})
+
+const shouldPollList = computed<boolean>(() => {
+  if (listPollSubscribers.value <= 0 || isDocumentHidden.value) return false
+  if (!hasAuthToken()) return false
+  return true
 })
 
 function setActiveNode(id: number) {
@@ -64,15 +82,23 @@ function setActiveNode(id: number) {
   }
 }
 
-async function loadNodes(force = false): Promise<NodeItem[]> {
-  if (typeof window !== 'undefined' && !window.localStorage.getItem('token')) {
+async function loadNodes(force = false, options?: LoadNodesOptions): Promise<NodeItem[]> {
+  if (!hasAuthToken()) {
     return []
   }
+  const rethrow = Boolean(options?.rethrow)
   if (!force && inflightLoad) {
-    return inflightLoad
+    const res = await inflightLoad
+    if (rethrow && res.failed) {
+      throw res.err
+    }
+    return res.list
   }
+  const silent = Boolean(options?.silent)
   const seq = ++loadSeq
-  nodesLoading.value = true
+  if (!silent) {
+    nodesLoading.value = true
+  }
   const request = listNodes()
     .then((list) => {
       if (seq === loadSeq) {
@@ -81,11 +107,11 @@ async function loadNodes(force = false): Promise<NodeItem[]> {
           setActiveNode(0)
         }
       }
-      return nodesList.value
+      return { list: nodesList.value, err: null as unknown, failed: false }
     })
     .catch((err) => {
       console.error('Failed to load nodes:', err)
-      return nodesList.value
+      return { list: nodesList.value, err, failed: true }
     })
     .finally(() => {
       if (seq === loadSeq) {
@@ -94,11 +120,35 @@ async function loadNodes(force = false): Promise<NodeItem[]> {
       }
     })
   inflightLoad = request
-  return request
+  const res = await request
+  if (rethrow && res.failed) {
+    throw res.err
+  }
+  return res.list
 }
 
 async function refreshNodesNow(): Promise<NodeItem[]> {
-  return loadNodes(true)
+  return loadNodes(true, { silent: true })
+}
+
+function bindVisibilityListener() {
+  if (!visibilityBound && typeof document !== 'undefined') {
+    isDocumentHidden.value = document.hidden
+    document.addEventListener('visibilitychange', handleVisibilityChange)
+    visibilityBound = true
+  }
+}
+
+function maybeUnbindVisibilityListener() {
+  if (
+    subscriberCount.value === 0 &&
+    listPollSubscribers.value === 0 &&
+    visibilityBound &&
+    typeof document !== 'undefined'
+  ) {
+    document.removeEventListener('visibilitychange', handleVisibilityChange)
+    visibilityBound = false
+  }
 }
 
 function stopSyncPolling() {
@@ -125,10 +175,62 @@ function startSyncPolling() {
   }, PENDING_SYNC_POLL_MS)
 }
 
+function stopListPollTimer() {
+  if (listPollTimer) {
+    clearInterval(listPollTimer)
+    listPollTimer = null
+  }
+}
+
+async function runListPollTick() {
+  if (listPollInFlight || syncPollInFlight || !shouldPollList.value) return
+  listPollInFlight = true
+  try {
+    await refreshNodesNow()
+  } finally {
+    listPollInFlight = false
+  }
+}
+
+function ensureListPollTimer() {
+  if (listPollTimer || !shouldPollList.value) return
+  listPollTimer = setInterval(() => {
+    void runListPollTick()
+  }, LIST_POLL_MS)
+}
+
+function startListPolling() {
+  listPollSubscribers.value += 1
+  bindVisibilityListener()
+  if (shouldPollList.value) {
+    ensureListPollTimer()
+  }
+}
+
+function stopListPolling() {
+  listPollSubscribers.value = Math.max(0, listPollSubscribers.value - 1)
+  if (listPollSubscribers.value === 0) {
+    stopListPollTimer()
+    maybeUnbindVisibilityListener()
+  }
+}
+
 function handleVisibilityChange() {
   isDocumentHidden.value = typeof document !== 'undefined' ? document.hidden : false
-  if (!isDocumentHidden.value && shouldPollPendingSync.value) {
+  if (isDocumentHidden.value) {
+    stopSyncPolling()
+    stopListPollTimer()
+    return
+  }
+  if (shouldPollPendingSync.value) {
+    startSyncPolling()
     void runSyncPollTick()
+  } else if (shouldPollList.value) {
+    ensureListPollTimer()
+    void runListPollTick()
+  }
+  if (shouldPollList.value) {
+    ensureListPollTimer()
   }
 }
 
@@ -140,26 +242,27 @@ watch(shouldPollPendingSync, (active) => {
   }
 })
 
+watch(shouldPollList, (active) => {
+  if (active) {
+    ensureListPollTimer()
+  } else {
+    stopListPollTimer()
+  }
+})
+
 export function useActiveNode() {
   if (getCurrentInstance()) {
     onMounted(() => {
       subscriberCount.value += 1
-      if (!visibilityBound && typeof document !== 'undefined') {
-        isDocumentHidden.value = document.hidden
-        document.addEventListener('visibilitychange', handleVisibilityChange)
-        visibilityBound = true
-      }
+      bindVisibilityListener()
     })
 
     onUnmounted(() => {
       subscriberCount.value = Math.max(0, subscriberCount.value - 1)
       if (subscriberCount.value === 0) {
         stopSyncPolling()
-        if (visibilityBound && typeof document !== 'undefined') {
-          document.removeEventListener('visibilitychange', handleVisibilityChange)
-          visibilityBound = false
-        }
       }
+      maybeUnbindVisibilityListener()
     })
   }
 
@@ -172,5 +275,7 @@ export function useActiveNode() {
     loadNodes,
     refreshNodesNow,
     setActiveNode,
+    startListPolling,
+    stopListPolling,
   }
 }

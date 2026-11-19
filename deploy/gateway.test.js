@@ -1,5 +1,8 @@
 import test, { describe, it, beforeEach, afterEach } from "node:test";
 import assert from "node:assert/strict";
+import fs from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 
 import workerScript, {
   parseUpstreamOrigins,
@@ -357,13 +360,13 @@ describe("Cloudflare Gateway Unit & Integration Tests", () => {
   });
 
   describe("Pages Specific Features", () => {
-    it("should passthrough / and /portal to env.ASSETS.fetch", async () => {
-      let assetsFetched = false;
+    it("should passthrough / and rewrite all /portal* paths to /portal/ preserving query string", async () => {
+      const fetchedUrls = [];
       const env = {
         UPSTREAM_ORIGINS: "https://vps1.com",
         ASSETS: {
           fetch: async (req) => {
-            assetsFetched = true;
+            fetchedUrls.push(req.url);
             return new Response("Static HTML", { status: 200 });
           },
         },
@@ -372,13 +375,39 @@ describe("Cloudflare Gateway Unit & Integration Tests", () => {
       const reqRoot = new Request("https://pages.internal/");
       const resRoot = await pagesScript.fetch(reqRoot, env, {});
       assert.equal(resRoot.status, 200);
-      assert.equal(assetsFetched, true);
+      assert.deepEqual(fetchedUrls, ["https://pages.internal/"]);
 
-      assetsFetched = false;
-      const reqPortal = new Request("https://pages.internal/portal");
-      const resPortal = await pagesScript.fetch(reqPortal, env, {});
-      assert.equal(resPortal.status, 200);
-      assert.equal(assetsFetched, true);
+      const portalPaths = [
+        "/portal",
+        "/portal/",
+        "/portal.html",
+        "/portal/index.html",
+      ];
+      for (const portalPath of portalPaths) {
+        fetchedUrls.length = 0;
+        const req = new Request(
+          `https://pages.internal${portalPath}?code=CLAIM-42&lang=zh`
+        );
+        const res = await pagesScript.fetch(req, env, {});
+        assert.equal(res.status, 200, `expected 200 for ${portalPath}`);
+        assert.deepEqual(
+          fetchedUrls,
+          ["https://pages.internal/portal/?code=CLAIM-42&lang=zh"],
+          `expected ${portalPath} to rewrite to /portal/ with query preserved`
+        );
+      }
+    });
+
+    it("should maintain deploy/cloudflare-pages/portal/index.html as single-source Portal HTML", () => {
+      const deployDir = path.dirname(fileURLToPath(import.meta.url));
+      const canonicalPortal = path.join(deployDir, "cloudflare-pages", "portal", "index.html");
+      const duplicatePagesPortal = path.join(deployDir, "cloudflare-pages", "portal.html");
+      const duplicateStandalone = path.join(deployDir, "standalone-portal.html");
+
+      assert.equal(fs.existsSync(canonicalPortal), true, "canonical portal/index.html must exist");
+      assert.ok(fs.statSync(canonicalPortal).size > 0, "canonical portal/index.html must be non-empty");
+      assert.equal(fs.existsSync(duplicatePagesPortal), false, "duplicate cloudflare-pages/portal.html must be removed");
+      assert.equal(fs.existsSync(duplicateStandalone), false, "duplicate standalone-portal.html must be removed");
     });
 
     it("Pages: should buffer POST body and successfully reuse it across candidates", async () => {

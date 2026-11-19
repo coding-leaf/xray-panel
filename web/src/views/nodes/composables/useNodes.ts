@@ -1,6 +1,5 @@
 import { ref, computed } from 'vue'
 import {
-  listNodes,
   deleteNode,
   resetNodeTraffic,
   rotateNodeToken,
@@ -9,6 +8,7 @@ import {
   type NodeItem,
   type RotateTokenResult,
 } from '../../../api/nodes'
+import { useActiveNode } from '../../../composables/useActiveNode'
 import { toast } from '../../../utils/toast'
 import { formatDateTime } from '../../../utils/format'
 
@@ -144,8 +144,15 @@ export function isBoundInboundsError(err: unknown): boolean {
 }
 
 export function useNodes() {
-  const nodes = ref<NodeItem[]>([])
-  const loading = ref(false)
+  const {
+    nodesList: nodes,
+    nodesLoading: loading,
+    loadNodes,
+    refreshNodesNow,
+    startListPolling,
+    stopListPolling,
+  } = useActiveNode()
+
   const resettingId = ref<number | null>(null)
   const searchQuery = ref('')
   const stateFilter = ref<'all' | NodeDesiredState>('all')
@@ -199,18 +206,11 @@ export function useNodes() {
   })
 
   const fetchNodes = async (silent = false) => {
-    if (!silent) {
-      loading.value = true
-    }
     try {
-      nodes.value = await listNodes()
+      await loadNodes(true, { silent, rethrow: !silent })
     } catch (err: any) {
       if (!silent) {
         toast.error('加载节点列表失败：' + (err?.message || err))
-      }
-    } finally {
-      if (!silent) {
-        loading.value = false
       }
     }
   }
@@ -222,7 +222,7 @@ export function useNodes() {
     try {
       await deleteNode(node.id)
       toast.success(`节点「${node.name}」已删除`)
-      await fetchNodes(true)
+      await refreshNodesNow()
       return true
     } catch (err: any) {
       if (isBoundInboundsError(err)) {
@@ -241,10 +241,30 @@ export function useNodes() {
     try {
       await updateNode(node.id, { enabled: nextEnabled })
       toast.success(nextEnabled ? `已启用节点「${node.name}」` : `已停用节点「${node.name}」`)
-      await fetchNodes(true)
+      await refreshNodesNow()
       return true
     } catch (err: any) {
       toast.error('状态切换失败：' + (err?.message || err))
+      return false
+    }
+  }
+
+  const setNodeDesiredState = async (
+    node: NodeItem,
+    desiredState: NodeDesiredState
+  ): Promise<boolean> => {
+    const labelMap: Record<NodeDesiredState, string> = {
+      active: '活跃分发 (active)',
+      draining: '排空摘流 (draining)',
+      circuit_broken: '熔断隔离 (circuit_broken)',
+    }
+    try {
+      await updateNode(node.id, { desiredState })
+      toast.success(`节点「${node.name}」已切换为 ${labelMap[desiredState]}`)
+      await refreshNodesNow()
+      return true
+    } catch (err: any) {
+      toast.error('调度状态更新失败：' + (err?.message || err))
       return false
     }
   }
@@ -260,7 +280,7 @@ export function useNodes() {
     try {
       const res = await rotateNodeToken(node.id)
       toast.success(`节点「${node.name}」Token 已轮换`)
-      await fetchNodes(true)
+      await refreshNodesNow()
       return res
     } catch (err: any) {
       toast.error('轮换 Token 失败：' + (err?.message || err))
@@ -281,7 +301,7 @@ export function useNodes() {
     try {
       await resetNodeTraffic(node.id)
       toast.success(`节点「${node.name}」周期流量已重置`)
-      await fetchNodes(true)
+      await refreshNodesNow()
       return true
     } catch (err: any) {
       toast.error('重置周期流量失败：' + (err?.message || err))
@@ -301,8 +321,12 @@ export function useNodes() {
     summary,
     filteredNodes,
     fetchNodes,
+    refreshNodesNow,
+    startListPolling,
+    stopListPolling,
     removeNode,
     toggleNodeEnabled,
+    setNodeDesiredState,
     rotateToken,
     handleResetTraffic,
   }

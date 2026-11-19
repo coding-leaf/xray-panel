@@ -46,159 +46,6 @@
       </div>
     </div>
 
-    <!-- GeoData 规则库在线升级状态卡片 (支持本机 Master 与远端节点按需更新) -->
-    <div class="p-3.5 rounded-lg bg-card border border-border flex flex-col gap-3">
-      <div class="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
-        <div class="flex items-center gap-3">
-          <div class="p-2 rounded bg-neutral-900 border border-border text-foreground">
-            <Database class="w-4 h-4 text-cyan-400" />
-          </div>
-          <div class="space-y-0.5 text-xs">
-            <div class="flex items-center gap-2 flex-wrap">
-              <span class="font-semibold text-foreground"
-                >GeoData 分流规则库 (geoip.dat & geosite.dat)</span
-              >
-              <span
-                v-if="isRemoteNode"
-                class="px-1.5 py-0.2 rounded text-[10px] font-mono bg-sky-500/10 border border-sky-500/30 text-sky-300"
-              >
-                远程节点：{{ activeNode?.name || `#${activeNodeId}` }}
-              </span>
-              <span
-                v-else
-                class="px-1.5 py-0.2 rounded text-[10px] font-mono bg-neutral-900 border border-border text-cyan-400"
-              >
-                {{ geodataStatus?.platform || 'Xray Core' }}
-              </span>
-            </div>
-            <p v-if="isRemoteNode" class="text-[11px] text-muted-foreground font-mono">
-              按需同步最新 geoip.dat / geosite.dat 到当前远端节点并校验回滚保护
-            </p>
-            <p v-else class="text-[11px] text-muted-foreground font-mono">
-              GeoIP:
-              {{
-                geodataStatus?.geoipExists
-                  ? `${(geodataStatus.geoipSize / 1048576).toFixed(2)} MB`
-                  : '未找到'
-              }}
-              | GeoSite:
-              {{
-                geodataStatus?.geositeExists
-                  ? `${(geodataStatus.geositeSize / 1048576).toFixed(2)} MB`
-                  : '未找到'
-              }}
-              | 路径：{{ geodataStatus?.targetDirectory || './' }}
-            </p>
-          </div>
-        </div>
-
-        <Button
-          variant="secondary"
-          size="sm"
-          :loading="updatingGeo"
-          :disabled="updatingGeo"
-          @click="updateGeoData"
-          class="shrink-0"
-        >
-          <RotateCw class="w-3.5 h-3.5 mr-1.5" :class="{ 'animate-spin': updatingGeo }" />
-          <span>{{
-            isRemoteNode
-              ? updatingGeo
-                ? '节点更新中...'
-                : '获取最新 GeoData'
-              : updatingGeo
-                ? '规则库升级中...'
-                : '一键升级规则库'
-          }}</span>
-        </Button>
-      </div>
-
-      <!-- 远端节点按需更新状态与结果 -->
-      <div
-        v-if="isRemoteNode && updatingGeo"
-        class="p-2.5 bg-neutral-950 rounded-md border border-sky-500/30 text-sky-300 text-[11px] font-mono flex items-center gap-2"
-      >
-        <span class="w-1.5 h-1.5 rounded-full bg-sky-400 animate-ping shrink-0"></span>
-        <span>
-          <template v-if="remoteGeoResult?.status === 'dispatched'">
-            远端节点「{{ activeNode?.name || `#${activeNodeId}` }}」正在下载并校验
-            GeoData（含重载与回滚保护）...
-          </template>
-          <template v-else-if="remoteGeoResult?.status === 'queued'">
-            已入队 GeoData 更新指令，等待远端节点「{{
-              activeNode?.name || `#${activeNodeId}`
-            }}」下一次心跳领取（最多约 60s）...
-          </template>
-          <template v-else>
-            正在向远端节点「{{ activeNode?.name || `#${activeNodeId}` }}」下发 GeoData 更新指令...
-          </template>
-          <template v-if="remoteGeoResult?.commandId">
-            （{{ remoteGeoResult.commandId }}）
-          </template>
-        </span>
-      </div>
-
-      <div
-        v-else-if="isRemoteNode && remoteGeoResult && remoteGeoResult.nodeId === activeNodeId"
-        class="p-2.5 rounded-md border text-[11px] font-mono space-y-1"
-        :class="
-          remoteGeoResult.error
-            ? 'bg-rose-500/10 border-rose-500/30 text-rose-300'
-            : remoteGeoResult.pending
-              ? 'bg-amber-500/10 border-amber-500/30 text-amber-300'
-              : 'bg-emerald-500/10 border-emerald-500/30 text-emerald-300'
-        "
-      >
-        <div v-if="remoteGeoResult.error" class="break-all">
-          更新失败：{{ remoteGeoResult.error }}
-        </div>
-        <div v-else-if="remoteGeoResult.pending">
-          节点正在后台执行 GeoData 更新，请稍后关注节点同步状态或运行日志。
-        </div>
-        <div v-else class="flex flex-wrap items-center justify-between gap-2">
-          <span>
-            更新完成 · GeoIP {{ ((remoteGeoResult.geoipSize || 0) / 1048576).toFixed(2) }} MB |
-            GeoSite {{ ((remoteGeoResult.geositeSize || 0) / 1048576).toFixed(2) }} MB | 耗时
-            {{ ((remoteGeoResult.durationMs || 0) / 1000).toFixed(1) }} s
-          </span>
-          <span v-if="remoteGeoResult.updatedAt" class="text-emerald-200/80">
-            {{ formatDateTime(remoteGeoResult.updatedAt) }}
-          </span>
-        </div>
-      </div>
-
-      <!-- 本机 Master 实时下载进度条 -->
-      <div
-        v-if="
-          !isRemoteNode &&
-          (updatingGeo || (geoProgress.percentage > 0 && geoProgress.percentage < 100))
-        "
-        class="p-2.5 bg-neutral-950 rounded-md border border-border space-y-1.5 transition-all"
-      >
-        <div class="flex items-center justify-between text-xs font-mono">
-          <div class="flex items-center gap-2">
-            <span
-              class="w-1.5 h-1.5 rounded-full"
-              :class="updatingGeo ? 'bg-cyan-400 animate-ping' : 'bg-emerald-400'"
-            ></span>
-            <span class="text-muted-foreground text-[11px]">
-              {{ geoProgress.message || '正在准备下载...' }}
-            </span>
-          </div>
-          <span class="font-bold text-cyan-400 text-xs"> {{ geoProgress.percentage }}% </span>
-        </div>
-
-        <div
-          class="w-full h-1.5 bg-neutral-900 rounded-full overflow-hidden border border-border/60"
-        >
-          <div
-            class="h-full rounded-full bg-cyan-500 transition-all duration-300"
-            :style="{ width: `${geoProgress.percentage}%` }"
-          ></div>
-        </div>
-      </div>
-    </div>
-
     <!-- Domain Strategy & Presets Bar -->
     <div class="grid grid-cols-1 lg:grid-cols-3 gap-3">
       <!-- Strategy Selector -->
@@ -1099,26 +946,14 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted, computed, watch } from 'vue'
-import {
-  Plus,
-  Check,
-  Edit3,
-  Trash2,
-  Database,
-  RotateCw,
-  GripVertical,
-  ArrowUp,
-  ArrowDown,
-} from 'lucide-vue-next'
+import { ref, onMounted, computed, watch } from 'vue'
+import { Plus, Check, Edit3, Trash2, GripVertical, ArrowUp, ArrowDown } from 'lucide-vue-next'
 import Button from '../components/ui/Button.vue'
 import Badge from '../components/ui/Badge.vue'
 import Drawer from '../components/ui/Drawer.vue'
 import Modal from '../components/ui/Modal.vue'
 import { toast } from '../utils/toast'
-import { formatDateTime } from '../utils/format'
 import api from '../api'
-import { getNodeCommandStatus, type RemoteGeoUpdateResult } from '../api/nodes'
 import { useActiveNode } from '../composables/useActiveNode'
 
 export interface RoutingRule {
@@ -1174,228 +1009,11 @@ const routingConfig = ref<RoutingConfig>({
 
 const inboundsList = ref<any[]>([])
 const outboundsList = ref<any[]>([])
-const geodataStatus = ref<any>(null)
-const updatingGeo = ref(false)
-const remoteGeoResult = ref<RemoteGeoUpdateResult | null>(null)
 
 const showRuleDrawer = ref(false)
 const isEditingRule = ref(false)
 const editingIndex = ref(-1)
 const saving = ref(false)
-
-const fetchGeoStatus = async () => {
-  try {
-    const res: any = await api.get('/geodata/status')
-    geodataStatus.value = res
-  } catch (err) {
-    console.error(err)
-  }
-}
-
-const geoProgress = ref<any>({
-  isUpdating: false,
-  percentage: 0,
-  message: '',
-  speedBps: 0,
-})
-let progressTimer: ReturnType<typeof setInterval> | null = null
-let progressInFlight = false
-let remoteGeoTimer: ReturnType<typeof setInterval> | null = null
-let remoteGeoPollInFlight = false
-let remoteGeoSeq = 0
-let isUnmounted = false
-
-const stopRemoteGeoPolling = () => {
-  if (remoteGeoTimer) {
-    clearInterval(remoteGeoTimer)
-    remoteGeoTimer = null
-  }
-  remoteGeoPollInFlight = false
-}
-
-const startRemoteGeoPolling = (targetNodeId: number, commandId: string, reqSeq: number) => {
-  stopRemoteGeoPolling()
-  const pollOnce = async () => {
-    if (isUnmounted || reqSeq !== remoteGeoSeq || activeNodeId.value !== targetNodeId) {
-      stopRemoteGeoPolling()
-      return
-    }
-    if (remoteGeoPollInFlight) return
-    remoteGeoPollInFlight = true
-    try {
-      const snap = await getNodeCommandStatus(targetNodeId, commandId)
-      if (isUnmounted || reqSeq !== remoteGeoSeq || activeNodeId.value !== targetNodeId) {
-        return
-      }
-      if (snap.status === 'queued' || snap.status === 'dispatched') {
-        remoteGeoResult.value = {
-          nodeId: targetNodeId,
-          pending: true,
-          commandId: snap.id,
-          status: snap.status,
-        }
-        return
-      }
-      stopRemoteGeoPolling()
-      updatingGeo.value = false
-      if (snap.status === 'succeeded') {
-        const geoipSize = snap.geoResult?.geoipSize ?? 0
-        const geositeSize = snap.geoResult?.geositeSize ?? 0
-        const durationMs = snap.geoResult?.durationMs ?? 0
-        const updatedAt = snap.geoResult?.updatedAt || snap.updatedAt
-        remoteGeoResult.value = {
-          nodeId: targetNodeId,
-          pending: false,
-          commandId: snap.id,
-          status: 'succeeded',
-          geoipSize,
-          geositeSize,
-          durationMs,
-          updatedAt,
-        }
-        const ipMb = (geoipSize / 1048576).toFixed(2)
-        const siteMb = (geositeSize / 1048576).toFixed(2)
-        const durSec = (durationMs / 1000).toFixed(1)
-        toast.success(
-          `远端 GeoData 已更新（GeoIP ${ipMb} MB / GeoSite ${siteMb} MB，耗时 ${durSec} s）`
-        )
-        void refreshNodesNow()
-        return
-      }
-      const errMsg =
-        snap.error ||
-        (snap.status === 'expired' ? 'GeoData 更新指令已超时过期，请重试' : '远端 GeoData 更新失败')
-      remoteGeoResult.value = {
-        nodeId: targetNodeId,
-        pending: false,
-        commandId: snap.id,
-        status: snap.status,
-        error: errMsg,
-      }
-      toast.error(`远端 GeoData 更新失败：${errMsg}`)
-      void refreshNodesNow()
-    } catch (err: any) {
-      if (isUnmounted || reqSeq !== remoteGeoSeq || activeNodeId.value !== targetNodeId) {
-        return
-      }
-      stopRemoteGeoPolling()
-      updatingGeo.value = false
-      const errMsg = String(err?.message || err || '查询更新状态失败')
-      remoteGeoResult.value = {
-        nodeId: targetNodeId,
-        pending: false,
-        commandId,
-        status: 'failed',
-        error: errMsg,
-      }
-      toast.error('远端 GeoData 更新失败：' + errMsg)
-    } finally {
-      remoteGeoPollInFlight = false
-    }
-  }
-
-  remoteGeoTimer = setInterval(() => {
-    void pollOnce()
-  }, 2000)
-}
-
-const pollGeoProgress = async () => {
-  if (progressInFlight) return
-  progressInFlight = true
-  try {
-    const res: any = await api.get('/geodata/progress')
-    if (res) {
-      geoProgress.value = res
-      if (!res.isUpdating) {
-        if (progressTimer) {
-          clearInterval(progressTimer)
-          progressTimer = null
-        }
-        updatingGeo.value = false
-        if (res.step === 'done') {
-          toast.success(res.message || 'GeoData 规则库已更新')
-          await fetchGeoStatus()
-          setTimeout(() => {
-            geoProgress.value.percentage = 0
-          }, 4000)
-        } else if (res.step === 'error') {
-          toast.error(res.message || '更新规则库失败')
-        }
-      }
-    }
-  } catch (e) {
-    console.error('poll progress failed', e)
-  } finally {
-    progressInFlight = false
-  }
-}
-
-const updateGeoData = async () => {
-  if (isRemoteNode.value) {
-    const targetNodeId = activeNodeId.value
-    const targetNodeName = activeNode.value?.name || `#${targetNodeId}`
-    if (
-      !confirm(
-        `确定向远端节点「${targetNodeName}」按需下发 GeoData 更新吗？节点将校验文件体积并在重载失败时自动回滚。`
-      )
-    ) {
-      return
-    }
-    stopRemoteGeoPolling()
-    const reqSeq = ++remoteGeoSeq
-    updatingGeo.value = true
-    remoteGeoResult.value = null
-    try {
-      const res = await api.post<RemoteGeoUpdateResult>(`/geodata/update?nodeId=${targetNodeId}`)
-      if (isUnmounted || reqSeq !== remoteGeoSeq || activeNodeId.value !== targetNodeId) return
-      remoteGeoResult.value = res
-      if (res?.error) {
-        updatingGeo.value = false
-        toast.error(`远端 GeoData 更新失败：${res.error}`)
-        void refreshNodesNow()
-      } else if (res?.pending && res.commandId) {
-        startRemoteGeoPolling(targetNodeId, res.commandId, reqSeq)
-      } else if (res?.pending) {
-        updatingGeo.value = false
-        toast.warning('远端节点正在后台执行 GeoData 更新，请稍后关注节点状态')
-        void refreshNodesNow()
-      } else {
-        updatingGeo.value = false
-        const ipMb = ((res?.geoipSize || 0) / 1048576).toFixed(2)
-        const siteMb = ((res?.geositeSize || 0) / 1048576).toFixed(2)
-        const durSec = ((res?.durationMs || 0) / 1000).toFixed(1)
-        toast.success(
-          `远端 GeoData 已更新（GeoIP ${ipMb} MB / GeoSite ${siteMb} MB，耗时 ${durSec} s）`
-        )
-        void refreshNodesNow()
-      }
-    } catch (err: any) {
-      if (!isUnmounted && reqSeq === remoteGeoSeq && activeNodeId.value === targetNodeId) {
-        updatingGeo.value = false
-        const errMsg = String(err?.message || err || '请求失败')
-        remoteGeoResult.value = {
-          nodeId: targetNodeId,
-          pending: false,
-          error: errMsg,
-        }
-        toast.error('远端 GeoData 更新失败：' + errMsg)
-      }
-    }
-    return
-  }
-
-  if (!confirm('确定在线更新 GeoIP / GeoSite 规则库吗？更新完成后将自动重载 Xray 核心。')) return
-  updatingGeo.value = true
-  geoProgress.value = { isUpdating: true, percentage: 5, message: '正在启动后台下载引擎...' }
-  try {
-    await api.post('/geodata/update')
-    if (progressTimer) clearInterval(progressTimer)
-    progressTimer = setInterval(pollGeoProgress, 500)
-  } catch (err: any) {
-    updatingGeo.value = false
-    toast.error('触发更新失败：' + err)
-  }
-}
 
 // Preset Wizard State
 const showPresetModal = ref(false)
@@ -1856,31 +1474,13 @@ const getOutboundBadgeVariant = (
 }
 
 watch(activeNodeId, () => {
-  stopRemoteGeoPolling()
-  remoteGeoSeq++
   showRuleDrawer.value = false
   showPresetModal.value = false
   showReorderModal.value = false
-  remoteGeoResult.value = null
-  updatingGeo.value = false
-  if (!isRemoteNode.value) {
-    void fetchGeoStatus()
-  }
   fetchAllDependencies()
 })
 
 onMounted(() => {
   fetchAllDependencies()
-  fetchGeoStatus()
-})
-
-onUnmounted(() => {
-  isUnmounted = true
-  remoteGeoSeq++
-  stopRemoteGeoPolling()
-  if (progressTimer) {
-    clearInterval(progressTimer)
-    progressTimer = null
-  }
 })
 </script>

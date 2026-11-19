@@ -241,7 +241,7 @@ export function useInboundList() {
   const realitySummary = ref<RealitySummaryStatus | null>(null)
   const searchQuery = ref('')
   const protocolFilter = ref('all')
-  const nodeFilter = ref(String(activeNodeId.value))
+  const showAllNodes = ref(false)
 
   const nodeMap = computed<Record<number, NodeItem>>(() => {
     const map: Record<number, NodeItem> = {}
@@ -253,12 +253,9 @@ export function useInboundList() {
 
   const filteredInbounds = computed(() => {
     return inbounds.value.filter((ib) => {
-      // Node filter
-      if (nodeFilter.value !== 'all') {
-        const targetNodeId = Number(nodeFilter.value)
-        if ((ib.nodeId || 0) !== targetNodeId) {
-          return false
-        }
+      // Node filter (follows global activeNodeId unless showAllNodes is toggled)
+      if (!showAllNodes.value && (ib.nodeId || 0) !== activeNodeId.value) {
+        return false
       }
       // Protocol filter
       if (
@@ -376,7 +373,7 @@ export function useInboundList() {
   }
 
   watch(activeNodeId, (newId) => {
-    nodeFilter.value = String(newId)
+    showAllNodes.value = false
     fetchOutboundsForNode(newId)
   })
 
@@ -407,7 +404,7 @@ export function useInboundList() {
     realitySummary,
     searchQuery,
     protocolFilter,
-    nodeFilter,
+    showAllNodes,
     filteredInbounds,
     realityAlertCount,
     fetchAll,

@@ -36,7 +36,7 @@ func setupGeoDataHandlerTestEnv(t *testing.T) (*GeoDataHandler, *service.GeoData
 	userRepo := repository.NewUserRepository(db)
 	compiler := xray.NewXrayCompiler(8080)
 
-	nodeSvc := service.NewNodeService(nodeRepo, nodeRepo, inboundRepo, userRepo, compiler)
+	nodeSvc := service.NewNodeService(nodeRepo, inboundRepo, userRepo, compiler)
 	created, err := nodeSvc.CreateNode(context.Background(), domain.CreateNodeDTO{
 		Name: "Remote Geo Node",
 		Host: "127.0.0.1",

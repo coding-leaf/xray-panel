@@ -1440,7 +1440,7 @@ import { useActiveNode } from '../composables/useActiveNode'
 
 const route = useRoute()
 const router = useRouter()
-const { activeNodeId, activeNode, isRemoteNode } = useActiveNode()
+const { activeNodeId, activeNode, isRemoteNode, setActiveNode } = useActiveNode()
 
 // 远端节点按需日志状态
 const remoteService = ref<'xray' | 'xray-agent'>('xray')
@@ -1657,23 +1657,37 @@ const fetchLogs = async () => {
 }
 
 watch(
-  () => [route.query.type, route.query.inbound],
-  ([rawType, rawInbound], oldVal) => {
+  () => [route.query.type, route.query.inbound, route.query.nodeId],
+  ([rawType, rawInbound, rawNodeId], oldVal) => {
     const oldType = oldVal ? oldVal[0] : undefined
     const strType = typeof rawType === 'string' ? rawType : ''
     const validType: 'access' | 'error' | 'audit' =
       strType === 'error' || strType === 'audit' ? strType : 'access'
 
+    let effectiveNodeId = activeNodeId.value
+    if (typeof rawNodeId === 'string' && /^\d+$/.test(rawNodeId.trim())) {
+      const parsedNodeId = Number(rawNodeId.trim())
+      if (Number.isInteger(parsedNodeId) && parsedNodeId >= 0) {
+        effectiveNodeId = parsedNodeId
+        if (parsedNodeId !== activeNodeId.value) {
+          setActiveNode(parsedNodeId)
+        }
+      }
+    }
+
     logType.value = validType
 
     if (validType === 'access') {
-      const tag = typeof rawInbound === 'string' ? rawInbound : ''
+      const tag = typeof rawInbound === 'string' ? rawInbound.trim() : ''
       const tagChanged = tag !== selectedInbound.value
       selectedInbound.value = tag
       if (tag && (tagChanged || oldType !== validType)) {
         selectedUserEmail.value = ''
         selectedOutbound.value = ''
         searchKeyword.value = ''
+      }
+      if (effectiveNodeId > 0 && tag) {
+        remoteKeyword.value = tag
       }
     } else {
       selectedInbound.value = ''
@@ -2211,7 +2225,10 @@ watch(activeNodeId, (newId, oldId) => {
   remoteLoading.value = false
   remoteLogResult.value = null
   remoteError.value = ''
-  remoteKeyword.value = ''
+  const queryInbound = typeof route.query.inbound === 'string' ? route.query.inbound.trim() : ''
+  const queryNodeMatches =
+    typeof route.query.nodeId === 'string' && route.query.nodeId.trim() === String(newId)
+  remoteKeyword.value = newId > 0 && queryNodeMatches && queryInbound ? queryInbound : ''
   if (newId > 0) {
     if (timer) {
       clearInterval(timer)

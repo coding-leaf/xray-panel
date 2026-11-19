@@ -229,6 +229,14 @@
             <p class="text-[10px] font-mono text-muted-foreground">
               需满足 0 &lt; 预警 &le; 摘流 &le; 熔断 &le; 100（默认 80% / 90% / 95%）
             </p>
+            <div
+              class="p-2.5 rounded-md bg-amber-500/5 border border-amber-500/20 text-amber-200/90 text-[10px] leading-relaxed"
+            >
+              <span class="font-semibold text-amber-300">离线流量口径提示：</span>
+              节点离线或 Xray gRPC 统计不可用期间，Agent
+              将以物理网卡增量作为兜底计费口径（可能包含宿主机非 Xray 外部流量）；恢复上线后自动切回
+              Xray 精确统计口径。
+            </div>
           </div>
         </div>
       </SectionCard>

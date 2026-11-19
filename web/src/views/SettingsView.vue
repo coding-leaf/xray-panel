@@ -128,6 +128,90 @@
           </p>
         </div>
       </div>
+
+      <!-- 本机 Master GeoData 规则库维护（紧邻 xray_geodata_dir） -->
+      <div class="pt-3 border-t border-border/60 space-y-2.5">
+        <div class="p-3 rounded-md bg-neutral-950 border border-border flex flex-col gap-2.5">
+          <div class="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+            <div class="flex items-center gap-2.5 min-w-0">
+              <div class="p-2 rounded bg-card border border-border text-foreground shrink-0">
+                <Database class="w-4 h-4 text-cyan-400" />
+              </div>
+              <div class="space-y-0.5 text-xs min-w-0">
+                <div class="flex items-center gap-2 flex-wrap">
+                  <span class="font-semibold text-foreground">
+                    本机 Master GeoData 规则库 (geoip.dat &amp; geosite.dat)
+                  </span>
+                  <span
+                    class="px-1.5 py-0.2 rounded text-[10px] font-mono bg-card border border-border text-cyan-400"
+                  >
+                    {{ geodataStatus?.platform || 'Xray Core' }}
+                  </span>
+                </div>
+                <p class="text-[11px] text-muted-foreground font-mono break-all">
+                  GeoIP:
+                  {{
+                    geodataStatus?.geoipExists
+                      ? `${(geodataStatus.geoipSize / 1048576).toFixed(2)} MB`
+                      : '未找到'
+                  }}
+                  | GeoSite:
+                  {{
+                    geodataStatus?.geositeExists
+                      ? `${(geodataStatus.geositeSize / 1048576).toFixed(2)} MB`
+                      : '未找到'
+                  }}
+                  | 路径：{{ geodataStatus?.targetDirectory || settings.xray_geodata_dir || './' }}
+                </p>
+                <p class="text-[10px] text-muted-foreground">
+                  仅维护本机 Master 规则库；远端节点请前往「节点管理 -> 运维抽屉」按需下发更新。
+                </p>
+              </div>
+            </div>
+
+            <Button
+              variant="secondary"
+              size="sm"
+              :loading="updatingGeo"
+              :disabled="updatingGeo"
+              @click="updateGeoData"
+              class="shrink-0"
+            >
+              <RotateCw class="w-3.5 h-3.5 mr-1.5" :class="{ 'animate-spin': updatingGeo }" />
+              <span>{{ updatingGeo ? '规则库升级中...' : '一键升级规则库' }}</span>
+            </Button>
+          </div>
+
+          <div
+            v-if="updatingGeo || (geoProgress.percentage > 0 && geoProgress.percentage < 100)"
+            class="p-2.5 bg-card rounded-md border border-border space-y-1.5 transition-all"
+          >
+            <div class="flex items-center justify-between text-xs font-mono">
+              <div class="flex items-center gap-2 min-w-0">
+                <span
+                  class="w-1.5 h-1.5 rounded-full shrink-0"
+                  :class="updatingGeo ? 'bg-cyan-400 animate-ping' : 'bg-emerald-400'"
+                ></span>
+                <span class="text-muted-foreground text-[11px] truncate">
+                  {{ geoProgress.message || '正在准备下载...' }}
+                </span>
+              </div>
+              <span class="font-bold text-cyan-400 text-xs shrink-0">
+                {{ geoProgress.percentage }}%
+              </span>
+            </div>
+
+            <div
+              class="w-full h-1.5 bg-neutral-900 rounded-full overflow-hidden border border-border/60"
+            >
+              <div
+                class="h-full rounded-full bg-cyan-500 transition-all duration-300"
+                :style="{ width: `${geoProgress.percentage}%` }"
+              ></div>
+            </div>
+          </div>
+        </div>
+      </div>
     </div>
 
     <!-- 2. 面板公共访问与订阅分发设置 -->
@@ -635,7 +719,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, onUnmounted } from 'vue'
 import {
   Send,
   Globe,
@@ -646,6 +730,8 @@ import {
   ShieldAlert,
   QrCode,
   Sliders,
+  Database,
+  RotateCw,
 } from 'lucide-vue-next'
 import QrcodeVue from 'qrcode.vue'
 import Button from '../components/ui/Button.vue'
@@ -682,6 +768,103 @@ const testingTG = ref(false)
 const oldPassword = ref('')
 const newPassword = ref('')
 const changingPwd = ref(false)
+
+// 本机 Master GeoData 状态与轮询
+const geodataStatus = ref<any>(null)
+const updatingGeo = ref(false)
+const geoProgress = ref<any>({
+  isUpdating: false,
+  percentage: 0,
+  message: '',
+  speedBps: 0,
+})
+let progressTimer: ReturnType<typeof setInterval> | null = null
+let resetPercentTimer: ReturnType<typeof setTimeout> | null = null
+let progressInFlight = false
+let isUnmounted = false
+
+const stopGeoTimers = () => {
+  if (progressTimer) {
+    clearInterval(progressTimer)
+    progressTimer = null
+  }
+  if (resetPercentTimer) {
+    clearTimeout(resetPercentTimer)
+    resetPercentTimer = null
+  }
+  progressInFlight = false
+}
+
+const fetchGeoStatus = async () => {
+  try {
+    const res: any = await api.get('/geodata/status')
+    if (!isUnmounted) {
+      geodataStatus.value = res
+    }
+  } catch (err) {
+    console.error(err)
+  }
+}
+
+const pollGeoProgress = async () => {
+  if (isUnmounted || progressInFlight) return
+  progressInFlight = true
+  try {
+    const res: any = await api.get('/geodata/progress')
+    if (isUnmounted) return
+    if (res) {
+      geoProgress.value = res
+      if (!res.isUpdating) {
+        if (progressTimer) {
+          clearInterval(progressTimer)
+          progressTimer = null
+        }
+        updatingGeo.value = false
+        if (res.step === 'done') {
+          toast.success(res.message || 'GeoData 规则库已更新')
+          await fetchGeoStatus()
+          if (!isUnmounted) {
+            if (resetPercentTimer) clearTimeout(resetPercentTimer)
+            resetPercentTimer = setTimeout(() => {
+              if (!isUnmounted) {
+                geoProgress.value.percentage = 0
+              }
+            }, 4000)
+          }
+        } else if (res.step === 'error') {
+          toast.error(res.message || '更新规则库失败')
+        }
+      }
+    }
+  } catch (e) {
+    console.error('poll progress failed', e)
+  } finally {
+    progressInFlight = false
+  }
+}
+
+const updateGeoData = async () => {
+  if (
+    !confirm(
+      '确定在线更新本机 Master 的 GeoIP / GeoSite 规则库吗？更新完成后将自动重载 Xray 核心。'
+    )
+  ) {
+    return
+  }
+  stopGeoTimers()
+  updatingGeo.value = true
+  geoProgress.value = { isUpdating: true, percentage: 5, message: '正在启动后台下载引擎...' }
+  try {
+    await api.post('/geodata/update')
+    if (isUnmounted) return
+    progressTimer = setInterval(pollGeoProgress, 500)
+  } catch (err: any) {
+    if (!isUnmounted) {
+      updatingGeo.value = false
+      toast.error('触发更新失败：' + err)
+    }
+  }
+}
 
 // 2FA 状态
 const totpEnabled = ref(false)
@@ -748,6 +931,7 @@ const saveSystemSettings = async () => {
     await api.post('/settings', settings.value)
     toast.success('系统与解耦设置已保存并生效')
     await fetchSettings()
+    await fetchGeoStatus()
   } catch (err: any) {
     toast.error('保存失败：' + err)
   } finally {
@@ -860,5 +1044,11 @@ const confirmDisable2FA = async () => {
 onMounted(() => {
   fetchSettings()
   fetchAdminInfo()
+  fetchGeoStatus()
+})
+
+onUnmounted(() => {
+  isUnmounted = true
+  stopGeoTimers()
 })
 </script>

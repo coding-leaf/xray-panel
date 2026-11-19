@@ -37,7 +37,14 @@ type NodeCacheInvalidator interface {
 
 // RemoteNodeCompiler compiles remote node Xray configurations and user sync payloads.
 type RemoteNodeCompiler interface {
-	CompileRemoteNodeToJSON(inbounds []domain.Inbound, users []domain.User) ([]byte, error)
+	CompileRemoteNodeFullToJSON(
+		inbounds []domain.Inbound,
+		outbounds []domain.Outbound,
+		routing *domain.RoutingConfig,
+		dns *domain.DNSConfig,
+		users []domain.User,
+		staticClients []domain.StaticInboundClient,
+	) ([]byte, error)
 	BuildRemoteNodeUsers(inbounds []domain.Inbound, users []domain.User) ([]domain.AgentSyncUser, error)
 }
 
@@ -127,8 +134,6 @@ type nodeCommandRecord struct {
 // NodeService manages remote direct-connect nodes, tokens, sync snapshots, and traffic ingestion.
 type NodeService struct {
 	nodeRepo               domain.NodeRepository
-	batchRepo              domain.NodeTrafficBatchRepository
-	quotaRepo              domain.NodeQuotaRepository
 	inboundRepo            domain.InboundRepository
 	userRepo               domain.UserRepository
 	compiler               RemoteNodeCompiler
@@ -151,14 +156,12 @@ type NodeService struct {
 
 func NewNodeService(
 	nodeRepo domain.NodeRepository,
-	batchRepo domain.NodeTrafficBatchRepository,
 	inboundRepo domain.InboundRepository,
 	userRepo domain.UserRepository,
 	compiler RemoteNodeCompiler,
 ) *NodeService {
-	svc := &NodeService{
+	return &NodeService{
 		nodeRepo:         nodeRepo,
-		batchRepo:        batchRepo,
 		inboundRepo:      inboundRepo,
 		userRepo:         userRepo,
 		compiler:         compiler,
@@ -172,16 +175,6 @@ func NewNodeService(
 		activeCmdByKey:   make(map[string]string),
 		logCache:         make(map[string]*cachedRemoteLog),
 	}
-	if qr, ok := nodeRepo.(domain.NodeQuotaRepository); ok {
-		svc.quotaRepo = qr
-	}
-	return svc
-}
-
-// WithQuotaRepo injects the node quota repository (auto-detected when nodeRepo implements it).
-func (s *NodeService) WithQuotaRepo(repo domain.NodeQuotaRepository) *NodeService {
-	s.quotaRepo = repo
-	return s
 }
 
 // WithStateChangeNotifier injects a callback invoked on automatic node quota state transitions.
@@ -526,21 +519,8 @@ func (s *NodeService) SetNodeDesiredState(ctx context.Context, id uint, desiredS
 		return nil, fmt.Errorf("%w: unsupported desiredState %q", domain.ErrInvalidInput, state)
 	}
 
-	if s.quotaRepo != nil {
-		if err := s.quotaRepo.UpdateAutoState(ctx, id, state, domain.AutoReasonManual); err != nil {
-			return nil, err
-		}
-	} else {
-		node, err := s.nodeRepo.GetByID(ctx, id)
-		if err != nil {
-			return nil, err
-		}
-		node.DesiredState = state
-		node.AutoStateReason = domain.AutoReasonManual
-		node.UpdatedAt = time.Now()
-		if err := s.nodeRepo.Update(ctx, node); err != nil {
-			return nil, err
-		}
+	if err := s.nodeRepo.UpdateAutoState(ctx, id, state, domain.AutoReasonManual); err != nil {
+		return nil, err
 	}
 
 	updated, err := s.nodeRepo.GetByID(ctx, id)
@@ -554,10 +534,10 @@ func (s *NodeService) SetNodeDesiredState(ctx context.Context, id uint, desiredS
 
 // ResetNodeCycleTraffic zeros a node's cycle counters and restores active state if auto-degraded.
 func (s *NodeService) ResetNodeCycleTraffic(ctx context.Context, id uint) (*domain.Node, error) {
-	if s.quotaRepo == nil {
-		return nil, fmt.Errorf("node quota repository is not configured")
+	if s.nodeRepo == nil {
+		return nil, fmt.Errorf("node repository is not configured")
 	}
-	if err := s.quotaRepo.ResetCycleTraffic(ctx, id, 0, true); err != nil {
+	if err := s.nodeRepo.ResetCycleTraffic(ctx, id, 0, true); err != nil {
 		return nil, err
 	}
 	node, err := s.nodeRepo.GetByID(ctx, id)
@@ -576,7 +556,7 @@ func (s *NodeService) CheckAndResetMonthlyTraffic(ctx context.Context) error {
 
 // CheckAndResetMonthlyTrafficAt executes monthly billing cycle resets relative to the provided timestamp.
 func (s *NodeService) CheckAndResetMonthlyTrafficAt(ctx context.Context, now time.Time) error {
-	if s.quotaRepo == nil {
+	if s.nodeRepo == nil {
 		return nil
 	}
 
@@ -601,7 +581,7 @@ func (s *NodeService) CheckAndResetMonthlyTrafficAt(ctx context.Context, now tim
 		if today >= effectiveResetDay && n.LastResetMonth != currentYearMonth {
 			oldState := n.DesiredState
 			wasAutoDegraded := domain.IsAutoQuotaStateReason(n.AutoStateReason) && oldState != domain.NodeStateActive
-			if err := s.quotaRepo.ResetCycleTraffic(ctx, n.ID, currentYearMonth, true); err != nil {
+			if err := s.nodeRepo.ResetCycleTraffic(ctx, n.ID, currentYearMonth, true); err != nil {
 				errs = append(errs, fmt.Errorf("reset node %d cycle traffic failed: %w", n.ID, err))
 				continue
 			}
@@ -777,9 +757,9 @@ func (s *NodeService) HandleAgentSync(ctx context.Context, nodeID uint, req *dom
 		return nil, domain.ErrForbidden
 	}
 
-	if req.TrafficBatch != nil && strings.TrimSpace(req.TrafficBatch.BatchID) != "" && s.batchRepo != nil {
+	if req.TrafficBatch != nil && strings.TrimSpace(req.TrafficBatch.BatchID) != "" {
 		date := time.Now().Format("2006-01-02")
-		applied, affectedUsers, err := s.batchRepo.ApplyNodeTrafficBatch(ctx, nodeID, req.TrafficBatch, date)
+		applied, affectedUsers, err := s.nodeRepo.ApplyNodeTrafficBatch(ctx, nodeID, req.TrafficBatch, date)
 		if err != nil {
 			return nil, fmt.Errorf("apply node traffic batch failed: %w", err)
 		}
@@ -830,11 +810,11 @@ func (s *NodeService) HandleAgentSync(ctx context.Context, nodeID uint, req *dom
 	usedBytes := latestNode.CycleUsedBytes
 	_, drainPct, breakPct := latestNode.EffectiveThresholds()
 
-	if latestNode.TrafficLimitBytes > 0 && latestNode.AutoStateReason != domain.AutoReasonManual && s.quotaRepo != nil {
+	if latestNode.TrafficLimitBytes > 0 && latestNode.AutoStateReason != domain.AutoReasonManual {
 		switch {
 		case domain.ReachedQuotaThreshold(usedBytes, latestNode.TrafficLimitBytes, breakPct):
 			if oldState != domain.NodeStateCircuitBroken {
-				if err := s.quotaRepo.UpdateAutoState(ctx, nodeID, domain.NodeStateCircuitBroken, domain.AutoReasonBreakQuota); err != nil {
+				if err := s.nodeRepo.UpdateAutoState(ctx, nodeID, domain.NodeStateCircuitBroken, domain.AutoReasonBreakQuota); err != nil {
 					return nil, fmt.Errorf("update node auto break state failed: %w", err)
 				}
 				desiredState = domain.NodeStateCircuitBroken
@@ -844,7 +824,7 @@ func (s *NodeService) HandleAgentSync(ctx context.Context, nodeID uint, req *dom
 			}
 		case domain.ReachedQuotaThreshold(usedBytes, latestNode.TrafficLimitBytes, drainPct):
 			if oldState == domain.NodeStateActive {
-				if err := s.quotaRepo.UpdateAutoState(ctx, nodeID, domain.NodeStateDraining, domain.AutoReasonDrainQuota); err != nil {
+				if err := s.nodeRepo.UpdateAutoState(ctx, nodeID, domain.NodeStateDraining, domain.AutoReasonDrainQuota); err != nil {
 					return nil, fmt.Errorf("update node auto drain state failed: %w", err)
 				}
 				desiredState = domain.NodeStateDraining
@@ -963,25 +943,13 @@ func (s *NodeService) getOrBuildSnapshot(ctx context.Context, nodeID uint) (*cac
 
 	// ConfigHash covers structural node/inbound settings, custom node config, and static relay clients (excluding dynamic users)
 	// so user mutations trigger gRPC AddUser/RemoveUser without restarting Xray.
-	var structuralBytes, fullConfigBytes []byte
-	if fullCompiler, ok := s.compiler.(RemoteNodeFullCompiler); ok {
-		structuralBytes, err = fullCompiler.CompileRemoteNodeFullToJSON(nodeInbounds, outbounds, routing, dns, nil, staticClients)
-		if err != nil {
-			return nil, fmt.Errorf("compile structural config for node %d failed: %w", nodeID, err)
-		}
-		fullConfigBytes, err = fullCompiler.CompileRemoteNodeFullToJSON(nodeInbounds, outbounds, routing, dns, allUsers, staticClients)
-		if err != nil {
-			return nil, fmt.Errorf("compile full config for node %d failed: %w", nodeID, err)
-		}
-	} else {
-		structuralBytes, err = s.compiler.CompileRemoteNodeToJSON(nodeInbounds, nil)
-		if err != nil {
-			return nil, fmt.Errorf("compile structural config for node %d failed: %w", nodeID, err)
-		}
-		fullConfigBytes, err = s.compiler.CompileRemoteNodeToJSON(nodeInbounds, allUsers)
-		if err != nil {
-			return nil, fmt.Errorf("compile full config for node %d failed: %w", nodeID, err)
-		}
+	structuralBytes, err := s.compiler.CompileRemoteNodeFullToJSON(nodeInbounds, outbounds, routing, dns, nil, staticClients)
+	if err != nil {
+		return nil, fmt.Errorf("compile structural config for node %d failed: %w", nodeID, err)
+	}
+	fullConfigBytes, err := s.compiler.CompileRemoteNodeFullToJSON(nodeInbounds, outbounds, routing, dns, allUsers, staticClients)
+	if err != nil {
+		return nil, fmt.Errorf("compile full config for node %d failed: %w", nodeID, err)
 	}
 	syncUsers, err := s.compiler.BuildRemoteNodeUsers(nodeInbounds, allUsers)
 	if err != nil {

@@ -532,14 +532,11 @@ func TestTrafficSyncJob_HandlesRepoAndXrayErrorsGracefully(t *testing.T) {
 }
 
 type mockNodeBatchRepoForCron struct {
-	mu           sync.Mutex
-	pruneCalls   int
-	lastBefore   time.Time
-	errToReturn  error
-}
-
-func (m *mockNodeBatchRepoForCron) ApplyNodeTrafficBatch(ctx context.Context, nodeID uint, batch *domain.AgentTrafficBatch, date string) (bool, []domain.User, error) {
-	return false, nil, nil
+	domain.NodeRepository
+	mu          sync.Mutex
+	pruneCalls  int
+	lastBefore  time.Time
+	errToReturn error
 }
 
 func (m *mockNodeBatchRepoForCron) PruneBatchesBefore(ctx context.Context, before time.Time) error {

@@ -34,7 +34,7 @@ type TrafficSyncJob struct {
 	userRepo               domain.UserRepository
 	inboundRepo            domain.InboundRepository
 	trafficLogRepo         domain.TrafficLogRepository
-	nodeBatchRepo          domain.NodeTrafficBatchRepository
+	nodeBatchRepo          domain.NodeRepository
 	alertSvc               *service.AlertService
 	userSvc                *service.UserService
 	nodeSvc                NodeQuotaCron
@@ -76,8 +76,8 @@ func (j *TrafficSyncJob) WithNodeQuotaCron(nodeSvc NodeQuotaCron) *TrafficSyncJo
 	return j
 }
 
-// WithNodeBatchRepo 注入节点流量批次仓储，用于独立于 xrayManager 的每日定时清理过期去重记录
-func (j *TrafficSyncJob) WithNodeBatchRepo(repo domain.NodeTrafficBatchRepository) *TrafficSyncJob {
+// WithNodeBatchRepo 注入节点仓储，用于独立于 xrayManager 的每日定时清理过期流量批次去重记录
+func (j *TrafficSyncJob) WithNodeBatchRepo(repo domain.NodeRepository) *TrafficSyncJob {
 	j.nodeBatchRepo = repo
 	return j
 }

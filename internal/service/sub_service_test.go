@@ -827,27 +827,13 @@ func TestSubService_SingleGetAllAndOnDemandEncoding(t *testing.T) {
 }
 
 type mockSubNodeRepo struct {
+	domain.NodeRepository
 	nodes []domain.Node
 	err   error
 }
 
-func (m *mockSubNodeRepo) Create(ctx context.Context, node *domain.Node) error { return nil }
-func (m *mockSubNodeRepo) Update(ctx context.Context, node *domain.Node) error { return nil }
-func (m *mockSubNodeRepo) UpdateHeartbeat(ctx context.Context, nodeID uint, req *domain.AgentSyncRequest, seenAt time.Time) error {
-	return nil
-}
-func (m *mockSubNodeRepo) Delete(ctx context.Context, id uint) error { return nil }
-func (m *mockSubNodeRepo) GetByID(ctx context.Context, id uint) (*domain.Node, error) {
-	return nil, domain.ErrNotFound
-}
-func (m *mockSubNodeRepo) GetByTokenHash(ctx context.Context, tokenHash string) (*domain.Node, error) {
-	return nil, domain.ErrNotFound
-}
 func (m *mockSubNodeRepo) ListAll(ctx context.Context) ([]domain.Node, error) {
 	return m.nodes, m.err
-}
-func (m *mockSubNodeRepo) CountInbounds(ctx context.Context, nodeID uint) (int64, error) {
-	return 0, nil
 }
 
 func TestSubService_MultiNodeAggregationAndShareInfo(t *testing.T) {

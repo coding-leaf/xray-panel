@@ -227,7 +227,9 @@ export default {
       url.pathname === "/portal/index.html"
     ) {
       if (env?.ASSETS) {
-        return env.ASSETS.fetch(request);
+        const targetUrl = new URL("/portal/", url.origin);
+        targetUrl.search = url.search;
+        return env.ASSETS.fetch(new Request(targetUrl.toString(), request));
       }
     }
 

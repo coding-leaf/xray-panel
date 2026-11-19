@@ -169,7 +169,7 @@ func TestMasterAgent_E2E_Integration(t *testing.T) {
 	compiler := xray.NewXrayCompiler(8080)
 	masterConfigMgr := xray.NewConfigManager(filepath.Join(t.TempDir(), "master_xray.json"), "")
 
-	nodeSvc := service.NewNodeService(nodeRepo, nodeRepo, inboundRepo, userRepo, compiler)
+	nodeSvc := service.NewNodeService(nodeRepo, inboundRepo, userRepo, compiler)
 	configSvc := service.NewConfigService(masterConfigMgr, nil, inboundRepo, userRepo, snapshotRepo, compiler).
 		WithNodeCacheInvalidator(nodeSvc).
 		WithNodeRepo(nodeRepo)
@@ -580,7 +580,7 @@ func TestMasterAgent_E2E_QuotaAutoAndOfflineCircuitBreaker(t *testing.T) {
 	compiler := xray.NewXrayCompiler(8080)
 	masterConfigMgr := xray.NewConfigManager(filepath.Join(t.TempDir(), "master_xray.json"), "")
 
-	nodeSvc := service.NewNodeService(nodeRepo, nodeRepo, inboundRepo, userRepo, compiler)
+	nodeSvc := service.NewNodeService(nodeRepo, inboundRepo, userRepo, compiler)
 	configSvc := service.NewConfigService(masterConfigMgr, nil, inboundRepo, userRepo, snapshotRepo, compiler).
 		WithNodeCacheInvalidator(nodeSvc).
 		WithNodeRepo(nodeRepo)
@@ -977,7 +977,7 @@ func TestMasterAgent_E2E_FullConfigAutoRelayAndOnDemandLogs(t *testing.T) {
 	}
 	masterConfigMgr := xray.NewConfigManager(masterCfgPath, "")
 
-	nodeSvc := service.NewNodeService(nodeRepo, nodeRepo, inboundRepo, userRepo, compiler)
+	nodeSvc := service.NewNodeService(nodeRepo, inboundRepo, userRepo, compiler)
 	configSvc := service.NewConfigService(masterConfigMgr, nil, inboundRepo, userRepo, snapshotRepo, compiler).
 		WithNodeCacheInvalidator(nodeSvc).
 		WithNodeRepo(nodeRepo)
@@ -1466,7 +1466,7 @@ func TestMasterAgent_E2E_SyncStatusAckAndRemoteGeoUpdate(t *testing.T) {
 	}
 	masterConfigMgr := xray.NewConfigManager(masterCfgPath, "")
 
-	nodeSvc := service.NewNodeService(nodeRepo, nodeRepo, inboundRepo, userRepo, compiler)
+	nodeSvc := service.NewNodeService(nodeRepo, inboundRepo, userRepo, compiler)
 	configSvc := service.NewConfigService(masterConfigMgr, nil, inboundRepo, userRepo, snapshotRepo, compiler).
 		WithNodeCacheInvalidator(nodeSvc).
 		WithNodeRepo(nodeRepo)
@@ -1835,7 +1835,7 @@ func TestAgentE2E_NonNilXrayManager_LocalAndRemoteInboundCoexistence(t *testing.
 	defer func() { _ = grpcClient.Close() }()
 	xrayMgr := xray.NewManager(grpcClient, masterConfigMgr, nil, inboundRepo)
 
-	nodeSvc := service.NewNodeService(nodeRepo, nodeRepo, inboundRepo, userRepo, compiler)
+	nodeSvc := service.NewNodeService(nodeRepo, inboundRepo, userRepo, compiler)
 	configSvc := service.NewConfigService(masterConfigMgr, nil, inboundRepo, userRepo, snapshotRepo, compiler).
 		WithNodeCacheInvalidator(nodeSvc).
 		WithNodeRepo(nodeRepo)

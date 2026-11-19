@@ -49,7 +49,7 @@
 
       <div class="rounded-lg border border-border bg-card p-3.5 space-y-1">
         <div class="flex items-center justify-between text-[11px] font-mono text-muted-foreground">
-          <span>在线心跳 (90s 内)</span>
+          <span>在线心跳 (180s 内)</span>
           <Activity class="w-3.5 h-3.5 text-emerald-400" />
         </div>
         <div class="text-xl font-semibold font-mono text-foreground">
@@ -166,7 +166,8 @@
           <tr
             v-for="node in filteredNodes"
             :key="node.id"
-            class="border-b border-border/30 transition-colors hover:bg-muted/25"
+            @click="openOpsDrawer(node)"
+            class="border-b border-border/30 transition-colors hover:bg-muted/25 cursor-pointer"
           >
             <!-- 1. Name, Region, TokenPrefix -->
             <td class="p-3.5 align-middle">
@@ -330,32 +331,15 @@
             <td class="p-3.5 align-middle text-right" @click.stop>
               <div class="flex items-center justify-end gap-1.5 flex-wrap">
                 <Button
-                  variant="ghost"
-                  size="sm"
-                  class="h-7 px-2 text-[11px] text-cyan-400 hover:text-cyan-300 hover:bg-cyan-500/10"
-                  @click="openInstallScriptModal(node)"
-                >
-                  安装脚本
-                </Button>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  class="h-7 px-2 text-[11px] text-amber-400 hover:text-amber-300 hover:bg-amber-500/10"
-                  @click="handleRotateToken(node)"
-                >
-                  轮换 Token
-                </Button>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  class="h-7 px-2 text-[11px] text-emerald-400 hover:text-emerald-300 hover:bg-emerald-500/10"
-                  :loading="resettingId === node.id"
-                  @click="handleResetTraffic(node)"
-                >
-                  重置周期流量
-                </Button>
-                <Button
                   variant="secondary"
+                  size="sm"
+                  class="h-7 px-2.5 text-[11px]"
+                  @click="openOpsDrawer(node)"
+                >
+                  运维
+                </Button>
+                <Button
+                  variant="ghost"
                   size="sm"
                   class="h-7 px-2 text-[11px]"
                   @click="openEditDrawer(node)"
@@ -374,7 +358,7 @@
                   variant="ghost"
                   size="sm"
                   class="h-7 px-2 text-[11px] text-rose-400 hover:text-rose-300 hover:bg-rose-500/10"
-                  @click="removeNode(node)"
+                  @click="handleRemoveNode(node)"
                 >
                   删除
                 </Button>
@@ -409,7 +393,8 @@
       <div
         v-for="node in filteredNodes"
         :key="node.id"
-        class="rounded-lg border border-border bg-neutral-950 p-3 space-y-2.5"
+        @click="openOpsDrawer(node)"
+        class="rounded-lg border border-border bg-neutral-950 p-3 space-y-2.5 cursor-pointer"
       >
         <div class="flex items-start justify-between gap-2 pb-2 border-b border-border/50">
           <div class="min-w-0 flex-1 space-y-1">
@@ -531,32 +516,15 @@
           @click.stop
         >
           <Button
-            variant="ghost"
-            size="sm"
-            class="h-7 px-2 text-[11px] text-cyan-400 hover:text-cyan-300 hover:bg-cyan-500/10"
-            @click="openInstallScriptModal(node)"
-          >
-            安装脚本
-          </Button>
-          <Button
-            variant="ghost"
-            size="sm"
-            class="h-7 px-2 text-[11px] text-amber-400 hover:text-amber-300 hover:bg-amber-500/10"
-            @click="handleRotateToken(node)"
-          >
-            轮换 Token
-          </Button>
-          <Button
-            variant="ghost"
-            size="sm"
-            class="h-7 px-2 text-[11px] text-emerald-400 hover:text-emerald-300 hover:bg-emerald-500/10"
-            :loading="resettingId === node.id"
-            @click="handleResetTraffic(node)"
-          >
-            重置周期流量
-          </Button>
-          <Button
             variant="secondary"
+            size="sm"
+            class="h-7 px-2.5 text-[11px]"
+            @click="openOpsDrawer(node)"
+          >
+            运维
+          </Button>
+          <Button
+            variant="ghost"
             size="sm"
             class="h-7 px-2 text-[11px]"
             @click="openEditDrawer(node)"
@@ -566,8 +534,16 @@
           <Button
             variant="ghost"
             size="sm"
+            class="h-7 px-2 text-[11px]"
+            @click="toggleNodeEnabled(node)"
+          >
+            {{ node.enabled ? '停用' : '启用' }}
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
             class="h-7 px-2 text-[11px] text-rose-400 hover:text-rose-300 hover:bg-rose-500/10"
-            @click="removeNode(node)"
+            @click="handleRemoveNode(node)"
           >
             删除
           </Button>
@@ -588,6 +564,20 @@
       </div>
     </div>
 
+    <!-- Node Operations Workbench Drawer -->
+    <NodeOpsDrawer
+      v-if="showOpsDrawer"
+      v-model="showOpsDrawer"
+      :node="opsNode"
+      :resetting-id="resettingId"
+      :toggling-drain="togglingDrain"
+      @open-install="openInstallScriptModal"
+      @rotate-token="handleRotateToken"
+      @reset-traffic="handleResetTraffic"
+      @toggle-drain="handleToggleDrain"
+      @refresh="refreshNodesNow"
+    />
+
     <!-- Node Form Drawer -->
     <NodeFormDrawer
       v-if="showFormDrawer"
@@ -604,7 +594,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted, defineAsyncComponent } from 'vue'
+import { ref, computed, onMounted, onUnmounted, defineAsyncComponent } from 'vue'
 import {
   Activity,
   AlertTriangle,
@@ -633,6 +623,7 @@ import {
   useNodes,
 } from './nodes/composables/useNodes'
 
+const NodeOpsDrawer = defineAsyncComponent(() => import('./nodes/components/NodeOpsDrawer.vue'))
 const NodeFormDrawer = defineAsyncComponent(() => import('./nodes/components/NodeFormDrawer.vue'))
 const NodeTokenModal = defineAsyncComponent(() => import('./nodes/components/NodeTokenModal.vue'))
 
@@ -646,11 +637,23 @@ const {
   summary,
   filteredNodes,
   fetchNodes,
+  refreshNodesNow,
+  startListPolling,
+  stopListPolling,
   removeNode,
   toggleNodeEnabled,
+  setNodeDesiredState,
   rotateToken,
   handleResetTraffic,
 } = useNodes()
+
+const showOpsDrawer = ref(false)
+const opsNodeId = ref<number | null>(null)
+const opsNode = computed<NodeItem | null>(() => {
+  if (opsNodeId.value === null) return null
+  return nodes.value.find((n) => n.id === opsNodeId.value) || null
+})
+const togglingDrain = ref(false)
 
 const showFormDrawer = ref(false)
 const isEditing = ref(false)
@@ -658,6 +661,11 @@ const editingNode = ref<NodeItem | null>(null)
 
 const showTokenModal = ref(false)
 const tokenModalState = ref<NodeTokenModalState | null>(null)
+
+const openOpsDrawer = (node: NodeItem) => {
+  opsNodeId.value = node.id
+  showOpsDrawer.value = true
+}
 
 const openCreateDrawer = () => {
   isEditing.value = false
@@ -682,7 +690,7 @@ const openInstallScriptModal = (node: NodeItem) => {
 }
 
 const onNodeCreated = async (created: CreateNodeResult) => {
-  await fetchNodes(true)
+  await refreshNodesNow()
   tokenModalState.value = {
     nodeId: created.id,
     nodeName: created.name,
@@ -694,7 +702,26 @@ const onNodeCreated = async (created: CreateNodeResult) => {
 }
 
 const onNodeSaved = async () => {
-  await fetchNodes(true)
+  await refreshNodesNow()
+}
+
+const handleRemoveNode = async (node: NodeItem) => {
+  const deleted = await removeNode(node)
+  if (deleted && opsNodeId.value === node.id) {
+    showOpsDrawer.value = false
+    opsNodeId.value = null
+  }
+}
+
+const handleToggleDrain = async (node: NodeItem) => {
+  if (togglingDrain.value) return
+  const nextState = node.desiredState === 'active' ? 'draining' : 'active'
+  togglingDrain.value = true
+  try {
+    await setNodeDesiredState(node, nextState)
+  } finally {
+    togglingDrain.value = false
+  }
 }
 
 const handleRotateToken = async (node: NodeItem) => {
@@ -710,44 +737,12 @@ const handleRotateToken = async (node: NodeItem) => {
   showTokenModal.value = true
 }
 
-let pollTimer: ReturnType<typeof setInterval> | null = null
-let pollInFlight = false
-
-const pollNodes = async () => {
-  if (pollInFlight) return
-  pollInFlight = true
-  try {
-    await fetchNodes(true)
-  } finally {
-    pollInFlight = false
-  }
-}
-
-const handleVisibilityChange = () => {
-  if (document.hidden) {
-    if (pollTimer) {
-      clearInterval(pollTimer)
-      pollTimer = null
-    }
-  } else {
-    pollNodes()
-    if (!pollTimer) {
-      pollTimer = setInterval(pollNodes, 15000)
-    }
-  }
-}
-
 onMounted(() => {
-  fetchNodes(false)
-  pollTimer = setInterval(pollNodes, 15000)
-  document.addEventListener('visibilitychange', handleVisibilityChange)
+  void fetchNodes(false)
+  startListPolling()
 })
 
 onUnmounted(() => {
-  if (pollTimer) {
-    clearInterval(pollTimer)
-    pollTimer = null
-  }
-  document.removeEventListener('visibilitychange', handleVisibilityChange)
+  stopListPolling()
 })
 </script>

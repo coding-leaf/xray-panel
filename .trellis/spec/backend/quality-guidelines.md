@@ -384,3 +384,17 @@ select { case res := <-waitCh: ... case <-time.After(25 * time.Second): ... }
 cmd := s.enqueueOrReuseCommandLocked(nodeID, domain.NodeCommandTypeLogTail, svc, lines, now)
 return &RemoteNodeLogsResponse{NodeID: nodeID, Service: svc, Pending: true, CommandID: cmd.ID, Status: cmd.Status}, nil
 ```
+
+---
+
+## 14. 节点仓储 KISS 统一、纯标准库 `internal/pkg/geodata` 与 Portal 单源化契约
+
+- **单一 `domain.NodeRepository` 与零运行时接口断言**：
+  - 节点 CRUD、流量批次、配额与配置持久化统一收敛于 `domain.NodeRepository`（禁止拆出 `NodeTrafficBatchRepository`/`NodeQuotaRepository`/`NodeConfigRepository` 等碎片子接口，禁止在 `service` 层对仓储或编译器做运行时 `type assertion`）；测试局部 mock 通过匿名嵌入 `domain.NodeRepository` 零样板实现。
+  - 远端全量编译方法 `CompileRemoteNodeFullToJSON` 统一归属 `RemoteNodeCompiler` / `ConfigCompiler`，禁止再拆出 `RemoteNodeFullCompiler`。
+- **纯标准库 `internal/pkg/geodata` 共享下载原语**：
+  - Master (`GeoDataService`) 与 Agent (`HTTPGeoDataUpdater`) 必须共用 `internal/pkg/geodata` 维护的镜像 URL、`DefaultMinFileSize`（`100KB` HTML 错误页拦截）、`NewHTTPClient` 与 `DownloadWithFallback`；
+  - `internal/pkg/geodata` **严禁导入任何第三方或非 stdlib 依赖**，确保 `cmd/agent` 依赖树保持零 `gin`/`gorm`/`sqlite`/`telegram` 泄漏。
+- **Cloudflare Pages 静态 Portal 单源化**：
+  - 静态提取门户 HTML 的唯一权威源文件为 `deploy/cloudflare-pages/portal/index.html`（严禁维护逐字节重复的 `portal.html` / `standalone-portal.html` 副本）；
+  - `deploy/cloudflare-pages/_worker.js` 将 `/portal`、`/portal/`、`/portal.html`、`/portal/index.html` 统一改写至 `/portal/`（保留 query string）后转交 `env.ASSETS.fetch`，并由 `deploy/gateway.test.js` 持续回归验证。

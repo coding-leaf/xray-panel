@@ -16,19 +16,19 @@ const LogsView = () => import('../views/LogsView.vue')
 const SettingsView = () => import('../views/SettingsView.vue')
 
 const routes: RouteRecordRaw[] = [
-  { path: '/login', component: LoginView, meta: { layout: 'blank' } },
-  { path: '/portal', component: PortalClaimView, meta: { layout: 'blank' } },
-  { path: '/', component: DashboardView, meta: { requiresAuth: true } },
-  { path: '/topology', component: TopologyView, meta: { requiresAuth: true } },
-  { path: '/inbounds', component: InboundsView, meta: { requiresAuth: true } },
-  { path: '/nodes', component: NodesView, meta: { requiresAuth: true } },
-  { path: '/outbounds', component: OutboundsView, meta: { requiresAuth: true } },
-  { path: '/routing', component: RoutingView, meta: { requiresAuth: true } },
-  { path: '/dns', component: DNSView, meta: { requiresAuth: true } },
-  { path: '/users', component: UsersView, meta: { requiresAuth: true } },
-  { path: '/config', component: ConfigView, meta: { requiresAuth: true } },
-  { path: '/logs', component: LogsView, meta: { requiresAuth: true } },
-  { path: '/settings', component: SettingsView, meta: { requiresAuth: true } },
+  { path: '/login', component: LoginView, meta: { layout: 'blank', nodeScoped: false } },
+  { path: '/portal', component: PortalClaimView, meta: { layout: 'blank', nodeScoped: false } },
+  { path: '/', component: DashboardView, meta: { requiresAuth: true, nodeScoped: false } },
+  { path: '/topology', component: TopologyView, meta: { requiresAuth: true, nodeScoped: true } },
+  { path: '/inbounds', component: InboundsView, meta: { requiresAuth: true, nodeScoped: true } },
+  { path: '/nodes', component: NodesView, meta: { requiresAuth: true, nodeScoped: false } },
+  { path: '/outbounds', component: OutboundsView, meta: { requiresAuth: true, nodeScoped: true } },
+  { path: '/routing', component: RoutingView, meta: { requiresAuth: true, nodeScoped: true } },
+  { path: '/dns', component: DNSView, meta: { requiresAuth: true, nodeScoped: true } },
+  { path: '/users', component: UsersView, meta: { requiresAuth: true, nodeScoped: false } },
+  { path: '/config', component: ConfigView, meta: { requiresAuth: true, nodeScoped: true } },
+  { path: '/logs', component: LogsView, meta: { requiresAuth: true, nodeScoped: true } },
+  { path: '/settings', component: SettingsView, meta: { requiresAuth: true, nodeScoped: false } },
   { path: '/:pathMatch(.*)*', redirect: '/' },
 ]
 

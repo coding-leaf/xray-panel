@@ -45,7 +45,7 @@ func setupNodeServiceTestEnv(t *testing.T) (
 	snapshotRepo := repository.NewGormConfigSnapshotRepository(db)
 
 	compiler := xray.NewXrayCompiler(8080)
-	nodeSvc := service.NewNodeService(nodeRepo, nodeRepo, inboundRepo, userRepo, compiler)
+	nodeSvc := service.NewNodeService(nodeRepo, inboundRepo, userRepo, compiler)
 
 	configPath := filepath.Join(t.TempDir(), "xray_config.json")
 	configMgr := xray.NewConfigManager(configPath, "")
@@ -1011,7 +1011,7 @@ func TestNodeService_SyncStatusPopulation_AndCompilerFallback(t *testing.T) {
 			listWithCorrupt[1].ExpectedConfigHash, listWithCorrupt[1].ConfigSyncStatus)
 	}
 
-	nilCompilerSvc := service.NewNodeService(nodeRepo, nodeRepo, inboundRepo, nil, nil)
+	nilCompilerSvc := service.NewNodeService(nodeRepo, inboundRepo, nil, nil)
 	nilList, err := nilCompilerSvc.ListNodes(ctx)
 	if err != nil || len(nilList) != 2 {
 		t.Fatalf("ListNodes with nil compiler failed: %v", err)

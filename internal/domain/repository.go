@@ -110,7 +110,7 @@ type AuditLogRepository interface {
 	Clear(ctx context.Context) error
 }
 
-// NodeRepository 定义远端节点持久化接口
+// NodeRepository 定义远端节点持久化接口（包含节点元数据、心跳流量批次、配额状态与独立配置）
 type NodeRepository interface {
 	Create(ctx context.Context, node *Node) error
 	Update(ctx context.Context, node *Node) error
@@ -120,22 +120,10 @@ type NodeRepository interface {
 	GetByTokenHash(ctx context.Context, tokenHash string) (*Node, error)
 	ListAll(ctx context.Context) ([]Node, error)
 	CountInbounds(ctx context.Context, nodeID uint) (int64, error)
-}
-
-// NodeTrafficBatchRepository 定义节点心跳幂等流量批处理仓储接口
-type NodeTrafficBatchRepository interface {
 	ApplyNodeTrafficBatch(ctx context.Context, nodeID uint, batch *AgentTrafficBatch, date string) (applied bool, affectedUsers []User, err error)
 	PruneBatchesBefore(ctx context.Context, before time.Time) error
-}
-
-// NodeQuotaRepository 定义节点配额状态与每日流量日志持久化接口
-type NodeQuotaRepository interface {
 	UpdateAutoState(ctx context.Context, nodeID uint, desiredState, reason string) error
 	ResetCycleTraffic(ctx context.Context, nodeID uint, resetMonth int, restoreActive bool) error
 	ListRecentDailyTraffic(ctx context.Context, nodeID uint, days int) ([]NodeTrafficDaily, error)
-}
-
-// NodeConfigRepository 定义远端节点出站/路由/DNS配置持久化接口
-type NodeConfigRepository interface {
 	UpdateNodeConfig(ctx context.Context, nodeID uint, outboundsJSON, routingJSON, dnsJSON string) error
 }

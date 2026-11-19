@@ -217,7 +217,10 @@ const deleteGateway = async (id: number) => {
 }
 
 const viewLogs = (tag: string) => {
-  router.push({ path: '/logs', query: { type: 'access', inbound: tag } })
+  router.push({
+    path: '/logs',
+    query: { type: 'access', inbound: tag, nodeId: String(activeNodeId.value) },
+  })
 }
 
 const editOutbound = (ob: any) => {

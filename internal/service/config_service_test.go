@@ -84,6 +84,10 @@ func (m *mockCompiler) CompileToJSON(inbounds []domain.Inbound, outbounds []doma
 	return []byte(`{}`), nil
 }
 
+func (m *mockCompiler) CompileRemoteNodeFullToJSON(inbounds []domain.Inbound, outbounds []domain.Outbound, routing *domain.RoutingConfig, dns *domain.DNSConfig, users []domain.User, staticClients []domain.StaticInboundClient) ([]byte, error) {
+	return []byte(`{}`), nil
+}
+
 func TestConfigService_LegacyBoundUser_DoesNotBlockEditOrCreation(t *testing.T) {
 	userRepo := &mockUserRepoForConfig{
 		users: map[string]*domain.User{
@@ -1162,6 +1166,10 @@ func (m *capturingCompiler) CompileToJSON(inbounds []domain.Inbound, outbounds [
 	m.dns = dns
 	m.users = users
 	return []byte(`{"inbounds":[],"outbounds":[]}`), nil
+}
+
+func (m *capturingCompiler) CompileRemoteNodeFullToJSON(inbounds []domain.Inbound, outbounds []domain.Outbound, routing *domain.RoutingConfig, dns *domain.DNSConfig, users []domain.User, staticClients []domain.StaticInboundClient) ([]byte, error) {
+	return m.CompileToJSON(inbounds, outbounds, routing, dns, users)
 }
 
 func TestConfigService_SaveConfigQuietly_SingleReadAndListAll(t *testing.T) {

@@ -75,3 +75,21 @@
   - 通过入站上下文切入时，默认重置用户与关键字过滤以保证匿名请求可见，同时保留用户后续手动二次过滤的能力；
   - 结构化访问日志过滤必须按 `item.inbound_tag === targetInbound` 精确匹配；Raw 日志按 `[tag ->` 与 `[tag]` 边界匹配，严禁通过宽松子串误匹配相似标签（如 `local` 误匹配 `local-other`）；
   - 异步请求须使用递增序号或状态保护，杜绝慢网络下的响应乱序覆盖。
+
+---
+
+## 多节点作用域路由、单一节点状态源与运维抽屉规范 (Multi-Node Scoping & Store Invariants)
+
+- **路由作用域显式声明 (`web/src/router/index.ts` & `App.vue`)**：
+  - 全站路由必须在 `meta.nodeScoped` 显式区分 **Node-Scoped 页**（`/inbounds`、`/outbounds`、`/routing`、`/topology`、`/logs`、`/dns`、`/config` -> `true`）与 **Global / Master 页**（`/`、`/users`、`/nodes`、`/settings`、`/login`、`/portal` -> `false`）；
+  - 仅在 `meta.nodeScoped === true` 时渲染可交互全局节点切换器 `<select>`；Global 页仅展示紧凑只读「全局视图 / 主控 Master」徽标；
+  - 当处于 `isNodeScopedRoute && isRemoteNode` 时，顶栏/侧栏“重启核心”按钮必须置灰禁用并提示“远端节点通过配置下发自动热重载”，核心状态胶囊切换展示当前远端节点在线与配置同步状态，严禁误重启本机 Master；
+  - 跨页跳转 `/logs`（`TopologyView`、`InboundsView` 等）必须携带 `nodeId` query，`LogsView` 同步 `activeNodeId` 并在远端模式下将 `?inbound=` 预填至 `remoteKeyword`。
+- **单一节点数据源与共享 Promise 合并安全 (`useActiveNode.ts` & `useNodes.ts`)**：
+  - 全站节点列表统一由模块级 `useActiveNode()` 维护单一 `nodesList` 与引用计数轮询（`startListPolling`/`stopListPolling`），禁止在页面 composable（如 `useNodes.ts`）中另建平行 `nodes` ref 或独立轮询定时器；
+  - 共享 `inflightLoad` 合并并发请求时，内部 Promise 必须始终 resolve 为结构化结果 `{ list, err, failed }`，仅在调用方显式传入 `{ rethrow: true }` 时于外层抛出异常，严禁将带 throw 语义的 Promise 暴露给非捕获调用方引发 Unhandled Promise Rejection；
+  - 节点在线心跳文案必须与后端 `180s` 判定窗口保持一致（`在线心跳 (180s 内)`）。
+- **节点运维聚合与 GeoData 边界 (`NodeOpsDrawer.vue`, `SettingsView.vue`, `RoutingView.vue`)**：
+  - 远端节点高频排障（状态与配额、100 行快速日志、编译 JSON 预览、远端 GeoData 更新与安装脚本/Token）聚合于 `NodesView` 的 4-Tab `NodeOpsDrawer.vue`（基于通用 `Drawer.vue`），抽屉关闭、切换 `node.id` 与 `onUnmounted` 必须清理所有轮询定时器并递增单调序号；
+  - `RoutingView.vue` 保持纯粹路由规则编排（不含 GeoData 卡片）；本机 Master GeoData 维护固定置于 `SettingsView.vue` ① 区紧邻 `xray_geodata_dir` 处；
+  - 节点配额表单与运维抽屉须明示离线物理网卡兜底流量口径（离线期间可能包含宿主机非 Xray 流量）。

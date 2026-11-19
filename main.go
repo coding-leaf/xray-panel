@@ -125,7 +125,7 @@ func main() {
 		compiler.SetLogLevel(savedLogLevel)
 	}
 
-	nodeSvc := service.NewNodeService(nodeRepo, nodeRepo, inboundRepo, userRepo, compiler)
+	nodeSvc := service.NewNodeService(nodeRepo, inboundRepo, userRepo, compiler)
 	configSvc := service.NewConfigService(configMgr, supervisor, inboundRepo, userRepo, snapshotRepo, compiler).
 		WithNodeCacheInvalidator(nodeSvc).
 		WithNodeRepo(nodeRepo)
@@ -157,7 +157,7 @@ func main() {
 	subSvc := service.NewSubService(userRepo, inboundRepo, settingRepo).WithNodeRepo(nodeRepo)
 	monitorSvc := service.NewMonitorService(hostMonitor, xrayManager, userRepo, inboundRepo)
 	alertSvc := service.NewAlertService(botAdapter, userRepo, hostMonitor, configMgr).
-		WithNodeQuota(nodeRepo, nodeRepo)
+		WithNodeQuota(nodeRepo)
 	nodeSvc.WithStateChangeNotifier(alertSvc.NotifyNodeStateChange)
 	logSvc := service.NewLogService(configMgr)
 	geoSvc := service.NewGeoDataService(cfg.XrayBinPath, xrayManager, settingRepo)

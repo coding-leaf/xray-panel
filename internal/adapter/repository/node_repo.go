@@ -17,12 +17,7 @@ type GORMNodeRepository struct {
 	db *gorm.DB
 }
 
-var (
-	_ domain.NodeRepository             = (*GORMNodeRepository)(nil)
-	_ domain.NodeTrafficBatchRepository = (*GORMNodeRepository)(nil)
-	_ domain.NodeQuotaRepository        = (*GORMNodeRepository)(nil)
-	_ domain.NodeConfigRepository       = (*GORMNodeRepository)(nil)
-)
+var _ domain.NodeRepository = (*GORMNodeRepository)(nil)
 
 func NewNodeRepository(db *gorm.DB) *GORMNodeRepository {
 	return &GORMNodeRepository{db: db}

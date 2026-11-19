@@ -1,13 +1,18 @@
 package service
 
 import (
+	"bytes"
 	"context"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
+
+	"panel/internal/pkg/geodata"
 )
 
 type mockCoreController struct {
@@ -67,7 +72,7 @@ func TestGeoDataService_CustomGeoDataDirFromSettings(t *testing.T) {
 }
 
 func TestGeoDataService_NewHTTPClientTimeouts(t *testing.T) {
-	client := newGeoDataHTTPClient()
+	client := geodata.NewHTTPClient(defaultGeoDataHTTPTimeout)
 	if client.Timeout < 120*time.Second {
 		t.Fatalf("expected generous total client timeout >= 120s, got %v", client.Timeout)
 	}
@@ -86,14 +91,21 @@ func TestGeoDataService_NewHTTPClientTimeouts(t *testing.T) {
 	}
 }
 
-func TestGeoDataService_DownloadWithProgress_SuccessAndErrorCleanup(t *testing.T) {
+func TestGeoDataService_DownloadWithProgress_SuccessMinSizeAndCancel(t *testing.T) {
+	validPayload := bytes.Repeat([]byte("G"), int(geodata.DefaultMinFileSize)+2048)
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path == "/fail" {
+		switch r.URL.Path {
+		case "/fail":
 			w.WriteHeader(http.StatusInternalServerError)
-			return
+		case "/small-html":
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte("<html><body>Rate Limited</body></html>"))
+		case "/ok":
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write(validPayload)
+		default:
+			w.WriteHeader(http.StatusNotFound)
 		}
-		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write([]byte("geodata-binary-payload"))
 	}))
 	defer srv.Close()
 
@@ -101,26 +113,44 @@ func TestGeoDataService_DownloadWithProgress_SuccessAndErrorCleanup(t *testing.T
 	svc := NewGeoDataService(filepath.Join(tmpDir, "xray"), nil, nil)
 	client := srv.Client()
 
+	// 1. Primary returns small HTML page -> falls back to valid mirror and renames cleanly.
 	destOK := filepath.Join(tmpDir, "geoip.dat")
-	if err := svc.downloadWithProgress(client, srv.URL+"/ok", destOK, 10, 48, "geoip.dat"); err != nil {
+	if err := svc.downloadWithProgress(context.Background(), client, []string{srv.URL + "/small-html", srv.URL + "/ok"}, destOK, 10, 48, "geoip.dat"); err != nil {
 		t.Fatalf("downloadWithProgress failed: %v", err)
 	}
 	gotBytes, err := os.ReadFile(destOK)
 	if err != nil {
 		t.Fatalf("read downloaded file failed: %v", err)
 	}
-	if string(gotBytes) != "geodata-binary-payload" {
-		t.Fatalf("unexpected downloaded content: %q", string(gotBytes))
+	if !bytes.Equal(gotBytes, validPayload) {
+		t.Fatalf("unexpected downloaded content length=%d", len(gotBytes))
 	}
 	if _, err := os.Stat(destOK + ".tmp"); !os.IsNotExist(err) {
 		t.Fatalf("expected temp file to be renamed away, stat err=%v", err)
 	}
 
+	// 2. Small HTML error page rejected when no valid mirror exists.
+	destSmall := filepath.Join(tmpDir, "small.dat")
+	if err := svc.downloadWithProgress(context.Background(), client, []string{srv.URL + "/small-html"}, destSmall, 50, 95, "geosite.dat"); err == nil || !strings.Contains(err.Error(), "below minimum") {
+		t.Fatalf("expected below minimum error for small HTML response, got: %v", err)
+	}
+	if _, err := os.Stat(destSmall); !os.IsNotExist(err) {
+		t.Fatalf("expected rejected small download not to create destination file, stat err=%v", err)
+	}
+
+	// 3. HTTP 500 error cleans up and does not create destination.
 	destFail := filepath.Join(tmpDir, "geosite.dat")
-	if err := svc.downloadWithProgress(client, srv.URL+"/fail", destFail, 50, 95, "geosite.dat"); err == nil {
+	if err := svc.downloadWithProgress(context.Background(), client, []string{srv.URL + "/fail"}, destFail, 50, 95, "geosite.dat"); err == nil {
 		t.Fatal("expected error for HTTP 500 response")
 	}
 	if _, err := os.Stat(destFail); !os.IsNotExist(err) {
 		t.Fatalf("expected failed download not to create destination file, stat err=%v", err)
+	}
+
+	// 4. Context cancellation aborts immediately.
+	canceledCtx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if err := svc.downloadWithProgress(canceledCtx, client, []string{srv.URL + "/ok"}, filepath.Join(tmpDir, "canceled.dat"), 10, 48, "geoip.dat"); err == nil || !errors.Is(err, context.Canceled) {
+		t.Fatalf("expected context.Canceled error, got: %v", err)
 	}
 }

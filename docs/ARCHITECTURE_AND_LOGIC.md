@@ -226,7 +226,7 @@ flowchart TD
 
 ### 4.13 Cloudflare 多机漫游网关与提取门户
 * `deploy/cloudflare-pages/_worker.js` 作为统一凭据漫游寻呼网关，穿透真实客户端 IP，支持多 VPS 弹性调度与放宽多机漫游兑换限流；
-* `deploy/cloudflare-pages/portal.html` 与 `deploy/standalone-portal.html` 提供原生单文件提取门户，边缘直达；
+* `deploy/cloudflare-pages/portal/index.html` 作为唯一权威源提供原生单文件提取门户，`_worker.js` 将 `/portal`、`/portal/`、`/portal.html`、`/portal/index.html` 统一改写至 `/portal/`，边缘直达；
 * `deploy/cloudflare-worker-sub-proxy.js` 提供订阅代理能力，配合 `gateway.test.js` 保障边缘网关逻辑。
 
 ---

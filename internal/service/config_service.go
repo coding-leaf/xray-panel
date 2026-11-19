@@ -32,10 +32,6 @@ type ConfigStorage interface {
 
 type ConfigCompiler interface {
 	CompileToJSON(inbounds []domain.Inbound, outbounds []domain.Outbound, routing *domain.RoutingConfig, dns *domain.DNSConfig, users []domain.User) ([]byte, error)
-}
-
-// RemoteNodeFullCompiler compiles complete per-node Xray configurations including custom outbounds, routing, DNS, and static relay clients.
-type RemoteNodeFullCompiler interface {
 	CompileRemoteNodeFullToJSON(
 		inbounds []domain.Inbound,
 		outbounds []domain.Outbound,
@@ -1618,18 +1614,14 @@ func (s *ConfigService) validateRemoteNodeConfig(
 	if s.compiler == nil {
 		return nil, fmt.Errorf("compiler not configured")
 	}
-	if fc, ok := s.compiler.(RemoteNodeFullCompiler); ok {
-		return fc.CompileRemoteNodeFullToJSON(nodeInbounds, outbounds, routing, dns, users, staticClients)
-	}
-	return s.compiler.CompileToJSON(nodeInbounds, outbounds, routing, dns, users)
+	return s.compiler.CompileRemoteNodeFullToJSON(nodeInbounds, outbounds, routing, dns, users, staticClients)
 }
 
 func (s *ConfigService) persistRemoteNodeConfig(ctx context.Context, nodeID uint, outboundsJSON, routingJSON, dnsJSON string) error {
-	cfgRepo, ok := s.nodeRepo.(domain.NodeConfigRepository)
-	if !ok {
-		return fmt.Errorf("node repository does not support per-node config updates")
+	if s.nodeRepo == nil {
+		return fmt.Errorf("node repository is not configured")
 	}
-	return cfgRepo.UpdateNodeConfig(ctx, nodeID, outboundsJSON, routingJSON, dnsJSON)
+	return s.nodeRepo.UpdateNodeConfig(ctx, nodeID, outboundsJSON, routingJSON, dnsJSON)
 }
 
 func (s *ConfigService) saveDNSConfigLocked(ctx context.Context, cfg *domain.DNSConfig) error {

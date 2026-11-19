@@ -119,30 +119,23 @@
             </button>
           </div>
 
-          <!-- Xray Status -->
+          <!-- Xray / Remote Node Status -->
           <div class="px-3 py-2">
             <div
-              class="flex items-center justify-between px-2.5 py-1.5 rounded-md border text-xs font-mono"
-              :class="
-                coreStatus.active
-                  ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-400'
-                  : 'bg-rose-500/10 border-rose-500/20 text-rose-400'
-              "
+              class="flex items-center justify-between gap-2 px-2.5 py-1.5 rounded-md border text-xs font-mono"
+              :class="statusPill.pillClass"
+              :title="statusPill.title"
             >
-              <div class="flex items-center gap-1.5">
-                <span
-                  class="w-1.5 h-1.5 rounded-full"
-                  :class="coreStatus.active ? 'bg-emerald-400' : 'bg-rose-500'"
-                ></span>
-                <span class="text-[11px]">{{
-                  coreStatus.active ? 'Xray 核心运行中' : 'Xray 核心已停止'
-                }}</span>
+              <div class="flex items-center gap-1.5 min-w-0">
+                <span class="w-1.5 h-1.5 rounded-full shrink-0" :class="statusPill.dotClass"></span>
+                <span class="text-[11px] truncate">{{ statusPill.drawerLabel }}</span>
               </div>
               <button
                 type="button"
                 @click="restartCore"
-                :disabled="restarting"
-                class="px-2 py-0.5 rounded bg-neutral-800 text-neutral-300 hover:text-white text-[10px] border border-border"
+                :disabled="restarting || isRemoteScopedContext"
+                :title="isRemoteScopedContext ? REMOTE_RESTART_DISABLED_HINT : '重启 Xray 核心'"
+                class="px-2 py-0.5 rounded bg-neutral-800 text-neutral-300 hover:text-white text-[10px] border border-border shrink-0 disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 {{ restarting ? '...' : '重启' }}
               </button>
@@ -215,68 +208,79 @@
 
         <!-- Global Status Pill & Quick Controls -->
         <div class="flex items-center gap-2.5">
-          <!-- Global Node Switcher -->
+          <!-- Global Node Switcher (Node-Scoped Routes) / Read-Only Scope Badge (Global Routes) -->
           <div v-if="isAuthenticated" class="flex items-center gap-1.5">
-            <div
-              class="flex items-center gap-1.5 px-2 py-1 rounded-md border text-[11px] font-mono transition-colors"
-              :class="
-                isRemoteNode
-                  ? 'bg-sky-500/10 border-sky-500/40 text-sky-300'
-                  : 'bg-neutral-900 border-border text-foreground'
-              "
-              :title="
-                isRemoteNode
-                  ? `当前正在远程托管节点：${activeNodeLabel}`
-                  : '当前管理节点：本机 Master'
-              "
-            >
-              <span
-                class="w-1.5 h-1.5 rounded-full shrink-0"
+            <template v-if="isNodeScopedRoute">
+              <div
+                class="flex items-center gap-1.5 px-2 py-1 rounded-md border text-[11px] font-mono transition-colors"
                 :class="
                   isRemoteNode
-                    ? activeNode?.online
-                      ? 'bg-emerald-400'
-                      : 'bg-amber-400'
-                    : 'bg-neutral-400'
+                    ? 'bg-sky-500/10 border-sky-500/40 text-sky-300'
+                    : 'bg-neutral-900 border-border text-foreground'
                 "
-              ></span>
-              <span
-                v-if="isRemoteNode"
-                class="px-1 py-0.2 rounded bg-sky-500/20 text-sky-200 border border-sky-500/30 text-[9px] tracking-wider shrink-0"
+                :title="
+                  isRemoteNode
+                    ? `当前正在远程托管节点：${activeNodeLabel}`
+                    : '当前管理节点：本机 Master'
+                "
               >
-                远程托管
-              </span>
-              <select
-                :value="activeNodeId"
-                @change="onNodeSelectChange"
-                aria-label="切换全局管理节点"
-                class="bg-transparent text-xs font-mono focus:outline-none cursor-pointer pr-1 max-w-[210px]"
-                :class="isRemoteNode ? 'text-sky-200 font-semibold' : 'text-foreground'"
-              >
-                <option :value="0" class="bg-neutral-950 text-foreground">🖥 本机 Master</option>
-                <option
-                  v-for="n in nodesList"
-                  :key="n.id"
-                  :value="n.id"
-                  class="bg-neutral-950 text-foreground"
+                <span
+                  class="w-1.5 h-1.5 rounded-full shrink-0"
+                  :class="
+                    isRemoteNode
+                      ? activeNode?.online
+                        ? 'bg-emerald-400'
+                        : 'bg-amber-400'
+                      : 'bg-neutral-400'
+                  "
+                ></span>
+                <span
+                  v-if="isRemoteNode"
+                  class="px-1 py-0.2 rounded bg-sky-500/20 text-sky-200 border border-sky-500/30 text-[9px] tracking-wider shrink-0"
                 >
-                  {{ formatNodeOption(n) }}
-                </option>
-              </select>
-            </div>
+                  远程托管
+                </span>
+                <select
+                  :value="activeNodeId"
+                  @change="onNodeSelectChange"
+                  aria-label="切换全局管理节点"
+                  class="bg-transparent text-xs font-mono focus:outline-none cursor-pointer pr-1 max-w-[210px]"
+                  :class="isRemoteNode ? 'text-sky-200 font-semibold' : 'text-foreground'"
+                >
+                  <option :value="0" class="bg-neutral-950 text-foreground">🖥 本机 Master</option>
+                  <option
+                    v-for="n in nodesList"
+                    :key="n.id"
+                    :value="n.id"
+                    class="bg-neutral-950 text-foreground"
+                  >
+                    {{ formatNodeOption(n) }}
+                  </option>
+                </select>
+              </div>
 
-            <!-- Remote Node Config Sync Tri-State Badge -->
+              <!-- Remote Node Config Sync Tri-State Badge -->
+              <div
+                v-if="activeNodeSyncBadge"
+                class="flex items-center gap-1.5 px-2 py-1 rounded-md border text-[11px] font-mono shrink-0"
+                :class="activeNodeSyncBadge.pillClass"
+                :title="activeNodeSyncBadge.title"
+              >
+                <span
+                  class="w-1.5 h-1.5 rounded-full shrink-0"
+                  :class="activeNodeSyncBadge.dotClass"
+                ></span>
+                <span>{{ activeNodeSyncBadge.label }}</span>
+              </div>
+            </template>
+
             <div
-              v-if="activeNodeSyncBadge"
-              class="flex items-center gap-1.5 px-2 py-1 rounded-md border text-[11px] font-mono shrink-0"
-              :class="activeNodeSyncBadge.pillClass"
-              :title="activeNodeSyncBadge.title"
+              v-else
+              class="flex items-center gap-1.5 px-2.5 py-1 rounded-md border border-border bg-neutral-900/80 text-muted-foreground text-[11px] font-mono"
+              :title="globalScopeTitle"
             >
-              <span
-                class="w-1.5 h-1.5 rounded-full shrink-0"
-                :class="activeNodeSyncBadge.dotClass"
-              ></span>
-              <span>{{ activeNodeSyncBadge.label }}</span>
+              <span class="w-1.5 h-1.5 rounded-full bg-neutral-400 shrink-0"></span>
+              <span>{{ globalScopeLabel }}</span>
             </div>
           </div>
 
@@ -297,28 +301,14 @@
             </button>
           </div>
 
-          <!-- Xray Active Status Badge -->
+          <!-- Master Core / Active Remote Node Status Badge -->
           <div
             class="flex items-center gap-1.5 px-2.5 py-1 rounded-md border text-[11px] font-mono transition-colors"
-            :class="
-              coreStatus.active
-                ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-400'
-                : 'bg-rose-500/10 border-rose-500/20 text-rose-400'
-            "
+            :class="statusPill.pillClass"
+            :title="statusPill.title"
           >
-            <span
-              class="w-1.5 h-1.5 rounded-full"
-              :class="
-                coreStatus.active ? 'bg-emerald-400 pulse-green' : 'bg-rose-500 animate-pulse'
-              "
-            ></span>
-            <span>{{
-              coreStatus.active
-                ? coreStatus.version
-                  ? `Core ${coreStatus.version}`
-                  : 'Core Active'
-                : 'Core Stopped'
-            }}</span>
+            <span class="w-1.5 h-1.5 rounded-full" :class="statusPill.dotClass"></span>
+            <span>{{ statusPill.desktopLabel }}</span>
           </div>
 
           <!-- Quick Refresh Button -->
@@ -337,9 +327,9 @@
           <button
             type="button"
             @click="restartCore"
-            :disabled="restarting"
-            class="h-7 px-2.5 rounded-md bg-muted/60 hover:bg-muted text-muted-foreground hover:text-foreground border border-border/80 text-[11px] font-mono flex items-center gap-1.5 transition-colors disabled:opacity-50"
-            title="重启 Xray 核心"
+            :disabled="restarting || isRemoteScopedContext"
+            class="h-7 px-2.5 rounded-md bg-muted/60 hover:bg-muted text-muted-foreground hover:text-foreground border border-border/80 text-[11px] font-mono flex items-center gap-1.5 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            :title="isRemoteScopedContext ? REMOTE_RESTART_DISABLED_HINT : '重启 Xray 核心'"
           >
             <Zap class="w-3 h-3 text-amber-400" />
             <span>{{ restarting ? '重启中...' : '重启核心' }}</span>
@@ -365,79 +355,83 @@
         </div>
 
         <div class="flex items-center gap-1.5">
-          <!-- Mobile Global Node Switcher -->
+          <!-- Mobile Global Node Switcher (Node-Scoped) / Read-Only Scope Badge (Global) -->
           <div v-if="isAuthenticated" class="flex items-center gap-1">
-            <div
-              class="flex items-center gap-1 px-1.5 py-0.5 rounded-md border text-[10px] font-mono transition-colors max-w-[118px]"
-              :class="
-                isRemoteNode
-                  ? 'bg-sky-500/10 border-sky-500/40 text-sky-200'
-                  : 'bg-neutral-900 border-border text-foreground'
-              "
-            >
-              <span
-                class="w-1.5 h-1.5 rounded-full shrink-0"
+            <template v-if="isNodeScopedRoute">
+              <div
+                class="flex items-center gap-1 px-1.5 py-0.5 rounded-md border text-[10px] font-mono transition-colors max-w-[118px]"
                 :class="
                   isRemoteNode
-                    ? activeNode?.online
-                      ? 'bg-emerald-400'
-                      : 'bg-amber-400'
-                    : 'bg-neutral-400'
+                    ? 'bg-sky-500/10 border-sky-500/40 text-sky-200'
+                    : 'bg-neutral-900 border-border text-foreground'
                 "
-              ></span>
-              <select
-                :value="activeNodeId"
-                @change="onNodeSelectChange"
-                aria-label="切换管理节点"
-                class="bg-transparent text-[10px] font-mono focus:outline-none cursor-pointer w-full truncate"
               >
-                <option :value="0" class="bg-neutral-950 text-foreground">🖥 本机 Master</option>
-                <option
-                  v-for="n in nodesList"
-                  :key="n.id"
-                  :value="n.id"
-                  class="bg-neutral-950 text-foreground"
+                <span
+                  class="w-1.5 h-1.5 rounded-full shrink-0"
+                  :class="
+                    isRemoteNode
+                      ? activeNode?.online
+                        ? 'bg-emerald-400'
+                        : 'bg-amber-400'
+                      : 'bg-neutral-400'
+                  "
+                ></span>
+                <select
+                  :value="activeNodeId"
+                  @change="onNodeSelectChange"
+                  aria-label="切换管理节点"
+                  class="bg-transparent text-[10px] font-mono focus:outline-none cursor-pointer w-full truncate"
                 >
-                  {{ formatNodeOption(n) }}
-                </option>
-              </select>
-            </div>
+                  <option :value="0" class="bg-neutral-950 text-foreground">🖥 本机 Master</option>
+                  <option
+                    v-for="n in nodesList"
+                    :key="n.id"
+                    :value="n.id"
+                    class="bg-neutral-950 text-foreground"
+                  >
+                    {{ formatNodeOption(n) }}
+                  </option>
+                </select>
+              </div>
+              <div
+                v-if="activeNodeSyncBadge"
+                class="flex items-center gap-1 px-1.5 py-0.5 rounded-md border text-[10px] font-mono shrink-0"
+                :class="activeNodeSyncBadge.pillClass"
+                :title="activeNodeSyncBadge.title"
+              >
+                <span
+                  class="w-1.5 h-1.5 rounded-full shrink-0"
+                  :class="activeNodeSyncBadge.dotClass"
+                ></span>
+                <span class="hidden sm:inline">{{ activeNodeSyncBadge.label }}</span>
+              </div>
+            </template>
             <div
-              v-if="activeNodeSyncBadge"
-              class="flex items-center gap-1 px-1.5 py-0.5 rounded-md border text-[10px] font-mono shrink-0"
-              :class="activeNodeSyncBadge.pillClass"
-              :title="activeNodeSyncBadge.title"
+              v-else
+              class="flex items-center gap-1 px-2 py-0.5 rounded-md border border-border bg-neutral-900/80 text-muted-foreground text-[10px] font-mono"
+              :title="globalScopeTitle"
             >
-              <span
-                class="w-1.5 h-1.5 rounded-full shrink-0"
-                :class="activeNodeSyncBadge.dotClass"
-              ></span>
-              <span class="hidden sm:inline">{{ activeNodeSyncBadge.label }}</span>
+              <span class="w-1.5 h-1.5 rounded-full bg-neutral-400 shrink-0"></span>
+              <span>{{ globalScopeLabel }}</span>
             </div>
           </div>
 
           <div
             class="flex items-center gap-1 px-2 py-0.5 rounded-md border text-[10px] font-mono"
-            :class="
-              coreStatus.active
-                ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-400'
-                : 'bg-rose-500/10 border-rose-500/20 text-rose-400'
-            "
+            :class="statusPill.pillClass"
+            :title="statusPill.title"
           >
-            <span
-              class="w-1.5 h-1.5 rounded-full"
-              :class="coreStatus.active ? 'bg-emerald-400' : 'bg-rose-500'"
-            ></span>
-            <span>{{ coreStatus.active ? '运行中' : '停止' }}</span>
+            <span class="w-1.5 h-1.5 rounded-full" :class="statusPill.dotClass"></span>
+            <span>{{ statusPill.mobileLabel }}</span>
           </div>
 
           <button
             type="button"
             aria-label="重启核心"
             @click="restartCore"
-            :disabled="restarting"
-            class="p-1.5 rounded-md bg-muted text-muted-foreground border border-border text-xs"
-            title="重启核心"
+            :disabled="restarting || isRemoteScopedContext"
+            class="p-1.5 rounded-md bg-muted text-muted-foreground border border-border text-xs disabled:opacity-50 disabled:cursor-not-allowed"
+            :title="isRemoteScopedContext ? REMOTE_RESTART_DISABLED_HINT : '重启核心'"
           >
             <Zap class="w-3.5 h-3.5" :class="{ 'animate-spin': restarting }" />
           </button>
@@ -576,6 +570,72 @@ const activeNodeSyncBadge = computed(() => {
     dotClass: 'bg-amber-400 animate-pulse',
     pillClass: 'bg-amber-500/10 border-amber-500/30 text-amber-300',
     title: `配置待同步生效（期望 ${expected} / 当前 ${current}）`,
+  }
+})
+
+const REMOTE_RESTART_DISABLED_HINT = '远端节点通过配置下发自动热重载，无需重启主控核心'
+
+const isNodeScopedRoute = computed(() => Boolean(route.meta?.nodeScoped))
+const isRemoteScopedContext = computed(() => isNodeScopedRoute.value && isRemoteNode.value)
+
+const globalScopeLabel = computed(() => {
+  if (route.path === '/' || route.path === '/settings') {
+    return '主控 Master'
+  }
+  return '全局视图'
+})
+
+const globalScopeTitle = computed(() => {
+  if (route.path === '/' || route.path === '/settings') {
+    return '当前页面作用于本机主控 Master 环境，无需切换远端节点'
+  }
+  return '当前页面展示跨节点全局聚合资源，无需切换节点'
+})
+
+const statusPill = computed(() => {
+  if (isRemoteScopedContext.value) {
+    const node = activeNode.value
+    const online = Boolean(node?.online)
+    const syncBadge = activeNodeSyncBadge.value
+    const syncText = syncBadge ? syncBadge.label : '待同步'
+    const isError = syncBadge?.status === 'error'
+    const isPending = syncBadge?.status === 'pending'
+
+    let pillClass = 'bg-emerald-500/10 border-emerald-500/20 text-emerald-400'
+    let dotClass = 'bg-emerald-400'
+    if (!online || isError) {
+      pillClass = 'bg-rose-500/10 border-rose-500/25 text-rose-400'
+      dotClass = 'bg-rose-500 animate-pulse'
+    } else if (isPending) {
+      pillClass = 'bg-amber-500/10 border-amber-500/25 text-amber-300'
+      dotClass = 'bg-amber-400 animate-pulse'
+    }
+
+    const stateLabel = online ? '节点在线' : '节点离线'
+    return {
+      pillClass,
+      dotClass,
+      desktopLabel: `${stateLabel} · ${syncText}`,
+      mobileLabel: `${online ? '在线' : '离线'}·${syncText}`,
+      drawerLabel: `${stateLabel} · ${syncText}`,
+      title: `${activeNodeLabel.value} · ${syncBadge?.title || syncText}`,
+    }
+  }
+
+  const active = coreStatus.value.active
+  return {
+    pillClass: active
+      ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-400'
+      : 'bg-rose-500/10 border-rose-500/20 text-rose-400',
+    dotClass: active ? 'bg-emerald-400 pulse-green' : 'bg-rose-500 animate-pulse',
+    desktopLabel: active
+      ? coreStatus.value.version
+        ? `Core ${coreStatus.value.version}`
+        : 'Core Active'
+      : 'Core Stopped',
+    mobileLabel: active ? '运行中' : '停止',
+    drawerLabel: active ? 'Xray 核心运行中' : 'Xray 核心已停止',
+    title: active ? '本机 Master Xray 核心运行中' : '本机 Master Xray 核心已停止',
   }
 })
 
@@ -730,6 +790,7 @@ const triggerGlobalRefresh = () => {
 }
 
 const restartCore = async () => {
+  if (isRemoteScopedContext.value) return
   restarting.value = true
   try {
     await api.post('/service/restart')

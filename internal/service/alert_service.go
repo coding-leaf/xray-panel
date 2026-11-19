@@ -31,7 +31,6 @@ type AlertService struct {
 	notifier  domain.Notifier
 	userRepo  domain.UserRepository
 	nodeRepo  domain.NodeRepository
-	quotaRepo domain.NodeQuotaRepository
 	monitor   domain.HostMonitor
 	configMgr CertificateInspector
 	cache     *cache.Cache[bool]
@@ -47,14 +46,9 @@ func NewAlertService(notifier domain.Notifier, userRepo domain.UserRepository, m
 	}
 }
 
-// WithNodeQuota injects node repositories for monthly quota warnings and depletion forecasting.
-func (s *AlertService) WithNodeQuota(nodeRepo domain.NodeRepository, quotaRepo ...domain.NodeQuotaRepository) *AlertService {
+// WithNodeQuota injects the node repository for monthly quota warnings and depletion forecasting.
+func (s *AlertService) WithNodeQuota(nodeRepo domain.NodeRepository) *AlertService {
 	s.nodeRepo = nodeRepo
-	if len(quotaRepo) > 0 && quotaRepo[0] != nil {
-		s.quotaRepo = quotaRepo[0]
-	} else if qr, ok := nodeRepo.(domain.NodeQuotaRepository); ok {
-		s.quotaRepo = qr
-	}
 	return s
 }
 
@@ -306,10 +300,10 @@ func (s *AlertService) estimateNodeDepletion(ctx context.Context, node domain.No
 	if remaining <= 0 {
 		return "已耗尽"
 	}
-	if s.quotaRepo == nil {
+	if s.nodeRepo == nil {
 		return "暂无足够速率样本"
 	}
-	dailies, err := s.quotaRepo.ListRecentDailyTraffic(ctx, node.ID, 2)
+	dailies, err := s.nodeRepo.ListRecentDailyTraffic(ctx, node.ID, 2)
 	if err != nil || len(dailies) == 0 {
 		return "暂无足够速率样本"
 	}

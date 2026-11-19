@@ -921,6 +921,28 @@ export async function handleMockRequest(url: string, method: string, data?: any)
 
   // 9. Config JSON 与快照
   if (cleanUrl.endsWith('/config/raw') && method === 'GET') {
+    const urlObj = new URL(url, 'http://localhost')
+    const nodeId = Number(urlObj.searchParams.get('nodeId') || '0')
+    if (nodeId > 0) {
+      const nodeInbounds = (state.inbounds || []).filter(
+        (ib: any) => Number(ib.nodeId || 0) === nodeId
+      )
+      return delay({
+        readOnly: true,
+        nodeId,
+        raw: JSON.stringify(
+          {
+            log: { loglevel: 'warning' },
+            inbounds: nodeInbounds.length ? nodeInbounds : state.inbounds.slice(0, 1),
+            outbounds: state.outbounds,
+            routing: state.routing,
+            dns: state.dns,
+          },
+          null,
+          2
+        ),
+      })
+    }
     return delay({
       raw: JSON.stringify(
         {
@@ -1006,6 +1028,20 @@ export async function handleMockRequest(url: string, method: string, data?: any)
 
   if (cleanUrl.endsWith('/settings') && method === 'POST') {
     state.settings = { ...state.settings, ...data }
+    if (data?.xray_geodata_dir) {
+      if (!state.geodata) {
+        state.geodata = {
+          platform: 'Xray Core (gRPC Runtime)',
+          geoipExists: true,
+          geoipSize: 8941200,
+          geositeExists: true,
+          geositeSize: 23518400,
+          targetDirectory: data.xray_geodata_dir,
+        }
+      } else {
+        state.geodata.targetDirectory = data.xray_geodata_dir
+      }
+    }
     saveMockState(state)
     return delay({ success: true })
   }
@@ -1162,6 +1198,187 @@ export async function handleMockRequest(url: string, method: string, data?: any)
             },
           }),
     })
+  }
+
+  // 11.5 Admin Nodes CRUD & Ops
+  const generateMockNodeToken = () => {
+    const bytes = new Uint8Array(16)
+    if (typeof crypto !== 'undefined' && typeof crypto.getRandomValues === 'function') {
+      crypto.getRandomValues(bytes)
+    } else {
+      for (let i = 0; i < bytes.length; i++) {
+        bytes[i] = (Date.now() + i * 31) & 0xff
+      }
+    }
+    const hex = Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('')
+    const token = `xpa_demo_${hex}`
+    return { token, tokenPrefix: token.slice(0, 12) }
+  }
+
+  if (!Array.isArray(state.nodes)) {
+    state.nodes = []
+  }
+
+  if (cleanUrl.endsWith('/admin/nodes') && method === 'GET') {
+    return delay(state.nodes)
+  }
+
+  if (cleanUrl.endsWith('/admin/nodes') && method === 'POST') {
+    const nowIso = new Date().toISOString()
+    const nextId = state.nodes.reduce((max: number, n: any) => Math.max(max, n.id || 0), 0) + 1
+    const { token, tokenPrefix } = generateMockNodeToken()
+    const created = {
+      id: nextId,
+      name: String(data?.name || `node-${nextId}`).trim(),
+      host: String(data?.host || `node${nextId}.example.com`).trim(),
+      region: String(data?.region || '').trim(),
+      tokenPrefix,
+      enabled: data?.enabled !== false,
+      desiredState: data?.desiredState || 'active',
+      lastSeenAt: null,
+      agentVersion: '',
+      xrayVersion: '',
+      lastConfigHash: '',
+      expectedConfigHash: `demo${String(nextId).padStart(4, '0')}0001`,
+      configSyncStatus: 'pending',
+      lastUsersHash: '',
+      lastSyncError: '',
+      cpuPercent: 0,
+      memPercent: 0,
+      nicUpBytes: 0,
+      nicDownBytes: 0,
+      xrayUpBytes: 0,
+      xrayDownBytes: 0,
+      trafficLimitBytes: Number(data?.trafficLimitBytes || 0),
+      billingResetDay: Number(data?.billingResetDay || 0),
+      lastResetMonth: 0,
+      trafficCountMode: data?.trafficCountMode || 'both',
+      trafficMultiplier: Number(data?.trafficMultiplier) > 0 ? Number(data.trafficMultiplier) : 1.0,
+      warnThresholdPct: Number(data?.warnThresholdPct) > 0 ? Number(data.warnThresholdPct) : 80,
+      drainThresholdPct: Number(data?.drainThresholdPct) > 0 ? Number(data.drainThresholdPct) : 90,
+      breakThresholdPct: Number(data?.breakThresholdPct) > 0 ? Number(data.breakThresholdPct) : 95,
+      cycleXrayUpBytes: 0,
+      cycleXrayDownBytes: 0,
+      cycleNicUpBytes: 0,
+      cycleNicDownBytes: 0,
+      cycleUsedBytes: 0,
+      autoStateReason: '',
+      remark: String(data?.remark || '').trim(),
+      createdAt: nowIso,
+      updatedAt: nowIso,
+      online: false,
+    }
+    state.nodes.push(created)
+    saveMockState(state)
+    return delay({ ...created, token })
+  }
+
+  const nodeRotateMatch = cleanUrl.match(/\/admin\/nodes\/(\d+)\/rotate-token$/)
+  if (nodeRotateMatch && method === 'POST') {
+    const id = parseInt(nodeRotateMatch[1], 10)
+    const node = state.nodes.find((n: any) => n.id === id)
+    if (!node) {
+      return Promise.reject('节点不存在')
+    }
+    const { token, tokenPrefix } = generateMockNodeToken()
+    node.tokenPrefix = tokenPrefix
+    node.updatedAt = new Date().toISOString()
+    saveMockState(state)
+    return delay({ nodeId: id, tokenPrefix, token })
+  }
+
+  const nodeResetTrafficMatch = cleanUrl.match(/\/admin\/nodes\/(\d+)\/reset-traffic$/)
+  if (nodeResetTrafficMatch && method === 'POST') {
+    const id = parseInt(nodeResetTrafficMatch[1], 10)
+    const node = state.nodes.find((n: any) => n.id === id)
+    if (!node) {
+      return Promise.reject('节点不存在')
+    }
+    node.cycleXrayUpBytes = 0
+    node.cycleXrayDownBytes = 0
+    node.cycleNicUpBytes = 0
+    node.cycleNicDownBytes = 0
+    node.cycleUsedBytes = 0
+    if (
+      node.autoStateReason === 'auto_drain_quota' ||
+      node.autoStateReason === 'auto_break_quota'
+    ) {
+      node.desiredState = 'active'
+      node.autoStateReason = ''
+    }
+    node.updatedAt = new Date().toISOString()
+    saveMockState(state)
+    return delay(node)
+  }
+
+  const nodeInstallScriptMatch = cleanUrl.match(/\/admin\/nodes\/(\d+)\/install-script$/)
+  if (nodeInstallScriptMatch && method === 'GET') {
+    const id = parseInt(nodeInstallScriptMatch[1], 10)
+    const node = state.nodes.find((n: any) => n.id === id)
+    if (!node) {
+      return Promise.reject('节点不存在')
+    }
+    const urlObj = new URL(url, 'http://localhost')
+    const masterUrl =
+      urlObj.searchParams.get('masterUrl') ||
+      state.settings?.public_url ||
+      'https://panel.example.com'
+    const script = [
+      '#!/usr/bin/env bash',
+      'set -euo pipefail',
+      `# Demo xray-agent systemd installer for node #${node.id} (${node.name})`,
+      `export MASTER_URL="${masterUrl}"`,
+      `export NODE_TOKEN="<REPLACE_WITH_ONE_TIME_TOKEN_${node.tokenPrefix || 'xpa_demo'}>"`,
+      'echo "Installing xray-agent for ${MASTER_URL}..."',
+      'systemctl daemon-reload && systemctl enable --now xray-agent',
+    ].join('\n')
+    return delay({ nodeId: id, script })
+  }
+
+  const nodeItemMatch = cleanUrl.match(/\/admin\/nodes\/(\d+)$/)
+  if (nodeItemMatch && method === 'GET') {
+    const id = parseInt(nodeItemMatch[1], 10)
+    const node = state.nodes.find((n: any) => n.id === id)
+    if (!node) {
+      return Promise.reject('节点不存在')
+    }
+    return delay(node)
+  }
+
+  if (nodeItemMatch && method === 'PUT') {
+    const id = parseInt(nodeItemMatch[1], 10)
+    const idx = state.nodes.findIndex((n: any) => n.id === id)
+    if (idx === -1) {
+      return Promise.reject('节点不存在')
+    }
+    const prev = state.nodes[idx]
+    const updated = {
+      ...prev,
+      ...data,
+      id,
+      updatedAt: new Date().toISOString(),
+    }
+    if (data?.desiredState && data.desiredState !== prev.desiredState) {
+      updated.autoStateReason = 'manual'
+    }
+    state.nodes[idx] = updated
+    saveMockState(state)
+    return delay(updated)
+  }
+
+  if (nodeItemMatch && method === 'DELETE') {
+    const id = parseInt(nodeItemMatch[1], 10)
+    const bound = (state.inbounds || []).some((ib: any) => Number(ib.nodeId || 0) === id)
+    if (bound) {
+      return Promise.reject('cannot delete node: still has bound inbounds')
+    }
+    const idx = state.nodes.findIndex((n: any) => n.id === id)
+    if (idx === -1) {
+      return Promise.reject('节点不存在')
+    }
+    state.nodes.splice(idx, 1)
+    saveMockState(state)
+    return delay({ message: 'deleted' })
   }
 
   if (cleanUrl.endsWith('/geodata/progress') && method === 'GET') {

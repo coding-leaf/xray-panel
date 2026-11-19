@@ -1,0 +1,8 @@
+{"file": ".trellis/tasks/11-19-multi-node-full-config-and-switcher/research/fullcfg-audit.md", "reason": "Verify exact integration anchors and KISS architecture"}
+{"file": ".trellis/spec/backend/directory-structure.md", "reason": "Verify cmd/agent remains free of heavy dependencies (gin/gorm/sqlite/telegram/web)"}
+{"file": ".trellis/spec/backend/database-guidelines.md", "reason": "Verify single-connection SQLite safety and non-destructive migrations"}
+{"file": ".trellis/spec/backend/error-handling.md", "reason": "Verify zero silent error swallowing and strict command whitelist"}
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "Verify race safety and zero goroutine leaks in log waiters"}
+{"file": ".trellis/spec/frontend/index.md", "reason": "Verify zero Pinia usage and clean reactive composable"}
+{"file": ".trellis/spec/frontend/quality-guidelines.md", "reason": "Verify typecheck, lint, and Vite build pass cleanly"}
+{"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "Verify end-to-end Master/Agent/Frontend contracts"}

@@ -1,0 +1,13 @@
+{"file": ".trellis/tasks/11-19-multi-node-full-config-and-switcher/research/fullcfg-audit.md", "reason": "Full codebase audit for per-node Outbound/Routing/DNS, on-demand remote logs, global node switcher, and static relay injection"}
+{"file": ".trellis/spec/backend/index.md", "reason": "Backend layered conventions and quality gates"}
+{"file": ".trellis/spec/backend/directory-structure.md", "reason": "Backend layer boundaries, NodeID=0 compatibility, and cmd/agent dependency isolation"}
+{"file": ".trellis/spec/backend/database-guidelines.md", "reason": "SQLite WAL single-connection safety and white-list updates"}
+{"file": ".trellis/spec/backend/error-handling.md", "reason": "Explicit error propagation and HTTP status rules"}
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "Mutex safety, goroutine lifecycle, and KISS guidelines"}
+{"file": ".trellis/spec/backend/logging-guidelines.md", "reason": "slog structured logging and credential redaction"}
+{"file": ".trellis/spec/frontend/index.md", "reason": "Frontend Vue 3 + Tailwind + Vite and zero-Pinia guidelines"}
+{"file": ".trellis/spec/frontend/directory-structure.md", "reason": "Frontend composables and view organization"}
+{"file": ".trellis/spec/frontend/api-and-dataflow.md", "reason": "Axios wrapper and query parameter conventions"}
+{"file": ".trellis/spec/frontend/components-and-routing.md", "reason": "Vue 3 SFC and reusable UI primitives"}
+{"file": ".trellis/spec/frontend/quality-guidelines.md", "reason": "Frontend typecheck, lint, and Vite build gate"}
+{"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "Cross-layer contract alignment across Master, Agent, and Vue UI"}

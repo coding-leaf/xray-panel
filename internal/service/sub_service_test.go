@@ -817,3 +817,258 @@ func TestSubService_SingleGetAllAndOnDemandEncoding(t *testing.T) {
 	})
 }
 
+type mockSubNodeRepo struct {
+	nodes []domain.Node
+	err   error
+}
+
+func (m *mockSubNodeRepo) Create(ctx context.Context, node *domain.Node) error { return nil }
+func (m *mockSubNodeRepo) Update(ctx context.Context, node *domain.Node) error { return nil }
+func (m *mockSubNodeRepo) UpdateHeartbeat(ctx context.Context, nodeID uint, req *domain.AgentSyncRequest, seenAt time.Time) error {
+	return nil
+}
+func (m *mockSubNodeRepo) Delete(ctx context.Context, id uint) error { return nil }
+func (m *mockSubNodeRepo) GetByID(ctx context.Context, id uint) (*domain.Node, error) {
+	return nil, domain.ErrNotFound
+}
+func (m *mockSubNodeRepo) GetByTokenHash(ctx context.Context, tokenHash string) (*domain.Node, error) {
+	return nil, domain.ErrNotFound
+}
+func (m *mockSubNodeRepo) ListAll(ctx context.Context) ([]domain.Node, error) {
+	return m.nodes, m.err
+}
+func (m *mockSubNodeRepo) CountInbounds(ctx context.Context, nodeID uint) (int64, error) {
+	return 0, nil
+}
+
+func TestSubService_MultiNodeAggregationAndShareInfo(t *testing.T) {
+	user := &domain.User{
+		ID:          1,
+		Email:       "multi@example.com",
+		UUID:        "11111111-1111-4111-8111-111111111111",
+		SubToken:    "multi-node-token",
+		InboundTags: "master-in,jp-in,sg-in,hk-disabled,us-draining,eu-broken,missing-node",
+		Enabled:     true,
+	}
+	userRepo := &mockSubUserRepo{user: user}
+
+	inbounds := []domain.Inbound{
+		{
+			ID:             1,
+			NodeID:         0,
+			Tag:            "master-in",
+			Remark:         "Master Node",
+			Protocol:       "vless",
+			Port:           443,
+			SortOrder:      1,
+			Enabled:        true,
+			StreamSettings: `{"network":"tcp","security":"none"}`,
+		},
+		{
+			ID:             2,
+			NodeID:         10,
+			Tag:            "jp-in",
+			Remark:         "Tokyo Direct",
+			Protocol:       "vless",
+			Port:           443,
+			SortOrder:      2,
+			Enabled:        true,
+			StreamSettings: `{"network":"tcp","security":"none"}`,
+		},
+		{
+			ID:             3,
+			NodeID:         11,
+			Tag:            "sg-in",
+			Remark:         "[SG-Edge] Custom SG",
+			ExternalHost:   "override.example.com",
+			Protocol:       "vless",
+			Port:           443,
+			SortOrder:      3,
+			Enabled:        true,
+			StreamSettings: `{"network":"tcp","security":"none"}`,
+		},
+		{
+			ID:             4,
+			NodeID:         12,
+			Tag:            "hk-disabled",
+			Remark:         "HK Disabled",
+			Protocol:       "vless",
+			Port:           443,
+			SortOrder:      4,
+			Enabled:        true,
+			StreamSettings: `{"network":"tcp","security":"none"}`,
+		},
+		{
+			ID:             5,
+			NodeID:         13,
+			Tag:            "us-draining",
+			Remark:         "US Draining",
+			Protocol:       "vless",
+			Port:           443,
+			SortOrder:      5,
+			Enabled:        true,
+			StreamSettings: `{"network":"tcp","security":"none"}`,
+		},
+		{
+			ID:             6,
+			NodeID:         14,
+			Tag:            "eu-broken",
+			Remark:         "EU Broken",
+			Protocol:       "vless",
+			Port:           443,
+			SortOrder:      6,
+			Enabled:        true,
+			StreamSettings: `{"network":"tcp","security":"none"}`,
+		},
+		{
+			ID:             7,
+			NodeID:         99,
+			Tag:            "missing-node",
+			Remark:         "Missing Node",
+			Protocol:       "vless",
+			Port:           443,
+			SortOrder:      7,
+			Enabled:        true,
+			StreamSettings: `{"network":"tcp","security":"none"}`,
+		},
+	}
+
+	nodes := []domain.Node{
+		{ID: 10, Name: "JP-1", Host: "jp1.example.com", Region: "JP", Enabled: true, DesiredState: domain.NodeStateActive},
+		{ID: 11, Name: "SG-Edge", Host: "sg.example.com", Region: "", Enabled: true, DesiredState: domain.NodeStateActive},
+		{ID: 12, Name: "HK-1", Host: "hk.example.com", Region: "HK", Enabled: false, DesiredState: domain.NodeStateActive},
+		{ID: 13, Name: "US-1", Host: "us.example.com", Region: "US", Enabled: true, DesiredState: domain.NodeStateDraining},
+		{ID: 14, Name: "EU-1", Host: "eu.example.com", Region: "EU", Enabled: true, DesiredState: domain.NodeStateCircuitBroken},
+	}
+
+	settingRepo := &mockSubSettingRepo{
+		settings: map[string]string{
+			"sub_domain":          "master.example.com",
+			"sub_show_info_nodes": "false",
+		},
+	}
+	svc := NewSubService(userRepo, &mockSubInboundRepo{inbounds: inbounds}, settingRepo).
+		WithNodeRepo(&mockSubNodeRepo{nodes: nodes})
+
+	_, output, err := svc.ExportUserSubscription(context.Background(), user.SubToken, "", "127.0.0.1:8080", "raw")
+	if err != nil {
+		t.Fatalf("ExportUserSubscription failed: %v", err)
+	}
+
+	lines := strings.Split(strings.TrimSpace(output), "\n")
+	if len(lines) != 3 {
+		t.Fatalf("expected 3 active nodes (master + jp + sg), got %d:\n%s", len(lines), output)
+	}
+
+	if !strings.Contains(lines[0], "@master.example.com:443") || !strings.Contains(lines[0], "#Master%20Node") {
+		t.Errorf("unexpected master line: %s", lines[0])
+	}
+	if !strings.Contains(lines[1], "@jp1.example.com:443") || !strings.Contains(lines[1], "#%5BJP%5D%20Tokyo%20Direct") {
+		t.Errorf("unexpected jp direct line (expected Node.Host fallback + [JP] prefix): %s", lines[1])
+	}
+	if !strings.Contains(lines[2], "@override.example.com:443") || strings.Contains(lines[2], "%5BSG-Edge%5D%20%5BSG-Edge%5D") {
+		t.Errorf("unexpected sg direct line (expected ExternalHost priority + no duplicate prefix): %s", lines[2])
+	}
+
+	shareResp, err := svc.GetUserShareInfo(context.Background(), user.ID, "https://panel.example.com")
+	if err != nil {
+		t.Fatalf("GetUserShareInfo failed: %v", err)
+	}
+	if len(shareResp.Nodes) != 3 {
+		t.Fatalf("expected 3 share nodes, got %d: %+v", len(shareResp.Nodes), shareResp.Nodes)
+	}
+	if shareResp.Nodes[0].Remark != "Master Node" {
+		t.Errorf("expected master remark 'Master Node', got %q", shareResp.Nodes[0].Remark)
+	}
+	if shareResp.Nodes[1].Remark != "[JP] Tokyo Direct" || !strings.Contains(shareResp.Nodes[1].ShareLink, "@jp1.example.com:443") {
+		t.Errorf("unexpected jp share node: %+v", shareResp.Nodes[1])
+	}
+	if shareResp.Nodes[2].Remark != "[SG-Edge] Custom SG" || !strings.Contains(shareResp.Nodes[2].ShareLink, "@override.example.com:443") {
+		t.Errorf("unexpected sg share node: %+v", shareResp.Nodes[2])
+	}
+}
+
+func TestSubService_RemoteNodeSubRoutesPrefix(t *testing.T) {
+	user := &domain.User{
+		ID:          1,
+		Email:       "subroute@example.com",
+		UUID:        "11111111-1111-4111-8111-111111111111",
+		SubToken:    "subroute-token",
+		InboundTags: "jp-vless,sg-vless",
+		Enabled:     true,
+	}
+	inbounds := []domain.Inbound{
+		{
+			ID:        1,
+			NodeID:    10,
+			Tag:       "jp-vless",
+			Remark:    "Tokyo VLESS",
+			Protocol:  "vless",
+			Port:      443,
+			SortOrder: 1,
+			Enabled:   true,
+			SubRoutesJson: `[
+				{"id":"r1","name":"日本原生直连","routeId":1,"outboundTag":"direct","sortOrder":1,"enabled":true},
+				{"id":"r2","name":"","routeId":2,"outboundTag":"direct","sortOrder":2,"enabled":true}
+			]`,
+			StreamSettings: `{"network":"tcp","security":"none"}`,
+		},
+		{
+			ID:        2,
+			NodeID:    11,
+			Tag:       "sg-vless",
+			Remark:    "Singapore VLESS",
+			Protocol:  "vless",
+			Port:      443,
+			SortOrder: 2,
+			Enabled:   true,
+			SubRoutesJson: `[
+				{"id":"r1","name":"日本原生直连","routeId":1,"outboundTag":"direct","sortOrder":1,"enabled":true}
+			]`,
+			StreamSettings: `{"network":"tcp","security":"none"}`,
+		},
+	}
+	nodes := []domain.Node{
+		{ID: 10, Name: "JP-1", Host: "jp1.example.com", Region: "JP", Enabled: true, DesiredState: domain.NodeStateActive},
+		{ID: 11, Name: "SG-1", Host: "sg1.example.com", Region: "SG", Enabled: true, DesiredState: domain.NodeStateActive},
+	}
+	settingRepo := &mockSubSettingRepo{
+		settings: map[string]string{
+			"sub_show_info_nodes": "false",
+		},
+	}
+
+	svc := NewSubService(&mockSubUserRepo{user: user}, &mockSubInboundRepo{inbounds: inbounds}, settingRepo).
+		WithNodeRepo(&mockSubNodeRepo{nodes: nodes})
+
+	_, rawOut, err := svc.ExportUserSubscription(context.Background(), user.SubToken, "", "127.0.0.1:8080", "raw")
+	if err != nil {
+		t.Fatalf("ExportUserSubscription failed: %v", err)
+	}
+	lines := strings.Split(strings.TrimSpace(rawOut), "\n")
+	if len(lines) != 3 {
+		t.Fatalf("expected 3 subroute lines, got %d:\n%s", len(lines), rawOut)
+	}
+	if !strings.Contains(lines[0], "#%5BJP%5D%20") {
+		t.Errorf("expected JP prefix on named SubRoute in ExportUserSubscription, got: %s", lines[0])
+	}
+	if !strings.Contains(lines[1], "#%5BJP%5D%20Tokyo%20VLESS") {
+		t.Errorf("expected JP prefix on unnamed SubRoute in ExportUserSubscription, got: %s", lines[1])
+	}
+	if !strings.Contains(lines[2], "#%5BSG%5D%20") {
+		t.Errorf("expected SG prefix on named SubRoute in ExportUserSubscription, got: %s", lines[2])
+	}
+
+	shareResp, err := svc.GetUserShareInfo(context.Background(), user.ID, "https://panel.example.com")
+	if err != nil {
+		t.Fatalf("GetUserShareInfo failed: %v", err)
+	}
+	if len(shareResp.Nodes) != 3 {
+		t.Fatalf("expected 3 share nodes, got %d", len(shareResp.Nodes))
+	}
+	if shareResp.Nodes[0].Remark != "[JP] 日本原生直连" || shareResp.Nodes[2].Remark != "[SG] 日本原生直连" {
+		t.Errorf("expected distinct prefixed SubRoute remarks, got: %+v", shareResp.Nodes)
+	}
+}
+
+

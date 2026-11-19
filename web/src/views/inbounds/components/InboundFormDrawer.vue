@@ -43,10 +43,25 @@
               <Input
                 v-model="form.externalHost"
                 type="text"
-                placeholder="留空则继承全局节点公网域名"
+                placeholder="留空则继承归属节点 Host 或全局域名"
               />
             </FormField>
           </div>
+
+          <FormField
+            label="归属节点 (Node)"
+            hint="选择本机 Master 或已注册远端直连节点"
+          >
+            <select
+              v-model.number="form.nodeId"
+              class="w-full bg-neutral-950 border border-border rounded-md px-3 h-9 text-foreground font-mono focus:outline-none focus:ring-1 focus:ring-ring"
+            >
+              <option :value="0">0 — 本机 Master (默认)</option>
+              <option v-for="n in nodesList || []" :key="n.id" :value="n.id">
+                {{ n.name }} ({{ n.host }}{{ n.region ? ` · ${n.region}` : '' }})
+              </option>
+            </select>
+          </FormField>
         </div>
 
         <!-- Non-443 Port Alert -->
@@ -1108,6 +1123,7 @@ import SectionCard from '../../../components/ui/SectionCard.vue'
 import { toast } from '../../../utils/toast'
 import { copyText } from '../../../utils/clipboard'
 import api from '../../../api'
+import type { NodeItem } from '../../../api/nodes'
 import {
   type InboundItem,
   type InboundFormData,
@@ -1123,6 +1139,7 @@ const props = defineProps<{
   initialData?: InboundItem | null
   usersList: any[]
   availableOutbounds: string[]
+  nodesList?: NodeItem[]
 }>()
 
 const emit = defineEmits<{
@@ -1330,6 +1347,7 @@ const initFormData = () => {
   if (props.isEditing && props.initialData) {
     const inb = props.initialData
     form.value.id = inb.id
+    form.value.nodeId = Number(inb.nodeId || 0)
     form.value.tag = inb.tag
     form.value.remark = inb.remark || ''
     form.value.listen = inb.listen || '0.0.0.0'

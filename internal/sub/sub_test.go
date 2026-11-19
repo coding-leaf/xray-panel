@@ -247,9 +247,12 @@ func TestExportSubscription_ErrorHandling(t *testing.T) {
 		t.Fatal("expected error when formatting invalid node, got nil")
 	}
 
-	_, err = sub.ExportSubscription(badNodes, "clash")
-	if err == nil {
-		t.Fatal("expected error when converting invalid node to clash, got nil")
+	clashOut, err := sub.ExportSubscription(badNodes, "clash")
+	if err != nil {
+		t.Fatalf("expected clash safe degradation instead of error, got: %v", err)
+	}
+	if !strings.Contains(clashOut, "DIRECT") {
+		t.Fatalf("expected DIRECT fallback in degraded clash yaml, got:\n%s", clashOut)
 	}
 
 	_, err = sub.ExportSubscription(badNodes, "sing-box")

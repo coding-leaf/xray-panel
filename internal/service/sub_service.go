@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"sort"
@@ -18,6 +19,7 @@ type SubService struct {
 	userRepo    domain.UserRepository
 	inboundRepo domain.InboundRepository
 	settingRepo domain.SettingRepository
+	nodeRepo    domain.NodeRepository
 }
 
 func NewSubService(userRepo domain.UserRepository, inboundRepo domain.InboundRepository, settingRepo domain.SettingRepository) *SubService {
@@ -26,6 +28,95 @@ func NewSubService(userRepo domain.UserRepository, inboundRepo domain.InboundRep
 		inboundRepo: inboundRepo,
 		settingRepo: settingRepo,
 	}
+}
+
+// WithNodeRepo 注入可选远端节点仓储，用于多机直连订阅聚合（保持原构造签名兼容）。
+func (s *SubService) WithNodeRepo(repo domain.NodeRepository) *SubService {
+	s.nodeRepo = repo
+	return s
+}
+
+func (s *SubService) resolveActiveNodeMap(ctx context.Context) (map[uint]domain.Node, error) {
+	if s.nodeRepo == nil {
+		return nil, nil
+	}
+	nodes, err := s.nodeRepo.ListAll(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("list nodes: %w", err)
+	}
+	active := make(map[uint]domain.Node, len(nodes))
+	for _, n := range nodes {
+		if n.Enabled && n.DesiredState == domain.NodeStateActive {
+			active[n.ID] = n
+		}
+	}
+	return active, nil
+}
+
+func formatNodePrefix(node domain.Node) string {
+	label := strings.TrimSpace(node.Region)
+	if label == "" {
+		label = strings.TrimSpace(node.Name)
+	}
+	if label == "" {
+		return ""
+	}
+	return fmt.Sprintf("[%s]", label)
+}
+
+func applyNodePrefix(name, prefix string) string {
+	trimmed := strings.TrimSpace(name)
+	if prefix == "" {
+		return trimmed
+	}
+	if trimmed == "" {
+		return prefix
+	}
+	if strings.Contains(trimmed, prefix) {
+		return trimmed
+	}
+	return prefix + " " + trimmed
+}
+
+func prepareInboundForNode(ib domain.Inbound, activeNodes map[uint]domain.Node) (domain.Inbound, domain.Node, bool) {
+	if ib.NodeID == 0 {
+		return ib, domain.Node{}, true
+	}
+	node, ok := activeNodes[ib.NodeID]
+	if !ok {
+		return domain.Inbound{}, domain.Node{}, false
+	}
+	ibCopy := ib
+	if strings.TrimSpace(ibCopy.ExternalHost) == "" && strings.TrimSpace(node.Host) != "" {
+		ibCopy.ExternalHost = strings.TrimSpace(node.Host)
+	}
+	prefix := formatNodePrefix(node)
+	baseName := strings.TrimSpace(ibCopy.Remark)
+	if baseName == "" {
+		baseName = strings.TrimSpace(ibCopy.Tag)
+	}
+	ibCopy.Remark = applyNodePrefix(baseName, prefix)
+
+	if prefix != "" {
+		if subRoutes := ibCopy.GetSubRoutes(); len(subRoutes) > 0 {
+			changed := false
+			for i := range subRoutes {
+				if strings.TrimSpace(subRoutes[i].Name) != "" {
+					subRoutes[i].Name = applyNodePrefix(subRoutes[i].Name, prefix)
+					changed = true
+				}
+			}
+			if changed {
+				raw, err := json.Marshal(subRoutes)
+				if err != nil {
+					slog.Warn("Failed to marshal prefixed subRoutes", slog.Uint64("inbound_id", uint64(ibCopy.ID)), slog.String("error", err.Error()))
+				} else {
+					ibCopy.SubRoutesJson = string(raw)
+				}
+			}
+		}
+	}
+	return ibCopy, node, true
 }
 
 func buildVirtualInfoNodes(user *domain.User, announcement string) []*protocol.NodeConfig {
@@ -142,6 +233,18 @@ func (s *SubService) resolveSubscriptionNodesWithSettings(ctx context.Context, t
 		}
 	}
 
+	activeNodes, err := s.resolveActiveNodeMap(ctx)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	filteredInbounds := make([]domain.Inbound, 0, len(inbounds))
+	for _, rawIn := range inbounds {
+		if prepared, _, ok := prepareInboundForNode(rawIn, activeNodes); ok {
+			filteredInbounds = append(filteredInbounds, prepared)
+		}
+	}
+
 	hostDomain := settings["sub_domain"]
 	if hostDomain == "" {
 		hostDomain = settings["public_url"]
@@ -152,7 +255,7 @@ func (s *SubService) resolveSubscriptionNodesWithSettings(ctx context.Context, t
 
 	defaultPort, defaultFP := parsePortAndFingerprint(settings)
 
-	nodes := protocol.InboundsToNodeConfigsWithDefaultFP(inbounds, user, hostDomain, defaultPort, tagFilter, defaultFP, routeFilter...)
+	nodes := protocol.InboundsToNodeConfigsWithDefaultFP(filteredInbounds, user, hostDomain, defaultPort, tagFilter, defaultFP, routeFilter...)
 
 	// 应用节点命名模板 (仅作用于真实节点)
 	if tmpl := settings["sub_node_name_template"]; tmpl != "" {
@@ -295,6 +398,11 @@ func (s *SubService) GetUserShareInfo(ctx context.Context, userID uint, baseURL 
 		}
 	}
 
+	activeNodes, err := s.resolveActiveNodeMap(ctx)
+	if err != nil {
+		return nil, err
+	}
+
 	settings := s.loadSettingsMap(ctx)
 	hostDomain := settings["sub_domain"]
 	if hostDomain == "" && baseURL != "" {
@@ -318,8 +426,12 @@ func (s *SubService) GetUserShareInfo(ctx context.Context, userID uint, baseURL 
 		return inbounds[i].ID < inbounds[j].ID
 	})
 
-	for _, in := range inbounds {
-		if !in.Enabled || !user.HasInbound(in.Tag) || strings.EqualFold(in.Protocol, "dokodemo-door") {
+	for _, rawIn := range inbounds {
+		if !rawIn.Enabled || !user.HasInbound(rawIn.Tag) || strings.EqualFold(rawIn.Protocol, "dokodemo-door") {
+			continue
+		}
+		in, node, ok := prepareInboundForNode(rawIn, activeNodes)
+		if !ok {
 			continue
 		}
 		isVless := in.Protocol == "" || strings.EqualFold(in.Protocol, "vless")
@@ -348,6 +460,10 @@ func (s *SubService) GetUserShareInfo(ctx context.Context, userID uint, baseURL 
 		if baseName == "" {
 			baseName = in.Tag
 		}
+		nodePrefix := ""
+		if in.NodeID > 0 {
+			nodePrefix = formatNodePrefix(node)
+		}
 
 		for _, sr := range subRoutes {
 			if !sr.Enabled {
@@ -358,7 +474,7 @@ func (s *SubService) GetUserShareInfo(ctx context.Context, userID uint, baseURL 
 			}
 			tempIn := in
 			if sr.Name != "" {
-				tempIn.Remark = sr.Name
+				tempIn.Remark = applyNodePrefix(sr.Name, nodePrefix)
 			} else {
 				tempIn.Remark = fmt.Sprintf("%s - 线路 #%d", baseName, sr.RouteID)
 			}

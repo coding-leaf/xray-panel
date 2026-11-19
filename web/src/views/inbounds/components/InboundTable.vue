@@ -59,7 +59,7 @@
           >
             <!-- 1. Tag & Remarks -->
             <td class="p-3.5 align-middle">
-              <div class="flex items-center gap-2">
+              <div class="flex items-center gap-1.5 flex-wrap">
                 <span class="font-mono font-semibold text-foreground text-xs">{{ inb.tag }}</span>
                 <span
                   v-if="
@@ -69,6 +69,16 @@
                 >
                   #{{ inb.routeId }}
                 </span>
+                <Badge
+                  v-if="(inb.nodeId || 0) > 0"
+                  variant="outline"
+                  class="text-[10px] border-cyan-500/30 bg-cyan-500/10 text-cyan-300"
+                >
+                  {{ getNodeBadgeLabel(inb.nodeId) }}
+                </Badge>
+                <Badge v-else variant="secondary" class="text-[10px]">
+                  {{ getNodeBadgeLabel(inb.nodeId) }}
+                </Badge>
               </div>
               <div
                 class="text-[11px] text-muted-foreground mt-0.5 font-mono truncate max-w-[200px]"
@@ -269,6 +279,16 @@
             <Badge :variant="getProtocolBadgeVariant(inb.protocol)" class="shrink-0 text-[10px]">
               {{ inb.protocol?.toUpperCase() }}
             </Badge>
+            <Badge
+              v-if="(inb.nodeId || 0) > 0"
+              variant="outline"
+              class="shrink-0 text-[10px] border-cyan-500/30 bg-cyan-500/10 text-cyan-300"
+            >
+              {{ getNodeBadgeLabel(inb.nodeId) }}
+            </Badge>
+            <Badge v-else variant="secondary" class="shrink-0 text-[10px]">
+              {{ getNodeBadgeLabel(inb.nodeId) }}
+            </Badge>
             <span
               v-if="inb.protocol === 'vless' && getNodeFlow(inb) !== 'none'"
               class="text-[10px] font-mono px-1.5 py-0.2 rounded bg-neutral-900 text-neutral-300 border border-neutral-800 shrink-0"
@@ -423,6 +443,7 @@ import Badge from '../../../components/ui/Badge.vue'
 import Button from '../../../components/ui/Button.vue'
 import { formatBytes } from '../../../utils/format'
 import type { RealitySummaryStatus } from '../../../api/reality'
+import type { NodeItem } from '../../../api/nodes'
 import type { InboundItem } from '../types'
 import {
   getProtocolBadgeVariant,
@@ -442,6 +463,7 @@ const props = defineProps<{
   inbounds: InboundItem[]
   selectedInbound?: InboundItem | null
   usersList?: any[]
+  nodeMap?: Record<number, NodeItem>
   realitySummary?: RealitySummaryStatus | null
 }>()
 
@@ -451,6 +473,13 @@ const emit = defineEmits<{
   (e: 'delete', id: number): void
   (e: 'logs', inb: InboundItem): void
 }>()
+
+const getNodeBadgeLabel = (nodeId?: number) => {
+  if (!nodeId || nodeId <= 0) return '本机'
+  const node = props.nodeMap?.[nodeId]
+  if (!node) return `节点 #${nodeId}`
+  return node.region ? `${node.name} (${node.region})` : node.name
+}
 
 const getInboundRealityStatus = (tag: string) => {
   return getInboundRealityOverallStatus(tag, props.realitySummary || null)

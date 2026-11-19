@@ -152,7 +152,7 @@ func main() {
 		WithTicketRepo(ticketRepo).
 		WithNodeCacheInvalidator(nodeSvc)
 	botHandler := telegram.NewBotHandler(botAdapter, userRepo, inboundRepo, hostMonitor, xrayManager, userSvc, cfg.PublicURL)
-	subSvc := service.NewSubService(userRepo, inboundRepo, settingRepo)
+	subSvc := service.NewSubService(userRepo, inboundRepo, settingRepo).WithNodeRepo(nodeRepo)
 	monitorSvc := service.NewMonitorService(hostMonitor, xrayManager, userRepo, inboundRepo)
 	alertSvc := service.NewAlertService(botAdapter, userRepo, hostMonitor, configMgr)
 	logSvc := service.NewLogService(configMgr)

@@ -24,6 +24,7 @@ export interface SubRouteItem {
 
 export interface InboundItem {
   id: number
+  nodeId?: number
   tag: string
   port: number
   listen: string
@@ -52,6 +53,7 @@ export interface InboundItem {
 
 export interface InboundFormData {
   id: number
+  nodeId: number
   tag: string
   remark: string
   listen: string
@@ -128,6 +130,7 @@ export interface InboundFormData {
 
 export interface InboundPayload {
   id: number
+  nodeId: number
   tag: string
   remark?: string
   port: number
@@ -148,6 +151,7 @@ export interface InboundPayload {
 export function getDefaultInboundFormData(usersList: any[] = []): InboundFormData {
   return {
     id: 0,
+    nodeId: 0,
     tag: 'vless-tcp',
     remark: '',
     listen: '0.0.0.0',
@@ -239,6 +243,7 @@ export function getDefaultInboundFormData(usersList: any[] = []): InboundFormDat
 export function sanitizeInboundPayload(raw: InboundFormData): InboundFormData {
   const clean: InboundFormData = {
     id: raw.id,
+    nodeId: Number(raw.nodeId) || 0,
     tag: (raw.tag || '').trim(),
     remark: (raw.remark || '').trim(),
     listen: (raw.listen || '0.0.0.0').trim(),
@@ -755,6 +760,7 @@ export function buildInboundPayload(raw: InboundFormData, usersList: any[] = [])
   const clean = sanitizeInboundPayload(raw)
   return {
     id: clean.id,
+    nodeId: Number(clean.nodeId) || 0,
     tag: clean.tag,
     remark: clean.remark || '',
     port: clean.port,

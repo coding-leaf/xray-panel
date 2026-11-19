@@ -391,6 +391,7 @@ import {
   Menu,
   X,
   Network,
+  Server,
 } from 'lucide-vue-next'
 import ToastContainer from './components/ToastContainer.vue'
 import { toast } from './utils/toast'
@@ -449,6 +450,7 @@ const navSections: NavSection[] = [
       { name: '出站出口', path: '/outbounds', icon: Send, shortName: '出站' },
       { name: '路由分流', path: '/routing', icon: RouteIcon, shortName: '路由' },
       { name: '用户与订阅', path: '/users', icon: Users, shortName: '用户' },
+      { name: '节点管理', path: '/nodes', icon: Server, shortName: '节点' },
     ],
   },
   {

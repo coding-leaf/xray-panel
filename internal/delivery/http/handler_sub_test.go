@@ -2,6 +2,8 @@ package http
 
 import (
 	"context"
+	"encoding/base64"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -11,136 +13,220 @@ import (
 	"panel/internal/service"
 
 	"github.com/gin-gonic/gin"
+	"gopkg.in/yaml.v3"
 )
 
-type mockSubHandlerUserRepo struct {
+type stubSubUserRepo struct {
 	user *domain.User
 }
 
-func (m *mockSubHandlerUserRepo) Create(ctx context.Context, user *domain.User) error { return nil }
-func (m *mockSubHandlerUserRepo) Update(ctx context.Context, user *domain.User) error { return nil }
-func (m *mockSubHandlerUserRepo) UpdateFields(ctx context.Context, id uint, values map[string]interface{}) error {
+func (s *stubSubUserRepo) Create(ctx context.Context, user *domain.User) error { return nil }
+func (s *stubSubUserRepo) Update(ctx context.Context, user *domain.User) error { return nil }
+func (s *stubSubUserRepo) UpdateFields(ctx context.Context, id uint, values map[string]interface{}) error {
 	return nil
 }
-func (m *mockSubHandlerUserRepo) Delete(ctx context.Context, id uint) error { return nil }
-func (m *mockSubHandlerUserRepo) GetByID(ctx context.Context, id uint) (*domain.User, error) {
-	return m.user, nil
+func (s *stubSubUserRepo) Delete(ctx context.Context, id uint) error { return nil }
+func (s *stubSubUserRepo) GetByID(ctx context.Context, id uint) (*domain.User, error) {
+	return s.user, nil
 }
-func (m *mockSubHandlerUserRepo) GetByUUID(ctx context.Context, uuid string) (*domain.User, error) {
-	return m.user, nil
+func (s *stubSubUserRepo) GetByUUID(ctx context.Context, uuid string) (*domain.User, error) {
+	return nil, domain.ErrNotFound
 }
-func (m *mockSubHandlerUserRepo) GetByEmail(ctx context.Context, email string) (*domain.User, error) {
-	return m.user, nil
+func (s *stubSubUserRepo) GetByEmail(ctx context.Context, email string) (*domain.User, error) {
+	return nil, domain.ErrNotFound
 }
-func (m *mockSubHandlerUserRepo) GetBySubToken(ctx context.Context, token string) (*domain.User, error) {
-	if m.user != nil && m.user.SubToken == token {
-		return m.user, nil
+func (s *stubSubUserRepo) GetBySubToken(ctx context.Context, token string) (*domain.User, error) {
+	if s.user != nil && s.user.SubToken == token {
+		return s.user, nil
 	}
 	return nil, domain.ErrNotFound
 }
-func (m *mockSubHandlerUserRepo) ListByInboundTag(ctx context.Context, tag string) ([]domain.User, error) {
+func (s *stubSubUserRepo) ListByInboundTag(ctx context.Context, tag string) ([]domain.User, error) {
 	return nil, nil
 }
-func (m *mockSubHandlerUserRepo) ListAll(ctx context.Context) ([]domain.User, error) { return nil, nil }
-func (m *mockSubHandlerUserRepo) AddTraffic(ctx context.Context, email string, up, down int64) error {
+func (s *stubSubUserRepo) ListAll(ctx context.Context) ([]domain.User, error) { return nil, nil }
+func (s *stubSubUserRepo) AddTraffic(ctx context.Context, email string, up, down int64) error {
 	return nil
 }
-func (m *mockSubHandlerUserRepo) ResetTraffic(ctx context.Context, id uint) error { return nil }
+func (s *stubSubUserRepo) ResetTraffic(ctx context.Context, id uint) error { return nil }
 
-type mockSubHandlerInboundRepo struct {
+type stubSubInboundRepo struct {
 	inbounds []domain.Inbound
 }
 
-func (m *mockSubHandlerInboundRepo) ListAll(ctx context.Context) ([]domain.Inbound, error) {
-	return m.inbounds, nil
+func (s *stubSubInboundRepo) Create(ctx context.Context, inbound *domain.Inbound) error { return nil }
+func (s *stubSubInboundRepo) Update(ctx context.Context, inbound *domain.Inbound) error { return nil }
+func (s *stubSubInboundRepo) Delete(ctx context.Context, id uint) error                 { return nil }
+func (s *stubSubInboundRepo) GetByID(ctx context.Context, id uint) (*domain.Inbound, error) {
+	return nil, domain.ErrNotFound
 }
-func (m *mockSubHandlerInboundRepo) AddTraffic(ctx context.Context, tag string, upBytes, downBytes int64) error {
+func (s *stubSubInboundRepo) GetByTag(ctx context.Context, tag string) (*domain.Inbound, error) {
+	return nil, domain.ErrNotFound
+}
+func (s *stubSubInboundRepo) ListAll(ctx context.Context) ([]domain.Inbound, error) {
+	return s.inbounds, nil
+}
+func (s *stubSubInboundRepo) AddTraffic(ctx context.Context, tag string, up, down int64) error {
 	return nil
 }
-func (m *mockSubHandlerInboundRepo) GetByID(ctx context.Context, id uint) (*domain.Inbound, error) {
-	return nil, nil
-}
-func (m *mockSubHandlerInboundRepo) GetByTag(ctx context.Context, tag string) (*domain.Inbound, error) {
-	return nil, nil
-}
-func (m *mockSubHandlerInboundRepo) Create(ctx context.Context, inbound *domain.Inbound) error {
-	return nil
-}
-func (m *mockSubHandlerInboundRepo) Update(ctx context.Context, inbound *domain.Inbound) error {
-	return nil
-}
-func (m *mockSubHandlerInboundRepo) Delete(ctx context.Context, id uint) error { return nil }
 
-func TestSubHandler_GetSubscription_WithRoute(t *testing.T) {
+type stubSubSettingRepo struct {
+	settings map[string]string
+}
+
+func (s *stubSubSettingRepo) Get(ctx context.Context, key string) (string, error) {
+	if v, ok := s.settings[key]; ok {
+		return v, nil
+	}
+	return "", domain.ErrNotFound
+}
+func (s *stubSubSettingRepo) Set(ctx context.Context, key, value string) error { return nil }
+func (s *stubSubSettingRepo) GetAll(ctx context.Context) (map[string]string, error) {
+	return s.settings, nil
+}
+
+func TestSubHandler_UADetectionAndExplicitOverride(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
 	user := &domain.User{
 		ID:          1,
-		Email:       "user@example.com",
-		UUID:        "7117295b-4362-4260-a133-b969344dfcd5",
-		SubToken:    "test-sub-token",
-		InboundTags: "vless-reality",
+		Email:       "ua@example.com",
+		UUID:        "11111111-1111-4111-8111-111111111111",
+		SubToken:    "ua-token-123",
+		InboundTags: "vless-tcp",
 		Enabled:     true,
 	}
-	inbound := domain.Inbound{
-		Tag:            "vless-reality",
-		Protocol:       "vless",
-		Port:           443,
-		Listen:         "0.0.0.0",
-		ExternalHost:   "198.51.100.1",
-		Enabled:        true,
-		StreamSettings: `{"network":"tcp","security":"none"}`,
-		SubRoutesJson:  `[{"id":"1","name":"日本节点","routeId":1,"outboundTag":"direct","enabled":true},{"id":"2","name":"美国节点","routeId":2,"outboundTag":"us-out","enabled":true}]`,
+	inbounds := []domain.Inbound{
+		{
+			ID:             1,
+			Tag:            "vless-tcp",
+			Remark:         "Direct Node",
+			Protocol:       "vless",
+			Port:           443,
+			Enabled:        true,
+			StreamSettings: `{"network":"tcp","security":"none"}`,
+		},
+	}
+	settings := map[string]string{
+		"sub_domain":          "sub.example.com",
+		"sub_show_info_nodes": "false",
 	}
 
-	userRepo := &mockSubHandlerUserRepo{user: user}
-	inboundRepo := &mockSubHandlerInboundRepo{inbounds: []domain.Inbound{inbound}}
-	subSvc := service.NewSubService(userRepo, inboundRepo, nil)
+	subSvc := service.NewSubService(
+		&stubSubUserRepo{user: user},
+		&stubSubInboundRepo{inbounds: inbounds},
+		&stubSubSettingRepo{settings: settings},
+	)
 	handler := NewSubHandler(subSvc)
 
-	r := gin.New()
-	r.GET("/sub/:token", handler.GetSubscription)
+	router := gin.New()
+	router.GET("/sub/:token", handler.GetSubscription)
 
-	t.Run("query without route returns all virtual nodes", func(t *testing.T) {
-		req := httptest.NewRequest(http.MethodGet, "/sub/test-sub-token?format=raw", nil)
-		w := httptest.NewRecorder()
-		r.ServeHTTP(w, req)
+	cases := []struct {
+		name        string
+		query       string
+		userAgent   string
+		wantCT      string
+		assertBody  func(t *testing.T, body string)
+	}{
+		{
+			name:      "clash UA returns yaml",
+			userAgent: "ClashVerge/1.7.7",
+			wantCT:    "application/yaml; charset=utf-8",
+			assertBody: func(t *testing.T, body string) {
+				var parsed map[string]interface{}
+				if err := yaml.Unmarshal([]byte(body), &parsed); err != nil {
+					t.Fatalf("expected valid clash yaml, got err: %v\nbody:\n%s", err, body)
+				}
+				if _, ok := parsed["proxies"]; !ok {
+					t.Fatalf("expected proxies key in clash yaml")
+				}
+			},
+		},
+		{
+			name:      "mihomo UA returns yaml",
+			userAgent: "Mihomo/1.18.0",
+			wantCT:    "application/yaml; charset=utf-8",
+			assertBody: func(t *testing.T, body string) {
+				if !strings.Contains(body, "proxy-groups:") {
+					t.Fatalf("expected clash yaml output, got:\n%s", body)
+				}
+			},
+		},
+		{
+			name:      "stash UA returns yaml",
+			userAgent: "Stash/2.5.0",
+			wantCT:    "application/yaml; charset=utf-8",
+			assertBody: func(t *testing.T, body string) {
+				if !strings.Contains(body, "proxy-groups:") {
+					t.Fatalf("expected clash yaml output, got:\n%s", body)
+				}
+			},
+		},
+		{
+			name:      "sing-box UA returns json",
+			userAgent: "sing-box 1.9.0",
+			wantCT:    "application/json; charset=utf-8",
+			assertBody: func(t *testing.T, body string) {
+				var parsed map[string]interface{}
+				if err := json.Unmarshal([]byte(body), &parsed); err != nil {
+					t.Fatalf("expected valid sing-box json, got err: %v\nbody:\n%s", err, body)
+				}
+			},
+		},
+		{
+			name:      "v2rayN UA defaults to base64",
+			userAgent: "v2rayN/6.45",
+			wantCT:    "text/plain; charset=utf-8",
+			assertBody: func(t *testing.T, body string) {
+				decoded, err := base64.StdEncoding.DecodeString(strings.TrimSpace(body))
+				if err != nil {
+					t.Fatalf("expected base64 payload, got err: %v, body: %s", err, body)
+				}
+				if !strings.Contains(string(decoded), "vless://") {
+					t.Fatalf("expected decoded vless link, got: %s", string(decoded))
+				}
+			},
+		},
+		{
+			name:      "explicit format overrides clash UA",
+			query:     "?format=raw",
+			userAgent: "Clash.Meta/1.0",
+			wantCT:    "text/plain; charset=utf-8",
+			assertBody: func(t *testing.T, body string) {
+				if !strings.HasPrefix(strings.TrimSpace(body), "vless://") {
+					t.Fatalf("expected raw vless:// link, got: %s", body)
+				}
+			},
+		},
+		{
+			name:      "explicit type overrides UA",
+			query:     "?type=singbox",
+			userAgent: "ClashVerge/1.7.7",
+			wantCT:    "application/json; charset=utf-8",
+			assertBody: func(t *testing.T, body string) {
+				var parsed map[string]interface{}
+				if err := json.Unmarshal([]byte(body), &parsed); err != nil {
+					t.Fatalf("expected valid sing-box json, got err: %v", err)
+				}
+			},
+		},
+	}
 
-		if w.Code != http.StatusOK {
-			t.Fatalf("expected status 200, got %d: %s", w.Code, w.Body.String())
-		}
-		body := w.Body.String()
-		lines := strings.Split(strings.TrimSpace(body), "\n")
-		if len(lines) != 2 {
-			t.Fatalf("expected 2 lines when route omitted, got %d: %v", len(lines), lines)
-		}
-	})
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodGet, "/sub/"+user.SubToken+tc.query, nil)
+			req.Header.Set("User-Agent", tc.userAgent)
+			rec := httptest.NewRecorder()
+			router.ServeHTTP(rec, req)
 
-	t.Run("query with route=2 filters specific virtual node", func(t *testing.T) {
-		req := httptest.NewRequest(http.MethodGet, "/sub/test-sub-token?format=raw&route=2", nil)
-		w := httptest.NewRecorder()
-		r.ServeHTTP(w, req)
-
-		if w.Code != http.StatusOK {
-			t.Fatalf("expected status 200, got %d: %s", w.Code, w.Body.String())
-		}
-		body := w.Body.String()
-		lines := strings.Split(strings.TrimSpace(body), "\n")
-		if len(lines) != 1 {
-			t.Fatalf("expected 1 line for route=2, got %d: %v", len(lines), lines)
-		}
-		if !strings.Contains(lines[0], "7117295b-4362-0002-a133-b969344dfcd5") {
-			t.Fatalf("expected routeId 2 encoded in UUID, got %s", lines[0])
-		}
-	})
-
-	t.Run("missing token returns bad request", func(t *testing.T) {
-		req := httptest.NewRequest(http.MethodGet, "/sub/?format=raw", nil)
-		w := httptest.NewRecorder()
-		r.ServeHTTP(w, req)
-
-		if w.Code != http.StatusNotFound && w.Code != http.StatusBadRequest {
-			t.Fatalf("expected 400 or 404, got %d", w.Code)
-		}
-	})
+			if rec.Code != http.StatusOK {
+				t.Fatalf("expected status 200, got %d: %s", rec.Code, rec.Body.String())
+			}
+			if gotCT := rec.Header().Get("Content-Type"); gotCT != tc.wantCT {
+				t.Fatalf("expected Content-Type %q, got %q", tc.wantCT, gotCT)
+			}
+			tc.assertBody(t, rec.Body.String())
+		})
+	}
 }

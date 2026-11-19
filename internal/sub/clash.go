@@ -2,6 +2,7 @@ package sub
 
 import (
 	"fmt"
+	"log/slog"
 	"strings"
 
 	"panel/internal/protocol"
@@ -29,6 +30,19 @@ type ClashParams struct {
 	Mode      string `yaml:"mode"`
 }
 
+const clashEmptyNotice = "# Notice: No Clash-compatible proxies available (latest Xray protocols like XHTTP/SplitHTTP are not supported by Clash). Please use v2rayN, Shadowrocket, Happ, or sing-box.\n"
+
+func isClashUnsupportedNode(node *protocol.NodeConfig) bool {
+	if node == nil {
+		return true
+	}
+	net := strings.ToLower(strings.TrimSpace(node.GetParam("type")))
+	if net == "" {
+		net = strings.ToLower(strings.TrimSpace(node.GetParam("net")))
+	}
+	return net == "xhttp" || net == "splithttp"
+}
+
 // ExportClashWithParams 将多节点配置转换为带定制参数的 Clash / Mihomo YAML 订阅
 func ExportClashWithParams(nodes []*protocol.NodeConfig, params ClashParams) (string, error) {
 	proxies := make([]map[string]interface{}, 0, len(nodes))
@@ -43,9 +57,15 @@ func ExportClashWithParams(nodes []*protocol.NodeConfig, params ClashParams) (st
 			name = fmt.Sprintf("Node-%d", idx+1)
 		}
 
+		if isClashUnsupportedNode(node) {
+			slog.Debug("Skipping Clash-incompatible node transport", slog.String("node", name), slog.String("transport", node.GetParam("type")))
+			continue
+		}
+
 		proxyMap, err := protocol.ToClash(node)
 		if err != nil {
-			return "", fmt.Errorf("failed to convert node %s to clash proxy: %w", name, err)
+			slog.Warn("Failed to convert node to Clash proxy, skipping", slog.String("node", name), slog.String("protocol", node.Protocol), slog.String("error", err.Error()))
+			continue
 		}
 		if proxyMap != nil {
 			proxyMap["name"] = name
@@ -54,9 +74,16 @@ func ExportClashWithParams(nodes []*protocol.NodeConfig, params ClashParams) (st
 		}
 	}
 
-	fallbackProxies := proxyNames
-	if len(fallbackProxies) == 0 {
-		fallbackProxies = []string{"DIRECT"}
+	var selectProxies []string
+	var autoProxies []string
+	if len(proxyNames) > 0 {
+		selectProxies = make([]string, 0, len(proxyNames)+1)
+		selectProxies = append(selectProxies, "AUTO")
+		selectProxies = append(selectProxies, proxyNames...)
+		autoProxies = proxyNames
+	} else {
+		selectProxies = []string{"DIRECT"}
+		autoProxies = []string{"DIRECT"}
 	}
 
 	mixedPort := params.MixedPort
@@ -80,14 +107,14 @@ func ExportClashWithParams(nodes []*protocol.NodeConfig, params ClashParams) (st
 			{
 				"name":    "PROXIES",
 				"type":    "select",
-				"proxies": fallbackProxies,
+				"proxies": selectProxies,
 			},
 			{
 				"name":     "AUTO",
 				"type":     "url-test",
 				"url":      "http://www.gstatic.com/generate_204",
 				"interval": 300,
-				"proxies":  fallbackProxies,
+				"proxies":  autoProxies,
 			},
 		},
 		Rules: []string{
@@ -98,6 +125,10 @@ func ExportClashWithParams(nodes []*protocol.NodeConfig, params ClashParams) (st
 	data, err := yaml.Marshal(&cfg)
 	if err != nil {
 		return "", fmt.Errorf("failed to marshal clash yaml: %w", err)
+	}
+
+	if len(proxyNames) == 0 {
+		return clashEmptyNotice + string(data), nil
 	}
 
 	return string(data), nil

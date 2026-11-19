@@ -31,9 +31,12 @@ func (h *SubHandler) GetSubscription(c *gin.Context) {
 
 	tagFilter := c.Query("tag")
 	reqHost := c.Request.Host
-	format := c.Query("format")
+	format := strings.TrimSpace(c.Query("format"))
 	if format == "" {
-		format = c.Query("type")
+		format = strings.TrimSpace(c.Query("type"))
+	}
+	if format == "" {
+		format = detectFormatFromUA(c.GetHeader("User-Agent"))
 	}
 
 	var routeFilters []uint16
@@ -79,4 +82,16 @@ func (h *SubHandler) GetSubscription(c *gin.Context) {
 
 	// 返回对应格式的订阅内容
 	c.String(http.StatusOK, output)
+}
+
+func detectFormatFromUA(userAgent string) string {
+	ua := strings.ToLower(strings.TrimSpace(userAgent))
+	switch {
+	case strings.Contains(ua, "clash"), strings.Contains(ua, "mihomo"), strings.Contains(ua, "stash"):
+		return "clash"
+	case strings.Contains(ua, "sing-box"), strings.Contains(ua, "singbox"):
+		return "sing-box"
+	default:
+		return ""
+	}
 }

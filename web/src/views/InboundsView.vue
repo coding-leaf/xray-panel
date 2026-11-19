@@ -37,7 +37,7 @@
 
     <!-- Filter Bar -->
     <div class="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-2.5">
-      <div class="flex flex-1 items-center gap-2 max-w-md">
+      <div class="flex flex-1 flex-wrap sm:flex-nowrap items-center gap-2 max-w-2xl">
         <!-- Search Input -->
         <div class="relative w-full">
           <Search class="absolute left-2.5 top-2.5 w-3.5 h-3.5 text-muted-foreground" />
@@ -48,6 +48,18 @@
             class="w-full bg-neutral-950 border border-border text-foreground text-xs rounded-md pl-8 pr-3 h-8 placeholder:text-muted-foreground font-mono focus:outline-none focus:ring-1 focus:ring-ring"
           />
         </div>
+
+        <!-- Node Filter -->
+        <select
+          v-model="nodeFilter"
+          class="h-8 bg-neutral-950 border border-border text-foreground text-xs rounded-md px-2.5 font-mono focus:outline-none focus:ring-1 focus:ring-ring shrink-0"
+        >
+          <option value="all">全部节点</option>
+          <option value="0">本机 Master</option>
+          <option v-for="n in nodesList" :key="n.id" :value="String(n.id)">
+            {{ n.name }}{{ n.region ? ` (${n.region})` : '' }}
+          </option>
+        </select>
 
         <!-- Protocol Filter -->
         <select
@@ -80,6 +92,7 @@
       :inbounds="filteredInbounds"
       :selected-inbound="selectedInbound"
       :users-list="usersList"
+      :node-map="nodeMap"
       :reality-summary="realitySummary"
       @inspect="inspectInbound"
       @edit="editInbound"
@@ -108,6 +121,7 @@
       :initial-data="selectedInbound"
       :users-list="usersList"
       :available-outbounds="availableOutbounds"
+      :nodes-list="nodesList"
       @saved="onSaved"
     />
   </div>
@@ -139,11 +153,14 @@ const isEditing = ref(false)
 const {
   inbounds,
   usersList,
+  nodesList,
+  nodeMap,
   availableOutbounds,
   checkingReality,
   realitySummary,
   searchQuery,
   protocolFilter,
+  nodeFilter,
   filteredInbounds,
   realityAlertCount,
   fetchAll,

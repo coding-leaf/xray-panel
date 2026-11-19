@@ -6,6 +6,7 @@ import {
   checkRealityStatus,
   type RealitySummaryStatus,
 } from '../../../api/reality'
+import { listNodes, type NodeItem } from '../../../api/nodes'
 import type { InboundItem } from '../types'
 
 export function getRealityBadgeClass(status: 'ok' | 'warning' | 'error') {
@@ -231,14 +232,31 @@ export function getAssignedUserEmails(inb: any, usersList: any[] = []): string[]
 export function useInboundList() {
   const inbounds = ref<InboundItem[]>([])
   const usersList = ref<any[]>([])
+  const nodesList = ref<NodeItem[]>([])
   const availableOutbounds = ref<string[]>(['direct', 'block'])
   const checkingReality = ref(false)
   const realitySummary = ref<RealitySummaryStatus | null>(null)
   const searchQuery = ref('')
   const protocolFilter = ref('all')
+  const nodeFilter = ref('all')
+
+  const nodeMap = computed<Record<number, NodeItem>>(() => {
+    const map: Record<number, NodeItem> = {}
+    for (const n of nodesList.value) {
+      map[n.id] = n
+    }
+    return map
+  })
 
   const filteredInbounds = computed(() => {
     return inbounds.value.filter((ib) => {
+      // Node filter
+      if (nodeFilter.value !== 'all') {
+        const targetNodeId = Number(nodeFilter.value)
+        if ((ib.nodeId || 0) !== targetNodeId) {
+          return false
+        }
+      }
       // Protocol filter
       if (
         protocolFilter.value !== 'all' &&
@@ -253,7 +271,10 @@ export function useInboundList() {
       const portMatch = String(ib.port).includes(q) || String(ib.externalPort || '').includes(q)
       const protoMatch = ib.protocol?.toLowerCase().includes(q)
       const hostMatch = ib.externalHost?.toLowerCase().includes(q)
-      return tagMatch || portMatch || protoMatch || hostMatch
+      const nodeNameMatch = ib.nodeId
+        ? (nodeMap.value[ib.nodeId]?.name || '').toLowerCase().includes(q)
+        : false
+      return tagMatch || portMatch || protoMatch || hostMatch || nodeNameMatch
     })
   })
 
@@ -301,11 +322,13 @@ export function useInboundList() {
 
   const fetchAll = async () => {
     try {
-      const [inbRes, uRes, obRes]: any = await Promise.all([
+      const [inbRes, uRes, obRes, nRes]: any = await Promise.all([
         api.get('/inbounds'),
         api.get('/users'),
         api.get('/outbounds').catch(() => []),
+        listNodes().catch(() => []),
       ])
+      nodesList.value = Array.isArray(nRes) ? nRes : []
       inbounds.value = (inbRes || []).map((ib: any) => {
         let srs: any[] = []
         try {
@@ -351,11 +374,14 @@ export function useInboundList() {
   return {
     inbounds,
     usersList,
+    nodesList,
+    nodeMap,
     availableOutbounds,
     checkingReality,
     realitySummary,
     searchQuery,
     protocolFilter,
+    nodeFilter,
     filteredInbounds,
     realityAlertCount,
     fetchAll,

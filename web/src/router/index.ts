@@ -6,6 +6,7 @@ const PortalClaimView = () => import('../views/PortalClaimView.vue')
 const DashboardView = () => import('../views/DashboardView.vue')
 const TopologyView = () => import('../views/TopologyView.vue')
 const InboundsView = () => import('../views/InboundsView.vue')
+const NodesView = () => import('../views/NodesView.vue')
 const OutboundsView = () => import('../views/OutboundsView.vue')
 const RoutingView = () => import('../views/RoutingView.vue')
 const DNSView = () => import('../views/DNSView.vue')
@@ -20,6 +21,7 @@ const routes: RouteRecordRaw[] = [
   { path: '/', component: DashboardView, meta: { requiresAuth: true } },
   { path: '/topology', component: TopologyView, meta: { requiresAuth: true } },
   { path: '/inbounds', component: InboundsView, meta: { requiresAuth: true } },
+  { path: '/nodes', component: NodesView, meta: { requiresAuth: true } },
   { path: '/outbounds', component: OutboundsView, meta: { requiresAuth: true } },
   { path: '/routing', component: RoutingView, meta: { requiresAuth: true } },
   { path: '/dns', component: DNSView, meta: { requiresAuth: true } },

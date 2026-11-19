@@ -29,6 +29,7 @@ type InboundRepository interface {
 	GetByID(ctx context.Context, id uint) (*Inbound, error)
 	GetByTag(ctx context.Context, tag string) (*Inbound, error)
 	ListAll(ctx context.Context) ([]Inbound, error)
+	FindByNodeID(ctx context.Context, nodeID uint) ([]Inbound, error)
 	AddTraffic(ctx context.Context, tag string, upBytes, downBytes int64) error
 }
 

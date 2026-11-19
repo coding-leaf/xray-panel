@@ -247,3 +247,76 @@ handlerCli, _, err := c.getClients(ctx)
 if err != nil { return err }
 _, err = handlerCli.AlterInbound(...)
 ```
+
+---
+
+## 12. 多节点控制面边界、远端编译一致性与凭证隔离契约 (Multi-Node Control Plane & Agent Sync Invariants)
+
+### 1. Scope / Trigger
+- **Trigger**: 任何修改 `xray.Manager`（本机 gRPC 用户增删）、`NodeService` / `ConfigService`（远端配置编译、快照缓存失效、Raw JSON 反向同步）、`XrayCompiler.BuildRemoteNodeUsers` / `agent.XrayGRPCAdapter` / `agent.UserSyncer`、`SubService.prepareInboundForNode`、`NodeService.RenderInstallScript` 或 `domain.InboundRepository` 的路径。
+
+### 2. Signatures
+- `(domain.Inbound).IsLocal() bool` (`internal/domain/inbound.go`)
+- `domain.InboundRepository.FindByNodeID(ctx context.Context, nodeID uint) ([]domain.Inbound, error)` (`internal/domain/repository.go`)
+- `domain.AgentSyncUser.Method string` (`json:"method,omitempty"`, `internal/domain/node.go`)
+- `normalizeNodeRouting(ctx context.Context, raw domain.RoutingConfig, inbounds []domain.Inbound, enabledOnly bool) domain.RoutingConfig` (`internal/service/config_service.go`)
+- `(*ConfigService).validateRawInboundsOwnershipLocked(ctx context.Context, inboundsRaw []json.RawMessage) error` (`internal/service/config_service.go`)
+- `const remoteAPIPort = 8080` (`internal/adapter/xray/compiler.go`)
+
+### 3. Contracts
+- **本机 vs 远端 gRPC 硬隔离**：
+  - `xray.Manager.AddUser` 与 `RemoveUser` 必须首先检查 `if !inbound.IsLocal() { return nil }`；远端入站（`NodeID > 0`）仅由对应 `xray-agent` 通过心跳 `UserSync` 管理，严禁主控机对远端 `tag` 调用本机 gRPC（否则触发 `handler not found` 导致 `UserService` Saga 回滚及 TG `/adduser` 失效）。
+  - 端到端测试（如 `agent_e2e_test.go`）必须覆盖**非空 `xrayManager`** 且本机与远端入站共存的用户写操作链路。
+- **远端 `SubRoute` 编译单一事实源与缓存失效**：
+  - `NodeService.getOrBuildSnapshot`、`ConfigService.GetNodeCompiledConfigRaw` 与 `ConfigService.GetRoutingConfigByNode` 必须共用同一 `normalizeNodeRouting`（包含 `ensureSubRouteRules`），确保 Routing UI、ConfigView 预览与 Agent 实得 `config.json` 绝对一致。
+  - `ConfigService.saveAndApplyRawConfigLocked`（覆盖 Raw 保存与 `RollbackSnapshot`）成功后必须调用 `s.invalidateAllNodeCaches()`；锁序固定为 `ConfigService.mu -> NodeService.mu`（叶锁），禁止反向持锁。
+  - 主控 Raw JSON 写入与反向同步（`validateRawInboundsOwnershipLocked`）必须拦截任何与现存远端入站（`!existing.IsLocal()`）碰撞的 `tag`。
+- **远端 Shadowsocks / SS-2022 增量热加载契约**：
+  - `BuildRemoteNodeUsers` 必须向 `AgentSyncUser.Method` 透传加密套件；`agent.XrayGRPCAdapter.AddUser` 据此构造有效 `SettingsJSON` 供 `ResolveAdapter` 命中正确的 `ShadowsocksAdapter` / `Shadowsocks2022Adapter`，`agent.UserSyncer.Reconcile` 必须将 `Method` 纳入变更比对。
+- **远端直连订阅端口回退**：
+  - `SubService.prepareInboundForNode` 中，若 `!ibCopy.IsLocal() && ibCopy.ExternalPort <= 0`，必须回落至 `ibCopy.Port`（仅本机入站沿用主控 `public_port` 兜底）。
+- **Agent 安装脚本与计费公式单源**：
+  - `RenderInstallScript` 必须将 `MASTER_URL` 与 `AGENT_TOKEN` 写入 `0600` 权限的 `/etc/xray-agent/agent.env` 并通过 systemd `EnvironmentFile=` 注入，严禁在 `ExecStart` 命令行明文传递 `--token`；默认心跳间隔在安装脚本、`cmd/agent/main.go`、`internal/agent/runner.go` 与 Master 间统一为 `60s`。
+  - `internal/agent/quota_store.go` 必须直接复用 `domain.CalcTrafficByMode` 与 `domain.ReachedQuotaThreshold`（`domain` 零外部依赖，`cmd/agent` 严禁引入 `gin`/`gorm`/`sqlite`/`telegram`）。
+
+### 4. Validation & Error Matrix
+- `inbound.NodeID > 0` 进入 `xray.Manager.AddUser/RemoveUser` -> 直接返回 `nil`（零本机 gRPC 调用）；
+- 主控 Raw JSON 中出现与某远端入站同名的 `tag` -> `validateRawInboundsOwnershipLocked` 返回校验错误阻断写盘与反向同步；
+- 远端 SS-2022 入站热增用户 -> `AgentSyncUser.Method` 非空，Agent 正确调用 `Shadowsocks2022Adapter`。
+
+### 5. Good / Base / Bad Cases
+- **Good**: 系统同时启用本机入站和远端 SS-2022 + SubRoute 入站，创建/编辑/重置用户与 TG `/adduser` 均无报错；无需打开保存 `RoutingView`，Agent 同步配置与预览即包含完整 `SubRoute` 规则；远端直连入站留空 `ExternalPort` 导出自身监听端口。
+- **Base**: 本机入站 `ExternalPort == 0` 维持主控 `public_port` 回退；旧版 Agent 收到可选 `method` 字段向后兼容忽略。
+- **Bad**: `xray.Manager` 漏检 `IsLocal()`、`agent_e2e_test.go` 仅传 `xrayManager = nil`、`ExecStart` 明文暴露 `--token`、或在 `agent/` 中复制一份 `CalcTrafficByMode`。
+
+### 6. Tests Required
+- `TestManager_RemoteInboundShortCircuit` (`internal/adapter/xray/manager_test.go`)
+- `TestAgentE2E_NonNilXrayManager_LocalAndRemoteInboundCoexistence` (`internal/delivery/http/agent_e2e_test.go`)
+- `TestBotHandler_AddUser_LocalAndRemoteCoexistence` (`internal/adapter/telegram/bot_test.go`)
+- `TestNodeService_Snapshot_IncludesRemoteSubRouteRulesWithoutRoutingSave` & `TestNodeService_RenderInstallScript_EnvFileAndInterval` (`internal/service/node_service_test.go`)
+- `TestConfigService_SaveAndRollbackRawConfig_InvalidatesNodeCaches` & `TestConfigService_RawConfig_RejectsRemoteInboundTagCollision` (`internal/service/config_service_test.go`)
+- `TestXrayCompiler_BuildRemoteNodeUsers_ShadowsocksMethod` (`internal/adapter/xray/compiler_test.go`) & `TestXrayGRPCAdapter_AddUser_ShadowsocksMethods` (`internal/agent/xray_grpc_adapter_test.go`)
+- `TestSubService_RemoteInboundExternalPortFallback` (`internal/service/sub_service_test.go`)
+
+### 7. Wrong vs Correct
+#### Wrong
+```go
+// 错误 1：未拦截远端入站导致主控本机 gRPC 报 handler not found 并触发 Saga 回滚
+inbound, err := m.inboundRepo.GetByTag(ctx, inboundTag)
+if !SupportsDynamicUser(inbound.Protocol) { return nil }
+return m.grpcClient.AddUser(ctx, inbound, user)
+
+// 错误 2：systemd ExecStart 明文暴露 Agent Token
+ExecStart=/usr/local/bin/xray-agent --master-url ${MASTER_URL} --token ${NODE_TOKEN} --interval 20s
+```
+#### Correct
+```go
+// 正确 1：仅本机入站操作本机 gRPC，远端入站由 Agent 心跳同步接管
+inbound, err := m.inboundRepo.GetByTag(ctx, inboundTag)
+if !inbound.IsLocal() || !SupportsDynamicUser(inbound.Protocol) { return nil }
+return m.grpcClient.AddUser(ctx, inbound, user)
+
+// 正确 2：凭证写入 0600 环境文件并通过 EnvironmentFile 注入，间隔统一 60s
+EnvironmentFile=/etc/xray-agent/agent.env
+ExecStart=/usr/local/bin/xray-agent --spool-dir /var/lib/xray-agent --interval 60s
+```

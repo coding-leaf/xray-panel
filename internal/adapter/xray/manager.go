@@ -38,6 +38,13 @@ func (m *Manager) AddUser(ctx context.Context, inboundTag string, user *domain.U
 	if err != nil {
 		return err
 	}
+	if inbound == nil {
+		return domain.ErrNotFound
+	}
+	if !inbound.IsLocal() {
+		slog.Debug("skip AddUser: inbound belongs to remote node", "node_id", inbound.NodeID, "tag", inboundTag)
+		return nil
+	}
 	if !domain.SupportsDynamicUser(inbound.Protocol) {
 		slog.Debug("skip AddUser: inbound does not support dynamic user management", "protocol", inbound.Protocol, "tag", inboundTag)
 		return nil
@@ -53,6 +60,10 @@ func (m *Manager) AddUser(ctx context.Context, inboundTag string, user *domain.U
 func (m *Manager) RemoveUser(ctx context.Context, inboundTag string, email string) error {
 	if m.inboundRepo != nil {
 		if inbound, err := m.inboundRepo.GetByTag(ctx, inboundTag); err == nil && inbound != nil {
+			if !inbound.IsLocal() {
+				slog.Debug("skip RemoveUser: inbound belongs to remote node", "node_id", inbound.NodeID, "tag", inboundTag)
+				return nil
+			}
 			if !domain.SupportsDynamicUser(inbound.Protocol) {
 				return nil
 			}

@@ -163,7 +163,7 @@
         <Network class="w-12 h-12 mx-auto text-muted-foreground/40 mb-3" />
         <h3 class="text-sm font-semibold text-foreground">暂未发布任何分流线路</h3>
         <p class="text-xs text-muted-foreground mt-1">
-          点击右上角“⚡ 1步发布落地线路”即可一键将落地节点发布为订阅线路
+          请在接入网关中配置分流通道，或先新建接入网关与落地出口
         </p>
       </div>
     </div>
@@ -369,7 +369,6 @@ const getManagedNode = (ob: any) =>
   matchManagedNodeForOutbound(ob, nodesList.value, activeNodeId.value)
 
 defineEmits<{
-  (e: 'openWizard'): void
   (e: 'openCreateGateway'): void
   (e: 'openCreateExit'): void
   (e: 'toggleChannelStatus', ch: any): void

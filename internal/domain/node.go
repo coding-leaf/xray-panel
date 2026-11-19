@@ -381,6 +381,7 @@ type AgentSyncUser struct {
 	Email      string `json:"email"`
 	UUID       string `json:"uuid"`
 	Flow       string `json:"flow,omitempty"`
+	Method     string `json:"method,omitempty"`
 }
 
 // AgentQuotaPolicy delivers the node's quota policy and current cycle baseline to the agent.

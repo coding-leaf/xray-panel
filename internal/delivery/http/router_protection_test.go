@@ -54,6 +54,9 @@ func (m *mockSubInboundRepo) ListEnabled(ctx context.Context) ([]domain.Inbound,
 	return nil, nil
 }
 func (m *mockSubInboundRepo) ListAll(ctx context.Context) ([]domain.Inbound, error) { return nil, nil }
+func (m *mockSubInboundRepo) FindByNodeID(ctx context.Context, nodeID uint) ([]domain.Inbound, error) {
+	return nil, nil
+}
 func (m *mockSubInboundRepo) GetByID(ctx context.Context, id uint) (*domain.Inbound, error) {
 	return nil, nil
 }

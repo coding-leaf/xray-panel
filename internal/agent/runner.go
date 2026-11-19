@@ -8,7 +8,7 @@ import (
 	"time"
 )
 
-const defaultSyncInterval = 20 * time.Second
+const defaultSyncInterval = 60 * time.Second
 
 // RunnerConfig configures the Agent sync loop.
 type RunnerConfig struct {

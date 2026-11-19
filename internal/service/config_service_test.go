@@ -1735,6 +1735,139 @@ func TestConfigService_PerNodeConfigAndCacheInvalidation(t *testing.T) {
 	}
 }
 
+func TestConfigService_SaveAndRollbackRawConfig_InvalidatesNodeCaches(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "raw_cache_inv.db")
+	db, err := repository.InitSQLite(dbPath)
+	if err != nil {
+		t.Fatalf("InitSQLite failed: %v", err)
+	}
+	if sqlDB, err := db.DB(); err == nil {
+		t.Cleanup(func() { _ = sqlDB.Close() })
+	}
+
+	inboundRepo := repository.NewInboundRepository(db)
+	userRepo := repository.NewUserRepository(db)
+	snapshotRepo := repository.NewGormConfigSnapshotRepository(db)
+	cfgMgr := xray.NewConfigManager(filepath.Join(t.TempDir(), "local_xray.json"), "")
+	compiler := xray.NewXrayCompiler(8080)
+	inv := &spyNodeCacheInvalidator{}
+
+	initialRaw := []byte(`{"inbounds":[],"outbounds":[{"tag":"direct","protocol":"freedom"}]}`)
+	if err := cfgMgr.WriteConfig(context.Background(), initialRaw); err != nil {
+		t.Fatalf("WriteConfig initial failed: %v", err)
+	}
+
+	svc := service.NewConfigService(cfgMgr, nil, inboundRepo, userRepo, snapshotRepo, compiler).
+		WithNodeCacheInvalidator(inv)
+	ctx := context.Background()
+
+	updatedRaw := []byte(`{"inbounds":[],"outbounds":[{"tag":"direct","protocol":"freedom"},{"tag":"block","protocol":"blackhole"}]}`)
+	if err := svc.SaveAndApplyRawConfig(ctx, updatedRaw); err != nil {
+		t.Fatalf("SaveAndApplyRawConfig failed: %v", err)
+	}
+	if inv.invalidateAllCnt != 1 {
+		t.Fatalf("expected InvalidateAll count 1 after SaveAndApplyRawConfig, got %d", inv.invalidateAllCnt)
+	}
+
+	snaps, err := svc.ListSnapshots(ctx, 10)
+	if err != nil || len(snaps) == 0 {
+		t.Fatalf("expected snapshot recorded before SaveAndApplyRawConfig, snaps=%d err=%v", len(snaps), err)
+	}
+	if err := svc.RollbackSnapshot(ctx, snaps[0].ID); err != nil {
+		t.Fatalf("RollbackSnapshot failed: %v", err)
+	}
+	if inv.invalidateAllCnt != 2 {
+		t.Fatalf("expected InvalidateAll count 2 after RollbackSnapshot, got %d", inv.invalidateAllCnt)
+	}
+}
+
+func TestConfigService_RawConfig_RejectsRemoteInboundTagCollision(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "raw_remote_collision.db")
+	db, err := repository.InitSQLite(dbPath)
+	if err != nil {
+		t.Fatalf("InitSQLite failed: %v", err)
+	}
+	if sqlDB, err := db.DB(); err == nil {
+		t.Cleanup(func() { _ = sqlDB.Close() })
+	}
+
+	inboundRepo := repository.NewInboundRepository(db)
+	userRepo := repository.NewUserRepository(db)
+	snapshotRepo := repository.NewGormConfigSnapshotRepository(db)
+	cfgPath := filepath.Join(t.TempDir(), "local_xray.json")
+	cfgMgr := xray.NewConfigManager(cfgPath, "")
+	compiler := xray.NewXrayCompiler(8080)
+
+	ctx := context.Background()
+	remoteIb := &domain.Inbound{
+		NodeID:   2,
+		Tag:      "jp-remote-vless",
+		Port:     18443,
+		Listen:   "0.0.0.0",
+		Protocol: "vless",
+		Enabled:  true,
+	}
+	if err := inboundRepo.Create(ctx, remoteIb); err != nil {
+		t.Fatalf("create remote inbound failed: %v", err)
+	}
+
+	originalLocal := []byte(`{"inbounds":[],"outbounds":[{"tag":"direct","protocol":"freedom"}]}`)
+	if err := cfgMgr.WriteConfig(ctx, originalLocal); err != nil {
+		t.Fatalf("WriteConfig failed: %v", err)
+	}
+	beforeDiskRaw, err := cfgMgr.ReadRawConfig()
+	if err != nil {
+		t.Fatalf("ReadRawConfig before failed: %v", err)
+	}
+
+	svc := service.NewConfigService(cfgMgr, nil, inboundRepo, userRepo, snapshotRepo, compiler)
+
+	collidingRaw := []byte(`{
+		"inbounds": [
+			{"tag": "jp-remote-vless", "port": 9999, "listen": "127.0.0.1", "protocol": "vless", "settings": {}}
+		],
+		"outbounds": [{"tag": "direct", "protocol": "freedom"}]
+	}`)
+
+	err = svc.SaveAndApplyRawConfig(ctx, collidingRaw)
+	if err == nil {
+		t.Fatalf("expected SaveAndApplyRawConfig to reject colliding remote inbound tag")
+	}
+	if !errors.Is(err, domain.ErrInvalidInput) {
+		t.Fatalf("expected ErrInvalidInput on remote tag collision, got: %v", err)
+	}
+
+	// Remote inbound in DB must remain untouched
+	afterDB, err := inboundRepo.GetByTag(ctx, "jp-remote-vless")
+	if err != nil {
+		t.Fatalf("GetByTag failed: %v", err)
+	}
+	if afterDB.Port != 18443 || afterDB.NodeID != 2 {
+		t.Fatalf("remote inbound was mutated despite collision rejection: %+v", afterDB)
+	}
+
+	// Local config.json must not have been overwritten with colliding raw JSON
+	diskRaw, err := cfgMgr.ReadRawConfig()
+	if err != nil {
+		t.Fatalf("ReadRawConfig failed: %v", err)
+	}
+	if string(diskRaw) != string(beforeDiskRaw) {
+		t.Fatalf("local config.json was overwritten on rejected SaveAndApplyRawConfig: %s", string(diskRaw))
+	}
+
+	// Direct SyncFromFile must also reject colliding remote inbound tag without mutating DB
+	if err := os.WriteFile(cfgPath, collidingRaw, 0o600); err != nil {
+		t.Fatalf("write colliding file failed: %v", err)
+	}
+	if err := svc.SyncFromFile(ctx); !errors.Is(err, domain.ErrInvalidInput) {
+		t.Fatalf("expected SyncFromFile to reject colliding remote inbound tag with ErrInvalidInput, got: %v", err)
+	}
+	afterSyncDB, err := inboundRepo.GetByTag(ctx, "jp-remote-vless")
+	if err != nil || afterSyncDB.Port != 18443 || afterSyncDB.NodeID != 2 {
+		t.Fatalf("remote inbound mutated during rejected SyncFromFile: %+v err=%v", afterSyncDB, err)
+	}
+}
+
 
 
 

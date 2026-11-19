@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -17,11 +18,16 @@ import (
 
 	"panel/internal/adapter/repository"
 	"panel/internal/adapter/xray"
+	"panel/internal/adapter/xray/proto"
 	"panel/internal/agent"
 	deliveryHTTP "panel/internal/delivery/http"
 	"panel/internal/delivery/http/middleware"
 	"panel/internal/domain"
 	"panel/internal/service"
+
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 type spyResponseWriter struct {
@@ -1803,5 +1809,136 @@ func TestMasterAgent_E2E_SyncStatusAckAndRemoteGeoUpdate(t *testing.T) {
 	_ = json.Unmarshal(rawUsers4, &users4)
 	if len(users4) != 1 || users4[0].UpBytes != 2348 || users4[0].DownBytes != 4796 {
 		t.Fatalf("expected user traffic 2348/4796 (no recount on geo ack), got %+v", users4)
+	}
+}
+
+type e2eLocalHandlerServer struct {
+	proto.UnimplementedHandlerServiceServer
+	mu         sync.Mutex
+	localTags  map[string]bool
+	calledTags []string
+}
+
+func (s *e2eLocalHandlerServer) AlterInbound(ctx context.Context, req *proto.AlterInboundRequest) (*proto.AlterInboundResponse, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.calledTags = append(s.calledTags, req.GetTag())
+	if !s.localTags[req.GetTag()] {
+		return nil, status.Errorf(codes.Unknown, "app/proxyman/command: failed to get handler: handler not found: %s", req.GetTag())
+	}
+	return &proto.AlterInboundResponse{}, nil
+}
+
+func TestAgentE2E_NonNilXrayManager_LocalAndRemoteInboundCoexistence(t *testing.T) {
+	lis, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listen failed: %v", err)
+	}
+	grpcSrv := grpc.NewServer()
+	fakeXray := &e2eLocalHandlerServer{
+		localTags: map[string]bool{"local-vless": true},
+	}
+	proto.RegisterHandlerServiceServer(grpcSrv, fakeXray)
+	go func() { _ = grpcSrv.Serve(lis) }()
+	defer grpcSrv.Stop()
+
+	dbPath := filepath.Join(t.TempDir(), "e2e_non_nil_xray.db")
+	db, err := repository.InitSQLite(dbPath)
+	if err != nil {
+		t.Fatalf("InitSQLite failed: %v", err)
+	}
+	if sqlDB, err := db.DB(); err == nil {
+		t.Cleanup(func() { _ = sqlDB.Close() })
+	}
+
+	nodeRepo := repository.NewNodeRepository(db)
+	userRepo := repository.NewUserRepository(db)
+	inboundRepo := repository.NewInboundRepository(db)
+	trafficLogRepo := repository.NewGormTrafficLogRepository(db)
+	snapshotRepo := repository.NewGormConfigSnapshotRepository(db)
+
+	compiler := xray.NewXrayCompiler(8080)
+	masterConfigMgr := xray.NewConfigManager(filepath.Join(t.TempDir(), "master_xray.json"), "")
+	grpcClient := xray.NewGRPCClient(lis.Addr().String())
+	defer func() { _ = grpcClient.Close() }()
+	xrayMgr := xray.NewManager(grpcClient, masterConfigMgr, nil, inboundRepo)
+
+	nodeSvc := service.NewNodeService(nodeRepo, nodeRepo, inboundRepo, userRepo, compiler)
+	configSvc := service.NewConfigService(masterConfigMgr, nil, inboundRepo, userRepo, snapshotRepo, compiler).
+		WithNodeCacheInvalidator(nodeSvc).
+		WithNodeRepo(nodeRepo)
+	userSvc := service.NewUserService(userRepo, inboundRepo, trafficLogRepo, xrayMgr, configSvc).
+		WithNodeCacheInvalidator(nodeSvc)
+
+	ctx := context.Background()
+	node, err := nodeSvc.CreateNode(ctx, domain.CreateNodeDTO{
+		Name: "JP Edge",
+		Host: "127.0.0.1",
+	})
+	if err != nil {
+		t.Fatalf("CreateNode failed: %v", err)
+	}
+
+	if err := configSvc.CreateInbound(ctx, &domain.Inbound{
+		NodeID:   0,
+		Tag:      "local-vless",
+		Port:     18441,
+		Protocol: "vless",
+		Enabled:  true,
+	}); err != nil {
+		t.Fatalf("create local inbound failed: %v", err)
+	}
+	if err := configSvc.CreateInbound(ctx, &domain.Inbound{
+		NodeID:   node.ID,
+		Tag:      "remote-jp-vless",
+		Port:     18442,
+		Protocol: "vless",
+		Enabled:  true,
+	}); err != nil {
+		t.Fatalf("create remote inbound failed: %v", err)
+	}
+
+	// 1. CreateUser with both local + remote inbounds
+	createdUser, err := userSvc.CreateUser(ctx, service.CreateUserDTO{
+		Email:       "coexist@example.com",
+		InboundTags: []string{"local-vless", "remote-jp-vless"},
+		TotalBytes:  10 * 1024 * 1024 * 1024,
+	})
+	if err != nil {
+		t.Fatalf("CreateUser failed with local+remote coexistence: %v", err)
+	}
+
+	// 2. UpdateUser
+	if _, err := userSvc.UpdateUser(ctx, createdUser.ID, domain.UpdateUserDTO{
+		TotalBytes:  20 * 1024 * 1024 * 1024,
+		InboundTags: []string{"local-vless", "remote-jp-vless"},
+	}); err != nil {
+		t.Fatalf("UpdateUser failed: %v", err)
+	}
+
+	// 3. ResetTraffic
+	if err := userSvc.ResetTraffic(ctx, createdUser.ID); err != nil {
+		t.Fatalf("ResetTraffic failed: %v", err)
+	}
+
+	// 4. ResetSubToken
+	if _, err := userSvc.ResetSubToken(ctx, createdUser.ID); err != nil {
+		t.Fatalf("ResetSubToken failed: %v", err)
+	}
+
+	// 5. DeleteUser
+	if err := userSvc.DeleteUser(ctx, createdUser.ID); err != nil {
+		t.Fatalf("DeleteUser failed: %v", err)
+	}
+
+	fakeXray.mu.Lock()
+	defer fakeXray.mu.Unlock()
+	if len(fakeXray.calledTags) == 0 {
+		t.Fatalf("expected local gRPC calls for local-vless, got none")
+	}
+	for _, tag := range fakeXray.calledTags {
+		if tag != "local-vless" {
+			t.Fatalf("local Xray gRPC must NEVER be called for remote tag %q (all calls: %v)", tag, fakeXray.calledTags)
+		}
 	}
 }

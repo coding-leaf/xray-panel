@@ -79,7 +79,7 @@ func applyNodePrefix(name, prefix string) string {
 }
 
 func prepareInboundForNode(ib domain.Inbound, activeNodes map[uint]domain.Node) (domain.Inbound, domain.Node, bool) {
-	if ib.NodeID == 0 {
+	if ib.IsLocal() {
 		return ib, domain.Node{}, true
 	}
 	node, ok := activeNodes[ib.NodeID]
@@ -89,6 +89,9 @@ func prepareInboundForNode(ib domain.Inbound, activeNodes map[uint]domain.Node) 
 	ibCopy := ib
 	if strings.TrimSpace(ibCopy.ExternalHost) == "" && strings.TrimSpace(node.Host) != "" {
 		ibCopy.ExternalHost = strings.TrimSpace(node.Host)
+	}
+	if !ibCopy.IsLocal() && ibCopy.ExternalPort <= 0 {
+		ibCopy.ExternalPort = ibCopy.Port
 	}
 	prefix := formatNodePrefix(node)
 	baseName := strings.TrimSpace(ibCopy.Remark)

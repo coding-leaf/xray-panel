@@ -2384,6 +2384,62 @@ func TestXrayCompiler_CompileRemoteNodeFull_OutboundsRoutingDNSAndStaticClients(
 	}
 }
 
+func TestXrayCompiler_BuildRemoteNodeUsers_ShadowsocksMethod(t *testing.T) {
+	compiler := xray.NewXrayCompiler(8080)
+	inbounds := []domain.Inbound{
+		{
+			NodeID:       2,
+			Tag:          "jp-ss2022",
+			Port:         18388,
+			Protocol:     "shadowsocks",
+			SettingsJSON: `{"method":"2022-blake3-aes-128-gcm","password":"server-base64-key=="}`,
+			Enabled:      true,
+		},
+		{
+			NodeID:       2,
+			Tag:          "jp-ss-chacha",
+			Port:         18389,
+			Protocol:     "shadowsocks",
+			SettingsJSON: `{"method":"chacha20-ietf-poly1305"}`,
+			Enabled:      true,
+		},
+		{
+			NodeID:   2,
+			Tag:      "jp-vless",
+			Port:     18443,
+			Protocol: "vless",
+			Enabled:  true,
+		},
+	}
+	users := []domain.User{
+		{
+			ID:          1,
+			Email:       "alice@example.com",
+			UUID:        "user-sub-key-1234",
+			InboundTags: "jp-ss2022,jp-ss-chacha,jp-vless",
+			Enabled:     true,
+		},
+	}
+
+	syncUsers, err := compiler.BuildRemoteNodeUsers(inbounds, users)
+	if err != nil {
+		t.Fatalf("BuildRemoteNodeUsers failed: %v", err)
+	}
+	byTag := make(map[string]domain.AgentSyncUser, len(syncUsers))
+	for _, su := range syncUsers {
+		byTag[su.InboundTag] = su
+	}
+	if got := byTag["jp-ss2022"].Method; got != "2022-blake3-aes-128-gcm" {
+		t.Fatalf("jp-ss2022 Method = %q, want 2022-blake3-aes-128-gcm", got)
+	}
+	if got := byTag["jp-ss-chacha"].Method; got != "chacha20-ietf-poly1305" {
+		t.Fatalf("jp-ss-chacha Method = %q, want chacha20-ietf-poly1305", got)
+	}
+	if got := byTag["jp-vless"].Method; got != "" {
+		t.Fatalf("jp-vless Method = %q, want empty string", got)
+	}
+}
+
 
 
 

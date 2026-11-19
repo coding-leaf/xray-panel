@@ -1095,3 +1095,140 @@ func TestNodeService_RemoteGeoUpdate_BrokerSuccessTimeoutAndConcurrentWaiters(t 
 		t.Fatalf("lightweight geo ack overwrote metrics: %+v", nodeAfter)
 	}
 }
+
+func TestNodeService_Snapshot_IncludesRemoteSubRouteRulesWithoutRoutingSave(t *testing.T) {
+	nodeSvc, configSvc, _, nodeRepo, _, _ := setupNodeServiceTestEnv(t)
+	configSvc.WithNodeRepo(nodeRepo)
+	ctx := context.Background()
+
+	created, err := nodeSvc.CreateNode(ctx, domain.CreateNodeDTO{
+		Name: "JP SubRoute",
+		Host: "127.0.0.1",
+	})
+	if err != nil {
+		t.Fatalf("CreateNode failed: %v", err)
+	}
+
+	// Add a remote outbound target for the SubRoute without ever calling SaveRoutingConfigByNode.
+	if err := configSvc.SaveOutboundByNode(ctx, created.ID, domain.Outbound{
+		Tag:      "warp-out",
+		Protocol: "freedom",
+	}); err != nil {
+		t.Fatalf("SaveOutboundByNode failed: %v", err)
+	}
+
+	// Create a remote inbound carrying an enabled SubRoute.
+	if err := configSvc.CreateInbound(ctx, &domain.Inbound{
+		NodeID:   created.ID,
+		Tag:      "jp-vless",
+		Port:     18443,
+		Protocol: "vless",
+		Enabled:  true,
+		SubRoutesJson: `[
+			{"id":"sr-1","name":"JP Warp","routeId":101,"outboundTag":"warp-out","enabled":true,"allowedUsers":["alice@example.com"]}
+		]`,
+	}); err != nil {
+		t.Fatalf("CreateInbound failed: %v", err)
+	}
+
+	assertHasSubRouteRule := func(label string, rawJSON []byte) {
+		t.Helper()
+		var parsed struct {
+			Routing struct {
+				Rules []struct {
+					InboundTag  []string `json:"inboundTag"`
+					VlessRoute  string   `json:"vlessRoute"`
+					OutboundTag string   `json:"outboundTag"`
+					User        []string `json:"user"`
+				} `json:"rules"`
+			} `json:"routing"`
+		}
+		if err := json.Unmarshal(rawJSON, &parsed); err != nil {
+			t.Fatalf("%s: unmarshal compiled config failed: %v", label, err)
+		}
+		for _, r := range parsed.Routing.Rules {
+			if r.VlessRoute == "101" && r.OutboundTag == "warp-out" && len(r.InboundTag) == 1 && r.InboundTag[0] == "jp-vless" && len(r.User) == 1 && r.User[0] == "alice@example.com" {
+				return
+			}
+		}
+		t.Fatalf("%s: missing expected SubRoute vlessRoute=101 rule in compiled routing: %+v", label, parsed.Routing.Rules)
+	}
+
+	// 1. Agent snapshot from NodeService.HandleAgentSync
+	syncResp, err := nodeSvc.HandleAgentSync(ctx, created.ID, &domain.AgentSyncRequest{})
+	if err != nil {
+		t.Fatalf("HandleAgentSync failed: %v", err)
+	}
+	assertHasSubRouteRule("NodeService.HandleAgentSync snapshot", []byte(syncResp.ConfigJSON))
+
+	// 2. ConfigView preview from ConfigService.GetNodeCompiledConfigRaw
+	previewRaw, err := configSvc.GetNodeCompiledConfigRaw(ctx, created.ID)
+	if err != nil {
+		t.Fatalf("GetNodeCompiledConfigRaw failed: %v", err)
+	}
+	assertHasSubRouteRule("ConfigService.GetNodeCompiledConfigRaw", previewRaw)
+
+	// 3. RoutingView UI from ConfigService.GetRoutingConfigByNode
+	uiRouting, err := configSvc.GetRoutingConfigByNode(ctx, created.ID)
+	if err != nil {
+		t.Fatalf("GetRoutingConfigByNode failed: %v", err)
+	}
+	foundUI := false
+	for _, r := range uiRouting.Rules {
+		if r.VlessRoute == "101" && r.OutboundTag == "warp-out" {
+			foundUI = true
+			break
+		}
+	}
+	if !foundUI {
+		t.Fatalf("GetRoutingConfigByNode missing SubRoute rule vlessRoute=101: %+v", uiRouting.Rules)
+	}
+}
+
+func TestNodeService_RenderInstallScript_EnvFileAndInterval(t *testing.T) {
+	nodeSvc, _, _, _, _, _ := setupNodeServiceTestEnv(t)
+	ctx := context.Background()
+
+	created, err := nodeSvc.CreateNode(ctx, domain.CreateNodeDTO{
+		Name: "Secure Node",
+		Host: "127.0.0.1",
+	})
+	if err != nil {
+		t.Fatalf("CreateNode failed: %v", err)
+	}
+
+	script, err := nodeSvc.RenderInstallScript(ctx, created.ID, "https://panel.example.test")
+	if err != nil {
+		t.Fatalf("RenderInstallScript failed: %v", err)
+	}
+
+	for _, mustHave := range []string{
+		"/etc/xray-agent/agent.env",
+		"0600",
+		"EnvironmentFile=/etc/xray-agent/agent.env",
+		"MASTER_URL=",
+		"AGENT_TOKEN=",
+		"--interval 60s",
+		"127.0.0.1:8080",
+	} {
+		if !strings.Contains(script, mustHave) {
+			t.Errorf("install script missing %q:\n%s", mustHave, script)
+		}
+	}
+
+	if strings.Contains(script, created.Token) {
+		t.Fatalf("install script leaked plaintext node token")
+	}
+
+	for _, line := range strings.Split(script, "\n") {
+		trimmed := strings.TrimSpace(line)
+		if strings.HasPrefix(trimmed, "ExecStart=") {
+			if strings.Contains(trimmed, "--token") {
+				t.Errorf("ExecStart must not pass plaintext --token CLI arg: %s", trimmed)
+			}
+			if !strings.Contains(trimmed, "--interval 60s") {
+				t.Errorf("ExecStart must use --interval 60s: %s", trimmed)
+			}
+		}
+	}
+}

@@ -344,6 +344,10 @@ func sortRemoteInputs(inbounds []domain.Inbound, users []domain.User) ([]domain.
 	return sortedInbounds, sortedUsers
 }
 
+// remoteAPIPort is the fixed loopback gRPC API port compiled into every remote node config.json
+// (127.0.0.1:8080). It must stay aligned with cmd/agent's default --xray-grpc address.
+const remoteAPIPort = 8080
+
 // CompileRemoteNode 为远端直连节点编译独立的 Xray 配置（直连 freedom 出站 + 本地 127.0.0.1:8080 API 入站 + 节点启用入站）。
 func (c *XrayCompiler) CompileRemoteNode(inbounds []domain.Inbound, users []domain.User) (*XrayConfigFile, error) {
 	return c.CompileRemoteNodeFull(inbounds, nil, nil, nil, users, nil)
@@ -400,7 +404,7 @@ func (c *XrayCompiler) CompileRemoteNodeFull(
 		cfg.Inbounds = append(cfg.Inbounds, *compiledInbound)
 	}
 
-	appendAPIInbound(cfg, 8080)
+	appendAPIInbound(cfg, remoteAPIPort)
 
 	compiledOutbounds, err := c.compileOutbounds(outbounds)
 	if err != nil {
@@ -439,6 +443,11 @@ func (c *XrayCompiler) BuildRemoteNodeUsers(inbounds []domain.Inbound, users []d
 		}
 		proto := strings.ToLower(strings.TrimSpace(inb.Protocol))
 		accessor := NewInboundStreamAccessorFromInbound(&inb)
+		method := ""
+		switch proto {
+		case "shadowsocks", "shadowsocks-2022", "ss", "ss-2022", "ss2022":
+			method = accessor.ResolveShadowsocksMethod()
+		}
 		for _, u := range filterActiveUsersForInbound(&inb, sortedUsers) {
 			flow := ""
 			if proto == "vless" {
@@ -450,6 +459,7 @@ func (c *XrayCompiler) BuildRemoteNodeUsers(inbounds []domain.Inbound, users []d
 				Email:      u.Email,
 				UUID:       u.UUID,
 				Flow:       flow,
+				Method:     method,
 			})
 		}
 	}

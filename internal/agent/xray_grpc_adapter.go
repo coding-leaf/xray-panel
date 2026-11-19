@@ -2,7 +2,10 @@ package agent
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"fmt"
+	"strings"
 
 	"panel/internal/adapter/xray"
 	"panel/internal/domain"
@@ -39,9 +42,20 @@ func (a *XrayGRPCAdapter) AddUser(ctx context.Context, user RemoteUser) error {
 	if user.Flow != "" {
 		streamSettings = `{"network":"tcp","security":"tls"}`
 	}
+	settingsJSON := ""
+	if method := strings.TrimSpace(user.Method); method != "" {
+		raw, err := json.Marshal(struct {
+			Method string `json:"method"`
+		}{Method: method})
+		if err != nil {
+			return fmt.Errorf("marshal shadowsocks method settings failed: %w", err)
+		}
+		settingsJSON = string(raw)
+	}
 	ib := &domain.Inbound{
 		Tag:            user.InboundTag,
 		Protocol:       user.Protocol,
+		SettingsJSON:   settingsJSON,
 		StreamSettings: streamSettings,
 	}
 	u := &domain.User{

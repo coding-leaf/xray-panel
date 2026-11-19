@@ -205,13 +205,6 @@
                 分流通道与规则 (Pipeline)
               </h3>
             </div>
-            <button
-              type="button"
-              @click="$emit('openWizard')"
-              class="text-[11px] text-muted-foreground hover:text-foreground font-medium transition-colors"
-            >
-              + 发布线路
-            </button>
           </div>
 
           <div class="space-y-2.5">
@@ -258,7 +251,6 @@
               @leave="onNodeLeave"
               @edit="$emit('editOutbound', $event)"
               @delete="$emit('deleteOutbound', $event)"
-              @publish="$emit('openWizard', $event)"
             />
           </div>
         </div>
@@ -383,7 +375,6 @@ interface Props {
 const props = defineProps<Props>()
 
 defineEmits<{
-  (e: 'openWizard', initialExitTag?: string): void
   (e: 'openCreateGateway'): void
   (e: 'openCreateExit'): void
   (e: 'toggleChannelStatus', node: TopologyNode): void

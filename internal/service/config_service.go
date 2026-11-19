@@ -173,6 +173,9 @@ func (s *ConfigService) SaveAndApplyRawConfig(ctx context.Context, rawJSON []byt
 }
 
 func (s *ConfigService) saveAndApplyRawConfigLocked(ctx context.Context, rawJSON []byte) error {
+	if err := s.validateRawConfigInboundOwnershipLocked(ctx, rawJSON); err != nil {
+		return err
+	}
 	s.recordSnapshotBeforeWrite(ctx, "保存并应用原生 JSON 配置")
 	if err := s.configMgr.WriteConfig(ctx, rawJSON); err != nil {
 		return err
@@ -182,7 +185,50 @@ func (s *ConfigService) saveAndApplyRawConfigLocked(ctx context.Context, rawJSON
 		return fmt.Errorf("sync from raw config failed: %w", err)
 	}
 	if s.supervisor != nil {
-		return s.supervisor.Reload(ctx)
+		if err := s.supervisor.Reload(ctx); err != nil {
+			return err
+		}
+	}
+	s.invalidateAllNodeCaches()
+	return nil
+}
+
+func (s *ConfigService) validateRawConfigInboundOwnershipLocked(ctx context.Context, rawJSON []byte) error {
+	if s.inboundRepo == nil {
+		return nil
+	}
+	cleaned := jsonc.StripJSONC(rawJSON)
+	var root map[string]interface{}
+	if err := json.Unmarshal(cleaned, &root); err != nil {
+		return fmt.Errorf("parse raw config json failed: %w", err)
+	}
+	inboundsRaw, ok := root["inbounds"].([]interface{})
+	if !ok {
+		return nil
+	}
+	return s.validateRawInboundsOwnershipLocked(ctx, inboundsRaw)
+}
+
+func (s *ConfigService) validateRawInboundsOwnershipLocked(ctx context.Context, inboundsRaw []interface{}) error {
+	if s.inboundRepo == nil {
+		return nil
+	}
+	for _, inRaw := range inboundsRaw {
+		ib, ok := inRaw.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		tag, _ := ib["tag"].(string)
+		if tag == "" || tag == "api" {
+			continue
+		}
+		existing, err := s.inboundRepo.GetByTag(ctx, tag)
+		if err != nil && !errors.Is(err, domain.ErrNotFound) {
+			return fmt.Errorf("lookup inbound %q failed: %w", tag, err)
+		}
+		if existing != nil && !existing.IsLocal() {
+			return fmt.Errorf("%w: inbound tag %q belongs to remote node %d and cannot be modified via local raw config", domain.ErrInvalidInput, tag, existing.NodeID)
+		}
 	}
 	return nil
 }
@@ -278,7 +324,7 @@ func (s *ConfigService) saveConfigQuietlyLocked(ctx context.Context, remark stri
 			return fmt.Errorf("read config sections failed, abort saving to protect config: %w", err)
 		}
 		routing = &domain.RoutingConfig{DomainStrategy: "IPIfNonMatch"}
-		s.ensureSubRouteRules(routing, inbounds)
+		ensureSubRouteRules(routing, inbounds)
 	} else {
 		outbounds = sections.outbounds
 		routing = sections.routing
@@ -328,6 +374,11 @@ func (s *ConfigService) syncFromRawJSONLocked(ctx context.Context, rawJSON []byt
 	inboundsRaw, ok := root["inbounds"].([]interface{})
 	if !ok {
 		return nil
+	}
+
+	// Pre-check all tags so a remote inbound collision rejects cleanly without partial DB writes.
+	if err := s.validateRawInboundsOwnershipLocked(ctx, inboundsRaw); err != nil {
+		return err
 	}
 
 	for _, inRaw := range inboundsRaw {
@@ -828,12 +879,18 @@ func parseOutboundsList(items []rawOutboundItem) []domain.Outbound {
 	return list
 }
 
-func (s *ConfigService) normalizeRoutingConfig(
-	ctx context.Context,
-	cfg domain.RoutingConfig,
-	inbounds []domain.Inbound,
-	hasInbounds bool,
-) (*domain.RoutingConfig, error) {
+func normalizeNodeRouting(rawCfg *domain.RoutingConfig, nodeInbounds []domain.Inbound) (*domain.RoutingConfig, error) {
+	var cfg domain.RoutingConfig
+	if rawCfg != nil {
+		cfg = *rawCfg
+		if len(rawCfg.Rules) > 0 {
+			cfg.Rules = append([]domain.RoutingRule(nil), rawCfg.Rules...)
+		}
+	}
+	return normalizeRoutingWithInbounds(cfg, nodeInbounds)
+}
+
+func normalizeRoutingWithInbounds(cfg domain.RoutingConfig, inbounds []domain.Inbound) (*domain.RoutingConfig, error) {
 	if cfg.DomainStrategy == "" {
 		cfg.DomainStrategy = "IPIfNonMatch"
 	}
@@ -858,21 +915,29 @@ func (s *ConfigService) normalizeRoutingConfig(
 	}
 	cfg.Rules = cleanRules
 
-	// 确保所有启用的本机 SubRoutes 在 routing.Rules 中均有显式规则（若无则默认追加至尾部）
+	ensureSubRouteRules(&cfg, inbounds)
+
+	return &cfg, nil
+}
+
+func (s *ConfigService) normalizeRoutingConfig(
+	ctx context.Context,
+	cfg domain.RoutingConfig,
+	inbounds []domain.Inbound,
+	hasInbounds bool,
+) (*domain.RoutingConfig, error) {
+	// 未传入作用域入站时默认加载本机入站 (NodeID == 0)；已传入时尊重调用方的节点作用域。
 	if !hasInbounds && s.inboundRepo != nil {
 		allInbounds, err := s.inboundRepo.ListAll(ctx)
 		if err != nil {
 			return nil, fmt.Errorf("read inbounds for routing failed: %w", err)
 		}
 		inbounds = filterLocalInbounds(allInbounds)
-	} else if hasInbounds {
-		inbounds = filterLocalInbounds(inbounds)
 	}
 	if s.inboundRepo != nil || hasInbounds {
-		s.ensureSubRouteRules(&cfg, inbounds)
+		return normalizeRoutingWithInbounds(cfg, inbounds)
 	}
-
-	return &cfg, nil
+	return normalizeRoutingWithInbounds(cfg, nil)
 }
 
 func normalizeDNSConfig(cfg domain.DNSConfig) *domain.DNSConfig {
@@ -1155,14 +1220,14 @@ func (s *ConfigService) GetRoutingConfigByNode(ctx context.Context, nodeID uint)
 	if err != nil {
 		return nil, fmt.Errorf("parse node %d routing failed: %w", nodeID, err)
 	}
-	if rawCfg == nil {
-		rawCfg = &domain.RoutingConfig{}
+	var nodeInbounds []domain.Inbound
+	if s.inboundRepo != nil {
+		nodeInbounds, err = s.inboundRepo.FindByNodeID(ctx, nodeID)
+		if err != nil {
+			return nil, fmt.Errorf("read node %d inbounds failed: %w", nodeID, err)
+		}
 	}
-	nodeInbounds, err := s.findInboundsByNode(ctx, nodeID)
-	if err != nil {
-		return nil, fmt.Errorf("read node %d inbounds failed: %w", nodeID, err)
-	}
-	return s.normalizeRoutingConfig(ctx, *rawCfg, nodeInbounds, true)
+	return normalizeNodeRouting(rawCfg, nodeInbounds)
 }
 
 func (s *ConfigService) getRoutingConfigLocked(ctx context.Context) (*domain.RoutingConfig, error) {
@@ -1208,7 +1273,7 @@ func (s *ConfigService) SaveRoutingConfigByNode(ctx context.Context, nodeID uint
 	if cfgCopy.DomainStrategy == "" {
 		cfgCopy.DomainStrategy = "IPIfNonMatch"
 	}
-	s.ensureSubRouteRules(&cfgCopy, nodeInbounds)
+	ensureSubRouteRules(&cfgCopy, nodeInbounds)
 
 	localOutbounds, err := s.readLocalOutboundsBestEffortLocked(ctx)
 	if err != nil {
@@ -1240,7 +1305,7 @@ func (s *ConfigService) saveRoutingConfigLocked(ctx context.Context, cfg *domain
 		inbounds = filterLocalInbounds(allInbounds)
 	}
 	// 确保入站分流线路有默认规则兜底（若完全无匹配则放尾部）
-	s.ensureSubRouteRules(cfg, inbounds)
+	ensureSubRouteRules(cfg, inbounds)
 
 	var (
 		outbounds []domain.Outbound
@@ -1282,7 +1347,7 @@ func isPureSubRouteFallbackRule(r domain.RoutingRule) bool {
 		r.DomainMatcher == ""
 }
 
-func (s *ConfigService) ensureSubRouteRules(routing *domain.RoutingConfig, inbounds []domain.Inbound) {
+func ensureSubRouteRules(routing *domain.RoutingConfig, inbounds []domain.Inbound) {
 	if routing == nil {
 		return
 	}
@@ -1487,26 +1552,6 @@ func (s *ConfigService) getNodeForConfigLocked(ctx context.Context, nodeID uint)
 	return s.nodeRepo.GetByID(ctx, nodeID)
 }
 
-func (s *ConfigService) findInboundsByNode(ctx context.Context, nodeID uint) ([]domain.Inbound, error) {
-	if s.inboundRepo == nil {
-		return nil, nil
-	}
-	if finder, ok := s.inboundRepo.(nodeInboundFinder); ok {
-		return finder.FindByNodeID(ctx, nodeID)
-	}
-	all, err := s.inboundRepo.ListAll(ctx)
-	if err != nil {
-		return nil, err
-	}
-	matched := make([]domain.Inbound, 0)
-	for _, ib := range all {
-		if ib.NodeID == nodeID {
-			matched = append(matched, ib)
-		}
-	}
-	return matched, nil
-}
-
 func (s *ConfigService) readLocalOutboundsBestEffortLocked(ctx context.Context) ([]domain.Outbound, error) {
 	outbounds, err := s.listOutboundsLocked(ctx)
 	if err != nil {
@@ -1531,9 +1576,11 @@ func (s *ConfigService) loadRemoteNodeStateLocked(ctx context.Context, nodeID ui
 	if err != nil {
 		return nil, nil, nil, nil, nil, nil, err
 	}
-	nodeInbounds, err = s.findInboundsByNode(ctx, nodeID)
-	if err != nil {
-		return nil, nil, nil, nil, nil, nil, fmt.Errorf("read node %d inbounds failed: %w", nodeID, err)
+	if s.inboundRepo != nil {
+		nodeInbounds, err = s.inboundRepo.FindByNodeID(ctx, nodeID)
+		if err != nil {
+			return nil, nil, nil, nil, nil, nil, fmt.Errorf("read node %d inbounds failed: %w", nodeID, err)
+		}
 	}
 	if s.userRepo != nil {
 		users, err = s.userRepo.ListAll(ctx)
@@ -1545,9 +1592,13 @@ func (s *ConfigService) loadRemoteNodeStateLocked(ctx context.Context, nodeID ui
 	if err != nil {
 		return nil, nil, nil, nil, nil, nil, fmt.Errorf("parse node %d outbounds failed: %w", nodeID, err)
 	}
-	routing, err = parseNodeRouting(node.RoutingJSON)
+	rawRouting, err := parseNodeRouting(node.RoutingJSON)
 	if err != nil {
 		return nil, nil, nil, nil, nil, nil, fmt.Errorf("parse node %d routing failed: %w", nodeID, err)
+	}
+	routing, err = normalizeNodeRouting(rawRouting, nodeInbounds)
+	if err != nil {
+		return nil, nil, nil, nil, nil, nil, fmt.Errorf("normalize node %d routing failed: %w", nodeID, err)
 	}
 	dns, err = parseNodeDNS(node.DNSJSON)
 	if err != nil {

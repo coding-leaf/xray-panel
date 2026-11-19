@@ -30,7 +30,7 @@
           {{
             isRemoteNode
               ? '管理当前远端托管节点的接入网关、分流通道与落地出口拓扑'
-              : '一体化接入网关、分流通道与落地出口，全协议路由流向可视化与 1 步发布'
+              : '一体化接入网关、分流通道与落地出口，全协议路由流向可视化'
           }}
         </p>
       </div>
@@ -69,15 +69,6 @@
 
         <button
           type="button"
-          @click="openWizard()"
-          class="px-3.5 py-1.5 bg-foreground text-background hover:bg-foreground/90 text-xs font-medium rounded-md transition-colors flex items-center gap-1.5 shadow-sm"
-        >
-          <Zap class="w-3.5 h-3.5 text-amber-400" />
-          <span>1步发布落地线路</span>
-        </button>
-
-        <button
-          type="button"
           @click="openCreateGatewayModal"
           class="px-3 py-1.5 bg-muted text-foreground hover:bg-muted/80 border border-border text-xs font-medium rounded-md transition-colors flex items-center gap-1.5"
         >
@@ -105,7 +96,6 @@
       :show-global-rules="showGlobalRules"
       :hidden-global-rules-count="hiddenGlobalGroupsCount"
       @toggle-global-rules="showGlobalRules = !showGlobalRules"
-      @open-wizard="openWizard"
       @open-create-gateway="openCreateGatewayModal"
       @open-create-exit="openCreateExitModal"
       @toggle-channel-status="toggleChannelStatus"
@@ -123,7 +113,6 @@
       :inbounds="inbounds"
       :outbounds="outbounds"
       :all-channels="allChannels"
-      @open-wizard="openWizard"
       @open-create-gateway="openCreateGatewayModal"
       @open-create-exit="openCreateExitModal"
       @toggle-channel-status="toggleChannelStatus"
@@ -133,30 +122,19 @@
       @edit-outbound="editOutbound"
       @delete-outbound="deleteOutbound"
     />
-
-    <!-- ⚡ 1步发布落地线路向导弹窗 -->
-    <QuickPublishWizardModal
-      v-model="showWizardModal"
-      :inbounds="inbounds"
-      :outbounds="outbounds"
-      :next-route-id="nextRouteId"
-      :initial-exit-tag="wizardInitialExitTag"
-      @success="handleWizardSuccess"
-    />
   </div>
 </template>
 
 <script setup lang="ts">
 import { ref, computed, watch, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
-import { Plus, Zap, Workflow, LayoutGrid } from 'lucide-vue-next'
+import { Plus, Workflow, LayoutGrid } from 'lucide-vue-next'
 import api from '../api'
 import { toast } from '../utils/toast'
 import { useActiveNode } from '../composables/useActiveNode'
 import { useTopologyGraph } from './topology/composables/useTopologyGraph'
 import TopologyCanvas from './topology/components/TopologyCanvas.vue'
 import TopologyPoolsView from './topology/components/TopologyPoolsView.vue'
-import QuickPublishWizardModal from './topology/components/QuickPublishWizardModal.vue'
 
 const router = useRouter()
 const { activeNodeId, activeNode, isRemoteNode, nodesList, loadNodes, refreshNodesNow } =
@@ -178,7 +156,7 @@ const { graph, streamPipelines, computeActiveSubgraph, hiddenGlobalGroupsCount }
   showGlobalRules
 )
 
-// Aggregate channels for traditional pools view and nextRouteId
+// Aggregate channels for traditional pools view
 const allChannels = computed(() => {
   const list: any[] = []
   for (const inb of inbounds.value) {
@@ -213,24 +191,6 @@ const allChannels = computed(() => {
   }
   return list
 })
-
-const nextRouteId = computed(() => {
-  const used = new Set(allChannels.value.map((c) => Number(c.routeId) || 0))
-  let id = 1
-  while (used.has(id)) {
-    id++
-  }
-  return id
-})
-
-// Wizard Modal State
-const showWizardModal = ref(false)
-const wizardInitialExitTag = ref('')
-
-const openWizard = (initialExitTag?: string) => {
-  wizardInitialExitTag.value = initialExitTag || ''
-  showWizardModal.value = true
-}
 
 const openCreateGatewayModal = () => {
   router.push({ path: '/inbounds', query: { action: 'create' } })
@@ -443,13 +403,7 @@ const fetchAll = async () => {
   }
 }
 
-const handleWizardSuccess = async () => {
-  await fetchAll()
-  if (isRemoteNode.value) void refreshNodesNow()
-}
-
 watch(activeNodeId, () => {
-  showWizardModal.value = false
   fetchAll()
 })
 

@@ -43,25 +43,9 @@
         </span>
       </div>
 
-      <!-- Right part: Idle Mount Button or Hover Actions -->
+      <!-- Right part: Hover Actions -->
       <div class="flex items-center gap-1 shrink-0">
-        <!-- Prominent Quick Mount Button if Idle -->
-        <button
-          v-if="node.metrics?.isIdle"
-          type="button"
-          @click.stop="$emit('publish', node.tag)"
-          class="px-2 py-0.5 rounded bg-amber-500/20 hover:bg-amber-500/30 border border-amber-500/40 text-amber-300 font-semibold text-[10px] flex items-center gap-1 transition-colors shadow-sm"
-          title="将闲置出站快速挂载为新线路"
-        >
-          <Zap class="w-3 h-3" />
-          <span>⚡ 挂载</span>
-        </button>
-
-        <!-- Hover Actions if not idle -->
-        <div
-          v-else
-          class="opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-0.5"
-        >
+        <div class="opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-0.5">
           <button
             type="button"
             @click.stop="$emit('edit', node.raw)"
@@ -120,7 +104,7 @@
 
 <script setup lang="ts">
 import { computed } from 'vue'
-import { Zap, Pencil, Trash2 } from 'lucide-vue-next'
+import { Pencil, Trash2 } from 'lucide-vue-next'
 import { useActiveNode } from '../../../composables/useActiveNode'
 import { matchManagedNodeForOutbound, type TopologyNode } from '../types'
 
@@ -143,7 +127,6 @@ defineEmits<{
   (e: 'leave'): void
   (e: 'edit', ob: any): void
   (e: 'delete', tag: string): void
-  (e: 'publish', tag: string): void
 }>()
 
 const statusDotClass = computed(() => {

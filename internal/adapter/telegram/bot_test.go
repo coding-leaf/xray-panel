@@ -5,19 +5,27 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
+	"path/filepath"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
 
+	"panel/internal/adapter/repository"
 	"panel/internal/adapter/telegram"
+	"panel/internal/adapter/xray"
+	"panel/internal/adapter/xray/proto"
 	panelDomain "panel/internal/domain"
 	"panel/internal/service"
 
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 func TestBotHandler_LifecycleNilBot(t *testing.T) {
@@ -868,6 +876,15 @@ func (m *mockInboundRepo) GetByTag(ctx context.Context, tag string) (*panelDomai
 func (m *mockInboundRepo) ListAll(ctx context.Context) ([]panelDomain.Inbound, error) {
 	return m.inbounds, nil
 }
+func (m *mockInboundRepo) FindByNodeID(ctx context.Context, nodeID uint) ([]panelDomain.Inbound, error) {
+	var matched []panelDomain.Inbound
+	for _, in := range m.inbounds {
+		if in.NodeID == nodeID {
+			matched = append(matched, in)
+		}
+	}
+	return matched, nil
+}
 func (m *mockInboundRepo) AddTraffic(ctx context.Context, tag string, upBytes, downBytes int64) error {
 	return nil
 }
@@ -1236,6 +1253,119 @@ func TestBotHandler_AddUser(t *testing.T) {
 			t.Errorf("expected error message for invalid email, got: %s", sentReq.Params["text"])
 		}
 	})
+}
+
+type tgFakeLocalHandlerServer struct {
+	proto.UnimplementedHandlerServiceServer
+	mu         sync.Mutex
+	localTags  map[string]bool
+	calledTags []string
+}
+
+func (s *tgFakeLocalHandlerServer) AlterInbound(ctx context.Context, req *proto.AlterInboundRequest) (*proto.AlterInboundResponse, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.calledTags = append(s.calledTags, req.GetTag())
+	if !s.localTags[req.GetTag()] {
+		return nil, status.Errorf(codes.Unknown, "app/proxyman/command: failed to get handler: handler not found: %s", req.GetTag())
+	}
+	return &proto.AlterInboundResponse{}, nil
+}
+
+func TestBotHandler_AddUser_LocalAndRemoteCoexistence(t *testing.T) {
+	lis, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listen failed: %v", err)
+	}
+	grpcSrv := grpc.NewServer()
+	fakeXray := &tgFakeLocalHandlerServer{
+		localTags: map[string]bool{"local-vless": true},
+	}
+	proto.RegisterHandlerServiceServer(grpcSrv, fakeXray)
+	go func() { _ = grpcSrv.Serve(lis) }()
+	defer grpcSrv.Stop()
+
+	dbPath := filepath.Join(t.TempDir(), "tg_coexist.db")
+	db, err := repository.InitSQLite(dbPath)
+	if err != nil {
+		t.Fatalf("InitSQLite failed: %v", err)
+	}
+	if sqlDB, err := db.DB(); err == nil {
+		t.Cleanup(func() { _ = sqlDB.Close() })
+	}
+
+	userRepo := repository.NewUserRepository(db)
+	inboundRepo := repository.NewInboundRepository(db)
+	trafficLogRepo := repository.NewGormTrafficLogRepository(db)
+	snapshotRepo := repository.NewGormConfigSnapshotRepository(db)
+
+	compiler := xray.NewXrayCompiler(8080)
+	cfgMgr := xray.NewConfigManager(filepath.Join(t.TempDir(), "tg_xray.json"), "")
+	grpcClient := xray.NewGRPCClient(lis.Addr().String())
+	defer func() { _ = grpcClient.Close() }()
+	xrayMgr := xray.NewManager(grpcClient, cfgMgr, nil, inboundRepo)
+	configSvc := service.NewConfigService(cfgMgr, nil, inboundRepo, userRepo, snapshotRepo, compiler)
+	userSvc := service.NewUserService(userRepo, inboundRepo, trafficLogRepo, xrayMgr, configSvc)
+
+	ctx := context.Background()
+	if err := inboundRepo.Create(ctx, &panelDomain.Inbound{
+		NodeID:   0,
+		Tag:      "local-vless",
+		Port:     18441,
+		Protocol: "vless",
+		Enabled:  true,
+	}); err != nil {
+		t.Fatalf("create local inbound failed: %v", err)
+	}
+	if err := inboundRepo.Create(ctx, &panelDomain.Inbound{
+		NodeID:   2,
+		Tag:      "remote-jp-vless",
+		Port:     18442,
+		Protocol: "vless",
+		Enabled:  true,
+	}); err != nil {
+		t.Fatalf("create remote inbound failed: %v", err)
+	}
+
+	server := newMockTelegramServer(t)
+	endpoint := server.server.URL + "/bot%s/%s"
+	bot, err := tgbotapi.NewBotAPIWithAPIEndpoint("123456:ABC-DEF1234ghIkl-zyx57W2v1u123ew11", endpoint)
+	if err != nil {
+		t.Fatalf("failed to init mock bot: %v", err)
+	}
+	adminID := int64(88889)
+	adapter := telegram.NewBotAdapter("", adminID)
+	adapter.SetBotForTest(bot)
+
+	handler := telegram.NewBotHandler(adapter, userRepo, inboundRepo, nil, xrayMgr, userSvc, "https://panel.example.test")
+	runCtx, cancel := context.WithCancel(context.Background())
+	errCh := make(chan error, 1)
+	go func() { errCh <- handler.Start(runCtx) }()
+	t.Cleanup(func() {
+		cancel()
+		<-errCh
+	})
+
+	server.SendMessageUpdate(adminID, "/adduser tg-coexist@example.com 15 30")
+	sentReq := server.WaitSentMsg(t, 3*time.Second)
+
+	if !strings.Contains(sentReq.Params["text"], "用户创建成功") {
+		t.Fatalf("expected /adduser success with local+remote inbounds, got: %s", sentReq.Params["text"])
+	}
+
+	created, err := userRepo.GetByEmail(ctx, "tg-coexist@example.com")
+	if err != nil {
+		t.Fatalf("created user not found in DB: %v", err)
+	}
+	if !created.HasInbound("local-vless") || !created.HasInbound("remote-jp-vless") {
+		t.Fatalf("expected both local and remote tags authorized in DB, got: %q", created.InboundTags)
+	}
+
+	fakeXray.mu.Lock()
+	defer fakeXray.mu.Unlock()
+	if len(fakeXray.calledTags) != 1 || fakeXray.calledTags[0] != "local-vless" {
+		t.Fatalf("local gRPC must ONLY be called for local-vless, got: %v", fakeXray.calledTags)
+	}
 }
 
 func TestBotHandler_ActionLock_ConcurrencyToast(t *testing.T) {

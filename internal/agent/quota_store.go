@@ -5,20 +5,21 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"math"
 	"os"
 	"path/filepath"
 	"sync"
 	"time"
+
+	"panel/internal/domain"
 )
 
 const quotaStateFileName = "quota_state.json"
 
 // Traffic counting modes matching Master's domain.TrafficCountMode* constants.
 const (
-	TrafficCountModeBoth     = "both"
-	TrafficCountModeOutbound = "outbound"
-	TrafficCountModeMax      = "max"
+	TrafficCountModeBoth     = domain.TrafficCountModeBoth
+	TrafficCountModeOutbound = domain.TrafficCountModeOutbound
+	TrafficCountModeMax      = domain.TrafficCountModeMax
 )
 
 // LocalQuotaState persists the latest Master quota policy and offline usage accumulator on disk.
@@ -55,33 +56,6 @@ func NewQuotaStore(dir string) (*QuotaStore, error) {
 	return s, nil
 }
 
-// CalcTrafficByMode calculates counted bytes from (up, down) according to mode and multiplier.
-func CalcTrafficByMode(up, down int64, mode string, multiplier float64) int64 {
-	if up < 0 {
-		up = 0
-	}
-	if down < 0 {
-		down = 0
-	}
-	var base int64
-	switch mode {
-	case TrafficCountModeOutbound:
-		base = up
-	case TrafficCountModeMax:
-		if up >= down {
-			base = up
-		} else {
-			base = down
-		}
-	default:
-		base = up + down
-	}
-	if multiplier <= 0 {
-		multiplier = 1.0
-	}
-	return int64(math.Round(float64(base) * multiplier))
-}
-
 // State returns a thread-safe snapshot of the current LocalQuotaState.
 func (s *QuotaStore) State() LocalQuotaState {
 	s.mu.Lock()
@@ -107,7 +81,7 @@ func (s *QuotaStore) RecordOfflineUsage(up, down int64) (totalUsed int64, should
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	delta := CalcTrafficByMode(up, down, s.state.Policy.CountMode, s.state.Policy.Multiplier)
+	delta := domain.CalcTrafficByMode(up, down, s.state.Policy.CountMode, s.state.Policy.Multiplier)
 	if delta > 0 {
 		s.state.LocalPendingUsedBytes += delta
 		s.state.UpdatedAt = s.now().UTC()
@@ -156,21 +130,12 @@ func (s *QuotaStore) ClearBroken() error {
 
 func (s *QuotaStore) shouldBreakLocked() bool {
 	p := s.state.Policy
-	if p.TrafficLimitBytes <= 0 {
-		return false
-	}
 	pct := p.BreakThresholdPct
 	if pct <= 0 {
-		pct = 95
+		pct = domain.DefaultBreakThresholdPct
 	}
 	totalUsed := p.CycleUsedBytes + s.state.LocalPendingUsedBytes
-	if totalUsed < 0 {
-		return false
-	}
-	if totalUsed <= math.MaxInt64/100 && p.TrafficLimitBytes <= math.MaxInt64/int64(pct) {
-		return totalUsed*100 >= p.TrafficLimitBytes*int64(pct)
-	}
-	return float64(totalUsed)*100 >= float64(p.TrafficLimitBytes)*float64(pct)
+	return domain.ReachedQuotaThreshold(totalUsed, p.TrafficLimitBytes, pct)
 }
 
 func (s *QuotaStore) loadLocked() error {

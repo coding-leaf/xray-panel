@@ -107,10 +107,6 @@ func isXrayIgnorableAddUserError(err error) bool {
 		strings.Contains(msg, "does not support dynamic account operations")
 }
 
-func isXrayUserNotFoundError(err error) bool {
-	return isXrayIgnorableRemoveError(err)
-}
-
 func isValidSubToken(token string) bool {
 	if len(token) < 8 {
 		return false

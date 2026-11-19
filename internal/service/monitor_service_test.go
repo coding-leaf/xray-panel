@@ -96,6 +96,12 @@ func (m *mockCountingInboundRepo) ListAll(ctx context.Context) ([]domain.Inbound
 		{ID: 1, Tag: "vless-in", Port: 443},
 	}, nil
 }
+func (m *mockCountingInboundRepo) FindByNodeID(ctx context.Context, nodeID uint) ([]domain.Inbound, error) {
+	if nodeID == 0 {
+		return []domain.Inbound{{ID: 1, Tag: "vless-in", Port: 443}}, nil
+	}
+	return nil, nil
+}
 func (m *mockCountingInboundRepo) AddTraffic(ctx context.Context, tag string, up, down int64) error {
 	return nil
 }

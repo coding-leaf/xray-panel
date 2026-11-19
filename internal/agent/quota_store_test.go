@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"sync"
 	"testing"
+
+	"panel/internal/domain"
 )
 
 func TestCalcTrafficByMode(t *testing.T) {
@@ -28,9 +30,9 @@ func TestCalcTrafficByMode(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			got := CalcTrafficByMode(tc.up, tc.down, tc.mode, tc.multiplier)
+			got := domain.CalcTrafficByMode(tc.up, tc.down, tc.mode, tc.multiplier)
 			if got != tc.want {
-				t.Fatalf("CalcTrafficByMode(%d, %d, %q, %v) = %d, want %d", tc.up, tc.down, tc.mode, tc.multiplier, got, tc.want)
+				t.Fatalf("domain.CalcTrafficByMode(%d, %d, %q, %v) = %d, want %d", tc.up, tc.down, tc.mode, tc.multiplier, got, tc.want)
 			}
 		})
 	}

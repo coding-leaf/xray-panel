@@ -247,6 +247,15 @@ func (m *mockSubInboundRepo) GetByTag(ctx context.Context, tag string) (*domain.
 func (m *mockSubInboundRepo) ListAll(ctx context.Context) ([]domain.Inbound, error) {
 	return m.inbounds, nil
 }
+func (m *mockSubInboundRepo) FindByNodeID(ctx context.Context, nodeID uint) ([]domain.Inbound, error) {
+	var matched []domain.Inbound
+	for _, in := range m.inbounds {
+		if in.NodeID == nodeID {
+			matched = append(matched, in)
+		}
+	}
+	return matched, nil
+}
 func (m *mockSubInboundRepo) ListEnabled(ctx context.Context) ([]domain.Inbound, error) {
 	return m.inbounds, nil
 }
@@ -1068,6 +1077,86 @@ func TestSubService_RemoteNodeSubRoutesPrefix(t *testing.T) {
 	}
 	if shareResp.Nodes[0].Remark != "[JP] 日本原生直连" || shareResp.Nodes[2].Remark != "[SG] 日本原生直连" {
 		t.Errorf("expected distinct prefixed SubRoute remarks, got: %+v", shareResp.Nodes)
+	}
+}
+
+func TestSubService_RemoteInboundExternalPortFallback(t *testing.T) {
+	user := &domain.User{
+		ID:          1,
+		Email:       "port-check@example.com",
+		UUID:        "11111111-2222-3333-4444-555555555555",
+		SubToken:    "token_remote_port_fallback",
+		InboundTags: "local-vless,remote-direct,remote-explicit",
+		Enabled:     true,
+	}
+	inbounds := []domain.Inbound{
+		{
+			ID:             1,
+			NodeID:         0,
+			Tag:            "local-vless",
+			Remark:         "Master VLESS",
+			Protocol:       "vless",
+			Port:           10001,
+			ExternalPort:   0,
+			ExternalHost:   "master.example.com",
+			SortOrder:      1,
+			Enabled:        true,
+			StreamSettings: `{"network":"tcp","security":"none"}`,
+		},
+		{
+			ID:             2,
+			NodeID:         10,
+			Tag:            "remote-direct",
+			Remark:         "JP Direct",
+			Protocol:       "vless",
+			Port:           18443,
+			ExternalPort:   0,
+			SortOrder:      2,
+			Enabled:        true,
+			StreamSettings: `{"network":"tcp","security":"none"}`,
+		},
+		{
+			ID:             3,
+			NodeID:         10,
+			Tag:            "remote-explicit",
+			Remark:         "JP Proxy",
+			Protocol:       "vless",
+			Port:           18444,
+			ExternalPort:   2053,
+			SortOrder:      3,
+			Enabled:        true,
+			StreamSettings: `{"network":"tcp","security":"none"}`,
+		},
+	}
+	nodes := []domain.Node{
+		{ID: 10, Name: "JP-1", Host: "jp1.example.com", Region: "JP", Enabled: true, DesiredState: domain.NodeStateActive},
+	}
+	settingRepo := &mockSubSettingRepo{
+		settings: map[string]string{
+			"sub_show_info_nodes": "false",
+			"public_port":         "443",
+		},
+	}
+
+	svc := NewSubService(&mockSubUserRepo{user: user}, &mockSubInboundRepo{inbounds: inbounds}, settingRepo).
+		WithNodeRepo(&mockSubNodeRepo{nodes: nodes})
+
+	_, rawOut, err := svc.ExportUserSubscription(context.Background(), user.SubToken, "", "master.example.com", "raw")
+	if err != nil {
+		t.Fatalf("ExportUserSubscription failed: %v", err)
+	}
+	lines := strings.Split(strings.TrimSpace(rawOut), "\n")
+	if len(lines) != 3 {
+		t.Fatalf("expected 3 exported links, got %d:\n%s", len(lines), rawOut)
+	}
+	if !strings.Contains(lines[0], "@master.example.com:443?") {
+		t.Errorf("local inbound with ExternalPort=0 must fall back to public_port 443, got: %s", lines[0])
+	}
+	if !strings.Contains(lines[1], "@jp1.example.com:18443?") {
+		t.Errorf("remote inbound with ExternalPort=0 must fall back to inbound.Port 18443 (not master 443), got: %s", lines[1])
+	}
+	if !strings.Contains(lines[2], "@jp1.example.com:2053?") {
+		t.Errorf("remote inbound with explicit ExternalPort=2053 must use 2053, got: %s", lines[2])
 	}
 }
 

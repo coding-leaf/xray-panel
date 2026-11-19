@@ -113,4 +113,5 @@ type RemoteUser struct {
 	Email      string `json:"email"`
 	UUID       string `json:"uuid"`
 	Flow       string `json:"flow,omitempty"`
+	Method     string `json:"method,omitempty"`
 }

@@ -41,10 +41,6 @@ type RemoteNodeCompiler interface {
 	BuildRemoteNodeUsers(inbounds []domain.Inbound, users []domain.User) ([]domain.AgentSyncUser, error)
 }
 
-type nodeInboundFinder interface {
-	FindByNodeID(ctx context.Context, nodeID uint) ([]domain.Inbound, error)
-}
-
 type cachedNodeSnapshot struct {
 	ConfigHash string
 	UsersHash  string
@@ -665,6 +661,7 @@ func (s *NodeService) RenderInstallScript(ctx context.Context, id uint, masterUR
 set -euo pipefail
 
 # Node: %s (ID: %d, TokenPrefix: %s)
+# Note: Compiled remote Xray configs bind the local gRPC API on 127.0.0.1:8080 (matching xray-agent default --xray-grpc).
 MASTER_URL="%s"
 NODE_TOKEN="${NODE_TOKEN:-<YOUR_NODE_TOKEN>}"
 
@@ -673,7 +670,16 @@ if [ "$NODE_TOKEN" = "<YOUR_NODE_TOKEN>" ]; then
   exit 1
 fi
 
-install -d -m 0750 /var/lib/xray-agent
+install -d -m 0750 /etc/xray-agent /var/lib/xray-agent
+(
+  umask 077
+  cat >/etc/xray-agent/agent.env <<EOF
+MASTER_URL=${MASTER_URL}
+AGENT_TOKEN=${NODE_TOKEN}
+EOF
+)
+chmod 0600 /etc/xray-agent/agent.env
+
 cat >/etc/systemd/system/xray-agent.service <<EOF
 [Unit]
 Description=Xray Panel Thin Agent
@@ -682,7 +688,8 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-ExecStart=/usr/local/bin/xray-agent --master-url ${MASTER_URL} --token ${NODE_TOKEN} --spool-dir /var/lib/xray-agent --interval 20s
+EnvironmentFile=/etc/xray-agent/agent.env
+ExecStart=/usr/local/bin/xray-agent --spool-dir /var/lib/xray-agent --interval 60s
 Restart=always
 RestartSec=5s
 
@@ -690,7 +697,7 @@ RestartSec=5s
 WantedBy=multi-user.target
 EOF
 
-chmod 0600 /etc/systemd/system/xray-agent.service
+chmod 0644 /etc/systemd/system/xray-agent.service
 systemctl daemon-reload
 systemctl enable --now xray-agent
 `, strings.ReplaceAll(node.Name, "\n", " "), node.ID, node.TokenPrefix, safeURL)
@@ -828,26 +835,6 @@ func (s *NodeService) HandleAgentSync(ctx context.Context, nodeID uint, req *dom
 	return resp, nil
 }
 
-func (s *NodeService) findNodeInbounds(ctx context.Context, nodeID uint) ([]domain.Inbound, error) {
-	if s.inboundRepo == nil {
-		return nil, nil
-	}
-	if finder, ok := s.inboundRepo.(nodeInboundFinder); ok {
-		return finder.FindByNodeID(ctx, nodeID)
-	}
-	all, err := s.inboundRepo.ListAll(ctx)
-	if err != nil {
-		return nil, err
-	}
-	matched := make([]domain.Inbound, 0)
-	for _, ib := range all {
-		if ib.NodeID == nodeID {
-			matched = append(matched, ib)
-		}
-	}
-	return matched, nil
-}
-
 func (s *NodeService) getOrBuildSnapshot(ctx context.Context, nodeID uint) (*cachedNodeSnapshot, error) {
 	s.mu.RLock()
 	if snap, ok := s.snapshots[nodeID]; ok {
@@ -858,9 +845,13 @@ func (s *NodeService) getOrBuildSnapshot(ctx context.Context, nodeID uint) (*cac
 	startNodeEpoch := s.nodeEpochs[nodeID]
 	s.mu.RUnlock()
 
-	nodeInbounds, err := s.findNodeInbounds(ctx, nodeID)
-	if err != nil {
-		return nil, fmt.Errorf("load node %d inbounds failed: %w", nodeID, err)
+	var nodeInbounds []domain.Inbound
+	var err error
+	if s.inboundRepo != nil {
+		nodeInbounds, err = s.inboundRepo.FindByNodeID(ctx, nodeID)
+		if err != nil {
+			return nil, fmt.Errorf("load node %d inbounds failed: %w", nodeID, err)
+		}
 	}
 
 	var allUsers []domain.User
@@ -883,9 +874,13 @@ func (s *NodeService) getOrBuildSnapshot(ctx context.Context, nodeID uint) (*cac
 	if err != nil {
 		return nil, fmt.Errorf("parse node %d outbounds failed: %w", nodeID, err)
 	}
-	routing, err := parseNodeRouting(node.RoutingJSON)
+	rawRouting, err := parseNodeRouting(node.RoutingJSON)
 	if err != nil {
 		return nil, fmt.Errorf("parse node %d routing failed: %w", nodeID, err)
+	}
+	routing, err := normalizeNodeRouting(rawRouting, nodeInbounds)
+	if err != nil {
+		return nil, fmt.Errorf("normalize node %d routing failed: %w", nodeID, err)
 	}
 	dns, err := parseNodeDNS(node.DNSJSON)
 	if err != nil {

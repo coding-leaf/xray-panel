@@ -541,6 +541,15 @@ func (m *mockInboundRepo) GetByTag(ctx context.Context, tag string) (*domain.Inb
 func (m *mockInboundRepo) ListAll(ctx context.Context) ([]domain.Inbound, error) {
 	return m.inbounds, nil
 }
+func (m *mockInboundRepo) FindByNodeID(ctx context.Context, nodeID uint) ([]domain.Inbound, error) {
+	var matched []domain.Inbound
+	for _, in := range m.inbounds {
+		if in.NodeID == nodeID {
+			matched = append(matched, in)
+		}
+	}
+	return matched, nil
+}
 func (m *mockInboundRepo) ListEnabled(ctx context.Context) ([]domain.Inbound, error) {
 	return m.inbounds, nil
 }

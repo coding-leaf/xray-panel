@@ -34,6 +34,11 @@ type Inbound struct {
 	IsAlive   bool  `gorm:"-" json:"isAlive"`
 }
 
+// IsLocal 判断该入站是否归属主控本机节点 (NodeID == 0)
+func (i Inbound) IsLocal() bool {
+	return i.NodeID == 0
+}
+
 // SubRoute 定义入站下的分流订阅线路
 type SubRoute struct {
 	ID           string   `json:"id"`                     // 唯一标识 (如 nanoid 或 uuid)

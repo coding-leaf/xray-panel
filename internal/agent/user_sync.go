@@ -74,7 +74,7 @@ func (s *UserSyncer) Reconcile(ctx context.Context, desired []RemoteUser) (added
 			toRemove = append(toRemove, cur)
 			continue
 		}
-		if cur.UUID != want.UUID || cur.Flow != want.Flow || !strings.EqualFold(cur.Protocol, want.Protocol) {
+		if cur.UUID != want.UUID || cur.Flow != want.Flow || !strings.EqualFold(cur.Protocol, want.Protocol) || !strings.EqualFold(cur.Method, want.Method) {
 			toRemove = append(toRemove, cur)
 			toAdd = append(toAdd, want)
 		}

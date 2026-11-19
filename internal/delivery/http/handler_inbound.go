@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"strconv"
+	"strings"
 
 	"panel/internal/domain"
 	"panel/internal/service"
@@ -35,15 +36,14 @@ func (h *InboundHandler) List(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
-	if nodeIDStr := c.Query("nodeId"); nodeIDStr != "" {
-		nodeID, err := strconv.Atoi(nodeIDStr)
-		if err != nil || nodeID < 0 {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid nodeId"})
+	if strings.TrimSpace(c.Query("nodeId")) != "" {
+		nodeID, ok := parseOptionalNodeID(c)
+		if !ok {
 			return
 		}
 		filtered := make([]domain.Inbound, 0)
 		for _, ib := range inbounds {
-			if ib.NodeID == uint(nodeID) {
+			if ib.NodeID == nodeID {
 				filtered = append(filtered, ib)
 			}
 		}

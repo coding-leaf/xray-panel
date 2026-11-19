@@ -332,6 +332,7 @@ import {
 } from 'lucide-vue-next'
 import Button from '../components/ui/Button.vue'
 import api from '../api'
+import { copyToClipboard } from '../utils/clipboard'
 
 const inputCode = ref('')
 const codeInputRef = ref<HTMLInputElement | null>(null)
@@ -363,34 +364,6 @@ const handleInputFormat = () => {
   val = val.replace(/\s+/g, '').toUpperCase()
   inputCode.value = val
   errorMessage.value = ''
-}
-
-const copyToClipboard = async (text: string): Promise<boolean> => {
-  try {
-    if (navigator.clipboard && window.isSecureContext) {
-      await navigator.clipboard.writeText(text)
-      return true
-    }
-  } catch {
-    // ignore and fallback
-  }
-
-  try {
-    const textArea = document.createElement('textarea')
-    textArea.value = text
-    textArea.style.position = 'fixed'
-    textArea.style.left = '-9999px'
-    textArea.style.top = '0'
-    document.body.appendChild(textArea)
-    textArea.focus()
-    textArea.select()
-    const successful = document.execCommand('copy')
-    document.body.removeChild(textArea)
-    if (successful) return true
-  } catch {
-    // ignore
-  }
-  return false
 }
 
 const handleClaim = async () => {

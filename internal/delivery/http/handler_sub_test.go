@@ -66,6 +66,15 @@ func (s *stubSubInboundRepo) GetByTag(ctx context.Context, tag string) (*domain.
 func (s *stubSubInboundRepo) ListAll(ctx context.Context) ([]domain.Inbound, error) {
 	return s.inbounds, nil
 }
+func (s *stubSubInboundRepo) FindByNodeID(ctx context.Context, nodeID uint) ([]domain.Inbound, error) {
+	var matched []domain.Inbound
+	for _, in := range s.inbounds {
+		if in.NodeID == nodeID {
+			matched = append(matched, in)
+		}
+	}
+	return matched, nil
+}
 func (s *stubSubInboundRepo) AddTraffic(ctx context.Context, tag string, up, down int64) error {
 	return nil
 }

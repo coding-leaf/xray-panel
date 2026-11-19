@@ -1,0 +1,11 @@
+{"file": ".trellis/tasks/11-19-m3-node-quota-alert-and-circuit-breaker/research/m3-audit.md", "reason": "M3 architecture audit with exact file:line anchors for Node, Agent, AlertService, Cron, TG Bot, and Frontend"}
+{"file": ".trellis/spec/backend/index.md", "reason": "Backend architecture conventions and quality gates"}
+{"file": ".trellis/spec/backend/directory-structure.md", "reason": "Backend layer boundaries, NodeID=0 compatibility, and cmd/agent dependency isolation"}
+{"file": ".trellis/spec/backend/database-guidelines.md", "reason": "SQLite WAL single-connection transaction safety and upsert patterns"}
+{"file": ".trellis/spec/backend/error-handling.md", "reason": "Explicit error propagation and HTTP error mapping"}
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "Concurrency mutex safety, goroutine lifecycle, and KISS guidelines"}
+{"file": ".trellis/spec/backend/logging-guidelines.md", "reason": "slog structured logging and secret redaction"}
+{"file": ".trellis/spec/frontend/api-and-dataflow.md", "reason": "Frontend axios wrapper and TypeScript DTO conventions"}
+{"file": ".trellis/spec/frontend/components-and-routing.md", "reason": "Vue 3 SFC and reusable UI component conventions"}
+{"file": ".trellis/spec/frontend/quality-guidelines.md", "reason": "Frontend typecheck, lint, and Vite build gate"}
+{"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "Cross-layer contract alignment across Master, Agent, TG Bot, and Vue UI"}

@@ -1,0 +1,7 @@
+{"file": ".trellis/tasks/11-19-m3-node-quota-alert-and-circuit-breaker/research/m3-audit.md", "reason": "Verify exact integration anchors and dirty-file guardrails"}
+{"file": ".trellis/spec/backend/directory-structure.md", "reason": "Verify cmd/agent remains free of heavy dependencies (gin/gorm/sqlite/telegram/web)"}
+{"file": ".trellis/spec/backend/database-guidelines.md", "reason": "Verify single-connection SQLite transaction safety and idempotent updates"}
+{"file": ".trellis/spec/backend/error-handling.md", "reason": "Verify zero silent error swallowing across quota/alert/breaker paths"}
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "Verify mutex safety and zero race conditions"}
+{"file": ".trellis/spec/frontend/quality-guidelines.md", "reason": "Verify typecheck, lint, and Vite build pass cleanly"}
+{"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "Verify Master/Agent quotaPolicy and Frontend DTO field alignment"}

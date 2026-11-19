@@ -1,0 +1,7 @@
+{"file": ".trellis/tasks/11-19-m2-direct-sub-aggregation-and-node-ui/research/m2-audit.md", "reason": "Verify dirty-file guardrails and exact /api/admin/nodes contract alignment"}
+{"file": ".trellis/spec/backend/error-handling.md", "reason": "Verify error propagation and safe Clash fallback behavior"}
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "Verify race safety and zero regression on NodeID=0 single-node tests"}
+{"file": ".trellis/spec/frontend/api-and-dataflow.md", "reason": "Verify frontend API module matches backend DTOs cleanly"}
+{"file": ".trellis/spec/frontend/components-and-routing.md", "reason": "Verify Vue 3 SFC conventions, route guard, and nav integration"}
+{"file": ".trellis/spec/frontend/quality-guidelines.md", "reason": "Verify vue-tsc and Vite build pass with zero warnings/errors"}
+{"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "Verify end-to-end backend-to-frontend contract consistency"}

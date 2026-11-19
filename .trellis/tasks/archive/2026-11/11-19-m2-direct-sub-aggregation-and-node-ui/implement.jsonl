@@ -1,0 +1,12 @@
+{"file": ".trellis/tasks/11-19-m2-direct-sub-aggregation-and-node-ui/research/m2-audit.md", "reason": "M2 backend subscription chain and Vue 3 frontend architecture audit with exact file:line anchors and dirty-file guardrails"}
+{"file": ".trellis/spec/backend/index.md", "reason": "Backend layered conventions and quality gates"}
+{"file": ".trellis/spec/backend/directory-structure.md", "reason": "Backend package boundaries and NodeID=0 compatibility rules"}
+{"file": ".trellis/spec/backend/error-handling.md", "reason": "Explicit error handling and HTTP status rules"}
+{"file": ".trellis/spec/backend/logging-guidelines.md", "reason": "Structured slog usage and secret redaction"}
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "Concurrency safety and KISS design rules"}
+{"file": ".trellis/spec/frontend/index.md", "reason": "Frontend Vue 3 + Tailwind + Vite stack and zero-Pinia guidelines"}
+{"file": ".trellis/spec/frontend/directory-structure.md", "reason": "Frontend view/composable/api directory structure"}
+{"file": ".trellis/spec/frontend/api-and-dataflow.md", "reason": "Axios client wrapper, JWT auth, and error handling conventions"}
+{"file": ".trellis/spec/frontend/components-and-routing.md", "reason": "Vue 3 SFC, routing, and reusable UI primitives conventions"}
+{"file": ".trellis/spec/frontend/quality-guidelines.md", "reason": "Frontend TypeScript build gate and safety rules"}
+{"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "Cross-layer API contract alignment between Go handlers and Vue TS types"}

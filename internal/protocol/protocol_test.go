@@ -692,3 +692,127 @@ func TestFormatters_ToClashAndToSingBox(t *testing.T) {
 		t.Errorf("expected insecure true in sing-box tls, got %+v", tlsObj)
 	}
 }
+
+func TestAttachClashTLS_RealitySupportX25519MLKEM768(t *testing.T) {
+	realityNode := &protocol.NodeConfig{
+		Name:     "VLESS-REALITY",
+		Protocol: "vless",
+		Address:  "198.51.100.10",
+		Port:     443,
+		UUID:     "11111111-1111-4111-8111-111111111111",
+		Params: map[string]string{
+			"type":     "tcp",
+			"security": "reality",
+			"flow":     "xtls-rprx-vision",
+			"pbk":      "test-public-key-value",
+			"sni":      "www.apple.com",
+			"sid":      "0123456789abcdef",
+			"fp":       "chrome",
+		},
+	}
+
+	clashMap, err := protocol.ToClash(realityNode)
+	if err != nil {
+		t.Fatalf("ToClash failed for reality node: %v", err)
+	}
+
+	realityOpts, ok := clashMap["reality-opts"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("expected reality-opts map in clash proxy, got: %T (%v)", clashMap["reality-opts"], clashMap["reality-opts"])
+	}
+	if realityOpts["support-x25519mlkem768"] != true {
+		t.Fatalf("expected reality-opts[\"support-x25519mlkem768\"] == true, got: %v", realityOpts["support-x25519mlkem768"])
+	}
+
+	// Standard vless:// URI must NOT be modified with support-x25519mlkem768
+	rawLink, err := protocol.FormatLink(realityNode)
+	if err != nil {
+		t.Fatalf("FormatLink failed for reality node: %v", err)
+	}
+	if strings.Contains(rawLink, "support-x25519mlkem768") {
+		t.Fatalf("expected vless:// URI not to include support-x25519mlkem768, got: %s", rawLink)
+	}
+
+	// Edge case: REALITY with only pbk set (short-id / spider-x empty) still emits support-x25519mlkem768
+	onlyPbkNode := &protocol.NodeConfig{
+		Name:     "VLESS-REALITY-ONLY-PBK",
+		Protocol: "vless",
+		Address:  "198.51.100.12",
+		Port:     443,
+		UUID:     "33333333-3333-4333-8333-333333333333",
+		Params: map[string]string{
+			"type":     "tcp",
+			"security": "reality",
+			"pbk":      "only-pbk-value",
+		},
+	}
+	onlyPbkClash, err := protocol.ToClash(onlyPbkNode)
+	if err != nil {
+		t.Fatalf("ToClash failed for only-pbk reality node: %v", err)
+	}
+	onlyPbkOpts, ok := onlyPbkClash["reality-opts"].(map[string]interface{})
+	if !ok || onlyPbkOpts["public-key"] != "only-pbk-value" || onlyPbkOpts["support-x25519mlkem768"] != true {
+		t.Fatalf("expected reality-opts with public-key and support-x25519mlkem768=true, got: %+v", onlyPbkClash["reality-opts"])
+	}
+
+	// Edge case: REALITY with empty pbk/sid/spx does not emit incomplete reality-opts
+	emptyRealityNode := &protocol.NodeConfig{
+		Name:     "VLESS-REALITY-EMPTY",
+		Protocol: "vless",
+		Address:  "198.51.100.13",
+		Port:     443,
+		UUID:     "44444444-4444-4444-8444-444444444444",
+		Params: map[string]string{
+			"type":     "tcp",
+			"security": "reality",
+		},
+	}
+	emptyRealityClash, err := protocol.ToClash(emptyRealityNode)
+	if err != nil {
+		t.Fatalf("ToClash failed for empty reality node: %v", err)
+	}
+	if _, exists := emptyRealityClash["reality-opts"]; exists {
+		t.Fatalf("expected empty reality params not to emit reality-opts, got: %v", emptyRealityClash["reality-opts"])
+	}
+
+	tlsNode := &protocol.NodeConfig{
+		Name:     "VLESS-TLS",
+		Protocol: "vless",
+		Address:  "198.51.100.11",
+		Port:     443,
+		UUID:     "22222222-2222-4222-8222-222222222222",
+		Params: map[string]string{
+			"type":     "ws",
+			"security": "tls",
+			"sni":      "cdn.example.com",
+			"fp":       "chrome",
+		},
+	}
+
+	tlsClash, err := protocol.ToClash(tlsNode)
+	if err != nil {
+		t.Fatalf("ToClash failed for tls node: %v", err)
+	}
+	if _, exists := tlsClash["reality-opts"]; exists {
+		t.Fatalf("expected non-REALITY TLS node not to emit reality-opts, got: %v", tlsClash["reality-opts"])
+	}
+
+	plainNode := &protocol.NodeConfig{
+		Name:     "VLESS-NONE",
+		Protocol: "vless",
+		Address:  "198.51.100.14",
+		Port:     80,
+		UUID:     "55555555-5555-4555-8555-555555555555",
+		Params: map[string]string{
+			"type":     "tcp",
+			"security": "none",
+		},
+	}
+	plainClash, err := protocol.ToClash(plainNode)
+	if err != nil {
+		t.Fatalf("ToClash failed for none security node: %v", err)
+	}
+	if _, exists := plainClash["reality-opts"]; exists {
+		t.Fatalf("expected non-TLS node not to emit reality-opts, got: %v", plainClash["reality-opts"])
+	}
+}

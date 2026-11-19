@@ -80,6 +80,9 @@ func AttachClashTLS(proxy map[string]interface{}, node *NodeConfig) {
 			realityOpts["spider-x"] = spx
 		}
 		if len(realityOpts) > 0 {
+			// Xray 26.9.8+ (xtls/reality) requires X25519MLKEM768 in REALITY ClientHello;
+			// Mihomo strips it by default unless support-x25519mlkem768 is explicitly enabled.
+			realityOpts["support-x25519mlkem768"] = true
 			proxy["reality-opts"] = realityOpts
 		}
 	}

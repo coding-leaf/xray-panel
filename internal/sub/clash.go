@@ -43,10 +43,18 @@ func isClashUnsupportedNode(node *protocol.NodeConfig) bool {
 	return net == "xhttp" || net == "splithttp"
 }
 
+func isVirtualInfoNode(node *protocol.NodeConfig) bool {
+	return node != nil &&
+		node.Address == "127.0.0.1" &&
+		node.Port == 10000 &&
+		node.UUID == "00000000-0000-0000-0000-000000000000"
+}
+
 // ExportClashWithParams 将多节点配置转换为带定制参数的 Clash / Mihomo YAML 订阅
 func ExportClashWithParams(nodes []*protocol.NodeConfig, params ClashParams) (string, error) {
 	proxies := make([]map[string]interface{}, 0, len(nodes))
-	proxyNames := make([]string, 0, len(nodes))
+	allProxyNames := make([]string, 0, len(nodes))
+	realProxyNames := make([]string, 0, len(nodes))
 
 	for idx, node := range nodes {
 		if node == nil {
@@ -70,17 +78,25 @@ func ExportClashWithParams(nodes []*protocol.NodeConfig, params ClashParams) (st
 		if proxyMap != nil {
 			proxyMap["name"] = name
 			proxies = append(proxies, proxyMap)
-			proxyNames = append(proxyNames, name)
+			allProxyNames = append(allProxyNames, name)
+			if !isVirtualInfoNode(node) {
+				realProxyNames = append(realProxyNames, name)
+			}
 		}
 	}
 
 	var selectProxies []string
 	var autoProxies []string
-	if len(proxyNames) > 0 {
-		selectProxies = make([]string, 0, len(proxyNames)+1)
-		selectProxies = append(selectProxies, "AUTO")
-		selectProxies = append(selectProxies, proxyNames...)
-		autoProxies = proxyNames
+	if len(allProxyNames) > 0 {
+		selectProxies = make([]string, 0, len(allProxyNames)+1)
+		if len(realProxyNames) > 0 {
+			selectProxies = append(selectProxies, "AUTO")
+			autoProxies = realProxyNames
+		} else {
+			selectProxies = append(selectProxies, "DIRECT")
+			autoProxies = []string{"DIRECT"}
+		}
+		selectProxies = append(selectProxies, allProxyNames...)
 	} else {
 		selectProxies = []string{"DIRECT"}
 		autoProxies = []string{"DIRECT"}
@@ -96,8 +112,6 @@ func ExportClashWithParams(nodes []*protocol.NodeConfig, params ClashParams) (st
 	}
 
 	cfg := ClashConfig{
-		Port:      mixedPort,
-		SocksPort: mixedPort + 1,
 		MixedPort: mixedPort,
 		AllowLan:  params.AllowLan,
 		Mode:      mode,
@@ -127,7 +141,7 @@ func ExportClashWithParams(nodes []*protocol.NodeConfig, params ClashParams) (st
 		return "", fmt.Errorf("failed to marshal clash yaml: %w", err)
 	}
 
-	if len(proxyNames) == 0 {
+	if len(realProxyNames) == 0 {
 		return clashEmptyNotice + string(data), nil
 	}
 

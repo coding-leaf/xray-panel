@@ -239,3 +239,103 @@ func TestSubHandler_UADetectionAndExplicitOverride(t *testing.T) {
 		})
 	}
 }
+
+func TestSubHandler_ClashVergeRealityIncludesMLKEM(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	user := &domain.User{
+		ID:          1,
+		Email:       "reality@example.com",
+		UUID:        "11111111-1111-4111-8111-111111111111",
+		SubToken:    "reality-token-123",
+		InboundTags: "vless-reality",
+		Enabled:     true,
+	}
+	inbounds := []domain.Inbound{
+		{
+			ID:       1,
+			Tag:      "vless-reality",
+			Remark:   "JP REALITY",
+			Protocol: "vless",
+			Port:     443,
+			Enabled:  true,
+			StreamSettings: `{
+				"network": "tcp",
+				"security": "reality",
+				"realitySettings": {
+					"serverNames": ["www.apple.com"],
+					"publicKey": "test-reality-public-key",
+					"shortIds": ["0123456789abcdef"],
+					"fingerprint": "chrome"
+				}
+			}`,
+		},
+	}
+	settings := map[string]string{
+		"sub_domain":             "sub.example.com",
+		"sub_show_info_nodes":    "false",
+		"sub_default_fingerprint": "chrome",
+	}
+
+	subSvc := service.NewSubService(
+		&stubSubUserRepo{user: user},
+		&stubSubInboundRepo{inbounds: inbounds},
+		&stubSubSettingRepo{settings: settings},
+	)
+	handler := NewSubHandler(subSvc)
+
+	router := gin.New()
+	router.GET("/sub/:token", handler.GetSubscription)
+
+	req := httptest.NewRequest(http.MethodGet, "/sub/"+user.SubToken, nil)
+	req.Header.Set("User-Agent", "ClashVerge/2.0.0")
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	body := rec.Body.String()
+	if !strings.Contains(body, "support-x25519mlkem768: true") {
+		t.Fatalf("expected Clash Verge YAML to contain support-x25519mlkem768: true, got:\n%s", body)
+	}
+
+	var parsed map[string]interface{}
+	if err := yaml.Unmarshal([]byte(body), &parsed); err != nil {
+		t.Fatalf("expected valid clash yaml, got error: %v\n%s", err, body)
+	}
+	if _, hasPort := parsed["port"]; hasPort {
+		t.Fatalf("expected port key to be omitted, got port=%v", parsed["port"])
+	}
+	if _, hasSocksPort := parsed["socks-port"]; hasSocksPort {
+		t.Fatalf("expected socks-port key to be omitted, got socks-port=%v", parsed["socks-port"])
+	}
+	proxies, ok := parsed["proxies"].([]interface{})
+	if !ok || len(proxies) != 1 {
+		t.Fatalf("expected 1 proxy in Clash YAML, got: %+v", parsed["proxies"])
+	}
+	proxy0, ok := proxies[0].(map[string]interface{})
+	if !ok {
+		t.Fatalf("expected proxy map, got: %T", proxies[0])
+	}
+	realityOpts, ok := proxy0["reality-opts"].(map[string]interface{})
+	if !ok || realityOpts["support-x25519mlkem768"] != true {
+		t.Fatalf("expected reality-opts.support-x25519mlkem768 == true, got: %+v", proxy0["reality-opts"])
+	}
+
+	// Ensure Base64 / vless:// output for non-Clash UA remains untouched
+	rawReq := httptest.NewRequest(http.MethodGet, "/sub/"+user.SubToken, nil)
+	rawReq.Header.Set("User-Agent", "v2rayN/6.45")
+	rawRec := httptest.NewRecorder()
+	router.ServeHTTP(rawRec, rawReq)
+	if rawRec.Code != http.StatusOK {
+		t.Fatalf("expected status 200 for v2rayN UA, got %d: %s", rawRec.Code, rawRec.Body.String())
+	}
+	decoded, err := base64.StdEncoding.DecodeString(strings.TrimSpace(rawRec.Body.String()))
+	if err != nil {
+		t.Fatalf("expected valid base64 response, got err: %v", err)
+	}
+	if strings.Contains(string(decoded), "support-x25519mlkem768") {
+		t.Fatalf("expected vless:// URI not to contain support-x25519mlkem768, got: %s", string(decoded))
+	}
+}

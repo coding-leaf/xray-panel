@@ -156,6 +156,9 @@ return accessor.ResolveVisionFlow(inbound.Protocol)
   - 优先级契约：`入站显式配置的 fingerprint (realitySettings/tlsSettings.fingerprint) > 系统默认 sub_default_fingerprint > 兜底 "chrome"`。
 - **非客户端代理协议过滤**：
   - `dokodemo-door`（任意门端口转发）等非客户端代理协议在 `InboundToNodeConfig`、`InboundsToNodeConfigs` 与 `GetUserShareInfo` 中必须自动跳过，严禁导出为无效客户端订阅节点。
+- **Clash / Mihomo REALITY ML-KEM 与模板卫生契约**：
+  - `AttachClashTLS`（`internal/protocol/helpers.go`）在 `security == "reality"` 且 `len(realityOpts) > 0` 时必须输出 `reality-opts.support-x25519mlkem768: true`，防止 Mihomo 内核默认剥离 `X25519MLKEM768` 导致 Xray `26.9.8+`/`26.11.9` REALITY 握手静默回落并全节点 `Timeout`（不得向标准 `vless://` URI 注入非标准 query 参数）；
+  - `ExportClashWithParams`（`internal/sub/clash.go`）必须将虚拟信息节点（`127.0.0.1:10000` / 零 UUID）从 `AUTO`（`url-test`）组排除（仅保留于 `PROXIES` `select` 组，无真实节点时安全回落 `DIRECT`），且仅输出 `mixed-port`（省略重复 `port`/`socks-port` 避免原生 Mihomo CLI 端口冲突）。
 
 ---
 

@@ -1,0 +1,10 @@
+{"file": ".trellis/tasks/11-19-node-polish-sync-topology-geo/research/polish-audit.md", "reason": "Codebase audit with exact file:line anchors for sync status badges, TopologyView bug, and remote GeoData update"}
+{"file": ".trellis/spec/backend/index.md", "reason": "Backend layered architecture and quality gates"}
+{"file": ".trellis/spec/backend/directory-structure.md", "reason": "Backend layer boundaries and cmd/agent zero-heavy-deps rule"}
+{"file": ".trellis/spec/backend/error-handling.md", "reason": "Explicit error propagation and HTTP error mapping"}
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "Concurrency mutex safety, goroutine lifecycle, and KISS guidelines"}
+{"file": ".trellis/spec/frontend/index.md", "reason": "Frontend Vue 3 + Tailwind + Vite and zero-Pinia guidelines"}
+{"file": ".trellis/spec/frontend/api-and-dataflow.md", "reason": "Axios wrapper and query parameter conventions"}
+{"file": ".trellis/spec/frontend/components-and-routing.md", "reason": "Vue 3 SFC and reusable UI primitives"}
+{"file": ".trellis/spec/frontend/quality-guidelines.md", "reason": "Frontend typecheck, lint, and Vite build gate"}
+{"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "Cross-layer contract alignment across Master, Agent, and Vue UI"}

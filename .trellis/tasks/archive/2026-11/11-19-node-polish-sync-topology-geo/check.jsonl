@@ -1,0 +1,7 @@
+{"file": ".trellis/tasks/11-19-node-polish-sync-topology-geo/research/polish-audit.md", "reason": "Verify exact integration anchors and sync ack safety"}
+{"file": ".trellis/spec/backend/directory-structure.md", "reason": "Verify cmd/agent remains free of heavy dependencies (gin/gorm/sqlite/telegram/web)"}
+{"file": ".trellis/spec/backend/error-handling.md", "reason": "Verify GeoData rollback safety and zero silent error swallowing"}
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "Verify race safety and zero goroutine/channel leaks in geoWaiters"}
+{"file": ".trellis/spec/frontend/index.md", "reason": "Verify zero Pinia usage"}
+{"file": ".trellis/spec/frontend/quality-guidelines.md", "reason": "Verify typecheck, lint, and Vite build pass cleanly"}
+{"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "Verify Master/Agent/Frontend contracts match byte-for-byte"}

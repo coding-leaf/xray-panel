@@ -885,3 +885,25 @@ Added real-time synced/pending/error config sync status badges with 1-RTT agent 
 ### Status
 
 [OK] **Completed**
+
+
+## Session 39: M2: 统一异步 NodeCommand 通道与流量表清理收口
+<!-- trellis-session: v=2 fp=2b741c03bf437df2 -->
+
+**Date**: 2026-11-19
+**Task**: M2: 统一异步 NodeCommand 通道与流量表清理收口
+**Branch**: `master`
+
+### Summary
+
+完成 M2 实施：将远端日志与远端 GeoData 合并为统一异步 NodeCommand 状态机(180s TTL/防并发覆写/跨节点404/202 Accepted)、Agent 后台受控协程执行与即时上报+心跳兜底补传、前端 2s 轮询与定时器清理；GORMNodeRepository.Delete 事务级联删流量子表与 TrafficSyncJob 独立于 xrayManager 的 7 天批次每日清理；4 个写接口补齐 RefreshSyncStatus；沉淀 backend/quality-guidelines 第 13 节。全量 Go(-race)/Agent/前端门禁通过。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `6e0ed5c` | feat(m2): unify async NodeCommand channel, cascade-prune traffic batches, and align write sync status |
+
+### Status
+
+[OK] **Completed**

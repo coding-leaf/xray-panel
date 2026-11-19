@@ -8,7 +8,7 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 38
+- **Total Sessions**: 39
 - **Last Active**: 2026-11-19
 <!-- @@@/auto:current-status -->
 
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~887 | Active |
+| `journal-1.md` | ~909 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 39 | 2026-11-19 | M2: 统一异步 NodeCommand 通道与流量表清理收口 | `6e0ed5c` | `master` |
 | 38 | 2026-11-19 | M1: 核心稳定性止血修复、拓扑一键发布剔除与快速去重 | `459c8ab` | `master` |
 | 37 | 2026-11-19 | Node Sync Status Badges, Multi-Node Topology & Remote GeoData | `b77f0de` | `master` |
 | 36 | 2026-11-19 | Global Node Switcher, Per-Node Full Config & On-Demand Logs | `f7d7d06`, `b0330a6`, `5c9f559` | `master` |

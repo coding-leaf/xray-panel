@@ -1,0 +1,8 @@
+{"file": ".trellis/spec/backend/index.md", "reason": "Backend quality checklist"}
+{"file": ".trellis/spec/backend/error-handling.md", "reason": "Verify no swallowed errors or broken rollbacks"}
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "Verify concurrency safety, agent dep isolation, and test gates"}
+{"file": ".trellis/spec/frontend/index.md", "reason": "Frontend quality checklist"}
+{"file": ".trellis/spec/frontend/quality-guidelines.md", "reason": "Verify typecheck, lint, format:check, and build"}
+{"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "Verify cross-layer contract integrity"}
+{"file": ".trellis/spec/guides/review-3pass-guide.md", "reason": "3-pass review discipline"}
+{"file": ".trellis/tasks/11-19-audit-today-stability-cleanup/research/02-stability-risks.md", "reason": "Verify all M1 P0/P1 defects are covered by Fail-Repro tests"}

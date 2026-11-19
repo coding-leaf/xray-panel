@@ -1,0 +1,11 @@
+{"file": ".trellis/spec/backend/index.md", "reason": "Backend architecture and pre-dev checklist"}
+{"file": ".trellis/spec/backend/directory-structure.md", "reason": "Backend layering and domain/service/adapter boundaries"}
+{"file": ".trellis/spec/backend/error-handling.md", "reason": "Error handling and Saga rollback conventions"}
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "Backend quality, concurrency, and testing gates"}
+{"file": ".trellis/spec/frontend/index.md", "reason": "Frontend pre-dev checklist"}
+{"file": ".trellis/spec/frontend/components-and-routing.md", "reason": "Vue component and routing conventions"}
+{"file": ".trellis/spec/frontend/quality-guidelines.md", "reason": "Frontend formatting, lint, and build gates"}
+{"file": ".trellis/spec/guides/code-reuse-thinking-guide.md", "reason": "Deduplication and shared helper conventions"}
+{"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "Cross-layer contract alignment"}
+{"file": ".trellis/tasks/11-19-audit-today-stability-cleanup/research/02-stability-risks.md", "reason": "Detailed P0/P1 root causes and file:line evidence"}
+{"file": ".trellis/tasks/11-19-audit-today-stability-cleanup/research/03-redundancy-and-consolidation.md", "reason": "Redundancy cleanup list and scope anchors"}

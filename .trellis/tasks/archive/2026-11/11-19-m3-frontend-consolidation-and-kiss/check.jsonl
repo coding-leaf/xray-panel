@@ -1,0 +1,8 @@
+{"file": ".trellis/spec/backend/index.md", "reason": "Backend quality checklist"}
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "Verify KISS interfaces, pkg/geodata stdlib purity, and race safety"}
+{"file": ".trellis/spec/frontend/index.md", "reason": "Frontend quality checklist"}
+{"file": ".trellis/spec/frontend/components-and-routing.md", "reason": "Verify nodeScoped routing, Drawer cleanup, and single node state source"}
+{"file": ".trellis/spec/frontend/quality-guidelines.md", "reason": "Verify typecheck, lint, format:check, and build"}
+{"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "Verify zero API/route regressions"}
+{"file": ".trellis/spec/guides/review-3pass-guide.md", "reason": "3-pass review discipline"}
+{"file": ".trellis/tasks/11-19-m3-frontend-consolidation-and-kiss/research/m3-code-map.md", "reason": "Verify all M3 U-1/U-2/U-3/A-2/P2 items and caveats"}

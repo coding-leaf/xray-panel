@@ -793,3 +793,27 @@
 ### Status
 
 [OK] **Completed**
+
+
+## Session 35: Multi-Node Direct Agent & Traffic Failover (M1-M3)
+<!-- trellis-session: v=2 fp=52eddca2aa9a519f -->
+
+**Date**: 2026-11-19
+**Task**: Multi-Node Direct Agent & Traffic Failover (M1-M3)
+**Branch**: `master`
+
+### Summary
+
+Delivered M1 (Node model, Master single-endpoint sync control plane with hash short-circuit & idempotent batch_id, ultra-thin cmd/agent binary with zero heavy deps), M2 (multi-node direct subscription aggregation, UA detection & Clash safe skip, Vue 3 Node UI & inbound node binding), and M3 (dual-accounting monthly quota, billing reset day, 80%/90%/95% tiered TG alerts/drain/circuit-breaker, offline autonomous agent circuit-breaker, TG Bot node commands, and quota watermark UI). Deferred optional M4 (invite-code onboarding) per user priority.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `e3bf065` | feat(node): add multi-node model, master sync control plane, and thin agent binary (M1) |
+| `e76747f` | feat(node): aggregate direct nodes in subscriptions, add client UA/Clash fallback, and deliver Node UI (M2) |
+| `b64734b` | feat(node): add node monthly quota dual-accounting, tiered TG alerts, and auto/offline circuit breaker (M3) |
+
+### Status
+
+[OK] **Completed**

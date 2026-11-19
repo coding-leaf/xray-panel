@@ -907,3 +907,25 @@ Added real-time synced/pending/error config sync status badges with 1-RTT agent 
 ### Status
 
 [OK] **Completed**
+
+
+## Session 40: M3 与 2026-11-19 审查总任务收官：前端交互收敛、Portal 单源化与后端 KISS 精简
+<!-- trellis-session: v=2 fp=f2f4e35a366fcaaa -->
+
+**Date**: 2026-11-20
+**Task**: M3 与 2026-11-19 审查总任务收官：前端交互收敛、Portal 单源化与后端 KISS 精简
+**Branch**: `master`
+
+### Summary
+
+完成 M3 实施并归档 M3 与 Parent 总任务：路由 meta.nodeScoped 作用域收敛与远端禁点重启核心、InboundsView 去冗余筛选与 Topology->Logs 上下文透传、合并 useActiveNode/useNodes 单一状态源、新增 4-Tab NodeOpsDrawer 并把 GeoData 从 RoutingView 迁至 SettingsView、单源化 deploy/cloudflare-pages/portal/index.html 与 _worker.js 4 路径改写、收敛单一 domain.NodeRepository 与 RemoteNodeCompiler 并抽取纯标准库 internal/pkg/geodata、补全 /admin/nodes Demo Mock 与 180s/离线物理网卡口径提示；沉淀前后端 Spec。全量 Go(-race)/Agent/Gateway/前端门禁全绿。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `2a613eb` | refactor(m3): consolidate node UI & store, add NodeOpsDrawer, single-source portal, and simplify node repos |
+
+### Status
+
+[OK] **Completed**

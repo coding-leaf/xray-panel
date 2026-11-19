@@ -128,7 +128,7 @@ type Node struct {
 	CreatedAt          time.Time  `json:"createdAt"`
 	UpdatedAt          time.Time  `json:"updatedAt"`
 
-	Online         bool  `gorm:"-" json:"online"`         // 动态判定: LastSeenAt 距今 <= 90s
+	Online         bool  `gorm:"-" json:"online"`         // 动态判定: LastSeenAt 距今 <= 180s
 	CycleUsedBytes int64 `gorm:"-" json:"cycleUsedBytes"` // 动态计算当前周期已用计费流量
 }
 
@@ -190,7 +190,7 @@ func (n *Node) RefreshOnline(now time.Time) {
 		n.Online = false
 		return
 	}
-	n.Online = now.Sub(*n.LastSeenAt) <= 90*time.Second
+	n.Online = now.Sub(*n.LastSeenAt) <= 180*time.Second
 }
 
 // RefreshComputed populates all transient computed fields on Node.

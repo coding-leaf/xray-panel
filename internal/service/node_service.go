@@ -18,7 +18,7 @@ import (
 	"panel/internal/domain"
 )
 
-const defaultNodeSyncIntervalSec = 20
+const defaultNodeSyncIntervalSec = 60
 
 // NodeStateChangeCallback is invoked when a node automatically changes or recovers its desired state.
 type NodeStateChangeCallback func(ctx context.Context, node *domain.Node, oldState, newState, reason string)

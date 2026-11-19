@@ -282,3 +282,122 @@ func TestNodeRepo_ApplyNodeTrafficBatch_ConcurrentSameBatch(t *testing.T) {
 		t.Fatalf("expected bob traffic 250/750, got %d/%d", uAfter.UpBytes, uAfter.DownBytes)
 	}
 }
+
+func TestNodeRepo_QuotaCycleDailyAndReset(t *testing.T) {
+	nodeRepo, _, inboundRepo, _ := setupNodeTestRepos(t)
+	ctx := context.Background()
+
+	node := &domain.Node{
+		Name:              "Quota Node",
+		Host:              "127.0.0.1",
+		TokenHash:         "4444444444444444444444444444444444444444444444444444444444444444",
+		Enabled:           true,
+		DesiredState:      domain.NodeStateActive,
+		TrafficLimitBytes: 10000,
+		BillingResetDay:   15,
+		TrafficCountMode:  domain.TrafficCountModeBoth,
+		TrafficMultiplier: 1.0,
+		WarnThresholdPct:  80,
+		DrainThresholdPct: 90,
+		BreakThresholdPct: 95,
+	}
+	if err := nodeRepo.Create(ctx, node); err != nil {
+		t.Fatalf("create node: %v", err)
+	}
+	if err := inboundRepo.Create(ctx, &domain.Inbound{
+		NodeID: node.ID, Tag: "q-vless", Port: 443, Protocol: "vless", Enabled: true,
+	}); err != nil {
+		t.Fatalf("create inbound: %v", err)
+	}
+
+	day1 := time.Date(2026, 11, 18, 12, 0, 0, 0, time.UTC)
+	day2 := time.Date(2026, 11, 19, 12, 0, 0, 0, time.UTC)
+
+	// NIC heartbeat deltas accumulate both lifetime and cycle counters and daily logs
+	if err := nodeRepo.UpdateHeartbeat(ctx, node.ID, &domain.AgentSyncRequest{
+		HostMetrics: &domain.AgentHostMetrics{NicUpDelta: 1000, NicDownDelta: 2000},
+	}, day1); err != nil {
+		t.Fatalf("UpdateHeartbeat day1 failed: %v", err)
+	}
+	if err := nodeRepo.UpdateHeartbeat(ctx, node.ID, &domain.AgentSyncRequest{
+		HostMetrics: &domain.AgentHostMetrics{NicUpDelta: 500, NicDownDelta: 600},
+	}, day2); err != nil {
+		t.Fatalf("UpdateHeartbeat day2 failed: %v", err)
+	}
+
+	// Xray batch accumulates cycle_xray_* and daily logs (idempotent on repeat)
+	batch := &domain.AgentTrafficBatch{
+		BatchID:  "quota-batch-1",
+		Inbounds: []domain.AgentInboundTrafficDelta{{Tag: "q-vless", UpBytes: 300, DownBytes: 700}},
+	}
+	if applied, _, err := nodeRepo.ApplyNodeTrafficBatch(ctx, node.ID, batch, "2026-11-19"); err != nil || !applied {
+		t.Fatalf("ApplyNodeTrafficBatch failed: applied=%v err=%v", applied, err)
+	}
+	if applied2, _, err := nodeRepo.ApplyNodeTrafficBatch(ctx, node.ID, batch, "2026-11-19"); err != nil || applied2 {
+		t.Fatalf("duplicate ApplyNodeTrafficBatch should be no-op: applied=%v err=%v", applied2, err)
+	}
+
+	loaded, err := nodeRepo.GetByID(ctx, node.ID)
+	if err != nil {
+		t.Fatalf("GetByID failed: %v", err)
+	}
+	if loaded.CycleNicUpBytes != 1500 || loaded.CycleNicDownBytes != 2600 {
+		t.Fatalf("expected cycle NIC 1500/2600, got %d/%d", loaded.CycleNicUpBytes, loaded.CycleNicDownBytes)
+	}
+	if loaded.CycleXrayUpBytes != 300 || loaded.CycleXrayDownBytes != 700 {
+		t.Fatalf("expected cycle Xray 300/700, got %d/%d", loaded.CycleXrayUpBytes, loaded.CycleXrayDownBytes)
+	}
+
+	// Update metadata must not overwrite cycle counters
+	loaded.Name = "Quota Node Renamed"
+	loaded.CycleNicUpBytes = 0
+	if err := nodeRepo.Update(ctx, loaded); err != nil {
+		t.Fatalf("Update failed: %v", err)
+	}
+	afterUpdate, _ := nodeRepo.GetByID(ctx, node.ID)
+	if afterUpdate.CycleNicUpBytes != 1500 {
+		t.Fatalf("Update overwrote cycle_nic_up_bytes: got %d", afterUpdate.CycleNicUpBytes)
+	}
+
+	// Verify daily logs ordered newest first
+	dailies, err := nodeRepo.ListRecentDailyTraffic(ctx, node.ID, 2)
+	if err != nil || len(dailies) != 2 {
+		t.Fatalf("expected 2 daily logs, got %+v (err=%v)", dailies, err)
+	}
+	if dailies[0].Date != "2026-11-19" || dailies[0].NicUpBytes != 500 || dailies[0].XrayUpBytes != 300 {
+		t.Fatalf("unexpected newest daily log: %+v", dailies[0])
+	}
+	if dailies[1].Date != "2026-11-18" || dailies[1].NicUpBytes != 1000 {
+		t.Fatalf("unexpected older daily log: %+v", dailies[1])
+	}
+
+	// Auto state transition & reset recovery
+	if err := nodeRepo.UpdateAutoState(ctx, node.ID, domain.NodeStateCircuitBroken, domain.AutoReasonBreakQuota); err != nil {
+		t.Fatalf("UpdateAutoState failed: %v", err)
+	}
+	if err := nodeRepo.ResetCycleTraffic(ctx, node.ID, 202611, true); err != nil {
+		t.Fatalf("ResetCycleTraffic failed: %v", err)
+	}
+	afterReset, _ := nodeRepo.GetByID(ctx, node.ID)
+	if afterReset.CycleNicUpBytes != 0 || afterReset.CycleXrayDownBytes != 0 {
+		t.Fatalf("expected cycle counters zeroed, got %+v", afterReset)
+	}
+	if afterReset.LastResetMonth != 202611 {
+		t.Fatalf("expected LastResetMonth 202611, got %d", afterReset.LastResetMonth)
+	}
+	if afterReset.DesiredState != domain.NodeStateActive || afterReset.AutoStateReason != "" {
+		t.Fatalf("expected auto-degraded state restored to active, got state=%q reason=%q", afterReset.DesiredState, afterReset.AutoStateReason)
+	}
+
+	// Manual state must NOT be overridden by ResetCycleTraffic
+	if err := nodeRepo.UpdateAutoState(ctx, node.ID, domain.NodeStateDraining, domain.AutoReasonManual); err != nil {
+		t.Fatalf("UpdateAutoState manual failed: %v", err)
+	}
+	if err := nodeRepo.ResetCycleTraffic(ctx, node.ID, 202612, true); err != nil {
+		t.Fatalf("ResetCycleTraffic manual failed: %v", err)
+	}
+	afterManualReset, _ := nodeRepo.GetByID(ctx, node.ID)
+	if afterManualReset.DesiredState != domain.NodeStateDraining || afterManualReset.AutoStateReason != domain.AutoReasonManual {
+		t.Fatalf("manual state was overwritten on reset: state=%q reason=%q", afterManualReset.DesiredState, afterManualReset.AutoStateReason)
+	}
+}

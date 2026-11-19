@@ -58,6 +58,17 @@ type SyncResponse struct {
 	UsersUnchanged  bool         `json:"usersUnchanged"`
 	ConfigJSON      string       `json:"configJson,omitempty"`
 	Users           []RemoteUser `json:"users,omitempty"`
+	QuotaPolicy     *QuotaPolicy `json:"quotaPolicy,omitempty"`
+}
+
+// QuotaPolicy describes the node's monthly quota and autonomous circuit-breaker policy pushed by Master.
+type QuotaPolicy struct {
+	TrafficLimitBytes int64   `json:"trafficLimitBytes"`
+	BreakThresholdPct int     `json:"breakThresholdPct"`
+	CountMode         string  `json:"countMode"`
+	Multiplier        float64 `json:"multiplier"`
+	CycleUsedBytes    int64   `json:"cycleUsedBytes"`
+	CycleMonth        int     `json:"cycleMonth"`
 }
 
 // RemoteUser describes an authorized user entry for differential gRPC updates.

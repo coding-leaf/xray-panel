@@ -148,7 +148,7 @@
             <th
               class="h-9 px-3.5 text-left align-middle font-mono text-[11px] font-medium text-muted-foreground uppercase tracking-wider"
             >
-              累计流量 (Xray / 网卡)
+              周期配额与流量
             </th>
             <th
               class="h-9 px-3.5 text-left align-middle font-mono text-[11px] font-medium text-muted-foreground uppercase tracking-wider"
@@ -213,6 +213,13 @@
                 <Badge :variant="getDesiredStateBadge(node.desiredState).variant">
                   {{ getDesiredStateBadge(node.desiredState).label }}
                 </Badge>
+                <Badge
+                  v-if="getAutoStateReasonBadge(node.autoStateReason)"
+                  :variant="getAutoStateReasonBadge(node.autoStateReason)!.variant"
+                  class="text-[10px]"
+                >
+                  {{ getAutoStateReasonBadge(node.autoStateReason)!.label }}
+                </Badge>
               </div>
             </td>
 
@@ -228,9 +235,32 @@
               </div>
             </td>
 
-            <!-- 5. Traffic -->
-            <td class="p-3.5 align-middle font-mono text-[11px]">
-              <div class="text-neutral-200">
+            <!-- 5. Traffic & Quota -->
+            <td class="p-3.5 align-middle font-mono text-[11px] min-w-[190px]">
+              <div v-if="getNodeQuotaStats(node).hasLimit" class="mb-1.5">
+                <div class="flex items-center justify-between gap-2 text-[10px]">
+                  <span class="text-neutral-200">
+                    周期 {{ formatBytes(getNodeQuotaStats(node).usedBytes) }} /
+                    {{ formatBytes(getNodeQuotaStats(node).limitBytes) }}
+                  </span>
+                  <span :class="['font-semibold', getNodeQuotaStats(node).textClass]">
+                    {{ getNodeQuotaStats(node).displayPct }}%
+                  </span>
+                </div>
+                <div class="w-full h-1.5 rounded-full bg-neutral-800 overflow-hidden mt-1">
+                  <div
+                    :class="[
+                      'h-full rounded-full transition-all',
+                      getNodeQuotaStats(node).barClass,
+                    ]"
+                    :style="{ width: `${getNodeQuotaStats(node).barWidth}%` }"
+                  />
+                </div>
+              </div>
+              <div v-else class="text-[10px] text-neutral-300 mb-1">
+                周期已用：{{ formatBytes(getNodeQuotaStats(node).usedBytes) }} · 不限
+              </div>
+              <div class="text-[10px] text-muted-foreground">
                 Xray: ↑ {{ formatBytes(node.xrayUpBytes || 0) }} / ↓
                 {{ formatBytes(node.xrayDownBytes || 0) }}
               </div>
@@ -271,6 +301,15 @@
                   @click="handleRotateToken(node)"
                 >
                   轮换 Token
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  class="h-7 px-2 text-[11px] text-emerald-400 hover:text-emerald-300 hover:bg-emerald-500/10"
+                  :loading="resettingId === node.id"
+                  @click="handleResetTraffic(node)"
+                >
+                  重置周期流量
                 </Button>
                 <Button
                   variant="secondary"
@@ -352,6 +391,36 @@
             <Badge :variant="getDesiredStateBadge(node.desiredState).variant" class="text-[10px]">
               {{ getDesiredStateBadge(node.desiredState).label }}
             </Badge>
+            <Badge
+              v-if="getAutoStateReasonBadge(node.autoStateReason)"
+              :variant="getAutoStateReasonBadge(node.autoStateReason)!.variant"
+              class="text-[10px]"
+            >
+              {{ getAutoStateReasonBadge(node.autoStateReason)!.label }}
+            </Badge>
+          </div>
+        </div>
+
+        <div class="text-[11px] font-mono">
+          <div v-if="getNodeQuotaStats(node).hasLimit" class="space-y-1">
+            <div class="flex items-center justify-between gap-2 text-[10px]">
+              <span class="text-muted-foreground">
+                周期流量 {{ formatBytes(getNodeQuotaStats(node).usedBytes) }} /
+                {{ formatBytes(getNodeQuotaStats(node).limitBytes) }}
+              </span>
+              <span :class="['font-semibold', getNodeQuotaStats(node).textClass]">
+                {{ getNodeQuotaStats(node).displayPct }}%
+              </span>
+            </div>
+            <div class="w-full h-1.5 rounded-full bg-neutral-800 overflow-hidden">
+              <div
+                :class="['h-full rounded-full transition-all', getNodeQuotaStats(node).barClass]"
+                :style="{ width: `${getNodeQuotaStats(node).barWidth}%` }"
+              />
+            </div>
+          </div>
+          <div v-else class="text-[10px] text-muted-foreground">
+            周期已用：{{ formatBytes(getNodeQuotaStats(node).usedBytes) }} · 不限
           </div>
         </div>
 
@@ -402,6 +471,15 @@
             @click="handleRotateToken(node)"
           >
             轮换 Token
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            class="h-7 px-2 text-[11px] text-emerald-400 hover:text-emerald-300 hover:bg-emerald-500/10"
+            :loading="resettingId === node.id"
+            @click="handleResetTraffic(node)"
+          >
+            重置周期流量
           </Button>
           <Button
             variant="secondary"
@@ -468,7 +546,13 @@ import Button from '../components/ui/Button.vue'
 import { formatBytes, formatDateTime } from '../utils/format'
 import type { CreateNodeResult, NodeItem } from '../api/nodes'
 import type { NodeTokenModalState } from './nodes/types'
-import { formatLastSeen, getDesiredStateBadge, useNodes } from './nodes/composables/useNodes'
+import {
+  formatLastSeen,
+  getAutoStateReasonBadge,
+  getDesiredStateBadge,
+  getNodeQuotaStats,
+  useNodes,
+} from './nodes/composables/useNodes'
 
 const NodeFormDrawer = defineAsyncComponent(() => import('./nodes/components/NodeFormDrawer.vue'))
 const NodeTokenModal = defineAsyncComponent(() => import('./nodes/components/NodeTokenModal.vue'))
@@ -476,6 +560,7 @@ const NodeTokenModal = defineAsyncComponent(() => import('./nodes/components/Nod
 const {
   nodes,
   loading,
+  resettingId,
   searchQuery,
   stateFilter,
   onlineFilter,
@@ -485,6 +570,7 @@ const {
   removeNode,
   toggleNodeEnabled,
   rotateToken,
+  handleResetTraffic,
 } = useNodes()
 
 const showFormDrawer = ref(false)

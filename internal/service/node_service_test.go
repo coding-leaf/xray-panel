@@ -10,6 +10,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"panel/internal/adapter/repository"
 	"panel/internal/adapter/xray"
@@ -335,4 +336,194 @@ func TestNodeService_HandleAgentSync_ShortCircuit_CacheInvalidation_Idempotency(
 		}(i)
 	}
 	wg.Wait()
+}
+
+func TestNode_CalcCycleUsedBytes_DualAccounting(t *testing.T) {
+	// NIC preferred over Xray
+	n1 := &domain.Node{
+		TrafficCountMode:   domain.TrafficCountModeBoth,
+		TrafficMultiplier:  1.05,
+		CycleNicUpBytes:    1000,
+		CycleNicDownBytes:  2000,
+		CycleXrayUpBytes:   500,
+		CycleXrayDownBytes: 500,
+	}
+	if got := n1.CalcCycleUsedBytes(); got != 3150 {
+		t.Fatalf("expected NIC both*1.05 = 3150, got %d", got)
+	}
+
+	// Fallback to Xray when NIC is zero
+	n2 := &domain.Node{
+		TrafficCountMode:   domain.TrafficCountModeBoth,
+		TrafficMultiplier:  1.0,
+		CycleXrayUpBytes:   400,
+		CycleXrayDownBytes: 600,
+	}
+	if got := n2.CalcCycleUsedBytes(); got != 1000 {
+		t.Fatalf("expected Xray fallback both = 1000, got %d", got)
+	}
+
+	// Outbound mode uses up only
+	n3 := &domain.Node{
+		TrafficCountMode:  domain.TrafficCountModeOutbound,
+		TrafficMultiplier: 1.0,
+		CycleNicUpBytes:   700,
+		CycleNicDownBytes: 3000,
+	}
+	if got := n3.CalcCycleUsedBytes(); got != 700 {
+		t.Fatalf("expected outbound = 700, got %d", got)
+	}
+
+	// Max mode uses max(up, down)
+	n4 := &domain.Node{
+		TrafficCountMode:  domain.TrafficCountModeMax,
+		TrafficMultiplier: 1.0,
+		CycleNicUpBytes:   700,
+		CycleNicDownBytes: 3000,
+	}
+	if got := n4.CalcCycleUsedBytes(); got != 3000 {
+		t.Fatalf("expected max = 3000, got %d", got)
+	}
+}
+
+func TestNodeService_QuotaValidation(t *testing.T) {
+	nodeSvc, _, _, _, _, _ := setupNodeServiceTestEnv(t)
+	ctx := context.Background()
+
+	badWarn := 95
+	badDrain := 90
+	if _, err := nodeSvc.CreateNode(ctx, domain.CreateNodeDTO{
+		Name:              "Bad Threshold",
+		Host:              "127.0.0.1",
+		WarnThresholdPct:  &badWarn,
+		DrainThresholdPct: &badDrain,
+	}); !errors.Is(err, domain.ErrInvalidInput) {
+		t.Fatalf("expected ErrInvalidInput for warn > drain, got %v", err)
+	}
+
+	zeroMult := 0.0
+	if _, err := nodeSvc.CreateNode(ctx, domain.CreateNodeDTO{
+		Name:              "Bad Mult",
+		Host:              "127.0.0.1",
+		TrafficMultiplier: &zeroMult,
+	}); !errors.Is(err, domain.ErrInvalidInput) {
+		t.Fatalf("expected ErrInvalidInput for multiplier <= 0, got %v", err)
+	}
+
+	badReset := 32
+	if _, err := nodeSvc.CreateNode(ctx, domain.CreateNodeDTO{
+		Name:            "Bad ResetDay",
+		Host:            "127.0.0.1",
+		BillingResetDay: &badReset,
+	}); !errors.Is(err, domain.ErrInvalidInput) {
+		t.Fatalf("expected ErrInvalidInput for billingResetDay > 31, got %v", err)
+	}
+
+	if _, err := nodeSvc.CreateNode(ctx, domain.CreateNodeDTO{
+		Name:             "Bad Mode",
+		Host:             "127.0.0.1",
+		TrafficCountMode: "inbound_only",
+	}); !errors.Is(err, domain.ErrInvalidInput) {
+		t.Fatalf("expected ErrInvalidInput for unsupported trafficCountMode, got %v", err)
+	}
+}
+
+func TestNodeService_HandleAgentSync_AutoDrainBreakAndReset(t *testing.T) {
+	nodeSvc, _, _, nodeRepo, _, _ := setupNodeServiceTestEnv(t)
+	ctx := context.Background()
+
+	var transitions []string
+	nodeSvc.WithStateChangeNotifier(func(ctx context.Context, node *domain.Node, oldState, newState, reason string) {
+		transitions = append(transitions, oldState+"->"+newState+":"+reason)
+	})
+
+	limit := int64(1000)
+	resetDay := 31
+	created, err := nodeSvc.CreateNode(ctx, domain.CreateNodeDTO{
+		Name:              "Quota Edge",
+		Host:              "127.0.0.1",
+		TrafficLimitBytes: &limit,
+		BillingResetDay:   &resetDay,
+	})
+	if err != nil {
+		t.Fatalf("CreateNode failed: %v", err)
+	}
+
+	// 1. 85% -> remains active, QuotaPolicy populated
+	resp1, err := nodeSvc.HandleAgentSync(ctx, created.ID, &domain.AgentSyncRequest{
+		HostMetrics: &domain.AgentHostMetrics{NicUpDelta: 400, NicDownDelta: 450},
+	})
+	if err != nil {
+		t.Fatalf("sync 85%% failed: %v", err)
+	}
+	if resp1.DesiredState != domain.NodeStateActive {
+		t.Fatalf("expected active at 85%%, got %q", resp1.DesiredState)
+	}
+	if resp1.QuotaPolicy == nil || resp1.QuotaPolicy.CycleUsedBytes != 850 || resp1.QuotaPolicy.TrafficLimitBytes != 1000 {
+		t.Fatalf("unexpected QuotaPolicy at 85%%: %+v", resp1.QuotaPolicy)
+	}
+
+	// 2. +50 -> 90% => auto draining
+	resp2, err := nodeSvc.HandleAgentSync(ctx, created.ID, &domain.AgentSyncRequest{
+		HostMetrics: &domain.AgentHostMetrics{NicUpDelta: 50},
+	})
+	if err != nil {
+		t.Fatalf("sync 90%% failed: %v", err)
+	}
+	if resp2.DesiredState != domain.NodeStateDraining {
+		t.Fatalf("expected draining at 90%%, got %q", resp2.DesiredState)
+	}
+
+	// 3. +50 -> 95% => auto circuit_broken
+	resp3, err := nodeSvc.HandleAgentSync(ctx, created.ID, &domain.AgentSyncRequest{
+		HostMetrics: &domain.AgentHostMetrics{NicDownDelta: 50},
+	})
+	if err != nil {
+		t.Fatalf("sync 95%% failed: %v", err)
+	}
+	if resp3.DesiredState != domain.NodeStateCircuitBroken {
+		t.Fatalf("expected circuit_broken at 95%%, got %q", resp3.DesiredState)
+	}
+
+	if len(transitions) != 2 ||
+		transitions[0] != "active->draining:auto_drain_quota" ||
+		transitions[1] != "draining->circuit_broken:auto_break_quota" {
+		t.Fatalf("unexpected transitions: %v", transitions)
+	}
+
+	// 4. Short-month billing reset (BillingResetDay=31 in Feb 2024 leap year: Feb 28 does NOT reset, Feb 29 DOES reset)
+	feb28 := time.Date(2024, 2, 28, 12, 0, 0, 0, time.UTC)
+	if err := nodeSvc.CheckAndResetMonthlyTrafficAt(ctx, feb28); err != nil {
+		t.Fatalf("CheckAndResetMonthlyTrafficAt feb28 failed: %v", err)
+	}
+	stillBroken, _ := nodeRepo.GetByID(ctx, created.ID)
+	if stillBroken.DesiredState != domain.NodeStateCircuitBroken || stillBroken.CycleUsedBytes != 0 && stillBroken.CalcCycleUsedBytes() != 950 {
+		t.Fatalf("expected no reset on leap year feb 28, got state=%q used=%d", stillBroken.DesiredState, stillBroken.CalcCycleUsedBytes())
+	}
+
+	feb29 := time.Date(2024, 2, 29, 12, 0, 0, 0, time.UTC)
+	if err := nodeSvc.CheckAndResetMonthlyTrafficAt(ctx, feb29); err != nil {
+		t.Fatalf("CheckAndResetMonthlyTrafficAt feb29 failed: %v", err)
+	}
+	recovered, _ := nodeRepo.GetByID(ctx, created.ID)
+	if recovered.DesiredState != domain.NodeStateActive || recovered.CalcCycleUsedBytes() != 0 || recovered.LastResetMonth != 202402 {
+		t.Fatalf("expected reset & recovery on feb 29, got state=%q used=%d month=%d", recovered.DesiredState, recovered.CalcCycleUsedBytes(), recovered.LastResetMonth)
+	}
+	if len(transitions) != 3 || transitions[2] != "circuit_broken->active:monthly_reset_recovered" {
+		t.Fatalf("expected recovery notification, got %v", transitions)
+	}
+
+	// 5. Repeat on same month must not double-reset; manual drain must not be overridden by auto-break
+	if _, err := nodeSvc.SetNodeDesiredState(ctx, created.ID, domain.NodeStateDraining); err != nil {
+		t.Fatalf("SetNodeDesiredState manual failed: %v", err)
+	}
+	respManual, err := nodeSvc.HandleAgentSync(ctx, created.ID, &domain.AgentSyncRequest{
+		HostMetrics: &domain.AgentHostMetrics{NicUpDelta: 990},
+	})
+	if err != nil {
+		t.Fatalf("sync under manual state failed: %v", err)
+	}
+	if respManual.DesiredState != domain.NodeStateDraining {
+		t.Fatalf("manual draining state must not be overwritten by auto breaker, got %q", respManual.DesiredState)
+	}
 }

@@ -4,6 +4,7 @@ import (
 	"context"
 	"strings"
 	"testing"
+	"time"
 
 	"panel/internal/domain"
 )
@@ -214,5 +215,132 @@ func TestNotifyRealityAbnormal(t *testing.T) {
 	}
 	if len(notifier.messages) != 3 {
 		t.Fatalf("expected ok item not to trigger message, got %d", len(notifier.messages))
+	}
+}
+
+type mockAlertNodeRepo struct {
+	nodes   []domain.Node
+	dailies map[uint][]domain.NodeTrafficDaily
+}
+
+func (m *mockAlertNodeRepo) Create(ctx context.Context, node *domain.Node) error { return nil }
+func (m *mockAlertNodeRepo) Update(ctx context.Context, node *domain.Node) error { return nil }
+func (m *mockAlertNodeRepo) UpdateHeartbeat(ctx context.Context, nodeID uint, req *domain.AgentSyncRequest, seenAt time.Time) error {
+	return nil
+}
+func (m *mockAlertNodeRepo) Delete(ctx context.Context, id uint) error { return nil }
+func (m *mockAlertNodeRepo) GetByID(ctx context.Context, id uint) (*domain.Node, error) {
+	return nil, domain.ErrNotFound
+}
+func (m *mockAlertNodeRepo) GetByTokenHash(ctx context.Context, tokenHash string) (*domain.Node, error) {
+	return nil, domain.ErrNotFound
+}
+func (m *mockAlertNodeRepo) ListAll(ctx context.Context) ([]domain.Node, error) {
+	return m.nodes, nil
+}
+func (m *mockAlertNodeRepo) CountInbounds(ctx context.Context, nodeID uint) (int64, error) {
+	return 0, nil
+}
+func (m *mockAlertNodeRepo) UpdateAutoState(ctx context.Context, nodeID uint, desiredState, reason string) error {
+	return nil
+}
+func (m *mockAlertNodeRepo) ResetCycleTraffic(ctx context.Context, nodeID uint, resetMonth int, restoreActive bool) error {
+	return nil
+}
+func (m *mockAlertNodeRepo) ListRecentDailyTraffic(ctx context.Context, nodeID uint, days int) ([]domain.NodeTrafficDaily, error) {
+	return m.dailies[nodeID], nil
+}
+
+func TestAlertService_CheckNodeQuotas_ForecastAndCooldown(t *testing.T) {
+	notifier := &mockNotifier{}
+	now := time.Date(2026, 11, 19, 12, 0, 0, 0, time.Local)
+	gb := int64(1024 * 1024 * 1024)
+
+	repo := &mockAlertNodeRepo{
+		nodes: []domain.Node{
+			{
+				ID:                1,
+				Name:              "JP-Edge",
+				Region:            "JP",
+				Enabled:           true,
+				DesiredState:      domain.NodeStateActive,
+				TrafficLimitBytes: 100 * gb,
+				LastResetMonth:    202611,
+				TrafficCountMode:  domain.TrafficCountModeBoth,
+				TrafficMultiplier: 1.0,
+				WarnThresholdPct:  80,
+				DrainThresholdPct: 90,
+				BreakThresholdPct: 95,
+				CycleNicUpBytes:   40 * gb,
+				CycleNicDownBytes: 45 * gb, // 85%
+			},
+			{
+				ID:                2,
+				Name:              "US-Low",
+				Enabled:           true,
+				DesiredState:      domain.NodeStateActive,
+				TrafficLimitBytes: 100 * gb,
+				CycleNicUpBytes:   10 * gb, // 10% -> no alert
+			},
+			{
+				ID:                3,
+				Name:              "HK-Disabled",
+				Enabled:           false,
+				TrafficLimitBytes: 100 * gb,
+				CycleNicUpBytes:   90 * gb, // disabled -> no alert
+			},
+		},
+		dailies: map[uint][]domain.NodeTrafficDaily{
+			1: {
+				{NodeID: 1, Date: "2026-11-19", NicUpBytes: 2 * gb, NicDownBytes: 3 * gb},  // 5 GB in 12h
+				{NodeID: 1, Date: "2026-11-18", NicUpBytes: 4 * gb, NicDownBytes: 6 * gb},  // 10 GB yesterday -> 5 + 10*0.5 = 10 GB/day => ~1.5 days left
+			},
+		},
+	}
+
+	svc := NewAlertService(notifier, nil, nil, nil).WithNodeQuota(repo)
+	ctx := context.Background()
+
+	if err := svc.CheckNodeQuotasAt(ctx, now); err != nil {
+		t.Fatalf("CheckNodeQuotasAt failed: %v", err)
+	}
+	if len(notifier.messages) != 1 {
+		t.Fatalf("expected 1 warning message, got %d", len(notifier.messages))
+	}
+	msg := notifier.messages[0]
+	if !strings.Contains(msg, "JP-Edge") || !strings.Contains(msg, "85.0%") || !strings.Contains(msg, "约 1.5 天") {
+		t.Fatalf("unexpected alert message content: %s", msg)
+	}
+
+	// Second check within same cycle must be suppressed by 24h cooldown
+	if err := svc.CheckNodeQuotasAt(ctx, now.Add(1*time.Hour)); err != nil {
+		t.Fatalf("second CheckNodeQuotasAt failed: %v", err)
+	}
+	if len(notifier.messages) != 1 {
+		t.Fatalf("expected cooldown to suppress duplicate alert, got %d", len(notifier.messages))
+	}
+}
+
+func TestAlertService_NotifyNodeStateChange(t *testing.T) {
+	notifier := &mockNotifier{}
+	svc := NewAlertService(notifier, nil, nil, nil)
+	ctx := context.Background()
+
+	node := &domain.Node{
+		ID:                7,
+		Name:              "SG-Main",
+		TrafficLimitBytes: 100 * 1024 * 1024 * 1024,
+		CycleNicUpBytes:   96 * 1024 * 1024 * 1024,
+	}
+
+	svc.NotifyNodeStateChange(ctx, node, domain.NodeStateActive, domain.NodeStateDraining, domain.AutoReasonDrainQuota)
+	svc.NotifyNodeStateChange(ctx, node, domain.NodeStateDraining, domain.NodeStateCircuitBroken, domain.AutoReasonBreakQuota)
+	svc.NotifyNodeStateChange(ctx, node, domain.NodeStateCircuitBroken, domain.NodeStateActive, "monthly_reset_recovered")
+
+	if len(notifier.messages) != 3 {
+		t.Fatalf("expected 3 state change messages, got %d", len(notifier.messages))
+	}
+	if !strings.Contains(notifier.messages[0], "软摘流") || !strings.Contains(notifier.messages[1], "硬熔断") || !strings.Contains(notifier.messages[2], "自动恢复") {
+		t.Fatalf("unexpected state notification texts: %v", notifier.messages)
 	}
 }

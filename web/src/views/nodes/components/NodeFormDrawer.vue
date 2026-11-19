@@ -113,6 +113,125 @@
           </FormField>
         </div>
       </SectionCard>
+
+      <SectionCard title="③ 流量配额与熔断策略">
+        <div class="space-y-3">
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <FormField label="月流量上限 (GB)" hint="0 表示不限月流量">
+              <template #default="{ id, describedBy }">
+                <Input
+                  :id="id"
+                  :aria-describedby="describedBy"
+                  v-model.number="form.trafficLimitGB"
+                  type="number"
+                  min="0"
+                  step="0.1"
+                  placeholder="0"
+                />
+              </template>
+            </FormField>
+
+            <FormField label="账单重置日 (0-31)" hint="0 为不自动重置；短月份自动适配月底">
+              <template #default="{ id, describedBy }">
+                <Input
+                  :id="id"
+                  :aria-describedby="describedBy"
+                  v-model.number="form.billingResetDay"
+                  type="number"
+                  min="0"
+                  max="31"
+                  step="1"
+                  placeholder="0"
+                />
+              </template>
+            </FormField>
+          </div>
+
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <FormField label="计费口径 (Count Mode)" :hint="selectedCountModeDescription">
+              <template #default="{ id, describedBy }">
+                <select
+                  :id="id"
+                  :aria-describedby="describedBy"
+                  v-model="form.trafficCountMode"
+                  class="w-full bg-neutral-950 border border-border rounded-md px-3 h-9 text-foreground font-mono text-xs focus:outline-none focus:ring-1 focus:ring-ring"
+                >
+                  <option
+                    v-for="opt in NODE_TRAFFIC_COUNT_MODE_OPTIONS"
+                    :key="opt.value"
+                    :value="opt.value"
+                  >
+                    {{ opt.label }}
+                  </option>
+                </select>
+              </template>
+            </FormField>
+
+            <FormField label="安全系数 (Multiplier)" hint="默认 1.0；可设为 1.05 等防口径偏差">
+              <template #default="{ id, describedBy }">
+                <Input
+                  :id="id"
+                  :aria-describedby="describedBy"
+                  v-model.number="form.trafficMultiplier"
+                  type="number"
+                  min="0.01"
+                  step="0.05"
+                  placeholder="1.0"
+                />
+              </template>
+            </FormField>
+          </div>
+
+          <div class="space-y-1.5">
+            <div class="grid grid-cols-3 gap-2.5">
+              <FormField label="预警阈值 (%)">
+                <template #default="{ id }">
+                  <Input
+                    :id="id"
+                    v-model.number="form.warnThresholdPct"
+                    type="number"
+                    min="1"
+                    max="100"
+                    step="1"
+                    placeholder="80"
+                  />
+                </template>
+              </FormField>
+
+              <FormField label="摘流阈值 (%)">
+                <template #default="{ id }">
+                  <Input
+                    :id="id"
+                    v-model.number="form.drainThresholdPct"
+                    type="number"
+                    min="1"
+                    max="100"
+                    step="1"
+                    placeholder="90"
+                  />
+                </template>
+              </FormField>
+
+              <FormField label="熔断阈值 (%)">
+                <template #default="{ id }">
+                  <Input
+                    :id="id"
+                    v-model.number="form.breakThresholdPct"
+                    type="number"
+                    min="1"
+                    max="100"
+                    step="1"
+                    placeholder="95"
+                  />
+                </template>
+              </FormField>
+            </div>
+            <p class="text-[10px] font-mono text-muted-foreground">
+              需满足 0 &lt; 预警 &le; 摘流 &le; 熔断 &le; 100（默认 80% / 90% / 95%）
+            </p>
+          </div>
+        </div>
+      </SectionCard>
     </form>
 
     <template #footer>
@@ -135,7 +254,14 @@ import Input from '../../../components/ui/Input.vue'
 import Button from '../../../components/ui/Button.vue'
 import { createNode, updateNode, type CreateNodeResult, type NodeItem } from '../../../api/nodes'
 import { toast } from '../../../utils/toast'
-import { NODE_DESIRED_STATE_OPTIONS, getDefaultNodeFormData, type NodeFormData } from '../types'
+import {
+  NODE_DESIRED_STATE_OPTIONS,
+  NODE_TRAFFIC_COUNT_MODE_OPTIONS,
+  getDefaultNodeFormData,
+  type NodeFormData,
+} from '../types'
+
+const BYTES_PER_GB = 1024 * 1024 * 1024
 
 const props = defineProps<{
   modelValue: boolean
@@ -157,8 +283,16 @@ const selectedStateDescription = computed(() => {
   return found?.description || ''
 })
 
+const selectedCountModeDescription = computed(() => {
+  const found = NODE_TRAFFIC_COUNT_MODE_OPTIONS.find(
+    (opt) => opt.value === form.value.trafficCountMode
+  )
+  return found?.description || ''
+})
+
 const initForm = () => {
   if (props.isEditing && props.initialData) {
+    const limitBytes = props.initialData.trafficLimitBytes || 0
     form.value = {
       id: props.initialData.id,
       name: props.initialData.name || '',
@@ -166,6 +300,17 @@ const initForm = () => {
       region: props.initialData.region || '',
       enabled: props.initialData.enabled !== false,
       desiredState: props.initialData.desiredState || 'active',
+      trafficLimitGB: limitBytes > 0 ? Number((limitBytes / BYTES_PER_GB).toFixed(2)) : 0,
+      billingResetDay: props.initialData.billingResetDay ?? 0,
+      trafficCountMode: props.initialData.trafficCountMode || 'both',
+      trafficMultiplier:
+        props.initialData.trafficMultiplier > 0 ? props.initialData.trafficMultiplier : 1.0,
+      warnThresholdPct:
+        props.initialData.warnThresholdPct > 0 ? props.initialData.warnThresholdPct : 80,
+      drainThresholdPct:
+        props.initialData.drainThresholdPct > 0 ? props.initialData.drainThresholdPct : 90,
+      breakThresholdPct:
+        props.initialData.breakThresholdPct > 0 ? props.initialData.breakThresholdPct : 95,
       remark: props.initialData.remark || '',
     }
   } else {
@@ -195,6 +340,51 @@ const submitForm = async () => {
     return
   }
 
+  const trafficLimitGB = Number(form.value.trafficLimitGB || 0)
+  if (!Number.isFinite(trafficLimitGB) || trafficLimitGB < 0) {
+    toast.error('月流量上限不能小于 0')
+    return
+  }
+
+  const billingResetDay = Number(form.value.billingResetDay || 0)
+  if (!Number.isInteger(billingResetDay) || billingResetDay < 0 || billingResetDay > 31) {
+    toast.error('账单重置日须为 0 到 31 的整数')
+    return
+  }
+
+  const trafficMultiplier = Number(form.value.trafficMultiplier)
+  if (!Number.isFinite(trafficMultiplier) || trafficMultiplier <= 0) {
+    toast.error('流量安全系数须大于 0')
+    return
+  }
+
+  const warn = Number(form.value.warnThresholdPct)
+  const drain = Number(form.value.drainThresholdPct)
+  const breakPct = Number(form.value.breakThresholdPct)
+  if (
+    !Number.isInteger(warn) ||
+    !Number.isInteger(drain) ||
+    !Number.isInteger(breakPct) ||
+    warn <= 0 ||
+    warn > drain ||
+    drain > breakPct ||
+    breakPct > 100
+  ) {
+    toast.error('阈值须为 1–100 的整数，且满足 预警 ≤ 摘流 ≤ 熔断')
+    return
+  }
+
+  const trafficLimitBytes = trafficLimitGB > 0 ? Math.round(trafficLimitGB * BYTES_PER_GB) : 0
+  const quotaPayload = {
+    trafficLimitBytes,
+    billingResetDay,
+    trafficCountMode: form.value.trafficCountMode,
+    trafficMultiplier,
+    warnThresholdPct: warn,
+    drainThresholdPct: drain,
+    breakThresholdPct: breakPct,
+  }
+
   saving.value = true
   try {
     if (props.isEditing) {
@@ -205,6 +395,7 @@ const submitForm = async () => {
         enabled: form.value.enabled,
         desiredState: form.value.desiredState,
         remark: form.value.remark.trim(),
+        ...quotaPayload,
       })
       toast.success(`节点「${updated.name}」配置已更新`)
       emit('update:modelValue', false)
@@ -217,6 +408,7 @@ const submitForm = async () => {
         enabled: form.value.enabled,
         desiredState: form.value.desiredState,
         remark: form.value.remark.trim(),
+        ...quotaPayload,
       })
       toast.success(`节点「${created.name}」已创建`)
       emit('update:modelValue', false)

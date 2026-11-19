@@ -315,3 +315,68 @@ func TestNodeAndAgentHTTP_EndToEnd(t *testing.T) {
 		t.Fatalf("expected 200 OK deleting node, got %d: %s", delNode.Code, delNode.Body.String())
 	}
 }
+
+func TestNodeQuotaAndResetHTTP(t *testing.T) {
+	router, adminJWT := setupNodeHTTPTestRouter(t)
+
+	// Invalid threshold must fail with 400
+	badRes := doJSONReq(t, router, http.MethodPost, "/api/admin/nodes", adminJWT, map[string]interface{}{
+		"name":              "Bad Quota Node",
+		"host":              "127.0.0.1",
+		"warnThresholdPct":  95,
+		"drainThresholdPct": 90,
+	})
+	if badRes.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 on warn > drain, got %d: %s", badRes.Code, badRes.Body.String())
+	}
+
+	// Create node with 1000-byte limit
+	createRes := doJSONReq(t, router, http.MethodPost, "/api/admin/nodes", adminJWT, map[string]interface{}{
+		"name":              "HTTP Quota Node",
+		"host":              "127.0.0.1",
+		"trafficLimitBytes": 1000,
+		"trafficCountMode":  "both",
+		"trafficMultiplier": 1.0,
+		"warnThresholdPct":  80,
+		"drainThresholdPct": 90,
+		"breakThresholdPct": 95,
+	})
+	if createRes.Code != http.StatusCreated {
+		t.Fatalf("expected 201 Created, got %d: %s", createRes.Code, createRes.Body.String())
+	}
+	var created domain.CreateNodeResponse
+	_ = json.Unmarshal(createRes.Body.Bytes(), &created)
+
+	// Sync 960 bytes -> triggers circuit_broken and returns quotaPolicy
+	syncRes := doJSONReq(t, router, http.MethodPost, "/api/agent/sync", created.Token, domain.AgentSyncRequest{
+		HostMetrics: &domain.AgentHostMetrics{NicUpDelta: 500, NicDownDelta: 460},
+	})
+	if syncRes.Code != http.StatusOK {
+		t.Fatalf("expected 200 OK on sync, got %d: %s", syncRes.Code, syncRes.Body.String())
+	}
+	var syncResp domain.AgentSyncResponse
+	_ = json.Unmarshal(syncRes.Body.Bytes(), &syncResp)
+	if syncResp.DesiredState != domain.NodeStateCircuitBroken {
+		t.Fatalf("expected circuit_broken at 96%%, got %q", syncResp.DesiredState)
+	}
+	if syncResp.QuotaPolicy == nil || syncResp.QuotaPolicy.CycleUsedBytes != 960 || syncResp.QuotaPolicy.BreakThresholdPct != 95 {
+		t.Fatalf("unexpected quotaPolicy: %+v", syncResp.QuotaPolicy)
+	}
+
+	// Manual reset endpoint restores active state and zeroes cycleUsedBytes
+	resetRes := doJSONReq(t, router, http.MethodPost, fmt.Sprintf("/api/admin/nodes/%d/reset-traffic", created.ID), adminJWT, nil)
+	if resetRes.Code != http.StatusOK {
+		t.Fatalf("expected 200 OK on reset-traffic, got %d: %s", resetRes.Code, resetRes.Body.String())
+	}
+	var resetNode domain.Node
+	_ = json.Unmarshal(resetRes.Body.Bytes(), &resetNode)
+	if resetNode.DesiredState != domain.NodeStateActive || resetNode.CycleUsedBytes != 0 || resetNode.AutoStateReason != "" {
+		t.Fatalf("expected restored active node with 0 cycleUsedBytes, got %+v", resetNode)
+	}
+
+	// Missing node returns 404
+	notFoundRes := doJSONReq(t, router, http.MethodPost, "/api/admin/nodes/99999/reset-traffic", adminJWT, nil)
+	if notFoundRes.Code != http.StatusNotFound {
+		t.Fatalf("expected 404 for missing node reset-traffic, got %d", notFoundRes.Code)
+	}
+}

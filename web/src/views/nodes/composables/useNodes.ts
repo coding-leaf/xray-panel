@@ -2,6 +2,7 @@ import { ref, computed } from 'vue'
 import {
   listNodes,
   deleteNode,
+  resetNodeTraffic,
   rotateNodeToken,
   updateNode,
   type NodeDesiredState,
@@ -36,6 +37,88 @@ export function getDesiredStateBadge(state: NodeDesiredState) {
   }
 }
 
+export function getAutoStateReasonBadge(reason?: string) {
+  switch (reason) {
+    case 'auto_drain_quota':
+      return {
+        label: '配额自动摘流',
+        variant: 'warning' as const,
+      }
+    case 'auto_break_quota':
+      return {
+        label: '配额自动熔断',
+        variant: 'destructive' as const,
+      }
+    case 'manual':
+      return {
+        label: '手动调度',
+        variant: 'secondary' as const,
+      }
+    default:
+      return null
+  }
+}
+
+export interface NodeQuotaStats {
+  usedBytes: number
+  limitBytes: number
+  hasLimit: boolean
+  rawPct: number
+  displayPct: string
+  barWidth: number
+  barClass: string
+  textClass: string
+}
+
+export function getNodeQuotaStats(node: NodeItem): NodeQuotaStats {
+  const usedBytes = Math.max(0, node.cycleUsedBytes || 0)
+  const limitBytes = Math.max(0, node.trafficLimitBytes || 0)
+  const hasLimit = limitBytes > 0
+  if (!hasLimit) {
+    return {
+      usedBytes,
+      limitBytes: 0,
+      hasLimit: false,
+      rawPct: 0,
+      displayPct: '0',
+      barWidth: 0,
+      barClass: 'bg-emerald-500',
+      textClass: 'text-emerald-400',
+    }
+  }
+
+  const warnPct = node.warnThresholdPct > 0 ? node.warnThresholdPct : 80
+  const drainPct = node.drainThresholdPct > 0 ? node.drainThresholdPct : 90
+  const breakPct = node.breakThresholdPct > 0 ? node.breakThresholdPct : 95
+  const rawPct = (usedBytes * 100) / limitBytes
+  const roundedPct = Math.round(rawPct * 10) / 10
+  const barWidth = Math.min(100, Math.max(0, rawPct))
+
+  let barClass = 'bg-emerald-500'
+  let textClass = 'text-emerald-400'
+  if (rawPct >= breakPct) {
+    barClass = 'bg-rose-500'
+    textClass = 'text-rose-400'
+  } else if (rawPct >= drainPct) {
+    barClass = 'bg-orange-500'
+    textClass = 'text-orange-400'
+  } else if (rawPct >= warnPct) {
+    barClass = 'bg-amber-400'
+    textClass = 'text-amber-400'
+  }
+
+  return {
+    usedBytes,
+    limitBytes,
+    hasLimit: true,
+    rawPct,
+    displayPct: roundedPct.toFixed(1).replace(/\.0$/, ''),
+    barWidth,
+    barClass,
+    textClass,
+  }
+}
+
 export function formatLastSeen(lastSeenAt: string | null): string {
   if (!lastSeenAt) return '从未上报'
   const ts = new Date(lastSeenAt).getTime()
@@ -63,6 +146,7 @@ export function isBoundInboundsError(err: unknown): boolean {
 export function useNodes() {
   const nodes = ref<NodeItem[]>([])
   const loading = ref(false)
+  const resettingId = ref<number | null>(null)
   const searchQuery = ref('')
   const stateFilter = ref<'all' | NodeDesiredState>('all')
   const onlineFilter = ref<'all' | 'online' | 'offline'>('all')
@@ -184,9 +268,33 @@ export function useNodes() {
     }
   }
 
+  const handleResetTraffic = async (node: NodeItem): Promise<boolean> => {
+    if (resettingId.value === node.id) return false
+    if (
+      !confirm(
+        `确定重置节点「${node.name}」的本周期流量计数吗？若节点当前因配额触发自动摘流或熔断，重置后将自动恢复为 active。`
+      )
+    ) {
+      return false
+    }
+    resettingId.value = node.id
+    try {
+      await resetNodeTraffic(node.id)
+      toast.success(`节点「${node.name}」周期流量已重置`)
+      await fetchNodes(true)
+      return true
+    } catch (err: any) {
+      toast.error('重置周期流量失败：' + (err?.message || err))
+      return false
+    } finally {
+      resettingId.value = null
+    }
+  }
+
   return {
     nodes,
     loading,
+    resettingId,
     searchQuery,
     stateFilter,
     onlineFilter,
@@ -196,5 +304,6 @@ export function useNodes() {
     removeNode,
     toggleNodeEnabled,
     rotateToken,
+    handleResetTraffic,
   }
 }

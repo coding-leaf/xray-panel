@@ -1,6 +1,6 @@
-import type { NodeDesiredState, NodeItem } from '../../api/nodes'
+import type { NodeDesiredState, NodeItem, NodeTrafficCountMode } from '../../api/nodes'
 
-export type { NodeDesiredState, NodeItem }
+export type { NodeDesiredState, NodeItem, NodeTrafficCountMode }
 
 export interface NodeFormData {
   id: number
@@ -9,6 +9,13 @@ export interface NodeFormData {
   region: string
   enabled: boolean
   desiredState: NodeDesiredState
+  trafficLimitGB: number
+  billingResetDay: number
+  trafficCountMode: NodeTrafficCountMode
+  trafficMultiplier: number
+  warnThresholdPct: number
+  drainThresholdPct: number
+  breakThresholdPct: number
   remark: string
 }
 
@@ -42,6 +49,28 @@ export const NODE_DESIRED_STATE_OPTIONS: Array<{
   },
 ]
 
+export const NODE_TRAFFIC_COUNT_MODE_OPTIONS: Array<{
+  value: NodeTrafficCountMode
+  label: string
+  description: string
+}> = [
+  {
+    value: 'both',
+    label: 'both (双向累加：上行 + 下行)',
+    description: '标准双向计费，周期已用 = (上行 + 下行) × 安全系数',
+  },
+  {
+    value: 'outbound',
+    label: 'outbound (仅出站上行)',
+    description: '仅统计出站上行流量，适用于单向计费机房',
+  },
+  {
+    value: 'max',
+    label: 'max (取上行 / 下行最大值)',
+    description: '取上行与下行较大值，适用于双向独立峰值计费',
+  },
+]
+
 export function getDefaultNodeFormData(): NodeFormData {
   return {
     id: 0,
@@ -50,6 +79,13 @@ export function getDefaultNodeFormData(): NodeFormData {
     region: '',
     enabled: true,
     desiredState: 'active',
+    trafficLimitGB: 0,
+    billingResetDay: 0,
+    trafficCountMode: 'both',
+    trafficMultiplier: 1.0,
+    warnThresholdPct: 80,
+    drainThresholdPct: 90,
+    breakThresholdPct: 95,
     remark: '',
   }
 }

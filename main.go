@@ -151,10 +151,13 @@ func main() {
 	userSvc := service.NewUserService(userRepo, inboundRepo, trafficLogRepo, xrayManager, configSvc).
 		WithTicketRepo(ticketRepo).
 		WithNodeCacheInvalidator(nodeSvc)
-	botHandler := telegram.NewBotHandler(botAdapter, userRepo, inboundRepo, hostMonitor, xrayManager, userSvc, cfg.PublicURL)
+	botHandler := telegram.NewBotHandler(botAdapter, userRepo, inboundRepo, hostMonitor, xrayManager, userSvc, cfg.PublicURL).
+		WithNodeService(nodeSvc)
 	subSvc := service.NewSubService(userRepo, inboundRepo, settingRepo).WithNodeRepo(nodeRepo)
 	monitorSvc := service.NewMonitorService(hostMonitor, xrayManager, userRepo, inboundRepo)
-	alertSvc := service.NewAlertService(botAdapter, userRepo, hostMonitor, configMgr)
+	alertSvc := service.NewAlertService(botAdapter, userRepo, hostMonitor, configMgr).
+		WithNodeQuota(nodeRepo, nodeRepo)
+	nodeSvc.WithStateChangeNotifier(alertSvc.NotifyNodeStateChange)
 	logSvc := service.NewLogService(configMgr)
 	geoSvc := service.NewGeoDataService(cfg.XrayBinPath, xrayManager, settingRepo)
 	ticketSvc := service.NewTicketService(ticketRepo, userRepo, subSvc, settingRepo)
@@ -195,7 +198,8 @@ func main() {
 	defer stopSignals()
 
 	httpSvc := deliveryHTTP.NewServer(cfg.ListenPort, router, deliveryHTTP.WithShutdownTimeout(5*time.Second))
-	syncJob := deliveryCron.NewTrafficSyncJob(xrayManager, userRepo, inboundRepo, trafficLogRepo, alertSvc, userSvc, ticketRepo, 5*time.Second)
+	syncJob := deliveryCron.NewTrafficSyncJob(xrayManager, userRepo, inboundRepo, trafficLogRepo, alertSvc, userSvc, ticketRepo, 5*time.Second).
+		WithNodeQuotaCron(nodeSvc)
 	realitySyncJob := deliveryCron.NewRealitySyncJob(realityMonitorSvc, 12*time.Hour)
 
 	services := []struct {

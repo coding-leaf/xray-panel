@@ -2,7 +2,9 @@ package telegram
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"html"
 	"log/slog"
 	"net/http"
 	"regexp"
@@ -36,6 +38,12 @@ type UserServiceController interface {
 	GetByEmail(ctx context.Context, email string) (*domain.User, error)
 }
 
+// NodeServiceController 定义 Telegram Bot 所需的节点运维控制契约 (遵循 ISP 原则)
+type NodeServiceController interface {
+	ListNodes(ctx context.Context) ([]domain.Node, error)
+	SetNodeDesiredState(ctx context.Context, id uint, desiredState string) (*domain.Node, error)
+}
+
 const maxConcurrentUpdates = 8
 
 type BotHandler struct {
@@ -45,6 +53,7 @@ type BotHandler struct {
 	monitor     domain.HostMonitor
 	xrayManager XrayServiceController
 	userSvc     UserServiceController
+	nodeSvc     NodeServiceController
 	publicURL   string
 	actionMu    sync.Mutex
 	sem         chan struct{}
@@ -71,12 +80,21 @@ func NewBotHandler(
 	}
 }
 
+// WithNodeService 注入节点运维控制器（保持原构造签名向后兼容）
+func (h *BotHandler) WithNodeService(nodeSvc NodeServiceController) *BotHandler {
+	h.nodeSvc = nodeSvc
+	return h
+}
+
 func (h *BotHandler) registerBotCommands(bot *tgbotapi.BotAPI) {
 	if bot == nil {
 		return
 	}
 	commands := tgbotapi.NewSetMyCommands(
 		tgbotapi.BotCommand{Command: "status", Description: "📊 查看系统与 Xray 运行状态"},
+		tgbotapi.BotCommand{Command: "nodes", Description: "🖥️ 查看所有节点状态与配额水位"},
+		tgbotapi.BotCommand{Command: "nodedrain", Description: "🟠 手动摘流指定节点 (draining)"},
+		tgbotapi.BotCommand{Command: "noderestore", Description: "🟢 手动恢复指定节点 (active)"},
 		tgbotapi.BotCommand{Command: "user", Description: "👤 查询指定用户信息与快捷管理"},
 		tgbotapi.BotCommand{Command: "adduser", Description: "➕ 创建新用户并生成专属订阅"},
 		tgbotapi.BotCommand{Command: "traffic", Description: "📈 查看用户流量消耗概览"},
@@ -300,6 +318,9 @@ func (h *BotHandler) handleMessage(ctx context.Context, msg *tgbotapi.Message) {
 	case "start", "menu", "help":
 		text := "🤖 <b>Xray 独立运维管理机器人</b>\n\n" +
 			"📊 /status - 查看系统与 Xray 运行状态\n" +
+			"🖥️ /nodes - 查看所有节点状态与配额水位\n" +
+			"🟠 /nodedrain &lt;id&gt; - 手动摘流指定节点 (draining)\n" +
+			"🟢 /noderestore &lt;id&gt; - 手动恢复指定节点 (active)\n" +
 			"👤 /user &lt;email&gt; - 查询用户卡片并进行快捷管理\n" +
 			"➕ /adduser &lt;email&gt; [GB] [天数] - 创建用户并生成专属订阅\n" +
 			"📈 /traffic - 查看用户流量消耗统计\n" +
@@ -479,9 +500,104 @@ func (h *BotHandler) handleMessage(ctx context.Context, msg *tgbotapi.Message) {
 			h.reply(msg.Chat.ID, "⚠️ Xray 重启后状态异常: "+status.SubState)
 		}
 
+	case "nodes":
+		if h.nodeSvc == nil {
+			h.reply(msg.Chat.ID, "❌ 节点服务未就绪")
+			return
+		}
+		nodes, err := h.nodeSvc.ListNodes(ctx)
+		if err != nil {
+			h.reply(msg.Chat.ID, "❌ 获取节点列表失败: "+html.EscapeString(err.Error()))
+			return
+		}
+		if len(nodes) == 0 {
+			h.reply(msg.Chat.ID, "🖥️ 暂无已配置的远端节点")
+			return
+		}
+		var sb strings.Builder
+		sb.WriteString("🖥️ <b>远端节点状态与配额水位</b>\n\n")
+		for _, n := range nodes {
+			onlineIcon := "⚪ 离线"
+			if !n.Enabled {
+				onlineIcon = "⛔ 已禁用"
+			} else if n.Online {
+				onlineIcon = "🟢 在线"
+			}
+			used := n.CalcCycleUsedBytes()
+			usedGB := float64(used) / (1024 * 1024 * 1024)
+			quotaStr := fmt.Sprintf("%.2f GB / 无限制", usedGB)
+			if n.TrafficLimitBytes > 0 {
+				limitGB := float64(n.TrafficLimitBytes) / (1024 * 1024 * 1024)
+				pct := float64(used) * 100.0 / float64(n.TrafficLimitBytes)
+				quotaStr = fmt.Sprintf("%.2f GB / %.2f GB (%.1f%%)", usedGB, limitGB, pct)
+			}
+			state := n.DesiredState
+			if state == "" {
+				state = domain.NodeStateActive
+			}
+			reasonSuffix := ""
+			if n.AutoStateReason != "" {
+				reasonSuffix = fmt.Sprintf(" [%s]", html.EscapeString(n.AutoStateReason))
+			}
+			sb.WriteString(fmt.Sprintf(
+				"#%d <code>%s</code> (%s)\n  状态: %s | 期望: <code>%s</code>%s\n  水位: %s\n",
+				n.ID,
+				html.EscapeString(n.Name),
+				html.EscapeString(n.Region),
+				onlineIcon,
+				html.EscapeString(state),
+				reasonSuffix,
+				quotaStr,
+			))
+		}
+		h.reply(msg.Chat.ID, sb.String())
+
+	case "nodedrain":
+		h.handleNodeStateCommand(ctx, msg.Chat.ID, "nodedrain", args, domain.NodeStateDraining)
+
+	case "noderestore":
+		h.handleNodeStateCommand(ctx, msg.Chat.ID, "noderestore", args, domain.NodeStateActive)
+
 	default:
 		h.sendMenuWithKeyboard(msg.Chat.ID, "❓ 未知指令。请使用下方快捷菜单或发送 /help。")
 	}
+}
+
+func (h *BotHandler) handleNodeStateCommand(ctx context.Context, chatID int64, cmd, args, targetState string) {
+	if args == "" {
+		h.reply(chatID, fmt.Sprintf("用法: <code>/%s &lt;id&gt;</code>\n示例: <code>/%s 1</code>", cmd, cmd))
+		return
+	}
+	if h.nodeSvc == nil {
+		h.reply(chatID, "❌ 节点服务未就绪")
+		return
+	}
+	nodeID, err := strconv.ParseUint(strings.Fields(args)[0], 10, 64)
+	if err != nil || nodeID == 0 {
+		h.reply(chatID, fmt.Sprintf("❌ 无效的节点 ID: <code>%s</code>", html.EscapeString(args)))
+		return
+	}
+	node, err := h.nodeSvc.SetNodeDesiredState(ctx, uint(nodeID), targetState)
+	if err != nil {
+		if errors.Is(err, domain.ErrNotFound) {
+			h.reply(chatID, fmt.Sprintf("❌ 未找到节点 #%d", nodeID))
+			return
+		}
+		h.reply(chatID, "❌ 更新节点状态失败: "+html.EscapeString(err.Error()))
+		return
+	}
+	actionBadge := "🟢 已手动恢复"
+	if targetState == domain.NodeStateDraining {
+		actionBadge = "🟠 已手动摘流"
+	}
+	h.reply(chatID, fmt.Sprintf(
+		"%s\n\n🖥️ <b>节点:</b> #%d <code>%s</code>\n🚦 <b>期望状态:</b> <code>%s</code>\n📝 <b>原因:</b> <code>%s</code>",
+		actionBadge,
+		node.ID,
+		html.EscapeString(node.Name),
+		html.EscapeString(node.DesiredState),
+		html.EscapeString(node.AutoStateReason),
+	))
 }
 
 func (h *BotHandler) sendMenuWithKeyboard(chatID int64, htmlText string) {

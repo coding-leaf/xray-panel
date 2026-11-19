@@ -1,6 +1,7 @@
 import api from './index'
 
 export type NodeDesiredState = 'active' | 'draining' | 'circuit_broken'
+export type NodeTrafficCountMode = 'both' | 'outbound' | 'max'
 
 export interface NodeItem {
   id: number
@@ -22,6 +23,20 @@ export interface NodeItem {
   nicDownBytes: number
   xrayUpBytes: number
   xrayDownBytes: number
+  trafficLimitBytes: number
+  billingResetDay: number
+  lastResetMonth: number
+  trafficCountMode: NodeTrafficCountMode
+  trafficMultiplier: number
+  warnThresholdPct: number
+  drainThresholdPct: number
+  breakThresholdPct: number
+  cycleXrayUpBytes: number
+  cycleXrayDownBytes: number
+  cycleNicUpBytes: number
+  cycleNicDownBytes: number
+  cycleUsedBytes: number
+  autoStateReason: string
   remark: string
   createdAt: string
   updatedAt: string
@@ -34,6 +49,13 @@ export interface CreateNodePayload {
   region?: string
   enabled?: boolean
   desiredState?: NodeDesiredState
+  trafficLimitBytes?: number
+  billingResetDay?: number
+  trafficCountMode?: NodeTrafficCountMode
+  trafficMultiplier?: number
+  warnThresholdPct?: number
+  drainThresholdPct?: number
+  breakThresholdPct?: number
   remark?: string
 }
 
@@ -47,6 +69,13 @@ export interface UpdateNodePayload {
   region?: string
   enabled?: boolean
   desiredState?: NodeDesiredState
+  trafficLimitBytes?: number
+  billingResetDay?: number
+  trafficCountMode?: NodeTrafficCountMode
+  trafficMultiplier?: number
+  warnThresholdPct?: number
+  drainThresholdPct?: number
+  breakThresholdPct?: number
   remark?: string
 }
 
@@ -84,6 +113,10 @@ export const deleteNode = async (id: number): Promise<{ message: string }> => {
 
 export const rotateNodeToken = async (id: number): Promise<RotateTokenResult> => {
   return api.post<RotateTokenResult>(`/admin/nodes/${id}/rotate-token`)
+}
+
+export const resetNodeTraffic = async (id: number): Promise<NodeItem> => {
+  return api.post<NodeItem>(`/admin/nodes/${id}/reset-traffic`)
 }
 
 export const getNodeInstallScript = async (

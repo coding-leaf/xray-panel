@@ -19,6 +19,11 @@ type XrayTrafficManager interface {
 	RemoveUser(ctx context.Context, inboundTag string, email string) error
 }
 
+// NodeQuotaCron 定义定时任务所需的节点月度配额重置接口
+type NodeQuotaCron interface {
+	CheckAndResetMonthlyTraffic(ctx context.Context) error
+}
+
 const trafficLogRetentionDays = 180
 
 type TrafficSyncJob struct {
@@ -28,6 +33,7 @@ type TrafficSyncJob struct {
 	trafficLogRepo domain.TrafficLogRepository
 	alertSvc       *service.AlertService
 	userSvc        *service.UserService
+	nodeSvc        NodeQuotaCron
 	ticketRepo     domain.TicketRepository
 	interval       time.Duration
 	pruneMu        sync.Mutex
@@ -59,6 +65,12 @@ func NewTrafficSyncJob(
 	}
 }
 
+// WithNodeQuotaCron 注入节点月度重置服务（保持原构造签名向后兼容）
+func (j *TrafficSyncJob) WithNodeQuotaCron(nodeSvc NodeQuotaCron) *TrafficSyncJob {
+	j.nodeSvc = nodeSvc
+	return j
+}
+
 func (j *TrafficSyncJob) Start(ctx context.Context) error {
 	ticker := time.NewTicker(j.interval)
 	defer ticker.Stop()
@@ -87,20 +99,28 @@ func (j *TrafficSyncJob) Start(ctx context.Context) error {
 					}
 				}
 			case <-alertTicker.C:
+				if j.userSvc != nil {
+					if err := j.userSvc.CheckAndResetMonthlyTraffic(ctx); err != nil {
+						slog.Warn("Failed to check and reset monthly traffic", slog.String("error", err.Error()))
+					}
+				}
+				if j.nodeSvc != nil {
+					if err := j.nodeSvc.CheckAndResetMonthlyTraffic(ctx); err != nil {
+						slog.Warn("Failed to check and reset node monthly traffic", slog.String("error", err.Error()))
+					}
+				}
 				if j.alertSvc != nil {
 					if err := j.alertSvc.CheckTrafficQuotas(ctx); err != nil {
 						slog.Warn("Failed to check traffic quotas", slog.String("error", err.Error()))
+					}
+					if err := j.alertSvc.CheckNodeQuotas(ctx); err != nil {
+						slog.Warn("Failed to check node quotas", slog.String("error", err.Error()))
 					}
 					if err := j.alertSvc.CheckSystemLoad(ctx); err != nil {
 						slog.Warn("Failed to check system load", slog.String("error", err.Error()))
 					}
 					if err := j.alertSvc.CheckCertificates(ctx); err != nil {
 						slog.Warn("Failed to check certificates", slog.String("error", err.Error()))
-					}
-				}
-				if j.userSvc != nil {
-					if err := j.userSvc.CheckAndResetMonthlyTraffic(ctx); err != nil {
-						slog.Warn("Failed to check and reset monthly traffic", slog.String("error", err.Error()))
 					}
 				}
 			}

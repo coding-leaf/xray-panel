@@ -190,6 +190,7 @@ func SetupRouter(handlers *Handlers, jwtSecret string, staticFS fs.FS) *gin.Engi
 					adminNodes.PUT("/:id", handlers.Node.Update)
 					adminNodes.DELETE("/:id", handlers.Node.Delete)
 					adminNodes.POST("/:id/rotate-token", handlers.Node.RotateToken)
+					adminNodes.POST("/:id/reset-traffic", handlers.Node.ResetTraffic)
 					adminNodes.GET("/:id/install-script", handlers.Node.InstallScript)
 				}
 			}

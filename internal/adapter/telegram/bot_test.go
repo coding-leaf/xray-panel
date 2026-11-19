@@ -1472,4 +1472,99 @@ func TestBotHandler_SemaphoreLimitAndGracefulCancel(t *testing.T) {
 	}
 }
 
+type mockNodeService struct {
+	mu    sync.Mutex
+	nodes []panelDomain.Node
+}
+
+func (m *mockNodeService) ListNodes(ctx context.Context) ([]panelDomain.Node, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	out := make([]panelDomain.Node, len(m.nodes))
+	copy(out, m.nodes)
+	return out, nil
+}
+
+func (m *mockNodeService) SetNodeDesiredState(ctx context.Context, id uint, desiredState string) (*panelDomain.Node, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for i := range m.nodes {
+		if m.nodes[i].ID == id {
+			m.nodes[i].DesiredState = desiredState
+			m.nodes[i].AutoStateReason = panelDomain.AutoReasonManual
+			cp := m.nodes[i]
+			return &cp, nil
+		}
+	}
+	return nil, panelDomain.ErrNotFound
+}
+
+func TestBotHandler_NodeCommands(t *testing.T) {
+	adminID := int64(88888)
+	env := setupTestEnv(t, adminID)
+
+	gb := int64(1024 * 1024 * 1024)
+	nodeSvc := &mockNodeService{
+		nodes: []panelDomain.Node{
+			{
+				ID:                1,
+				Name:              "Tokyo-1",
+				Region:            "JP",
+				Enabled:           true,
+				Online:            true,
+				DesiredState:      panelDomain.NodeStateActive,
+				TrafficLimitBytes: 100 * gb,
+				CycleNicUpBytes:   40 * gb,
+				CycleNicDownBytes: 40 * gb,
+			},
+			{
+				ID:           2,
+				Name:         "US-2",
+				Region:       "US",
+				Enabled:      true,
+				Online:       false,
+				DesiredState: panelDomain.NodeStateDraining,
+			},
+		},
+	}
+	env.handler.WithNodeService(nodeSvc)
+
+	// 1. /nodes lists nodes and watermark
+	env.server.SendMessageUpdate(adminID, "/nodes")
+	nodesMsg := env.server.WaitSentMsg(t, 2*time.Second)
+	if !strings.Contains(nodesMsg.Params["text"], "Tokyo-1") ||
+		!strings.Contains(nodesMsg.Params["text"], "80.00 GB / 100.00 GB (80.0%)") ||
+		!strings.Contains(nodesMsg.Params["text"], "US-2") {
+		t.Fatalf("unexpected /nodes output: %s", nodesMsg.Params["text"])
+	}
+
+	// 2. /nodedrain 1
+	env.server.SendMessageUpdate(adminID, "/nodedrain 1")
+	drainMsg := env.server.WaitSentMsg(t, 2*time.Second)
+	if !strings.Contains(drainMsg.Params["text"], "draining") || !strings.Contains(drainMsg.Params["text"], "manual") {
+		t.Fatalf("unexpected /nodedrain output: %s", drainMsg.Params["text"])
+	}
+
+	// 3. /noderestore 1
+	env.server.SendMessageUpdate(adminID, "/noderestore 1")
+	restoreMsg := env.server.WaitSentMsg(t, 2*time.Second)
+	if !strings.Contains(restoreMsg.Params["text"], "active") || !strings.Contains(restoreMsg.Params["text"], "manual") {
+		t.Fatalf("unexpected /noderestore output: %s", restoreMsg.Params["text"])
+	}
+
+	// 4. /nodedrain 999 (missing node)
+	env.server.SendMessageUpdate(adminID, "/nodedrain 999")
+	missingMsg := env.server.WaitSentMsg(t, 2*time.Second)
+	if !strings.Contains(missingMsg.Params["text"], "未找到节点 #999") {
+		t.Fatalf("unexpected missing node output: %s", missingMsg.Params["text"])
+	}
+
+	// 5. /nodedrain bad-id
+	env.server.SendMessageUpdate(adminID, "/nodedrain abc")
+	invalidMsg := env.server.WaitSentMsg(t, 2*time.Second)
+	if !strings.Contains(invalidMsg.Params["text"], "无效的节点 ID") {
+		t.Fatalf("unexpected invalid id output: %s", invalidMsg.Params["text"])
+	}
+}
+
 

@@ -63,6 +63,12 @@ func main() {
 		os.Exit(1)
 	}
 
+	quotaStore, err := agent.NewQuotaStore(*spoolDir)
+	if err != nil {
+		slog.Error("Failed to initialize quota store", slog.String("error", err.Error()))
+		os.Exit(1)
+	}
+
 	grpcClient := xray.NewGRPCClient(*xrayGRPC)
 	defer func() {
 		if closeErr := grpcClient.Close(); closeErr != nil {
@@ -109,6 +115,7 @@ func main() {
 		slog.Error("Failed to initialize agent runner", slog.String("error", err.Error()))
 		os.Exit(1)
 	}
+	runner.WithQuotaStore(quotaStore)
 
 	slog.Info("Starting xray-panel thin agent",
 		slog.String("version", Version),

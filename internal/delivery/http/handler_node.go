@@ -13,10 +13,11 @@ import (
 )
 
 const (
-	auditActionNodeCreate      = "NODE_CREATE"
-	auditActionNodeUpdate      = "NODE_UPDATE"
-	auditActionNodeDelete      = "NODE_DELETE"
-	auditActionNodeRotateToken = "NODE_ROTATE_TOKEN"
+	auditActionNodeCreate       = "NODE_CREATE"
+	auditActionNodeUpdate       = "NODE_UPDATE"
+	auditActionNodeDelete       = "NODE_DELETE"
+	auditActionNodeRotateToken  = "NODE_ROTATE_TOKEN"
+	auditActionNodeResetTraffic = "NODE_RESET_TRAFFIC"
 )
 
 type NodeHandler struct {
@@ -158,6 +159,25 @@ func (h *NodeHandler) RotateToken(c *gin.Context) {
 	c.Header("Cache-Control", "no-store, no-cache, must-revalidate, private")
 	h.auditSvc.RecordFromGin(c, auditActionNodeRotateToken, strconv.FormatUint(uint64(id), 10), fmt.Sprintf("轮换节点 ID %d Token", id), "SUCCESS")
 	c.JSON(http.StatusOK, res)
+}
+
+func (h *NodeHandler) ResetTraffic(c *gin.Context) {
+	id, ok := parseUintIDParam(c, "id")
+	if !ok {
+		return
+	}
+	node, err := h.nodeSvc.ResetNodeCycleTraffic(c.Request.Context(), id)
+	if err != nil {
+		if errors.Is(err, domain.ErrNotFound) {
+			c.JSON(http.StatusNotFound, gin.H{"error": "node not found"})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	h.auditSvc.RecordFromGin(c, auditActionNodeResetTraffic, node.Name, fmt.Sprintf("重置节点周期流量 ID %d: %s", node.ID, node.Name), "SUCCESS")
+	c.JSON(http.StatusOK, node)
 }
 
 func (h *NodeHandler) InstallScript(c *gin.Context) {

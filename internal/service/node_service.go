@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"math"
 	"net/url"
 	"strings"
 	"sync"
@@ -18,6 +19,9 @@ import (
 )
 
 const defaultNodeSyncIntervalSec = 20
+
+// NodeStateChangeCallback is invoked when a node automatically changes or recovers its desired state.
+type NodeStateChangeCallback func(ctx context.Context, node *domain.Node, oldState, newState, reason string)
 
 // NodeCacheInvalidator invalidates cached compiled node configuration and user snapshots.
 type NodeCacheInvalidator interface {
@@ -46,9 +50,11 @@ type cachedNodeSnapshot struct {
 type NodeService struct {
 	nodeRepo        domain.NodeRepository
 	batchRepo       domain.NodeTrafficBatchRepository
+	quotaRepo       domain.NodeQuotaRepository
 	inboundRepo     domain.InboundRepository
 	userRepo        domain.UserRepository
 	compiler        RemoteNodeCompiler
+	stateNotifier   NodeStateChangeCallback
 	syncIntervalSec int
 
 	mu          sync.RWMutex
@@ -64,7 +70,7 @@ func NewNodeService(
 	userRepo domain.UserRepository,
 	compiler RemoteNodeCompiler,
 ) *NodeService {
-	return &NodeService{
+	svc := &NodeService{
 		nodeRepo:        nodeRepo,
 		batchRepo:       batchRepo,
 		inboundRepo:     inboundRepo,
@@ -74,6 +80,22 @@ func NewNodeService(
 		snapshots:       make(map[uint]*cachedNodeSnapshot),
 		nodeEpochs:      make(map[uint]uint64),
 	}
+	if qr, ok := nodeRepo.(domain.NodeQuotaRepository); ok {
+		svc.quotaRepo = qr
+	}
+	return svc
+}
+
+// WithQuotaRepo injects the node quota repository (auto-detected when nodeRepo implements it).
+func (s *NodeService) WithQuotaRepo(repo domain.NodeQuotaRepository) *NodeService {
+	s.quotaRepo = repo
+	return s
+}
+
+// WithStateChangeNotifier injects a callback invoked on automatic node quota state transitions.
+func (s *NodeService) WithStateChangeNotifier(fn NodeStateChangeCallback) *NodeService {
+	s.stateNotifier = fn
+	return s
 }
 
 // HashNodeToken returns the lowercase SHA-256 hex digest of a plaintext node token.
@@ -139,6 +161,34 @@ func (s *NodeService) GetNode(ctx context.Context, id uint) (*domain.Node, error
 	return node, nil
 }
 
+func validateNodeQuotaFields(node *domain.Node) error {
+	if node.TrafficLimitBytes < 0 {
+		return fmt.Errorf("%w: trafficLimitBytes must be >= 0", domain.ErrInvalidInput)
+	}
+	if node.BillingResetDay < 0 || node.BillingResetDay > 31 {
+		return fmt.Errorf("%w: billingResetDay must be between 0 and 31", domain.ErrInvalidInput)
+	}
+	mode := strings.TrimSpace(node.TrafficCountMode)
+	if mode == "" {
+		mode = domain.TrafficCountModeBoth
+	}
+	if !domain.IsValidTrafficCountMode(mode) {
+		return fmt.Errorf("%w: unsupported trafficCountMode %q", domain.ErrInvalidInput, node.TrafficCountMode)
+	}
+	node.TrafficCountMode = mode
+
+	if math.IsNaN(node.TrafficMultiplier) || math.IsInf(node.TrafficMultiplier, 0) || node.TrafficMultiplier <= 0 {
+		return fmt.Errorf("%w: trafficMultiplier must be > 0", domain.ErrInvalidInput)
+	}
+	if node.WarnThresholdPct <= 0 || node.DrainThresholdPct <= 0 || node.BreakThresholdPct <= 0 ||
+		node.WarnThresholdPct > node.DrainThresholdPct ||
+		node.DrainThresholdPct > node.BreakThresholdPct ||
+		node.BreakThresholdPct > 100 {
+		return fmt.Errorf("%w: thresholds must satisfy 0 < warn <= drain <= break <= 100", domain.ErrInvalidInput)
+	}
+	return nil
+}
+
 func (s *NodeService) CreateNode(ctx context.Context, dto domain.CreateNodeDTO) (*domain.CreateNodeResponse, error) {
 	name := strings.TrimSpace(dto.Name)
 	host := strings.TrimSpace(dto.Host)
@@ -159,6 +209,35 @@ func (s *NodeService) CreateNode(ctx context.Context, dto domain.CreateNodeDTO) 
 		enabled = *dto.Enabled
 	}
 
+	var limitBytes int64
+	if dto.TrafficLimitBytes != nil {
+		limitBytes = *dto.TrafficLimitBytes
+	}
+	var resetDay int
+	if dto.BillingResetDay != nil {
+		resetDay = *dto.BillingResetDay
+	}
+	countMode := strings.TrimSpace(dto.TrafficCountMode)
+	if countMode == "" {
+		countMode = domain.TrafficCountModeBoth
+	}
+	multiplier := 1.0
+	if dto.TrafficMultiplier != nil {
+		multiplier = *dto.TrafficMultiplier
+	}
+	warnPct := domain.DefaultWarnThresholdPct
+	if dto.WarnThresholdPct != nil {
+		warnPct = *dto.WarnThresholdPct
+	}
+	drainPct := domain.DefaultDrainThresholdPct
+	if dto.DrainThresholdPct != nil {
+		drainPct = *dto.DrainThresholdPct
+	}
+	breakPct := domain.DefaultBreakThresholdPct
+	if dto.BreakThresholdPct != nil {
+		breakPct = *dto.BreakThresholdPct
+	}
+
 	plain, hash, prefix, err := generateNodeToken()
 	if err != nil {
 		return nil, err
@@ -166,21 +245,32 @@ func (s *NodeService) CreateNode(ctx context.Context, dto domain.CreateNodeDTO) 
 
 	now := time.Now()
 	node := &domain.Node{
-		Name:         name,
-		Host:         host,
-		Region:       strings.TrimSpace(dto.Region),
-		TokenHash:    hash,
-		TokenPrefix:  prefix,
-		Enabled:      enabled,
-		DesiredState: desiredState,
-		Remark:       strings.TrimSpace(dto.Remark),
-		CreatedAt:    now,
-		UpdatedAt:    now,
+		Name:              name,
+		Host:              host,
+		Region:            strings.TrimSpace(dto.Region),
+		TokenHash:         hash,
+		TokenPrefix:       prefix,
+		Enabled:           enabled,
+		DesiredState:      desiredState,
+		Remark:            strings.TrimSpace(dto.Remark),
+		TrafficLimitBytes: limitBytes,
+		BillingResetDay:   resetDay,
+		TrafficCountMode:  countMode,
+		TrafficMultiplier: multiplier,
+		WarnThresholdPct:  warnPct,
+		DrainThresholdPct: drainPct,
+		BreakThresholdPct: breakPct,
+		CreatedAt:         now,
+		UpdatedAt:         now,
+	}
+	if err := validateNodeQuotaFields(node); err != nil {
+		return nil, err
 	}
 
 	if err := s.nodeRepo.Create(ctx, node); err != nil {
 		return nil, fmt.Errorf("create node failed: %w", err)
 	}
+	node.RefreshComputed(now)
 
 	return &domain.CreateNodeResponse{
 		Node:  *node,
@@ -193,6 +283,11 @@ func (s *NodeService) UpdateNode(ctx context.Context, id uint, dto domain.Update
 	if err != nil {
 		return nil, err
 	}
+
+	// Normalize legacy zero values before applying partial quota updates.
+	node.TrafficCountMode = node.EffectiveTrafficCountMode()
+	node.TrafficMultiplier = node.EffectiveMultiplier()
+	node.WarnThresholdPct, node.DrainThresholdPct, node.BreakThresholdPct = node.EffectiveThresholds()
 
 	if dto.Name != nil {
 		name := strings.TrimSpace(*dto.Name)
@@ -219,10 +314,46 @@ func (s *NodeService) UpdateNode(ctx context.Context, id uint, dto domain.Update
 		if !domain.IsValidNodeState(state) {
 			return nil, fmt.Errorf("%w: unsupported desiredState %q", domain.ErrInvalidInput, state)
 		}
-		node.DesiredState = state
+		if state != node.DesiredState {
+			node.DesiredState = state
+			if state == domain.NodeStateActive {
+				node.AutoStateReason = ""
+			} else {
+				node.AutoStateReason = domain.AutoReasonManual
+			}
+		}
 	}
 	if dto.Remark != nil {
 		node.Remark = strings.TrimSpace(*dto.Remark)
+	}
+	if dto.TrafficLimitBytes != nil {
+		node.TrafficLimitBytes = *dto.TrafficLimitBytes
+	}
+	if dto.BillingResetDay != nil {
+		node.BillingResetDay = *dto.BillingResetDay
+	}
+	if dto.TrafficCountMode != nil {
+		mode := strings.TrimSpace(*dto.TrafficCountMode)
+		if mode == "" {
+			return nil, fmt.Errorf("%w: trafficCountMode cannot be empty", domain.ErrInvalidInput)
+		}
+		node.TrafficCountMode = mode
+	}
+	if dto.TrafficMultiplier != nil {
+		node.TrafficMultiplier = *dto.TrafficMultiplier
+	}
+	if dto.WarnThresholdPct != nil {
+		node.WarnThresholdPct = *dto.WarnThresholdPct
+	}
+	if dto.DrainThresholdPct != nil {
+		node.DrainThresholdPct = *dto.DrainThresholdPct
+	}
+	if dto.BreakThresholdPct != nil {
+		node.BreakThresholdPct = *dto.BreakThresholdPct
+	}
+
+	if err := validateNodeQuotaFields(node); err != nil {
+		return nil, err
 	}
 	node.UpdatedAt = time.Now()
 
@@ -232,6 +363,109 @@ func (s *NodeService) UpdateNode(ctx context.Context, id uint, dto domain.Update
 
 	node.RefreshOnline(time.Now())
 	return node, nil
+}
+
+// SetNodeDesiredState manually updates a node's desired state and records reason as "manual".
+func (s *NodeService) SetNodeDesiredState(ctx context.Context, id uint, desiredState string) (*domain.Node, error) {
+	state := strings.TrimSpace(desiredState)
+	if !domain.IsValidNodeState(state) {
+		return nil, fmt.Errorf("%w: unsupported desiredState %q", domain.ErrInvalidInput, state)
+	}
+
+	if s.quotaRepo != nil {
+		if err := s.quotaRepo.UpdateAutoState(ctx, id, state, domain.AutoReasonManual); err != nil {
+			return nil, err
+		}
+	} else {
+		node, err := s.nodeRepo.GetByID(ctx, id)
+		if err != nil {
+			return nil, err
+		}
+		node.DesiredState = state
+		node.AutoStateReason = domain.AutoReasonManual
+		node.UpdatedAt = time.Now()
+		if err := s.nodeRepo.Update(ctx, node); err != nil {
+			return nil, err
+		}
+	}
+
+	updated, err := s.nodeRepo.GetByID(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	updated.RefreshComputed(time.Now())
+	return updated, nil
+}
+
+// ResetNodeCycleTraffic zeros a node's cycle counters and restores active state if auto-degraded.
+func (s *NodeService) ResetNodeCycleTraffic(ctx context.Context, id uint) (*domain.Node, error) {
+	if s.quotaRepo == nil {
+		return nil, fmt.Errorf("node quota repository is not configured")
+	}
+	if err := s.quotaRepo.ResetCycleTraffic(ctx, id, 0, true); err != nil {
+		return nil, err
+	}
+	node, err := s.nodeRepo.GetByID(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	node.RefreshComputed(time.Now())
+	return node, nil
+}
+
+// CheckAndResetMonthlyTraffic checks all nodes against their billing reset day and resets cycle counters when due.
+func (s *NodeService) CheckAndResetMonthlyTraffic(ctx context.Context) error {
+	return s.CheckAndResetMonthlyTrafficAt(ctx, time.Now())
+}
+
+// CheckAndResetMonthlyTrafficAt executes monthly billing cycle resets relative to the provided timestamp.
+func (s *NodeService) CheckAndResetMonthlyTrafficAt(ctx context.Context, now time.Time) error {
+	if s.quotaRepo == nil {
+		return nil
+	}
+
+	today := now.Day()
+	currentYearMonth := now.Year()*100 + int(now.Month())
+	lastDayOfMonth := time.Date(now.Year(), now.Month()+1, 0, 0, 0, 0, 0, now.Location()).Day()
+
+	nodes, err := s.nodeRepo.ListAll(ctx)
+	if err != nil {
+		return err
+	}
+
+	var errs []error
+	for _, n := range nodes {
+		if n.BillingResetDay <= 0 {
+			continue
+		}
+		effectiveResetDay := n.BillingResetDay
+		if effectiveResetDay > lastDayOfMonth {
+			effectiveResetDay = lastDayOfMonth
+		}
+		if today >= effectiveResetDay && n.LastResetMonth != currentYearMonth {
+			oldState := n.DesiredState
+			wasAutoDegraded := domain.IsAutoQuotaStateReason(n.AutoStateReason) && oldState != domain.NodeStateActive
+			if err := s.quotaRepo.ResetCycleTraffic(ctx, n.ID, currentYearMonth, true); err != nil {
+				errs = append(errs, fmt.Errorf("reset node %d cycle traffic failed: %w", n.ID, err))
+				continue
+			}
+			if wasAutoDegraded {
+				updated, getErr := s.nodeRepo.GetByID(ctx, n.ID)
+				if getErr == nil && updated != nil {
+					updated.RefreshComputed(now)
+					s.notifyStateChange(ctx, updated, oldState, updated.DesiredState, "monthly_reset_recovered")
+				}
+			}
+		}
+	}
+	return errors.Join(errs...)
+}
+
+func (s *NodeService) notifyStateChange(ctx context.Context, node *domain.Node, oldState, newState, reason string) {
+	if s.stateNotifier == nil || node == nil {
+		return
+	}
+	s.stateNotifier(ctx, node, oldState, newState, reason)
 }
 
 func (s *NodeService) DeleteNode(ctx context.Context, id uint) error {
@@ -393,7 +627,8 @@ func (s *NodeService) HandleAgentSync(ctx context.Context, nodeID uint, req *dom
 		}
 	}
 
-	if err := s.nodeRepo.UpdateHeartbeat(ctx, nodeID, req, time.Now()); err != nil {
+	now := time.Now()
+	if err := s.nodeRepo.UpdateHeartbeat(ctx, nodeID, req, now); err != nil {
 		return nil, fmt.Errorf("update node heartbeat failed: %w", err)
 	}
 	if strings.TrimSpace(req.LastError) != "" {
@@ -403,18 +638,58 @@ func (s *NodeService) HandleAgentSync(ctx context.Context, nodeID uint, req *dom
 		)
 	}
 
+	// Re-read latest node after batch & heartbeat increments so quota evaluation sees updated cycle counters.
+	latestNode, err := s.nodeRepo.GetByID(ctx, nodeID)
+	if err != nil {
+		return nil, err
+	}
+	latestNode.RefreshComputed(now)
+
+	oldState := latestNode.DesiredState
+	if oldState == "" {
+		oldState = domain.NodeStateActive
+	}
+	desiredState := oldState
+	usedBytes := latestNode.CycleUsedBytes
+	_, drainPct, breakPct := latestNode.EffectiveThresholds()
+
+	if latestNode.TrafficLimitBytes > 0 && latestNode.AutoStateReason != domain.AutoReasonManual && s.quotaRepo != nil {
+		switch {
+		case domain.ReachedQuotaThreshold(usedBytes, latestNode.TrafficLimitBytes, breakPct):
+			if oldState != domain.NodeStateCircuitBroken {
+				if err := s.quotaRepo.UpdateAutoState(ctx, nodeID, domain.NodeStateCircuitBroken, domain.AutoReasonBreakQuota); err != nil {
+					return nil, fmt.Errorf("update node auto break state failed: %w", err)
+				}
+				desiredState = domain.NodeStateCircuitBroken
+				latestNode.DesiredState = desiredState
+				latestNode.AutoStateReason = domain.AutoReasonBreakQuota
+				s.notifyStateChange(ctx, latestNode, oldState, desiredState, domain.AutoReasonBreakQuota)
+			}
+		case domain.ReachedQuotaThreshold(usedBytes, latestNode.TrafficLimitBytes, drainPct):
+			if oldState == domain.NodeStateActive {
+				if err := s.quotaRepo.UpdateAutoState(ctx, nodeID, domain.NodeStateDraining, domain.AutoReasonDrainQuota); err != nil {
+					return nil, fmt.Errorf("update node auto drain state failed: %w", err)
+				}
+				desiredState = domain.NodeStateDraining
+				latestNode.DesiredState = desiredState
+				latestNode.AutoStateReason = domain.AutoReasonDrainQuota
+				s.notifyStateChange(ctx, latestNode, oldState, desiredState, domain.AutoReasonDrainQuota)
+			}
+		}
+	}
+
 	snap, err := s.getOrBuildSnapshot(ctx, nodeID)
 	if err != nil {
 		return nil, err
 	}
 
-	desiredState := node.DesiredState
-	if desiredState == "" {
-		desiredState = domain.NodeStateActive
-	}
-
 	configUnchanged := req.ConfigHash != "" && req.ConfigHash == snap.ConfigHash
 	usersUnchanged := req.UsersHash != "" && req.UsersHash == snap.UsersHash
+
+	cycleMonth := latestNode.LastResetMonth
+	if cycleMonth <= 0 {
+		cycleMonth = now.Year()*100 + int(now.Month())
+	}
 
 	resp := &domain.AgentSyncResponse{
 		OK:              true,
@@ -424,6 +699,14 @@ func (s *NodeService) HandleAgentSync(ctx context.Context, nodeID uint, req *dom
 		UsersHash:       snap.UsersHash,
 		ConfigUnchanged: configUnchanged,
 		UsersUnchanged:  usersUnchanged,
+		QuotaPolicy: &domain.AgentQuotaPolicy{
+			TrafficLimitBytes: latestNode.TrafficLimitBytes,
+			BreakThresholdPct: breakPct,
+			CountMode:         latestNode.EffectiveTrafficCountMode(),
+			Multiplier:        latestNode.EffectiveMultiplier(),
+			CycleUsedBytes:    usedBytes,
+			CycleMonth:        cycleMonth,
+		},
 	}
 	if !configUnchanged {
 		resp.ConfigJSON = snap.ConfigJSON

@@ -126,3 +126,10 @@ type NodeTrafficBatchRepository interface {
 	ApplyNodeTrafficBatch(ctx context.Context, nodeID uint, batch *AgentTrafficBatch, date string) (applied bool, affectedUsers []User, err error)
 	PruneBatchesBefore(ctx context.Context, before time.Time) error
 }
+
+// NodeQuotaRepository 定义节点配额状态与每日流量日志持久化接口
+type NodeQuotaRepository interface {
+	UpdateAutoState(ctx context.Context, nodeID uint, desiredState, reason string) error
+	ResetCycleTraffic(ctx context.Context, nodeID uint, resetMonth int, restoreActive bool) error
+	ListRecentDailyTraffic(ctx context.Context, nodeID uint, days int) ([]NodeTrafficDaily, error)
+}

@@ -180,11 +180,14 @@
       <!-- 3. 链接模式 -->
       <div v-else class="space-y-4">
         <!-- 核心专属安全订阅链接 (Token-based) -->
-        <div class="rounded-lg border border-border bg-card p-4 space-y-2">
-          <div class="flex items-center justify-between">
+        <div class="rounded-lg border border-emerald-500/35 bg-card p-4 space-y-2.5">
+          <div class="flex items-center justify-between gap-2">
             <span class="font-bold text-foreground flex items-center gap-1.5 font-mono">
               <span class="w-2 h-2 rounded-full bg-emerald-400"></span>
               <span>聚合订阅 (All-In-One Sub URL)</span>
+              <Badge variant="outline" class="text-[10px] border-emerald-500/30 text-emerald-400"
+                >推荐</Badge
+              >
             </span>
             <Button
               v-if="userId"
@@ -204,22 +207,34 @@
               class="w-full bg-neutral-950 border border-border rounded-md px-3 h-8 text-foreground text-[11px] select-all focus:outline-none"
             />
             <Button
-              variant="secondary"
+              variant="default"
               size="sm"
               class="shrink-0 h-8 font-mono"
               @click="copyText(subUrl)"
             >
-              <Copy class="w-3.5 h-3.5 mr-1" /> 复制
+              <Copy class="w-3.5 h-3.5 mr-1" /> 复制订阅
             </Button>
           </div>
-          <p class="text-[10px] text-muted-foreground">客户端自动识别全协议并定时静默更新节点</p>
+          <p class="text-[11px] text-neutral-300 leading-relaxed">
+            强烈推荐分发此链接：客户端导入一次即可长期自动同步节点变更，后续维护无需重复手动发送。
+          </p>
         </div>
 
         <!-- 单节点独立直连链接列表 -->
         <div class="space-y-2">
-          <label class="block text-foreground font-semibold text-[11px] font-mono"
-            >单个节点独立直连链接</label
-          >
+          <div class="flex items-center justify-between gap-2">
+            <label class="block text-foreground font-semibold text-[11px] font-mono"
+              >单个节点独立直连链接</label
+            >
+            <span
+              class="text-[10px] font-mono px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-400 border border-amber-500/20"
+            >
+              静态快照 · 不会自动更新
+            </span>
+          </div>
+          <p class="text-[10px] text-muted-foreground">
+            仅建议用于单次临时调试；日常使用请优先分发上方「聚合订阅」或切换至「安全提取码」。
+          </p>
           <div class="max-h-48 overflow-y-auto space-y-2 pr-1">
             <div
               v-for="link in normalizedLinks"

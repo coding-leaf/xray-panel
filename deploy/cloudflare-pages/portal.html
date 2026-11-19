@@ -20,11 +20,13 @@
       --danger-bg: rgba(244, 63, 94, 0.1);
       --danger-border: rgba(244, 63, 94, 0.2);
       --success: #34d399;
-      --success-bg: rgba(52, 211, 153, 0.1);
-      --success-border: rgba(52, 211, 153, 0.2);
+      --success-bg: rgba(52, 211, 153, 0.12);
+      --success-soft: rgba(52, 211, 153, 0.06);
+      --success-border: rgba(52, 211, 153, 0.35);
       --warning: #fbbf24;
+      --warning-text: #fde68a;
       --warning-bg: rgba(251, 191, 36, 0.1);
-      --warning-border: rgba(251, 191, 36, 0.2);
+      --warning-border: rgba(251, 191, 36, 0.25);
       --font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
     }
 
@@ -82,8 +84,14 @@
       background: var(--card);
       border: 1px solid var(--border);
       border-radius: 12px;
-      padding: 32px 28px;
+      padding: 32px 24px;
       box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.5), 0 8px 10px -6px rgba(0, 0, 0, 0.5);
+    }
+
+    @media (min-width: 640px) {
+      .card {
+        padding: 32px 28px;
+      }
     }
 
     .header {
@@ -216,7 +224,7 @@
       line-height: 1.4;
     }
 
-    /* 兑换成果轨道卡片 */
+    /* 倒计时栏 */
     .countdown-bar {
       background: var(--warning-bg);
       border: 1px solid var(--warning-border);
@@ -228,7 +236,7 @@
       display: flex;
       justify-content: space-between;
       align-items: center;
-      margin-bottom: 18px;
+      margin-bottom: 16px;
     }
 
     .countdown-timer {
@@ -236,23 +244,32 @@
       font-weight: 700;
     }
 
-    .track-section {
+    /* 主卡片：首选长效订阅 */
+    .primary-section {
       background: #000000;
-      border: 1px solid var(--border);
+      border: 1px solid var(--success-border);
       border-radius: 8px;
       padding: 16px;
       margin-bottom: 14px;
     }
 
-    .track-header {
+    @media (min-width: 640px) {
+      .primary-section {
+        padding: 18px;
+      }
+    }
+
+    .section-header {
       display: flex;
       align-items: center;
       justify-content: space-between;
-      margin-bottom: 8px;
+      gap: 8px;
+      flex-wrap: wrap;
+      margin-bottom: 10px;
     }
 
-    .track-title {
-      font-size: 12px;
+    .section-title {
+      font-size: 14px;
       font-weight: 600;
       font-family: var(--font-mono);
       color: var(--text);
@@ -261,50 +278,95 @@
       gap: 8px;
     }
 
-    .track-dot {
+    .status-dot {
       width: 8px;
       height: 8px;
       border-radius: 50%;
+      flex-shrink: 0;
     }
 
-    .track-dot.emerald {
+    .status-dot.emerald {
       background: var(--success);
     }
 
-    .track-dot.blue {
-      background: #60a5fa;
+    .status-dot.amber {
+      background: var(--warning);
     }
 
-    .track-badge {
+    .pill-badge {
       font-size: 11px;
       font-family: var(--font-mono);
       padding: 2px 8px;
       border-radius: 4px;
+      white-space: nowrap;
+    }
+
+    .pill-badge.emerald {
       background: var(--success-bg);
       color: var(--success);
       border: 1px solid var(--success-border);
+      font-weight: 500;
     }
 
-    .track-badge.neutral {
-      background: var(--accent-bg);
-      color: #d4d4d4;
-      border: 1px solid var(--border);
+    .pill-badge.amber {
+      background: var(--warning-bg);
+      color: var(--warning);
+      border: 1px solid var(--warning-border);
+      font-size: 10px;
     }
 
-    .track-desc {
+    .section-desc {
       font-size: 12px;
-      color: var(--text-muted);
-      line-height: 1.5;
-      margin-bottom: 12px;
+      color: #d4d4d4;
+      line-height: 1.6;
+      margin-bottom: 14px;
     }
 
-    .btn-copy-nodes {
+    .section-desc strong {
+      color: #ffffff;
+    }
+
+    .section-desc .accent-emerald {
+      color: var(--success);
+      font-weight: 500;
+    }
+
+    /* 主按钮（高对比白底） */
+    .btn-primary-action {
       width: 100%;
-      height: 36px;
+      height: 40px;
       border-radius: 6px;
       border: 1px solid #ffffff;
       background: #ffffff;
       color: #000000;
+      font-size: 12px;
+      font-weight: 600;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      margin-bottom: 12px;
+      transition: background-color 0.15s ease, opacity 0.15s ease;
+    }
+
+    .btn-primary-action:hover:not(:disabled) {
+      background: #e5e5e5;
+    }
+
+    .btn-primary-action:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+
+    /* 次按钮（弱化灰底） */
+    .btn-secondary-action {
+      width: 100%;
+      height: 36px;
+      border-radius: 6px;
+      border: 1px solid var(--border);
+      background: var(--accent-bg);
+      color: var(--text);
       font-size: 12px;
       font-weight: 500;
       cursor: pointer;
@@ -312,19 +374,240 @@
       align-items: center;
       justify-content: center;
       gap: 6px;
-      margin-bottom: 10px;
-      transition: background-color 0.15s ease;
+      margin-bottom: 12px;
+      transition: background-color 0.15s ease, border-color 0.15s ease, opacity 0.15s ease;
     }
 
-    .btn-copy-nodes:hover {
-      background: #e5e5e5;
+    .btn-secondary-action:hover:not(:disabled) {
+      background: #262626;
+      border-color: var(--border-light);
     }
 
-    .textarea-hint {
+    .btn-secondary-action:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+
+    .field-hint {
       font-size: 11px;
       font-family: var(--font-mono);
-      color: var(--text-dark);
+      color: var(--text-muted);
       margin-bottom: 6px;
+    }
+
+    .sub-input {
+      width: 100%;
+      height: 36px;
+      background: var(--card-inner);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 0 12px;
+      font-family: var(--font-mono);
+      font-size: 12px;
+      color: #d4d4d4;
+      outline: none;
+      margin-bottom: 12px;
+    }
+
+    .sub-input:focus {
+      border-color: var(--border-light);
+    }
+
+    .sub-tip {
+      background: var(--success-soft);
+      border: 1px solid rgba(52, 211, 153, 0.2);
+      border-radius: 6px;
+      padding: 10px 12px;
+      font-size: 11px;
+      color: #d4d4d4;
+      line-height: 1.6;
+      display: flex;
+      align-items: flex-start;
+      gap: 8px;
+      margin-bottom: 12px;
+    }
+
+    .sub-tip svg {
+      color: var(--success);
+      flex-shrink: 0;
+      margin-top: 2px;
+    }
+
+    .sub-tip strong {
+      color: #ffffff;
+    }
+
+    /* 原生 details/summary 折叠区与渐进增强动画 */
+    .portal-details > summary {
+      list-style: none;
+      cursor: pointer;
+      user-select: none;
+    }
+
+    .portal-details > summary::-webkit-details-marker {
+      display: none;
+    }
+
+    .portal-details > summary .portal-chevron {
+      flex-shrink: 0;
+      rotate: -90deg;
+    }
+
+    .portal-details[open] > summary .portal-chevron {
+      rotate: 0deg;
+    }
+
+    .portal-details::details-content {
+      interpolate-size: allow-keywords;
+      overflow: clip;
+      contain: layout;
+    }
+
+    .portal-details:not([open])::details-content {
+      block-size: 0;
+    }
+
+    @media (prefers-reduced-motion: no-preference) {
+      .portal-details > summary .portal-chevron {
+        transition: rotate 0.2s ease;
+      }
+
+      .portal-details::details-content {
+        transition: block-size, content-visibility, display;
+        transition-duration: 0.25s;
+        transition-timing-function: ease-in-out;
+        transition-behavior: allow-discrete;
+      }
+    }
+
+    /* 订阅教程折叠区 */
+    .guide-details {
+      border-top: 1px solid var(--border);
+      padding-top: 12px;
+    }
+
+    .guide-summary {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 12px;
+      color: #e5e5e5;
+      font-weight: 500;
+      padding: 4px 0;
+      transition: color 0.15s ease;
+    }
+
+    .guide-summary:hover {
+      color: #ffffff;
+    }
+
+    .guide-content {
+      margin-top: 10px;
+      background: var(--card-inner);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 12px;
+      font-size: 11px;
+      color: var(--text-muted);
+      line-height: 1.65;
+    }
+
+    .guide-content > div + div {
+      margin-top: 8px;
+    }
+
+    .guide-content strong {
+      color: #e5e5e5;
+    }
+
+    .guide-content .hl-emerald {
+      color: var(--success);
+      font-weight: 600;
+    }
+
+    .guide-content .guide-fallback-note {
+      padding-top: 8px;
+      border-top: 1px solid var(--border);
+      color: rgba(253, 230, 138, 0.9);
+    }
+
+    /* 次要区块：临时过渡节点（默认折叠） */
+    .fallback-details {
+      background: rgba(0, 0, 0, 0.7);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      margin-bottom: 14px;
+    }
+
+    .fallback-summary {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      padding: 14px;
+      font-size: 12px;
+      color: var(--text-muted);
+      transition: color 0.15s ease;
+    }
+
+    .fallback-summary:hover {
+      color: var(--text);
+    }
+
+    .fallback-summary-left {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      min-width: 0;
+    }
+
+    .fallback-summary-title {
+      font-family: var(--font-mono);
+      font-weight: 500;
+      color: #d4d4d4;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .fallback-body {
+      padding: 0 16px 16px;
+      border-top: 1px solid rgba(38, 38, 38, 0.7);
+    }
+
+    .warning-callout {
+      margin-top: 12px;
+      margin-bottom: 12px;
+      background: var(--warning-bg);
+      border: 1px solid var(--warning-border);
+      border-radius: 6px;
+      padding: 12px;
+      font-size: 11px;
+      color: rgba(253, 230, 138, 0.88);
+      line-height: 1.6;
+    }
+
+    .warning-callout-title {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--warning);
+      margin-bottom: 6px;
+    }
+
+    .warning-callout strong {
+      color: var(--warning-text);
+    }
+
+    .warning-callout ol {
+      margin-top: 6px;
+      padding-left: 18px;
+    }
+
+    .warning-callout li + li {
+      margin-top: 4px;
     }
 
     .nodes-textarea {
@@ -344,106 +627,6 @@
 
     .nodes-textarea:focus {
       border-color: var(--border-light);
-    }
-
-    /* 导入客户端指引折叠区 */
-    .guide-toggle {
-      border-top: 1px solid var(--border);
-      padding-top: 10px;
-      margin-top: 10px;
-    }
-
-    .guide-toggle-btn {
-      width: 100%;
-      background: none;
-      border: none;
-      color: var(--text-muted);
-      font-size: 12px;
-      cursor: pointer;
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      padding: 4px 0;
-      transition: color 0.15s ease;
-    }
-
-    .guide-toggle-btn:hover {
-      color: var(--text);
-    }
-
-    .guide-content {
-      margin-top: 8px;
-      background: var(--card-inner);
-      border: 1px solid var(--border);
-      border-radius: 6px;
-      padding: 12px;
-      font-size: 11px;
-      color: var(--text-muted);
-      line-height: 1.6;
-    }
-
-    .guide-content strong {
-      color: #e5e5e5;
-    }
-
-    /* 轨道 2 输入框与按钮 */
-    .sub-input-group {
-      display: flex;
-      gap: 8px;
-      margin-bottom: 10px;
-    }
-
-    .sub-input {
-      flex: 1;
-      height: 36px;
-      background: var(--card-inner);
-      border: 1px solid var(--border);
-      border-radius: 6px;
-      padding: 0 12px;
-      font-family: var(--font-mono);
-      font-size: 12px;
-      color: #d4d4d4;
-      outline: none;
-    }
-
-    .sub-input:focus {
-      border-color: var(--border-light);
-    }
-
-    .btn-copy-sub {
-      height: 36px;
-      padding: 0 14px;
-      border-radius: 6px;
-      border: 1px solid var(--border);
-      background: var(--accent-bg);
-      color: var(--text);
-      font-size: 12px;
-      font-weight: 500;
-      cursor: pointer;
-      display: flex;
-      align-items: center;
-      gap: 6px;
-      white-space: nowrap;
-      transition: background-color 0.15s ease, border-color 0.15s ease;
-    }
-
-    .btn-copy-sub:hover {
-      background: #262626;
-      border-color: var(--border-light);
-    }
-
-    .sub-tip {
-      background: var(--card-inner);
-      border: 1px solid var(--border);
-      border-radius: 6px;
-      padding: 10px 12px;
-      font-size: 11px;
-      color: var(--text-muted);
-      line-height: 1.5;
-    }
-
-    .sub-tip strong {
-      color: #e5e5e5;
     }
 
     .btn-burn {
@@ -481,7 +664,7 @@
   </style>
 </head>
 <body>
-  <div class="container">
+  <main class="container">
     <!-- 顶部状态胶囊 -->
     <div class="status-badge">
       <div class="badge-pill">
@@ -502,13 +685,13 @@
 
       <!-- 阶段 1：凭据输入表单 -->
       <div id="formSection">
-        <div id="errorBanner" class="error-banner">
+        <div id="errorBanner" class="error-banner" role="alert">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
           <span id="errorMsgText">凭据无效或已失效</span>
         </div>
 
         <div class="form-group">
-          <label class="form-label">请输入 6 位提取凭据 (一次性安全码)</label>
+          <label for="ticketCodeInput" class="form-label">请输入 6 位提取凭据 (一次性安全码)</label>
           <div class="input-wrapper">
             <input
               type="text"
@@ -516,7 +699,7 @@
               class="code-input"
               maxlength="8"
               placeholder="7K9X2P"
-              autocomplete="off"
+              autocomplete="one-time-code"
               autocorrect="off"
               autocapitalize="characters"
               spellcheck="false"
@@ -525,13 +708,13 @@
           <p class="input-hint">不区分大小写，自动忽略混淆字符与分隔符</p>
         </div>
 
-        <button id="submitBtn" class="btn-submit">
+        <button id="submitBtn" type="button" class="btn-submit">
           <span id="btnText">立即提取配置</span>
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg>
         </button>
       </div>
 
-      <!-- 阶段 2：双轨配置交付 -->
+      <!-- 阶段 2：订阅优先的配置交付 -->
       <div id="resultSection" style="display: none;">
         <!-- 自毁倒计时 -->
         <div class="countdown-bar">
@@ -542,66 +725,102 @@
           <span id="countdownLabel" class="countdown-timer">120 秒后清除</span>
         </div>
 
-        <!-- 轨道 1：急救连接节点 -->
-        <div class="track-section">
-          <div class="track-header">
-            <div class="track-title">
-              <span class="track-dot emerald"></span>
-              <span>轨道 1：急救连接节点</span>
-            </div>
-            <span id="nodeCountBadge" class="track-badge">0 个节点</span>
+        <!-- 首选区块：长效订阅链接 -->
+        <section class="primary-section" aria-labelledby="portalSubHeading">
+          <div class="section-header">
+            <h2 id="portalSubHeading" class="section-title">
+              <span class="status-dot emerald"></span>
+              <span>首选：长效订阅链接</span>
+            </h2>
+            <span class="pill-badge emerald">强烈推荐 · 自动更新</span>
           </div>
-          <p class="track-desc">用于首次配网或建立高可用专属加密通道。</p>
-          <button id="copyNodesBtn" class="btn-copy-nodes">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
-            <span id="copyNodesBtnText">一键复制全部急救节点</span>
+
+          <p class="section-desc">
+            请优先复制此<strong>订阅链接</strong>导入客户端。添加一次即可长期使用，后续节点维护或扩容只需在客户端点击「更新订阅」，<span class="accent-emerald">无需再次索取提取码</span>。
+          </p>
+
+          <button id="copySubBtn" type="button" class="btn-primary-action">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+            <span id="copySubBtnText">一键复制长效订阅链接</span>
           </button>
-          
-          <div class="textarea-hint">长按下方区域手动全选复制（手机端兜底）：</div>
-          <textarea id="nodesTextarea" class="nodes-textarea" readonly></textarea>
 
-          <!-- 折叠指引 -->
-          <div class="guide-toggle">
-            <button id="guideToggleBtn" class="guide-toggle-btn" type="button">
-              <span style="display: flex; align-items: center; gap: 6px;">
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
-                <span>各客户端一键导入指引</span>
-              </span>
-              <svg id="guideArrow" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="transition: transform 0.2s;"><polyline points="6 9 12 15 18 9"/></svg>
-            </button>
-            <div id="guideContent" class="guide-content" style="display: none;">
-              <div style="margin-bottom: 6px;"><strong>Android 客户端：</strong>点击右上角「+」号 ➔ 选择「从剪贴板导入」➔ 启动连接。</div>
-              <div style="margin-bottom: 6px;"><strong>iOS 客户端：</strong>打开客户端即会弹出提示「从剪贴板添加」➔ 点击允许并启动连接。</div>
-              <div><strong>PC / Mac 客户端：</strong>在节点配置中选择从剪贴板粘贴节点 ➔ 选中后开启系统代理。</div>
-            </div>
-          </div>
-        </div>
+          <div class="field-hint">订阅地址（点击输入框可手动全选复制）：</div>
+          <input type="text" id="subUrlInput" class="sub-input" aria-label="长效订阅链接" readonly />
 
-        <!-- 轨道 2：长效自动更新订阅 -->
-        <div class="track-section">
-          <div class="track-header">
-            <div class="track-title">
-              <span class="track-dot blue"></span>
-              <span>轨道 2：长效自动更新订阅</span>
-            </div>
-            <span class="track-badge neutral">长效保障</span>
-          </div>
-          <p class="track-desc">连接急救节点成功后，将订阅链接填入客户端以实现持续同步。</p>
-          <div class="sub-input-group">
-            <input type="text" id="subUrlInput" class="sub-input" readonly />
-            <button id="copySubBtn" class="btn-copy-sub">
-              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
-              <span id="copySubBtnText">复制</span>
-            </button>
-          </div>
           <div class="sub-tip">
-            💡 <strong>使用建议：</strong>添加订阅后，建议在客户端配置中开启<strong>「通过代理更新订阅」</strong>以保证在复杂网络下持续稳定同步。
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 0 0-9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/><path d="M3 12a9 9 0 0 0 9 9 9.75 9.75 0 0 0 6.74-2.74L21 16"/><path d="M16 16h5v5"/></svg>
+            <div>
+              <strong>关键设置：</strong>导入订阅后，建议在客户端开启<strong>「自动更新」</strong>及<strong>「通过代理更新订阅」</strong>，确保复杂网络下也能持续同步最新节点。
+            </div>
           </div>
-        </div>
+
+          <!-- 订阅导入教程（原生 details 折叠） -->
+          <details id="subGuideDetails" class="portal-details guide-details">
+            <summary class="guide-summary">
+              <svg class="portal-chevron" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#34d399" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/></svg>
+              <span>如何添加订阅链接？（iOS / Android / 电脑端步骤）</span>
+            </summary>
+            <div class="guide-content">
+              <div>
+                <strong>iOS（Shadowrocket / 小火箭等）：</strong>
+                点击右上角「+」➔ 类型选择 <span class="hl-emerald">「Subscribe / 订阅」</span>（请勿直接点普通节点）➔ 在 URL 栏粘贴订阅链接并保存 ➔ 返回首页选中节点连接。
+              </div>
+              <div>
+                <strong>Android（v2rayNG / Clash Meta / Nekobox）：</strong>
+                打开菜单进入「<strong>订阅分组设置</strong>」或「<strong>配置</strong>」➔ 点击「+」新建订阅并粘贴链接 ➔ 保存后点击「<span class="hl-emerald">更新订阅</span>」拉取全部节点。
+              </div>
+              <div>
+                <strong>Windows / macOS（v2rayN / Clash Verge / FlClash）：</strong>
+                进入「<strong>订阅设置 / 配置</strong>」➔ 新建订阅并粘贴链接 ➔ 点击「<span class="hl-emerald">更新订阅</span>」获取最新节点。
+              </div>
+              <div class="guide-fallback-note">
+                <strong>如果直接拉取订阅超时或失败：</strong>
+                请展开下方「临时过渡节点」先临时连上网络，再回来更新上方订阅链接即可。
+              </div>
+            </div>
+          </details>
+        </section>
+
+        <!-- 次要区块：临时过渡节点（默认折叠，防止误复制后不加订阅） -->
+        <details id="emergencyDetails" class="portal-details fallback-details">
+          <summary class="fallback-summary">
+            <span class="fallback-summary-left">
+              <svg class="portal-chevron" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>
+              <span class="status-dot amber"></span>
+              <span id="emergencySummaryText" class="fallback-summary-title">无法拉取订阅？展开临时过渡节点（0 个）</span>
+            </span>
+            <span class="pill-badge amber">不会自动更新</span>
+          </summary>
+
+          <div class="fallback-body">
+            <div class="warning-callout">
+              <div class="warning-callout-title">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+                <span>请勿把临时节点当作日常长期节点使用</span>
+              </div>
+              <p>
+                以下仅为当前时刻的静态节点快照，<strong>后续维护调整后将直接失效且不会自动更新</strong>。仅在当前网络无法直接拉取订阅时用于冷启动过渡：
+              </p>
+              <ol>
+                <li>复制下方临时节点，在客户端选择「从剪贴板导入」并先开启连接；</li>
+                <li>联网后，<strong>立即回到上方复制「长效订阅链接」</strong>并更新订阅，之后切换至订阅节点并删除临时节点。</li>
+              </ol>
+            </div>
+
+            <button id="copyNodesBtn" type="button" class="btn-secondary-action">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+              <span id="copyNodesBtnText">复制临时过渡节点（仅作首次联网）</span>
+            </button>
+
+            <div class="field-hint">手机端手动全选兜底（长按下方区域复制）：</div>
+            <textarea id="nodesTextarea" class="nodes-textarea" aria-label="临时过渡节点链接列表" readonly></textarea>
+          </div>
+        </details>
 
         <!-- 手动立即销毁 -->
         <div style="text-align: center; margin-top: 12px;">
-          <button id="burnBtn" class="btn-burn">
+          <button id="burnBtn" type="button" class="btn-burn">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
             <span>立即销毁当前数据并返回</span>
           </button>
@@ -614,14 +833,14 @@
       <p>端到端加密与访问控制已启用 · 阅后即焚保护机制</p>
       <p class="ver">NetOps Version 1.3 · Distributed Network Operations Hub</p>
     </div>
-  </div>
+  </main>
 
   <script>
     /**
      * =========================================================================
      * 自定义独立 HTML 前端配置 (Headless Configuration)
      * =========================================================================
-     * 
+     *
      * 1. 若此 HTML 与面板或反代部署在同一个域名/路径下，请保持留空 ""；
      * 2. 若此 HTML 部署在独立的托管平台（如 Cloudflare Pages、GitHub Pages），
      *    请填入真实的后端面板地址，如："https://panel.yourdomain.com"。
@@ -639,25 +858,24 @@
     const resultSection = document.getElementById("resultSection");
     const countdownLabel = document.getElementById("countdownLabel");
 
-    const nodeCountBadge = document.getElementById("nodeCountBadge");
-    const copyNodesBtn = document.getElementById("copyNodesBtn");
-    const copyNodesBtnText = document.getElementById("copyNodesBtnText");
-    const nodesTextarea = document.getElementById("nodesTextarea");
-
     const subUrlInput = document.getElementById("subUrlInput");
     const copySubBtn = document.getElementById("copySubBtn");
     const copySubBtnText = document.getElementById("copySubBtnText");
-    const burnBtn = document.getElementById("burnBtn");
+    const subGuideDetails = document.getElementById("subGuideDetails");
 
-    const guideToggleBtn = document.getElementById("guideToggleBtn");
-    const guideContent = document.getElementById("guideContent");
-    const guideArrow = document.getElementById("guideArrow");
+    const emergencyDetails = document.getElementById("emergencyDetails");
+    const emergencySummaryText = document.getElementById("emergencySummaryText");
+    const copyNodesBtn = document.getElementById("copyNodesBtn");
+    const copyNodesBtnText = document.getElementById("copyNodesBtnText");
+    const nodesTextarea = document.getElementById("nodesTextarea");
+    const burnBtn = document.getElementById("burnBtn");
 
     // 状态管理
     let currentPayload = null;
     let countdownInterval = null;
+    let copySubTimer = null;
+    let copyNodesTimer = null;
     let expireAtTimestamp = 0;
-    let isGuideOpen = false;
 
     // 输入格式化 (Crockford 规范化：全角转半角、去空白、转大写)
     codeInput.addEventListener("input", () => {
@@ -677,12 +895,6 @@
 
     submitBtn.addEventListener("click", handleClaim);
     burnBtn.addEventListener("click", resetPortal);
-
-    guideToggleBtn.addEventListener("click", () => {
-      isGuideOpen = !isGuideOpen;
-      guideContent.style.display = isGuideOpen ? "block" : "none";
-      guideArrow.style.transform = isGuideOpen ? "rotate(180deg)" : "rotate(0deg)";
-    });
 
     function showError(msg) {
       errorMsgText.textContent = msg || "凭据无效、已过期或已被销毁";
@@ -736,11 +948,17 @@
       formSection.style.display = "none";
       resultSection.style.display = "block";
 
-      const nodes = payload.emergency_nodes || [];
-      nodeCountBadge.textContent = `${nodes.length} 个节点`;
-      nodesTextarea.value = nodes.join("\n");
+      const subUrl = payload.subscription_url || "";
+      subUrlInput.value = subUrl;
+      copySubBtn.disabled = !subUrl;
 
-      subUrlInput.value = payload.subscription_url || "";
+      const nodes = payload.emergency_nodes || [];
+      emergencySummaryText.textContent = `无法拉取订阅？展开临时过渡节点（${nodes.length} 个）`;
+      nodesTextarea.value = nodes.join("\n");
+      copyNodesBtn.disabled = nodes.length === 0;
+
+      subGuideDetails.open = false;
+      emergencyDetails.open = false;
 
       startCountdown(120);
     }
@@ -769,12 +987,24 @@
         clearInterval(countdownInterval);
         countdownInterval = null;
       }
+      if (copySubTimer) {
+        clearTimeout(copySubTimer);
+        copySubTimer = null;
+      }
+      if (copyNodesTimer) {
+        clearTimeout(copyNodesTimer);
+        copyNodesTimer = null;
+      }
       currentPayload = null;
       expireAtTimestamp = 0;
 
       codeInput.value = "";
       nodesTextarea.value = "";
       subUrlInput.value = "";
+      copySubBtnText.textContent = "一键复制长效订阅链接";
+      copyNodesBtnText.textContent = "复制临时过渡节点（仅作首次联网）";
+      subGuideDetails.open = false;
+      emergencyDetails.open = false;
       hideError();
 
       resultSection.style.display = "none";
@@ -817,24 +1047,28 @@
       return false;
     }
 
-    copyNodesBtn.addEventListener("click", async () => {
-      if (!nodesTextarea.value) return;
-      const ok = await copyToClipboard(nodesTextarea.value);
-      if (ok) {
-        copyNodesBtnText.textContent = "已成功复制全部急救节点！";
-        setTimeout(() => {
-          copyNodesBtnText.textContent = "一键复制全部急救节点";
-        }, 2500);
-      }
-    });
-
     copySubBtn.addEventListener("click", async () => {
       if (!subUrlInput.value) return;
       const ok = await copyToClipboard(subUrlInput.value);
       if (ok) {
-        copySubBtnText.textContent = "已复制";
-        setTimeout(() => {
-          copySubBtnText.textContent = "复制";
+        copySubBtnText.textContent = "已复制订阅链接，请前往客户端添加订阅";
+        if (copySubTimer) clearTimeout(copySubTimer);
+        copySubTimer = setTimeout(() => {
+          copySubBtnText.textContent = "一键复制长效订阅链接";
+          copySubTimer = null;
+        }, 2500);
+      }
+    });
+
+    copyNodesBtn.addEventListener("click", async () => {
+      if (!nodesTextarea.value) return;
+      const ok = await copyToClipboard(nodesTextarea.value);
+      if (ok) {
+        copyNodesBtnText.textContent = "已复制临时节点（联网后请务必添加上方订阅）";
+        if (copyNodesTimer) clearTimeout(copyNodesTimer);
+        copyNodesTimer = setTimeout(() => {
+          copyNodesBtnText.textContent = "复制临时过渡节点（仅作首次联网）";
+          copyNodesTimer = null;
         }, 2500);
       }
     });

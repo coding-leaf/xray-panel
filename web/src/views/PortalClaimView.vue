@@ -85,8 +85,8 @@
           </Button>
         </form>
 
-        <!-- Phase 2: Dual-Track Delivery Display -->
-        <div v-else class="space-y-5">
+        <!-- Phase 2: Subscription-First Delivery Display -->
+        <div v-else class="space-y-4">
           <!-- Auto-burn Countdown Bar -->
           <div
             class="p-3 rounded-md bg-amber-500/10 border border-amber-500/20 flex items-center justify-between text-xs text-amber-400 font-mono"
@@ -98,134 +98,196 @@
             <span class="font-bold">{{ countdownSeconds }} 秒后清除</span>
           </div>
 
-          <!-- Track 1: Emergency Cold-start Nodes -->
-          <div class="rounded-md bg-neutral-950 border border-border p-4 space-y-3">
-            <div class="flex items-center justify-between">
+          <!-- Primary Section: Auto-Update Subscription (Recommended) -->
+          <section
+            aria-labelledby="portal-sub-heading"
+            class="rounded-lg bg-neutral-950 border border-emerald-500/40 p-4 sm:p-5 space-y-3.5"
+          >
+            <div class="flex items-center justify-between gap-2 flex-wrap">
               <div class="flex items-center gap-2">
-                <span class="w-2 h-2 rounded-full bg-emerald-400"></span>
-                <h3 class="text-xs font-semibold text-foreground tracking-wide font-mono">
-                  轨道 1：急救连接节点
-                </h3>
+                <span class="w-2 h-2 rounded-full bg-emerald-400 shrink-0"></span>
+                <h2
+                  id="portal-sub-heading"
+                  class="text-sm font-semibold text-foreground tracking-wide font-mono"
+                >
+                  首选：长效订阅链接
+                </h2>
               </div>
               <span
-                class="text-[11px] font-mono px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/20"
+                class="text-[11px] font-mono px-2 py-0.5 rounded bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 font-medium"
               >
-                {{ payload.emergency_nodes?.length || 0 }} 个节点
+                强烈推荐 · 自动更新
               </span>
             </div>
 
-            <p class="text-xs text-muted-foreground leading-relaxed">
-              用于首次配网或建立高可用专属加密通道。
+            <p class="text-xs text-neutral-300 leading-relaxed">
+              请优先复制此<strong class="text-foreground">订阅链接</strong
+              >导入客户端。添加一次即可长期使用，后续节点维护或扩容只需在客户端点击「更新订阅」，<strong
+                class="text-emerald-400 font-medium"
+                >无需再次索取提取码</strong
+              >。
             </p>
 
-            <!-- Main Action: Copy all emergency nodes -->
-            <Button @click="copyEmergencyNodes" class="w-full h-9 text-xs">
-              <Check v-if="copiedNodes" class="w-3.5 h-3.5 mr-1.5 text-emerald-400" />
-              <Copy v-else class="w-3.5 h-3.5 mr-1.5" />
-              <span>{{ copiedNodes ? '已复制全部节点链接' : '一键复制全部急救节点' }}</span>
+            <!-- Primary CTA Button -->
+            <Button
+              type="button"
+              :disabled="!payload.subscription_url"
+              @click="copySubscriptionURL"
+              class="w-full h-10 text-xs font-semibold"
+            >
+              <Check v-if="copiedSub" class="w-4 h-4 mr-1.5 text-emerald-600" />
+              <Copy v-else class="w-4 h-4 mr-1.5" />
+              <span>{{
+                copiedSub ? '已复制订阅链接，请前往客户端添加订阅' : '一键复制长效订阅链接'
+              }}</span>
             </Button>
 
-            <!-- Fallback Textarea for Mobile/WeChat -->
-            <div class="pt-1">
-              <div class="text-[11px] text-muted-foreground mb-1 font-mono">
-                长按下方区域手动全选复制（手机端兜底）：
+            <!-- Readonly URL Input (Click-to-select fallback) -->
+            <div class="space-y-1">
+              <div class="text-[11px] text-muted-foreground font-mono">
+                订阅地址（点击输入框可手动全选复制）：
               </div>
-              <textarea
-                readonly
-                rows="3"
-                aria-label="急救节点链接列表"
-                @click="selectTarget"
-                :value="joinedNodes"
-                class="w-full bg-neutral-900 border border-border rounded-md p-2 font-mono text-[11px] text-neutral-300 focus:outline-none focus:border-neutral-500 select-all"
-              ></textarea>
-            </div>
-
-            <!-- Quick Client Instructions Accordion -->
-            <div class="pt-2 border-t border-border">
-              <button
-                type="button"
-                :aria-expanded="showGuide"
-                @click="showGuide = !showGuide"
-                class="w-full flex items-center justify-between text-xs text-muted-foreground hover:text-foreground transition-colors py-1"
-              >
-                <span class="flex items-center gap-1.5">
-                  <HelpCircle class="w-3.5 h-3.5 text-muted-foreground" />
-                  <span>各客户端一键导入指引</span>
-                </span>
-                <ChevronDown
-                  class="w-3.5 h-3.5 transition-transform"
-                  :class="{ 'rotate-180': showGuide }"
-                />
-              </button>
-
-              <div
-                v-if="showGuide"
-                class="mt-2 space-y-2 text-[11px] text-muted-foreground bg-neutral-900 p-3 rounded-md border border-border"
-              >
-                <div>
-                  <strong class="text-neutral-200">Android 客户端：</strong>
-                  点击右上角「+」号 ➔ 选择「从剪贴板导入」➔ 启动连接。
-                </div>
-                <div>
-                  <strong class="text-neutral-200">iOS 客户端：</strong>
-                  打开客户端即会弹出提示「从剪贴板添加」➔ 点击允许并启动连接。
-                </div>
-                <div>
-                  <strong class="text-neutral-200">PC / Mac 客户端：</strong>
-                  在节点配置中选择从剪贴板粘贴节点 ➔ 选中后开启系统代理。
-                </div>
-              </div>
-            </div>
-          </div>
-
-          <!-- Track 2: In-Tunnel Auto-Update Subscription -->
-          <div class="rounded-md bg-neutral-950 border border-border p-4 space-y-3">
-            <div class="flex items-center justify-between">
-              <div class="flex items-center gap-2">
-                <span class="w-2 h-2 rounded-full bg-blue-400"></span>
-                <h3 class="text-xs font-semibold text-foreground tracking-wide font-mono">
-                  轨道 2：长效自动更新订阅
-                </h3>
-              </div>
-              <span
-                class="text-[11px] font-mono px-2 py-0.5 rounded bg-neutral-800 text-neutral-300 border border-border"
-              >
-                长效保障
-              </span>
-            </div>
-
-            <p class="text-xs text-muted-foreground leading-relaxed">
-              在连接急救节点成功后，将订阅链接填入客户端。后续节点网络调整均可自动同步更新。
-            </p>
-
-            <div class="flex items-center gap-2">
               <input
                 readonly
-                aria-label="订阅链接"
+                aria-label="长效订阅链接"
                 :value="payload.subscription_url"
                 @click="selectTarget"
-                class="flex-1 h-9 bg-neutral-900 border border-border rounded-md px-3 text-xs font-mono text-neutral-300 focus:outline-none focus:border-neutral-500 select-all"
+                class="w-full h-9 bg-neutral-900 border border-border rounded-md px-3 text-xs font-mono text-neutral-300 focus:outline-none focus:border-neutral-500 select-all"
               />
-              <Button
-                variant="secondary"
-                size="sm"
-                @click="copySubscriptionURL"
-                class="shrink-0 h-9 px-3"
-              >
-                <Check v-if="copiedSub" class="w-3.5 h-3.5 mr-1 text-emerald-400" />
-                <Copy v-else class="w-3.5 h-3.5 mr-1" />
-                <span>{{ copiedSub ? '已复制' : '复制' }}</span>
-              </Button>
             </div>
 
+            <!-- Important Client Setting Tip -->
             <div
-              class="p-2.5 rounded-md bg-neutral-900 border border-border text-[11px] text-muted-foreground leading-normal"
+              class="p-2.5 rounded-md bg-emerald-500/5 border border-emerald-500/20 text-[11px] text-neutral-300 leading-relaxed flex items-start gap-2"
             >
-              💡
-              <span class="font-medium text-foreground">使用建议：</span
-              >添加订阅后，建议在客户端配置中开启<strong>「通过代理更新订阅」</strong>以保证在复杂网络下持续稳定同步。
+              <RefreshCw class="w-3.5 h-3.5 text-emerald-400 shrink-0 mt-0.5" />
+              <div>
+                <span class="font-medium text-foreground">关键设置：</span>
+                导入订阅后，建议在客户端开启<strong class="text-foreground">「自动更新」</strong
+                >及<strong class="text-foreground">「通过代理更新订阅」</strong
+                >，确保复杂网络下也能持续同步最新节点。
+              </div>
             </div>
-          </div>
+
+            <!-- Subscription Import Guide (Native Details Disclosure) -->
+            <details class="portal-details pt-3 border-t border-border">
+              <summary
+                class="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors py-1 select-none"
+              >
+                <ChevronDown class="portal-chevron w-3.5 h-3.5 text-muted-foreground" />
+                <BookOpen class="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                <span class="font-medium text-neutral-200"
+                  >如何添加订阅链接？（iOS / Android / 电脑端步骤）</span
+                >
+              </summary>
+
+              <div
+                class="mt-2.5 space-y-2.5 text-[11px] text-muted-foreground bg-neutral-900 p-3 rounded-md border border-border leading-relaxed"
+              >
+                <div>
+                  <strong class="text-neutral-200">iOS（Shadowrocket / 小火箭等）：</strong>
+                  点击右上角「<code class="text-neutral-200">+</code>」➔ 类型选择
+                  <strong class="text-emerald-400">「Subscribe / 订阅」</strong>
+                  （请勿直接点普通节点）➔ 在 URL 栏粘贴订阅链接并保存 ➔ 返回首页选中节点连接。
+                </div>
+                <div>
+                  <strong class="text-neutral-200"
+                    >Android（v2rayNG / Clash Meta / Nekobox）：</strong
+                  >
+                  打开菜单进入「<strong class="text-neutral-200">订阅分组设置</strong>」或「<strong
+                    class="text-neutral-200"
+                    >配置</strong
+                  >」➔ 点击「<code class="text-neutral-200">+</code>」新建订阅并粘贴链接 ➔
+                  保存后点击「<strong class="text-emerald-400">更新订阅</strong>」拉取全部节点。
+                </div>
+                <div>
+                  <strong class="text-neutral-200"
+                    >Windows / macOS（v2rayN / Clash Verge / FlClash）：</strong
+                  >
+                  进入「<strong class="text-neutral-200">订阅设置 / 配置</strong>」➔
+                  新建订阅并粘贴链接 ➔ 点击「<strong class="text-emerald-400">更新订阅</strong
+                  >」获取最新节点。
+                </div>
+                <div class="pt-2 border-t border-border text-amber-300/90">
+                  <strong>如果直接拉取订阅超时或失败：</strong>
+                  请展开下方「临时过渡节点」先临时连上网络，再回来更新上方订阅链接即可。
+                </div>
+              </div>
+            </details>
+          </section>
+
+          <!-- Secondary Section: Emergency Static Nodes (Collapsed by Default) -->
+          <details class="portal-details rounded-lg bg-neutral-950/70 border border-border">
+            <summary
+              class="flex items-center justify-between gap-2 p-3.5 text-xs text-muted-foreground hover:text-foreground transition-colors select-none"
+            >
+              <span class="flex items-center gap-2 min-w-0">
+                <ChevronDown class="portal-chevron w-3.5 h-3.5 text-muted-foreground" />
+                <span class="w-2 h-2 rounded-full bg-amber-400 shrink-0"></span>
+                <span class="font-medium text-neutral-300 truncate font-mono">
+                  无法拉取订阅？展开临时过渡节点（{{ payload.emergency_nodes?.length || 0 }} 个）
+                </span>
+              </span>
+              <span
+                class="shrink-0 text-[10px] font-mono px-2 py-0.5 rounded bg-amber-500/10 text-amber-400 border border-amber-500/20"
+              >
+                不会自动更新
+              </span>
+            </summary>
+
+            <div class="px-4 pb-4 pt-1 space-y-3 border-t border-border/60">
+              <!-- Strong Warning Banner -->
+              <div
+                class="mt-3 p-3 rounded-md bg-amber-500/10 border border-amber-500/25 text-xs text-amber-200/90 space-y-1.5 leading-relaxed"
+              >
+                <div class="flex items-center gap-1.5 font-semibold text-amber-400">
+                  <AlertTriangle class="w-3.5 h-3.5 shrink-0" />
+                  <span>请勿把临时节点当作日常长期节点使用</span>
+                </div>
+                <p class="text-[11px] text-amber-200/80">
+                  以下仅为当前时刻的静态节点快照，<strong>后续维护调整后将直接失效且不会自动更新</strong>。仅在当前网络无法直接拉取订阅时用于冷启动过渡：
+                </p>
+                <ol class="list-decimal list-inside text-[11px] text-amber-200/90 space-y-1 pt-0.5">
+                  <li>复制下方临时节点，在客户端选择「从剪贴板导入」并先开启连接；</li>
+                  <li>
+                    联网后，<strong>立即回到上方复制「长效订阅链接」</strong>并更新订阅，之后切换至订阅节点并删除临时节点。
+                  </li>
+                </ol>
+              </div>
+
+              <!-- Secondary Action: Copy emergency nodes -->
+              <Button
+                type="button"
+                variant="secondary"
+                :disabled="!joinedNodes"
+                @click="copyEmergencyNodes"
+                class="w-full h-9 text-xs"
+              >
+                <Check v-if="copiedNodes" class="w-3.5 h-3.5 mr-1.5 text-emerald-400" />
+                <Copy v-else class="w-3.5 h-3.5 mr-1.5" />
+                <span>{{
+                  copiedNodes
+                    ? '已复制临时节点（联网后请务必添加上方订阅）'
+                    : '复制临时过渡节点（仅作首次联网）'
+                }}</span>
+              </Button>
+
+              <!-- Fallback Textarea for Mobile/WeChat -->
+              <div>
+                <div class="text-[11px] text-muted-foreground mb-1 font-mono">
+                  手机端手动全选兜底（长按下方区域复制）：
+                </div>
+                <textarea
+                  readonly
+                  rows="3"
+                  aria-label="临时过渡节点链接列表"
+                  @click="selectTarget"
+                  :value="joinedNodes"
+                  class="w-full bg-neutral-900 border border-border rounded-md p-2 font-mono text-[11px] text-neutral-300 focus:outline-none focus:border-neutral-500 select-all"
+                ></textarea>
+              </div>
+            </div>
+          </details>
 
           <!-- Manual Reset / Destroy Button -->
           <div class="pt-2 text-center">
@@ -259,11 +321,13 @@ import {
   KeyRound,
   ArrowRight,
   AlertCircle,
+  AlertTriangle,
+  BookOpen,
   Check,
   Copy,
   Flame,
   ChevronDown,
-  HelpCircle,
+  RefreshCw,
   Trash2,
 } from 'lucide-vue-next'
 import Button from '../components/ui/Button.vue'
@@ -277,10 +341,11 @@ const payload = ref<any>(null)
 
 const copiedNodes = ref(false)
 const copiedSub = ref(false)
-const showGuide = ref(false)
 
 const countdownSeconds = ref(120)
-let timer: any = null
+let timer: ReturnType<typeof setInterval> | null = null
+let copiedNodesTimer: ReturnType<typeof setTimeout> | null = null
+let copiedSubTimer: ReturnType<typeof setTimeout> | null = null
 let expireAtTimestamp = 0
 
 const joinedNodes = computed(() => {
@@ -354,8 +419,10 @@ const copyEmergencyNodes = async () => {
   const ok = await copyToClipboard(joinedNodes.value)
   if (ok) {
     copiedNodes.value = true
-    setTimeout(() => {
+    if (copiedNodesTimer) clearTimeout(copiedNodesTimer)
+    copiedNodesTimer = setTimeout(() => {
       copiedNodes.value = false
+      copiedNodesTimer = null
     }, 2500)
   }
 }
@@ -365,8 +432,10 @@ const copySubscriptionURL = async () => {
   const ok = await copyToClipboard(payload.value.subscription_url)
   if (ok) {
     copiedSub.value = true
-    setTimeout(() => {
+    if (copiedSubTimer) clearTimeout(copiedSubTimer)
+    copiedSubTimer = setTimeout(() => {
       copiedSub.value = false
+      copiedSubTimer = null
     }, 2500)
   }
 }
@@ -395,7 +464,20 @@ const handleVisibilityChange = () => {
 }
 
 const resetPortal = () => {
-  if (timer) clearInterval(timer)
+  if (timer) {
+    clearInterval(timer)
+    timer = null
+  }
+  if (copiedNodesTimer) {
+    clearTimeout(copiedNodesTimer)
+    copiedNodesTimer = null
+  }
+  if (copiedSubTimer) {
+    clearTimeout(copiedSubTimer)
+    copiedSubTimer = null
+  }
+  copiedNodes.value = false
+  copiedSub.value = false
   expireAtTimestamp = 0
   payload.value = null
   inputCode.value = ''
@@ -418,6 +500,8 @@ onMounted(() => {
 
 onUnmounted(() => {
   if (timer) clearInterval(timer)
+  if (copiedNodesTimer) clearTimeout(copiedNodesTimer)
+  if (copiedSubTimer) clearTimeout(copiedSubTimer)
   document.removeEventListener('visibilitychange', handleVisibilityChange)
 })
 </script>

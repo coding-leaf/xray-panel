@@ -123,61 +123,35 @@ func appendAPIInbound(cfg *XrayConfigFile, apiPort int) {
 	})
 }
 
-// Compile 将系统业务数据编译为合法的 Xray 官方根配置对象
-func (c *XrayCompiler) Compile(
-	inbounds []domain.Inbound,
-	outbounds []domain.Outbound,
-	routing *domain.RoutingConfig,
-	dns *domain.DNSConfig,
-	users []domain.User,
-) (*XrayConfigFile, error) {
-	cfg := newBaseXrayConfig(c.GetLogLevel())
-
-	// 1. 编译 DNS
-	if dns != nil {
-		servers := dns.Servers
-		if len(servers) == 0 {
-			servers = []interface{}{"https://1.1.1.1/dns-query", "8.8.8.8", "localhost"}
-		}
-		qStrategy := dns.QueryStrategy
-		if qStrategy == "" {
-			qStrategy = "UseIP"
-		}
-		tag := dns.Tag
-		if tag == "" {
-			tag = "dns-in"
-		}
-		cfg.DNS = &XrayDNSConfig{
-			Tag:             tag,
-			ClientIP:        dns.ClientIP,
-			QueryStrategy:   qStrategy,
-			DisableCache:    dns.DisableCache,
-			DisableFallback: dns.DisableFallback,
-			Servers:         servers,
-			Hosts:           dns.Hosts,
-		}
+func compileDNSConfig(dns *domain.DNSConfig) *XrayDNSConfig {
+	if dns == nil {
+		return nil
 	}
-
-	// 2. 编译本机 Inbounds (NodeID == 0) & 注入用户 Clients
-	for _, inb := range inbounds {
-		if !inb.Enabled || inb.Tag == "api" || inb.NodeID != 0 {
-			continue
-		}
-		compiledInbound, err := c.compileInbound(&inb, users)
-		if err != nil {
-			return nil, fmt.Errorf("compile inbound %s failed: %w", inb.Tag, err)
-		}
-		cfg.Inbounds = append(cfg.Inbounds, *compiledInbound)
+	servers := dns.Servers
+	if len(servers) == 0 {
+		servers = []interface{}{"https://1.1.1.1/dns-query", "8.8.8.8", "localhost"}
 	}
-
-	// 注入默认 API Inbound (用于 gRPC 本地通信，动态端口或默认 8080)
-	apiPort := 8080
-	if c != nil && c.grpcPort > 0 {
-		apiPort = c.grpcPort
+	qStrategy := dns.QueryStrategy
+	if qStrategy == "" {
+		qStrategy = "UseIP"
 	}
-	appendAPIInbound(cfg, apiPort)
+	tag := dns.Tag
+	if tag == "" {
+		tag = "dns-in"
+	}
+	return &XrayDNSConfig{
+		Tag:             tag,
+		ClientIP:        dns.ClientIP,
+		QueryStrategy:   qStrategy,
+		DisableCache:    dns.DisableCache,
+		DisableFallback: dns.DisableFallback,
+		Servers:         servers,
+		Hosts:           dns.Hosts,
+	}
+}
 
-	// 3. 编译 Outbounds
+func (c *XrayCompiler) compileOutbounds(outbounds []domain.Outbound) ([]XrayOutbound, error) {
+	result := make([]XrayOutbound, 0, len(outbounds)+2)
 	hasDirect := false
 	hasBlock := false
 	for _, ob := range outbounds {
@@ -191,24 +165,25 @@ func (c *XrayCompiler) Compile(
 		if err != nil {
 			return nil, fmt.Errorf("compile outbound %s failed: %w", ob.Tag, err)
 		}
-		cfg.Outbounds = append(cfg.Outbounds, *compiledOb)
+		result = append(result, *compiledOb)
 	}
 
-	// 确保基础直连和黑洞存在
 	if !hasDirect {
-		cfg.Outbounds = append(cfg.Outbounds, XrayOutbound{
+		result = append(result, XrayOutbound{
 			Tag:      "direct",
 			Protocol: "freedom",
 		})
 	}
 	if !hasBlock {
-		cfg.Outbounds = append(cfg.Outbounds, XrayOutbound{
+		result = append(result, XrayOutbound{
 			Tag:      "block",
 			Protocol: "blackhole",
 		})
 	}
+	return result, nil
+}
 
-	// 4. 分层编译 Routing 规则 (Layer 1 核心通信 + Layer 2 统一规则池单一事实源)
+func compileRoutingConfig(routing *domain.RoutingConfig) *XrayRoutingConfig {
 	domainStrategy := "IPIfNonMatch"
 	if routing != nil && routing.DomainStrategy != "" {
 		domainStrategy = routing.DomainStrategy
@@ -282,10 +257,53 @@ func (c *XrayCompiler) Compile(
 		}
 	}
 
-	cfg.Routing = &XrayRoutingConfig{
+	return &XrayRoutingConfig{
 		DomainStrategy: domainStrategy,
 		Rules:          layeredRules,
 	}
+}
+
+// Compile 将系统业务数据编译为合法的 Xray 官方根配置对象
+func (c *XrayCompiler) Compile(
+	inbounds []domain.Inbound,
+	outbounds []domain.Outbound,
+	routing *domain.RoutingConfig,
+	dns *domain.DNSConfig,
+	users []domain.User,
+) (*XrayConfigFile, error) {
+	cfg := newBaseXrayConfig(c.GetLogLevel())
+
+	// 1. 编译 DNS
+	cfg.DNS = compileDNSConfig(dns)
+
+	// 2. 编译本机 Inbounds (NodeID == 0) & 注入用户 Clients
+	for _, inb := range inbounds {
+		if !inb.Enabled || inb.Tag == "api" || inb.NodeID != 0 {
+			continue
+		}
+		compiledInbound, err := c.compileInbound(&inb, users)
+		if err != nil {
+			return nil, fmt.Errorf("compile inbound %s failed: %w", inb.Tag, err)
+		}
+		cfg.Inbounds = append(cfg.Inbounds, *compiledInbound)
+	}
+
+	// 注入默认 API Inbound (用于 gRPC 本地通信，动态端口或默认 8080)
+	apiPort := 8080
+	if c != nil && c.grpcPort > 0 {
+		apiPort = c.grpcPort
+	}
+	appendAPIInbound(cfg, apiPort)
+
+	// 3. 编译 Outbounds
+	compiledOutbounds, err := c.compileOutbounds(outbounds)
+	if err != nil {
+		return nil, err
+	}
+	cfg.Outbounds = compiledOutbounds
+
+	// 4. 分层编译 Routing 规则 (Layer 1 核心通信 + Layer 2 统一规则池单一事实源)
+	cfg.Routing = compileRoutingConfig(routing)
 
 	return cfg, nil
 }
@@ -328,14 +346,54 @@ func sortRemoteInputs(inbounds []domain.Inbound, users []domain.User) ([]domain.
 
 // CompileRemoteNode 为远端直连节点编译独立的 Xray 配置（直连 freedom 出站 + 本地 127.0.0.1:8080 API 入站 + 节点启用入站）。
 func (c *XrayCompiler) CompileRemoteNode(inbounds []domain.Inbound, users []domain.User) (*XrayConfigFile, error) {
+	return c.CompileRemoteNodeFull(inbounds, nil, nil, nil, users, nil)
+}
+
+// CompileRemoteNodeToJSON 编译远端直连节点配置并序列化为格式化 JSON。
+func (c *XrayCompiler) CompileRemoteNodeToJSON(inbounds []domain.Inbound, users []domain.User) ([]byte, error) {
+	cfg, err := c.CompileRemoteNode(inbounds, users)
+	if err != nil {
+		return nil, err
+	}
+	return json.MarshalIndent(cfg, "", "    ")
+}
+
+// CompileRemoteNodeFull 编译远端直连节点的完整 Xray 配置（含自定义 Outbounds/Routing/DNS 与静态中转凭据）。
+func (c *XrayCompiler) CompileRemoteNodeFull(
+	inbounds []domain.Inbound,
+	outbounds []domain.Outbound,
+	routing *domain.RoutingConfig,
+	dns *domain.DNSConfig,
+	users []domain.User,
+	staticClients []domain.StaticInboundClient,
+) (*XrayConfigFile, error) {
 	sortedInbounds, sortedUsers := sortRemoteInputs(inbounds, users)
 	cfg := newBaseXrayConfig(c.GetLogLevel())
+	cfg.DNS = compileDNSConfig(dns)
+
+	staticByTag := make(map[string][]domain.StaticInboundClient)
+	if len(staticClients) > 0 {
+		sortedStatic := make([]domain.StaticInboundClient, len(staticClients))
+		copy(sortedStatic, staticClients)
+		sort.Slice(sortedStatic, func(i, j int) bool {
+			if sortedStatic[i].InboundTag != sortedStatic[j].InboundTag {
+				return sortedStatic[i].InboundTag < sortedStatic[j].InboundTag
+			}
+			if sortedStatic[i].Email != sortedStatic[j].Email {
+				return sortedStatic[i].Email < sortedStatic[j].Email
+			}
+			return sortedStatic[i].ID < sortedStatic[j].ID
+		})
+		for _, sc := range sortedStatic {
+			staticByTag[sc.InboundTag] = append(staticByTag[sc.InboundTag], sc)
+		}
+	}
 
 	for _, inb := range sortedInbounds {
 		if !inb.Enabled || inb.Tag == "api" {
 			continue
 		}
-		compiledInbound, err := c.compileInbound(&inb, sortedUsers)
+		compiledInbound, err := c.compileInboundWithStatic(&inb, sortedUsers, staticByTag[inb.Tag])
 		if err != nil {
 			return nil, fmt.Errorf("compile remote inbound %s failed: %w", inb.Tag, err)
 		}
@@ -344,28 +402,26 @@ func (c *XrayCompiler) CompileRemoteNode(inbounds []domain.Inbound, users []doma
 
 	appendAPIInbound(cfg, 8080)
 
-	cfg.Outbounds = append(cfg.Outbounds,
-		XrayOutbound{Tag: "direct", Protocol: "freedom"},
-		XrayOutbound{Tag: "block", Protocol: "blackhole"},
-	)
-
-	cfg.Routing = &XrayRoutingConfig{
-		DomainStrategy: "IPIfNonMatch",
-		Rules: []XrayRoutingRule{
-			{
-				Type:        "field",
-				InboundTag:  []string{"api"},
-				OutboundTag: "api",
-			},
-		},
+	compiledOutbounds, err := c.compileOutbounds(outbounds)
+	if err != nil {
+		return nil, err
 	}
+	cfg.Outbounds = compiledOutbounds
+	cfg.Routing = compileRoutingConfig(routing)
 
 	return cfg, nil
 }
 
-// CompileRemoteNodeToJSON 编译远端直连节点配置并序列化为格式化 JSON。
-func (c *XrayCompiler) CompileRemoteNodeToJSON(inbounds []domain.Inbound, users []domain.User) ([]byte, error) {
-	cfg, err := c.CompileRemoteNode(inbounds, users)
+// CompileRemoteNodeFullToJSON 编译远端直连节点的完整 Xray 配置并序列化为格式化 JSON。
+func (c *XrayCompiler) CompileRemoteNodeFullToJSON(
+	inbounds []domain.Inbound,
+	outbounds []domain.Outbound,
+	routing *domain.RoutingConfig,
+	dns *domain.DNSConfig,
+	users []domain.User,
+	staticClients []domain.StaticInboundClient,
+) ([]byte, error) {
+	cfg, err := c.CompileRemoteNodeFull(inbounds, outbounds, routing, dns, users, staticClients)
 	if err != nil {
 		return nil, err
 	}
@@ -402,6 +458,82 @@ func (c *XrayCompiler) BuildRemoteNodeUsers(inbounds []domain.Inbound, users []d
 }
 
 func (c *XrayCompiler) compileInbound(inb *domain.Inbound, users []domain.User) (*XrayInbound, error) {
+	return c.compileInboundWithStatic(inb, users, nil)
+}
+
+func mergeStaticClients(inboundProto string, base []XrayClient, staticClients []domain.StaticInboundClient) []XrayClient {
+	if len(staticClients) == 0 {
+		return base
+	}
+	proto := strings.ToLower(strings.TrimSpace(inboundProto))
+	if proto != "vless" && proto != "vmess" && proto != "trojan" {
+		return base
+	}
+
+	seen := make(map[string]bool, len(base))
+	for _, cl := range base {
+		switch proto {
+		case "trojan":
+			if k := strings.TrimSpace(cl.Password); k != "" {
+				seen[k] = true
+			}
+		default:
+			if k := strings.ToLower(strings.TrimSpace(cl.ID)); k != "" {
+				seen[k] = true
+			}
+		}
+	}
+
+	merged := make([]XrayClient, len(base), len(base)+len(staticClients))
+	copy(merged, base)
+
+	for _, sc := range staticClients {
+		if sc.Protocol != "" && !strings.EqualFold(sc.Protocol, proto) {
+			continue
+		}
+		cred := strings.TrimSpace(sc.ID)
+		if cred == "" {
+			continue
+		}
+		dedupKey := cred
+		if proto != "trojan" {
+			dedupKey = strings.ToLower(cred)
+		}
+		if seen[dedupKey] {
+			continue
+		}
+		seen[dedupKey] = true
+
+		switch proto {
+		case "vless":
+			flow := strings.TrimSpace(sc.Flow)
+			if strings.EqualFold(flow, "none") {
+				flow = ""
+			}
+			merged = append(merged, XrayClient{
+				ID:    cred,
+				Flow:  flow,
+				Email: sc.Email,
+				Level: 0,
+			})
+		case "vmess":
+			merged = append(merged, XrayClient{
+				ID:    cred,
+				Email: sc.Email,
+				Level: 0,
+			})
+		case "trojan":
+			merged = append(merged, XrayClient{
+				Password: cred,
+				Email:    sc.Email,
+				Level:    0,
+			})
+		}
+	}
+	return merged
+}
+
+func (c *XrayCompiler) compileInboundWithStatic(inb *domain.Inbound, users []domain.User, staticClients []domain.StaticInboundClient) (*XrayInbound, error) {
 	var streamSettings *XrayStreamSettings
 	if inb.StreamSettings != "" {
 		_ = json.Unmarshal([]byte(inb.StreamSettings), &streamSettings)
@@ -490,6 +622,9 @@ func (c *XrayCompiler) compileInbound(inb *domain.Inbound, users []domain.User) 
 		clients, err := adapter.CompileClients(inb, users, accessor)
 		if err != nil {
 			return nil, err
+		}
+		if len(staticClients) > 0 {
+			clients = mergeStaticClients(inb.Protocol, clients, staticClients)
 		}
 		if clients != nil {
 			settingsMap["clients"] = clients

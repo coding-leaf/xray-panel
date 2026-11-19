@@ -401,3 +401,88 @@ func TestNodeRepo_QuotaCycleDailyAndReset(t *testing.T) {
 		t.Fatalf("manual state was overwritten on reset: state=%q reason=%q", afterManualReset.DesiredState, afterManualReset.AutoStateReason)
 	}
 }
+
+func TestNodeRepo_UpdateNodeConfig_WhitelistAndIsolation(t *testing.T) {
+	nodeRepo, _, _, _ := setupNodeTestRepos(t)
+	ctx := context.Background()
+
+	node := &domain.Node{
+		Name:         "Custom Config Node",
+		Host:         "127.0.0.1",
+		TokenHash:    "5555555555555555555555555555555555555555555555555555555555555555",
+		Enabled:      true,
+		DesiredState: domain.NodeStateActive,
+	}
+	if err := nodeRepo.Create(ctx, node); err != nil {
+		t.Fatalf("create node failed: %v", err)
+	}
+
+	if err := nodeRepo.UpdateHeartbeat(ctx, node.ID, &domain.AgentSyncRequest{
+		ConfigHash:   "hash-cfg",
+		UsersHash:    "hash-usr",
+		AgentVersion: "1.0.0",
+		XrayVersion:  "25.1.1",
+		HostMetrics: &domain.AgentHostMetrics{
+			CPUPercent:   33.5,
+			MemPercent:   61.2,
+			NicUpDelta:   1234,
+			NicDownDelta: 5678,
+		},
+	}, time.Now()); err != nil {
+		t.Fatalf("UpdateHeartbeat failed: %v", err)
+	}
+
+	outboundsJSON := `[{"tag":"warp-out","protocol":"wireguard","settingsJson":"{}"}]`
+	routingJSON := `{"domainStrategy":"IPIfNonMatch","rules":[{"type":"field","domain":["geosite:openai"],"outboundTag":"warp-out"}]}`
+	dnsJSON := `{"servers":["1.1.1.1"],"queryStrategy":"UseIPv4"}`
+
+	if err := nodeRepo.UpdateNodeConfig(ctx, node.ID, outboundsJSON, routingJSON, dnsJSON); err != nil {
+		t.Fatalf("UpdateNodeConfig failed: %v", err)
+	}
+
+	loaded, err := nodeRepo.GetByID(ctx, node.ID)
+	if err != nil {
+		t.Fatalf("GetByID failed: %v", err)
+	}
+	if loaded.OutboundsJSON != outboundsJSON || loaded.RoutingJSON != routingJSON || loaded.DNSJSON != dnsJSON {
+		t.Fatalf("per-node config not persisted accurately: %+v", loaded)
+	}
+	if loaded.NicUpBytes != 1234 || loaded.NicDownBytes != 5678 || loaded.CPUPercent != 33.5 {
+		t.Fatalf("UpdateNodeConfig overwrote heartbeat counters: %+v", loaded)
+	}
+
+	// Regular metadata Update must not overwrite outbounds/routing/dns
+	loaded.Name = "Renamed Config Node"
+	loaded.OutboundsJSON = ""
+	loaded.RoutingJSON = ""
+	loaded.DNSJSON = ""
+	if err := nodeRepo.Update(ctx, loaded); err != nil {
+		t.Fatalf("Update failed: %v", err)
+	}
+	afterMetaUpdate, err := nodeRepo.GetByID(ctx, node.ID)
+	if err != nil {
+		t.Fatalf("GetByID after Update failed: %v", err)
+	}
+	if afterMetaUpdate.OutboundsJSON != outboundsJSON || afterMetaUpdate.RoutingJSON != routingJSON || afterMetaUpdate.DNSJSON != dnsJSON {
+		t.Fatalf("Update overwrote per-node config blobs")
+	}
+
+	// Lightweight log-ack heartbeat with nil HostMetrics must preserve existing CPU/NIC metrics
+	if err := nodeRepo.UpdateHeartbeat(ctx, node.ID, &domain.AgentSyncRequest{
+		LogResult: &domain.AgentLogResult{
+			RequestID: "req-1",
+			Service:   "xray",
+			Lines:     []string{"line1"},
+		},
+	}, time.Now()); err != nil {
+		t.Fatalf("lightweight UpdateHeartbeat failed: %v", err)
+	}
+	afterLogAck, _ := nodeRepo.GetByID(ctx, node.ID)
+	if afterLogAck.CPUPercent != 33.5 || afterLogAck.MemPercent != 61.2 || afterLogAck.NicUpBytes != 1234 {
+		t.Fatalf("lightweight log ack overwrote host metrics: %+v", afterLogAck)
+	}
+
+	if err := nodeRepo.UpdateNodeConfig(ctx, 999999, outboundsJSON, routingJSON, dnsJSON); !errors.Is(err, domain.ErrNotFound) {
+		t.Fatalf("expected ErrNotFound for missing node, got %v", err)
+	}
+}

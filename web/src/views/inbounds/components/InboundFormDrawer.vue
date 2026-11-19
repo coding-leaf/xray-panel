@@ -48,10 +48,7 @@
             </FormField>
           </div>
 
-          <FormField
-            label="归属节点 (Node)"
-            hint="选择本机 Master 或已注册远端直连节点"
-          >
+          <FormField label="归属节点 (Node)" hint="选择本机 Master 或已注册远端直连节点">
             <select
               v-model.number="form.nodeId"
               class="w-full bg-neutral-950 border border-border rounded-md px-3 h-9 text-foreground font-mono focus:outline-none focus:ring-1 focus:ring-ring"
@@ -154,7 +151,8 @@
               >默认流控模式 (Flow Policy)</label
             >
             <span class="text-[10px] text-muted-foreground"
-              >未单独指定 flow 的用户将继承此策略；用户显式设置优先（仅 TCP + TLS/REALITY 生效）</span
+              >未单独指定 flow 的用户将继承此策略；用户显式设置优先（仅 TCP + TLS/REALITY
+              生效）</span
             >
           </div>
           <select
@@ -1124,6 +1122,7 @@ import { toast } from '../../../utils/toast'
 import { copyText } from '../../../utils/clipboard'
 import api from '../../../api'
 import type { NodeItem } from '../../../api/nodes'
+import { useActiveNode } from '../../../composables/useActiveNode'
 import {
   type InboundItem,
   type InboundFormData,
@@ -1137,10 +1136,13 @@ const props = defineProps<{
   modelValue: boolean
   isEditing: boolean
   initialData?: InboundItem | null
+  defaultNodeId?: number
   usersList: any[]
   availableOutbounds: string[]
   nodesList?: NodeItem[]
 }>()
+
+const { activeNodeId } = useActiveNode()
 
 const emit = defineEmits<{
   (e: 'update:modelValue', val: boolean): void
@@ -1594,6 +1596,7 @@ const initFormData = () => {
       : ''
   } else {
     form.value = getDefaultInboundFormData(props.usersList)
+    form.value.nodeId = props.defaultNodeId !== undefined ? props.defaultNodeId : activeNodeId.value
     generateRealityKey()
   }
 }

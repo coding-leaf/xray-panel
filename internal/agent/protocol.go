@@ -14,8 +14,9 @@ type SyncRequest struct {
 	AgentVersion string        `json:"agentVersion"`
 	XrayVersion  string        `json:"xrayVersion"`
 	LastError    string        `json:"lastError"`
-	HostMetrics  HostMetrics   `json:"hostMetrics"`
+	HostMetrics  *HostMetrics  `json:"hostMetrics,omitempty"`
 	TrafficBatch *TrafficBatch `json:"trafficBatch,omitempty"`
+	LogResult    *LogResult    `json:"logResult,omitempty"`
 }
 
 // HostMetrics carries host CPU, memory, and primary NIC byte deltas.
@@ -59,6 +60,23 @@ type SyncResponse struct {
 	ConfigJSON      string       `json:"configJson,omitempty"`
 	Users           []RemoteUser `json:"users,omitempty"`
 	QuotaPolicy     *QuotaPolicy `json:"quotaPolicy,omitempty"`
+	LogRequest      *LogRequest  `json:"logRequest,omitempty"`
+}
+
+// LogRequest instructs the agent to collect recent systemd journal lines for a whitelisted service.
+type LogRequest struct {
+	RequestID string `json:"requestId"`
+	Service   string `json:"service"`
+	Lines     int    `json:"lines"`
+}
+
+// LogResult carries the collected log lines (or collection error) back to Master.
+type LogResult struct {
+	RequestID       string   `json:"requestId"`
+	Service         string   `json:"service"`
+	Lines           []string `json:"lines,omitempty"`
+	Error           string   `json:"error,omitempty"`
+	CollectedAtUnix int64    `json:"collectedAtUnix"`
 }
 
 // QuotaPolicy describes the node's monthly quota and autonomous circuit-breaker policy pushed by Master.

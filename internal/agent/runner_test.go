@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -422,5 +423,193 @@ func TestRunner_AutonomousOfflineCircuitBreakerAndRecovery(t *testing.T) {
 	rawCfg, _ = os.ReadFile(cfgPath)
 	if string(rawCfg) != businessCfg {
 		t.Fatalf("expected business config restored after recovery, got %s", string(rawCfg))
+	}
+}
+
+type fakeLogCollector struct {
+	mu    sync.Mutex
+	lines []string
+	err   error
+	calls []struct {
+		service string
+		lines   int
+	}
+}
+
+func (f *fakeLogCollector) Collect(_ context.Context, service string, lines int) ([]string, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.calls = append(f.calls, struct {
+		service string
+		lines   int
+	}{service: service, lines: lines})
+	if f.err != nil {
+		return nil, f.err
+	}
+	return f.lines, nil
+}
+
+func TestRunner_OnDemandLogCollectionAndLightweightAck(t *testing.T) {
+	var mu sync.Mutex
+	var requests []SyncRequest
+	var nextLogReq *LogRequest
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var req SyncRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+		mu.Lock()
+		requests = append(requests, req)
+		logReq := nextLogReq
+		nextLogReq = nil
+		mu.Unlock()
+
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(SyncResponse{
+			OK:              true,
+			DesiredState:    DesiredStateActive,
+			SyncIntervalSec: 20,
+			ConfigHash:      "cfg-v1",
+			UsersHash:       "usr-v1",
+			ConfigUnchanged: true,
+			UsersUnchanged:  true,
+			LogRequest:      logReq,
+		})
+	}))
+	defer srv.Close()
+
+	dir := t.TempDir()
+	client, err := NewClient(srv.URL, "test-token", srv.Client())
+	if err != nil {
+		t.Fatalf("NewClient: %v", err)
+	}
+	spool, err := NewSpool(filepath.Join(dir, "spool"))
+	if err != nil {
+		t.Fatalf("NewSpool: %v", err)
+	}
+	cfgMgr, err := NewConfigManager(ConfigManagerConfig{
+		ConfigPath:    filepath.Join(dir, "config.json"),
+		ProbeTimeout:  200 * time.Millisecond,
+		ProbeInterval: 10 * time.Millisecond,
+	}, &fakeCommandRunner{}, &fakeHealthProber{})
+	if err != nil {
+		t.Fatalf("NewConfigManager: %v", err)
+	}
+	userSync, err := NewUserSyncer(&fakeUserController{})
+	if err != nil {
+		t.Fatalf("NewUserSyncer: %v", err)
+	}
+	traffic := &fakeTrafficCollector{
+		batches: []*TrafficBatch{
+			{BatchID: "b-1", Inbounds: []InboundTrafficDelta{{Tag: "vless-1", UpBytes: 10, DownBytes: 20}}},
+			{BatchID: "b-2", Inbounds: []InboundTrafficDelta{{Tag: "vless-1", UpBytes: 30, DownBytes: 40}}},
+		},
+	}
+
+	collector := &fakeLogCollector{
+		lines: []string{"Nov 19 20:50:01 xray started", "Nov 19 20:50:02 connection accepted"},
+	}
+
+	runner, err := NewRunner(
+		RunnerConfig{AgentVersion: "1.2.3", Interval: 20 * time.Second},
+		client,
+		spool,
+		cfgMgr,
+		userSync,
+		traffic,
+		NewMetricsCollector(),
+	)
+	if err != nil {
+		t.Fatalf("NewRunner: %v", err)
+	}
+	runner.WithLogCollector(collector)
+
+	// 1. Normal sync without LogRequest -> only 1 HTTP request, LogResult is nil, HostMetrics & TrafficBatch present.
+	if err := runner.SyncOnce(context.Background()); err != nil {
+		t.Fatalf("SyncOnce #1: %v", err)
+	}
+	mu.Lock()
+	if len(requests) != 1 {
+		t.Fatalf("expected 1 request on normal sync, got %d", len(requests))
+	}
+	if requests[0].LogResult != nil {
+		t.Fatalf("expected nil LogResult on normal sync, got %+v", requests[0].LogResult)
+	}
+	if requests[0].HostMetrics == nil || requests[0].TrafficBatch == nil {
+		t.Fatalf("expected HostMetrics and TrafficBatch on normal sync, got metrics=%v batch=%v", requests[0].HostMetrics, requests[0].TrafficBatch)
+	}
+	requests = nil
+	nextLogReq = &LogRequest{
+		RequestID: "log-req-1",
+		Service:   "xray",
+		Lines:     50,
+	}
+	mu.Unlock()
+
+	// 2. Sync with LogRequest -> sends normal sync #1 + immediate lightweight ack #2 with LogResult and nil HostMetrics/TrafficBatch.
+	if err := runner.SyncOnce(context.Background()); err != nil {
+		t.Fatalf("SyncOnce #2: %v", err)
+	}
+	mu.Lock()
+	if len(requests) != 2 {
+		t.Fatalf("expected 2 requests (sync + lightweight ack), got %d", len(requests))
+	}
+	normalReq := requests[0]
+	ackReq := requests[1]
+	requests = nil
+	mu.Unlock()
+
+	if normalReq.TrafficBatch == nil || normalReq.TrafficBatch.BatchID != "b-2" {
+		t.Fatalf("expected normal sync to carry b-2, got %+v", normalReq.TrafficBatch)
+	}
+	if ackReq.TrafficBatch != nil {
+		t.Fatalf("expected lightweight ack TrafficBatch == nil, got %+v", ackReq.TrafficBatch)
+	}
+	if ackReq.HostMetrics != nil {
+		t.Fatalf("expected lightweight ack HostMetrics == nil, got %+v", ackReq.HostMetrics)
+	}
+	if ackReq.AgentVersion != "1.2.3" {
+		t.Fatalf("expected AgentVersion 1.2.3 on ack, got %q", ackReq.AgentVersion)
+	}
+	if ackReq.LogResult == nil {
+		t.Fatal("expected LogResult on lightweight ack")
+	}
+	if ackReq.LogResult.RequestID != "log-req-1" || ackReq.LogResult.Service != "xray" || ackReq.LogResult.Error != "" {
+		t.Fatalf("unexpected LogResult metadata: %+v", ackReq.LogResult)
+	}
+	if len(ackReq.LogResult.Lines) != 2 || ackReq.LogResult.CollectedAtUnix <= 0 {
+		t.Fatalf("unexpected LogResult payload: %+v", ackReq.LogResult)
+	}
+
+	// 3. Collection error -> still sends lightweight ack with LogResult.Error populated.
+	collector.mu.Lock()
+	collector.err = errors.New("journalctl permission denied")
+	collector.mu.Unlock()
+
+	mu.Lock()
+	nextLogReq = &LogRequest{
+		RequestID: "log-req-2",
+		Service:   "xray-agent",
+		Lines:     100,
+	}
+	mu.Unlock()
+
+	if err := runner.SyncOnce(context.Background()); err != nil {
+		t.Fatalf("SyncOnce #3: %v", err)
+	}
+	mu.Lock()
+	if len(requests) != 2 {
+		t.Fatalf("expected 2 requests on error-ack cycle, got %d", len(requests))
+	}
+	errAck := requests[1]
+	mu.Unlock()
+
+	if errAck.TrafficBatch != nil || errAck.HostMetrics != nil {
+		t.Fatalf("expected nil TrafficBatch and HostMetrics on error ack, got batch=%v metrics=%v", errAck.TrafficBatch, errAck.HostMetrics)
+	}
+	if errAck.LogResult == nil || errAck.LogResult.RequestID != "log-req-2" || errAck.LogResult.Error != "journalctl permission denied" {
+		t.Fatalf("expected LogResult.Error to be propagated, got %+v", errAck.LogResult)
 	}
 }

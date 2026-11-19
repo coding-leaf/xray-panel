@@ -8,11 +8,13 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
 
+	"panel/internal/adapter/repository"
 	"panel/internal/adapter/xray"
 	"panel/internal/domain"
 	"panel/internal/service"
@@ -1562,6 +1564,175 @@ func TestConfigService_SyncFromFile_PreservesMixedUsersAndInboundFlowAndStreamSe
 			t.Errorf("expected brand-new inbound import with flowless client to infer flow=none, got %v", newSettings["flow"])
 		}
 	})
+}
+
+type spyNodeCacheInvalidator struct {
+	invalidatedNodes []uint
+	invalidateAllCnt int
+}
+
+func (s *spyNodeCacheInvalidator) InvalidateNode(nodeID uint) {
+	s.invalidatedNodes = append(s.invalidatedNodes, nodeID)
+}
+
+func (s *spyNodeCacheInvalidator) InvalidateAll() {
+	s.invalidateAllCnt++
+}
+
+func TestConfigService_PerNodeConfigAndCacheInvalidation(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "per_node_cfg_test.db")
+	db, err := repository.InitSQLite(dbPath)
+	if err != nil {
+		t.Fatalf("InitSQLite failed: %v", err)
+	}
+	if sqlDB, err := db.DB(); err == nil {
+		t.Cleanup(func() { _ = sqlDB.Close() })
+	}
+
+	nodeRepo := repository.NewNodeRepository(db)
+	inboundRepo := repository.NewInboundRepository(db)
+	userRepo := repository.NewUserRepository(db)
+	snapshotRepo := repository.NewGormConfigSnapshotRepository(db)
+
+	configPath := filepath.Join(t.TempDir(), "xray_config.json")
+	configMgr := xray.NewConfigManager(configPath, "")
+	compiler := xray.NewXrayCompiler(8080)
+	inv := &spyNodeCacheInvalidator{}
+
+	svc := service.NewConfigService(configMgr, nil, inboundRepo, userRepo, snapshotRepo, compiler).
+		WithNodeRepo(nodeRepo).
+		WithNodeCacheInvalidator(inv)
+
+	ctx := context.Background()
+
+	// Seed local config so nodeId=0 operations succeed cleanly
+	if err := svc.SaveConfigQuietly(ctx, "init local"); err != nil {
+		t.Fatalf("SaveConfigQuietly failed: %v", err)
+	}
+
+	node := &domain.Node{
+		Name:         "US Node",
+		Host:         "127.0.0.1",
+		TokenHash:    "6666666666666666666666666666666666666666666666666666666666666666",
+		Enabled:      true,
+		DesiredState: domain.NodeStateActive,
+	}
+	if err := nodeRepo.Create(ctx, node); err != nil {
+		t.Fatalf("create node failed: %v", err)
+	}
+	if err := svc.CreateInbound(ctx, &domain.Inbound{
+		NodeID:   node.ID,
+		Tag:      "us-vless",
+		Port:     443,
+		Protocol: "vless",
+		Enabled:  true,
+	}); err != nil {
+		t.Fatalf("create remote inbound failed: %v", err)
+	}
+	inv.invalidatedNodes = nil
+
+	// 1. Default outbounds for remote node returns direct + block
+	obs, err := svc.ListOutboundsByNode(ctx, node.ID)
+	if err != nil || len(obs) != 2 {
+		t.Fatalf("expected 2 default outbounds (direct, block), got %+v err=%v", obs, err)
+	}
+
+	// 2. Invalid outbound mux must fail validation before persisting
+	err = svc.SaveOutboundByNode(ctx, node.ID, domain.Outbound{
+		Tag:          "bad-ob",
+		Protocol:     "freedom",
+		SettingsJSON: "{}",
+		Mux:          "{invalid-json",
+	})
+	if err == nil {
+		t.Fatalf("expected error for invalid outbound mux")
+	}
+
+	// 3. Save custom warp-out on remote node -> persisted & cache invalidated, local config untouched
+	if err := svc.SaveOutboundByNode(ctx, node.ID, domain.Outbound{
+		Tag:          "warp-out",
+		Protocol:     "wireguard",
+		SettingsJSON: `{"secretKey":"k","address":["172.16.0.2/32"],"peers":[{"publicKey":"p","endpoint":"127.0.0.1:2408"}]}`,
+	}); err != nil {
+		t.Fatalf("SaveOutboundByNode failed: %v", err)
+	}
+	if len(inv.invalidatedNodes) != 1 || inv.invalidatedNodes[0] != node.ID {
+		t.Fatalf("expected InvalidateNode(%d), got %v", node.ID, inv.invalidatedNodes)
+	}
+	localObs, err := svc.ListOutboundsByNode(ctx, 0)
+	if err != nil {
+		t.Fatalf("ListOutboundsByNode(0) failed: %v", err)
+	}
+	for _, ob := range localObs {
+		if ob.Tag == "warp-out" {
+			t.Fatalf("remote outbound leaked into local config.json")
+		}
+	}
+
+	// 4. Save remote routing & DNS
+	if err := svc.SaveRoutingConfigByNode(ctx, node.ID, &domain.RoutingConfig{
+		DomainStrategy: "IPIfNonMatch",
+		Rules: []domain.RoutingRule{
+			{Type: "field", Domain: []string{"geosite:openai"}, OutboundTag: "warp-out"},
+		},
+	}); err != nil {
+		t.Fatalf("SaveRoutingConfigByNode failed: %v", err)
+	}
+	if err := svc.SaveDNSConfigByNode(ctx, node.ID, &domain.DNSConfig{
+		Servers:       []interface{}{"1.1.1.1"},
+		QueryStrategy: "UseIPv4",
+	}); err != nil {
+		t.Fatalf("SaveDNSConfigByNode failed: %v", err)
+	}
+
+	gotRouting, err := svc.GetRoutingConfigByNode(ctx, node.ID)
+	if err != nil || len(gotRouting.Rules) != 1 || gotRouting.Rules[0].OutboundTag != "warp-out" {
+		t.Fatalf("unexpected remote routing: %+v err=%v", gotRouting, err)
+	}
+	gotDNS, err := svc.GetDNSConfigByNode(ctx, node.ID)
+	if err != nil || gotDNS.QueryStrategy != "UseIPv4" {
+		t.Fatalf("unexpected remote dns: %+v err=%v", gotDNS, err)
+	}
+
+	// 5. Local outbound save/delete must trigger InvalidateAll for auto-relay recomputation
+	beforeAll := inv.invalidateAllCnt
+	if err := svc.SaveOutboundByNode(ctx, 0, domain.Outbound{
+		Tag:          "relay-to-us",
+		Protocol:     "vless",
+		SettingsJSON: `{"vnext":[{"address":"127.0.0.1","port":443,"users":[{"id":"aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa","encryption":"none"}]}]}`,
+	}); err != nil {
+		t.Fatalf("SaveOutboundByNode(0) failed: %v", err)
+	}
+	if inv.invalidateAllCnt != beforeAll+1 {
+		t.Fatalf("expected InvalidateAll on local outbound save, got %d -> %d", beforeAll, inv.invalidateAllCnt)
+	}
+
+	// 6. GetNodeCompiledConfigRaw includes warp-out, routing, dns, api inbound, and static relay client
+	rawCompiled, err := svc.GetNodeCompiledConfigRaw(ctx, node.ID)
+	if err != nil {
+		t.Fatalf("GetNodeCompiledConfigRaw failed: %v", err)
+	}
+	rawStr := string(rawCompiled)
+	if !strings.Contains(rawStr, "warp-out") || !strings.Contains(rawStr, "UseIPv4") || !strings.Contains(rawStr, "relay-auto:relay-to-us@internal") {
+		t.Fatalf("compiled remote preview missing expected fields: %s", rawStr)
+	}
+
+	// 7. Delete remote & local outbounds
+	if err := svc.DeleteOutboundByNode(ctx, node.ID, "warp-out"); err != nil {
+		t.Fatalf("DeleteOutboundByNode remote failed: %v", err)
+	}
+	obsAfterDel, _ := svc.ListOutboundsByNode(ctx, node.ID)
+	for _, ob := range obsAfterDel {
+		if ob.Tag == "warp-out" {
+			t.Fatalf("warp-out should be deleted from node")
+		}
+	}
+	if err := svc.DeleteOutboundByNode(ctx, 0, "relay-to-us"); err != nil {
+		t.Fatalf("DeleteOutboundByNode local failed: %v", err)
+	}
+	if inv.invalidateAllCnt != beforeAll+2 {
+		t.Fatalf("expected InvalidateAll on local outbound delete")
+	}
 }
 
 

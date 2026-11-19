@@ -11,6 +11,7 @@ import (
 	"log/slog"
 	"math"
 	"net/url"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -18,7 +19,11 @@ import (
 	"panel/internal/domain"
 )
 
-const defaultNodeSyncIntervalSec = 60
+const (
+	defaultNodeSyncIntervalSec = 60
+	defaultRemoteLogCacheTTL   = 30 * time.Second
+	defaultRemoteLogWaitTimout = 25 * time.Second
+)
 
 // NodeStateChangeCallback is invoked when a node automatically changes or recovers its desired state.
 type NodeStateChangeCallback func(ctx context.Context, node *domain.Node, oldState, newState, reason string)
@@ -46,21 +51,47 @@ type cachedNodeSnapshot struct {
 	Users      []domain.AgentSyncUser
 }
 
+type cachedRemoteLog struct {
+	Service         string
+	Lines           []string
+	RequestedLines  int
+	Error           string
+	CollectedAtUnix int64
+	CachedAt        time.Time
+}
+
+// RemoteNodeLogsResponse represents the HTTP/service response payload for remote on-demand logs.
+type RemoteNodeLogsResponse struct {
+	NodeID      uint     `json:"nodeId"`
+	Service     string   `json:"service"`
+	Lines       []string `json:"lines"`
+	Cached      bool     `json:"cached"`
+	Pending     bool     `json:"pending"`
+	CollectedAt int64    `json:"collectedAt"`
+	Error       string   `json:"error"`
+}
+
 // NodeService manages remote direct-connect nodes, tokens, sync snapshots, and traffic ingestion.
 type NodeService struct {
-	nodeRepo        domain.NodeRepository
-	batchRepo       domain.NodeTrafficBatchRepository
-	quotaRepo       domain.NodeQuotaRepository
-	inboundRepo     domain.InboundRepository
-	userRepo        domain.UserRepository
-	compiler        RemoteNodeCompiler
-	stateNotifier   NodeStateChangeCallback
-	syncIntervalSec int
+	nodeRepo               domain.NodeRepository
+	batchRepo              domain.NodeTrafficBatchRepository
+	quotaRepo              domain.NodeQuotaRepository
+	inboundRepo            domain.InboundRepository
+	userRepo               domain.UserRepository
+	compiler               RemoteNodeCompiler
+	stateNotifier          NodeStateChangeCallback
+	localOutboundsProvider func(context.Context) ([]domain.Outbound, error)
+	syncIntervalSec        int
+	logWaitTimeout         time.Duration
 
-	mu          sync.RWMutex
-	snapshots   map[uint]*cachedNodeSnapshot
-	globalEpoch uint64
-	nodeEpochs  map[uint]uint64
+	mu             sync.RWMutex
+	snapshots      map[uint]*cachedNodeSnapshot
+	globalEpoch    uint64
+	nodeEpochs     map[uint]uint64
+	pendingLogReqs map[uint]*domain.AgentLogRequest
+	logCache       map[string]*cachedRemoteLog
+	logWaiters     map[string][]chan *cachedRemoteLog
+	logReqLines    map[string]int
 }
 
 func NewNodeService(
@@ -77,8 +108,13 @@ func NewNodeService(
 		userRepo:        userRepo,
 		compiler:        compiler,
 		syncIntervalSec: defaultNodeSyncIntervalSec,
+		logWaitTimeout:  defaultRemoteLogWaitTimout,
 		snapshots:       make(map[uint]*cachedNodeSnapshot),
 		nodeEpochs:      make(map[uint]uint64),
+		pendingLogReqs:  make(map[uint]*domain.AgentLogRequest),
+		logCache:        make(map[string]*cachedRemoteLog),
+		logWaiters:      make(map[string][]chan *cachedRemoteLog),
+		logReqLines:     make(map[string]int),
 	}
 	if qr, ok := nodeRepo.(domain.NodeQuotaRepository); ok {
 		svc.quotaRepo = qr
@@ -95,6 +131,20 @@ func (s *NodeService) WithQuotaRepo(repo domain.NodeQuotaRepository) *NodeServic
 // WithStateChangeNotifier injects a callback invoked on automatic node quota state transitions.
 func (s *NodeService) WithStateChangeNotifier(fn NodeStateChangeCallback) *NodeService {
 	s.stateNotifier = fn
+	return s
+}
+
+// WithLocalOutboundsProvider injects a provider returning Master local outbounds for static relay credential injection.
+func (s *NodeService) WithLocalOutboundsProvider(fn func(context.Context) ([]domain.Outbound, error)) *NodeService {
+	s.localOutboundsProvider = fn
+	return s
+}
+
+// WithLogWaitTimeout overrides the wait timeout for on-demand remote log collection (primarily for tests).
+func (s *NodeService) WithLogWaitTimeout(d time.Duration) *NodeService {
+	if d > 0 {
+		s.logWaitTimeout = d
+	}
 	return s
 }
 
@@ -296,6 +346,7 @@ func (s *NodeService) UpdateNode(ctx context.Context, id uint, dto domain.Update
 		}
 		node.Name = name
 	}
+	prevHost := node.Host
 	if dto.Host != nil {
 		host := strings.TrimSpace(*dto.Host)
 		if host == "" {
@@ -359,6 +410,9 @@ func (s *NodeService) UpdateNode(ctx context.Context, id uint, dto domain.Update
 
 	if err := s.nodeRepo.Update(ctx, node); err != nil {
 		return nil, fmt.Errorf("update node failed: %w", err)
+	}
+	if !strings.EqualFold(strings.TrimSpace(prevHost), strings.TrimSpace(node.Host)) {
+		s.InvalidateNode(id)
 	}
 
 	node.RefreshOnline(time.Now())
@@ -637,6 +691,9 @@ func (s *NodeService) HandleAgentSync(ctx context.Context, nodeID uint, req *dom
 			slog.String("last_error", req.LastError),
 		)
 	}
+	if req.LogResult != nil {
+		s.handleIncomingLogResult(nodeID, req.LogResult, now)
+	}
 
 	// Re-read latest node after batch & heartbeat increments so quota evaluation sees updated cycle counters.
 	latestNode, err := s.nodeRepo.GetByID(ctx, nodeID)
@@ -714,6 +771,7 @@ func (s *NodeService) HandleAgentSync(ctx context.Context, nodeID uint, req *dom
 	if !usersUnchanged {
 		resp.Users = snap.Users
 	}
+	resp.LogRequest = s.popPendingLogRequest(nodeID, req.LogResult)
 
 	return resp, nil
 }
@@ -765,15 +823,55 @@ func (s *NodeService) getOrBuildSnapshot(ctx context.Context, nodeID uint) (*cac
 		return nil, fmt.Errorf("remote node compiler is not configured")
 	}
 
-	// ConfigHash covers structural node/inbound settings (excluding dynamic users)
-	// so user mutations trigger gRPC AddUser/RemoveUser without restarting Xray.
-	structuralBytes, err := s.compiler.CompileRemoteNodeToJSON(nodeInbounds, nil)
+	node, err := s.nodeRepo.GetByID(ctx, nodeID)
 	if err != nil {
-		return nil, fmt.Errorf("compile structural config for node %d failed: %w", nodeID, err)
+		return nil, fmt.Errorf("load node %d failed: %w", nodeID, err)
 	}
-	fullConfigBytes, err := s.compiler.CompileRemoteNodeToJSON(nodeInbounds, allUsers)
+	outbounds, err := parseNodeOutbounds(node.OutboundsJSON, false)
 	if err != nil {
-		return nil, fmt.Errorf("compile full config for node %d failed: %w", nodeID, err)
+		return nil, fmt.Errorf("parse node %d outbounds failed: %w", nodeID, err)
+	}
+	routing, err := parseNodeRouting(node.RoutingJSON)
+	if err != nil {
+		return nil, fmt.Errorf("parse node %d routing failed: %w", nodeID, err)
+	}
+	dns, err := parseNodeDNS(node.DNSJSON)
+	if err != nil {
+		return nil, fmt.Errorf("parse node %d dns failed: %w", nodeID, err)
+	}
+
+	var staticClients []domain.StaticInboundClient
+	if s.localOutboundsProvider != nil {
+		localOutbounds, err := s.localOutboundsProvider(ctx)
+		if err != nil && !errors.Is(err, domain.ErrNotFound) {
+			return nil, fmt.Errorf("load local outbounds for node %d relay injection failed: %w", nodeID, err)
+		}
+		if err == nil {
+			staticClients = extractStaticRelayClients(node, nodeInbounds, localOutbounds)
+		}
+	}
+
+	// ConfigHash covers structural node/inbound settings, custom node config, and static relay clients (excluding dynamic users)
+	// so user mutations trigger gRPC AddUser/RemoveUser without restarting Xray.
+	var structuralBytes, fullConfigBytes []byte
+	if fullCompiler, ok := s.compiler.(RemoteNodeFullCompiler); ok {
+		structuralBytes, err = fullCompiler.CompileRemoteNodeFullToJSON(nodeInbounds, outbounds, routing, dns, nil, staticClients)
+		if err != nil {
+			return nil, fmt.Errorf("compile structural config for node %d failed: %w", nodeID, err)
+		}
+		fullConfigBytes, err = fullCompiler.CompileRemoteNodeFullToJSON(nodeInbounds, outbounds, routing, dns, allUsers, staticClients)
+		if err != nil {
+			return nil, fmt.Errorf("compile full config for node %d failed: %w", nodeID, err)
+		}
+	} else {
+		structuralBytes, err = s.compiler.CompileRemoteNodeToJSON(nodeInbounds, nil)
+		if err != nil {
+			return nil, fmt.Errorf("compile structural config for node %d failed: %w", nodeID, err)
+		}
+		fullConfigBytes, err = s.compiler.CompileRemoteNodeToJSON(nodeInbounds, allUsers)
+		if err != nil {
+			return nil, fmt.Errorf("compile full config for node %d failed: %w", nodeID, err)
+		}
 	}
 	syncUsers, err := s.compiler.BuildRemoteNodeUsers(nodeInbounds, allUsers)
 	if err != nil {
@@ -798,4 +896,374 @@ func (s *NodeService) getOrBuildSnapshot(ctx context.Context, nodeID uint) (*cac
 	s.mu.Unlock()
 
 	return snap, nil
+}
+
+func isValidRemoteLogService(service string) bool {
+	return service == "xray" || service == "xray-agent"
+}
+
+func remoteLogCacheKey(nodeID uint, service string) string {
+	return fmt.Sprintf("%d:%s", nodeID, service)
+}
+
+func nonNilLines(lines []string) []string {
+	if lines == nil {
+		return []string{}
+	}
+	return lines
+}
+
+func tailLines(lines []string, maxLines int) []string {
+	if len(lines) == 0 {
+		return []string{}
+	}
+	if maxLines <= 0 || len(lines) <= maxLines {
+		out := make([]string, len(lines))
+		copy(out, lines)
+		return out
+	}
+	out := make([]string, maxLines)
+	copy(out, lines[len(lines)-maxLines:])
+	return out
+}
+
+func generateLogRequestID() string {
+	buf := make([]byte, 4)
+	_, _ = rand.Read(buf)
+	return fmt.Sprintf("log-%d-%s", time.Now().UnixNano(), hex.EncodeToString(buf))
+}
+
+// RequestNodeLogs fetches on-demand service logs from a remote node using 30s cache and waiter wakeup.
+func (s *NodeService) RequestNodeLogs(
+	ctx context.Context,
+	nodeID uint,
+	svcName string,
+	lines int,
+	forceRefresh bool,
+) (*RemoteNodeLogsResponse, error) {
+	if nodeID == 0 {
+		return nil, fmt.Errorf("%w: nodeId must be > 0", domain.ErrInvalidInput)
+	}
+	svc := strings.TrimSpace(svcName)
+	if svc == "" {
+		svc = "xray"
+	}
+	if !isValidRemoteLogService(svc) {
+		return nil, fmt.Errorf("%w: unsupported log service %q (allowed: xray, xray-agent)", domain.ErrInvalidInput, svc)
+	}
+	if lines <= 0 {
+		lines = 100
+	}
+	if lines > 1000 {
+		lines = 1000
+	}
+
+	if _, err := s.nodeRepo.GetByID(ctx, nodeID); err != nil {
+		return nil, err
+	}
+
+	cacheKey := remoteLogCacheKey(nodeID, svc)
+	now := time.Now()
+
+	s.mu.Lock()
+	if !forceRefresh {
+		if cached, ok := s.logCache[cacheKey]; ok && now.Sub(cached.CachedAt) <= defaultRemoteLogCacheTTL && cached.RequestedLines >= lines {
+			resp := &RemoteNodeLogsResponse{
+				NodeID:      nodeID,
+				Service:     svc,
+				Lines:       tailLines(cached.Lines, lines),
+				Cached:      true,
+				Pending:     false,
+				CollectedAt: cached.CollectedAtUnix,
+				Error:       cached.Error,
+			}
+			s.mu.Unlock()
+			return resp, nil
+		}
+	}
+
+	reqID := generateLogRequestID()
+	waitCh := make(chan *cachedRemoteLog, 1)
+	s.pendingLogReqs[nodeID] = &domain.AgentLogRequest{
+		RequestID: reqID,
+		Service:   svc,
+		Lines:     lines,
+	}
+	s.logReqLines[reqID] = lines
+	s.logWaiters[reqID] = append(s.logWaiters[reqID], waitCh)
+	waitTimeout := s.logWaitTimeout
+	if waitTimeout <= 0 {
+		waitTimeout = defaultRemoteLogWaitTimout
+	}
+	s.mu.Unlock()
+
+	defer func() {
+		s.mu.Lock()
+		s.removeLogWaiterLocked(reqID, waitCh)
+		if len(s.logWaiters[reqID]) == 0 {
+			delete(s.logReqLines, reqID)
+		}
+		if cur, ok := s.pendingLogReqs[nodeID]; ok && cur.RequestID == reqID {
+			delete(s.pendingLogReqs, nodeID)
+		}
+		s.mu.Unlock()
+	}()
+
+	timer := time.NewTimer(waitTimeout)
+	defer timer.Stop()
+
+	select {
+	case res := <-waitCh:
+		return &RemoteNodeLogsResponse{
+			NodeID:      nodeID,
+			Service:     svc,
+			Lines:       tailLines(res.Lines, lines),
+			Cached:      false,
+			Pending:     false,
+			CollectedAt: res.CollectedAtUnix,
+			Error:       res.Error,
+		}, nil
+	case <-timer.C:
+		return &RemoteNodeLogsResponse{
+			NodeID:  nodeID,
+			Service: svc,
+			Lines:   []string{},
+			Cached:  false,
+			Pending: true,
+			Error:   "timed out waiting for agent log response",
+		}, nil
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
+}
+
+func (s *NodeService) removeLogWaiterLocked(reqID string, target chan *cachedRemoteLog) {
+	list := s.logWaiters[reqID]
+	if len(list) == 0 {
+		return
+	}
+	filtered := list[:0]
+	for _, ch := range list {
+		if ch != target {
+			filtered = append(filtered, ch)
+		}
+	}
+	if len(filtered) == 0 {
+		delete(s.logWaiters, reqID)
+	} else {
+		s.logWaiters[reqID] = filtered
+	}
+}
+
+func (s *NodeService) handleIncomingLogResult(nodeID uint, res *domain.AgentLogResult, now time.Time) {
+	if res == nil {
+		return
+	}
+	svc := strings.TrimSpace(res.Service)
+	if !isValidRemoteLogService(svc) {
+		return
+	}
+	linesCopy := make([]string, len(res.Lines))
+	copy(linesCopy, res.Lines)
+
+	s.mu.Lock()
+	reqLines := s.logReqLines[res.RequestID]
+	if reqLines <= 0 {
+		reqLines = len(linesCopy)
+	}
+	delete(s.logReqLines, res.RequestID)
+
+	entry := &cachedRemoteLog{
+		Service:         svc,
+		Lines:           linesCopy,
+		RequestedLines:  reqLines,
+		Error:           res.Error,
+		CollectedAtUnix: res.CollectedAtUnix,
+		CachedAt:        now,
+	}
+	s.logCache[remoteLogCacheKey(nodeID, svc)] = entry
+
+	waiters := s.logWaiters[res.RequestID]
+	delete(s.logWaiters, res.RequestID)
+	for _, ch := range waiters {
+		select {
+		case ch <- entry:
+		default:
+		}
+	}
+	s.mu.Unlock()
+}
+
+func (s *NodeService) popPendingLogRequest(nodeID uint, ack *domain.AgentLogResult) *domain.AgentLogRequest {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	pending, ok := s.pendingLogReqs[nodeID]
+	if !ok || pending == nil {
+		return nil
+	}
+	if ack != nil && ack.RequestID == pending.RequestID {
+		delete(s.pendingLogReqs, nodeID)
+		return nil
+	}
+	delete(s.pendingLogReqs, nodeID)
+	return pending
+}
+
+func parseNodeOutbounds(raw string, withDefaults bool) ([]domain.Outbound, error) {
+	trimmed := strings.TrimSpace(raw)
+	if trimmed == "" {
+		if !withDefaults {
+			return nil, nil
+		}
+		return []domain.Outbound{
+			{Tag: "direct", Protocol: "freedom"},
+			{Tag: "block", Protocol: "blackhole"},
+		}, nil
+	}
+	var outbounds []domain.Outbound
+	if err := json.Unmarshal([]byte(trimmed), &outbounds); err != nil {
+		return nil, err
+	}
+	return outbounds, nil
+}
+
+func parseNodeRouting(raw string) (*domain.RoutingConfig, error) {
+	trimmed := strings.TrimSpace(raw)
+	if trimmed == "" {
+		return nil, nil
+	}
+	var cfg domain.RoutingConfig
+	if err := json.Unmarshal([]byte(trimmed), &cfg); err != nil {
+		return nil, err
+	}
+	return &cfg, nil
+}
+
+func parseNodeDNS(raw string) (*domain.DNSConfig, error) {
+	trimmed := strings.TrimSpace(raw)
+	if trimmed == "" {
+		return nil, nil
+	}
+	var cfg domain.DNSConfig
+	if err := json.Unmarshal([]byte(trimmed), &cfg); err != nil {
+		return nil, err
+	}
+	return &cfg, nil
+}
+
+func normalizeHostForMatch(host string) string {
+	h := strings.TrimSpace(host)
+	h = strings.TrimPrefix(h, "[")
+	h = strings.TrimSuffix(h, "]")
+	return strings.TrimSpace(h)
+}
+
+// extractStaticRelayClients matches local VLESS/VMess/Trojan outbounds pointing to node.Host and a remote inbound's Port/ExternalPort,
+// preserving each outbound's exact flow value without synthesizing vision flow.
+func extractStaticRelayClients(node *domain.Node, nodeInbounds []domain.Inbound, localOutbounds []domain.Outbound) []domain.StaticInboundClient {
+	if node == nil || len(nodeInbounds) == 0 || len(localOutbounds) == 0 {
+		return nil
+	}
+	nodeHost := normalizeHostForMatch(node.Host)
+	if nodeHost == "" {
+		return nil
+	}
+
+	var result []domain.StaticInboundClient
+	for _, ob := range localOutbounds {
+		proto := strings.ToLower(strings.TrimSpace(ob.Protocol))
+		if proto != "vless" && proto != "vmess" && proto != "trojan" {
+			continue
+		}
+		settingsStr := strings.TrimSpace(ob.SettingsJSON)
+		if settingsStr == "" || settingsStr == "{}" || settingsStr == "null" {
+			continue
+		}
+
+		var settings struct {
+			Vnext []struct {
+				Address string `json:"address"`
+				Port    int    `json:"port"`
+				Users   []struct {
+					ID   string `json:"id"`
+					Flow string `json:"flow"`
+				} `json:"users"`
+			} `json:"vnext"`
+			Servers []struct {
+				Address  string `json:"address"`
+				Port     int    `json:"port"`
+				Password string `json:"password"`
+			} `json:"servers"`
+		}
+		if err := json.Unmarshal([]byte(settingsStr), &settings); err != nil {
+			continue
+		}
+
+		var addr string
+		var port int
+		var credID string
+		var flow string
+
+		switch proto {
+		case "vless", "vmess":
+			if len(settings.Vnext) == 0 || len(settings.Vnext[0].Users) == 0 {
+				continue
+			}
+			addr = normalizeHostForMatch(settings.Vnext[0].Address)
+			port = settings.Vnext[0].Port
+			credID = strings.TrimSpace(settings.Vnext[0].Users[0].ID)
+			if proto == "vless" {
+				flow = strings.TrimSpace(settings.Vnext[0].Users[0].Flow)
+				if strings.EqualFold(flow, "none") {
+					flow = ""
+				}
+			}
+		case "trojan":
+			if len(settings.Servers) == 0 {
+				continue
+			}
+			addr = normalizeHostForMatch(settings.Servers[0].Address)
+			port = settings.Servers[0].Port
+			credID = strings.TrimSpace(settings.Servers[0].Password)
+		}
+
+		if addr == "" || port <= 0 || credID == "" {
+			continue
+		}
+		if !strings.EqualFold(addr, nodeHost) {
+			continue
+		}
+
+		for _, inb := range nodeInbounds {
+			if !inb.Enabled || inb.Tag == "api" {
+				continue
+			}
+			if !strings.EqualFold(strings.TrimSpace(inb.Protocol), proto) {
+				continue
+			}
+			if port != inb.Port && !(inb.ExternalPort > 0 && port == inb.ExternalPort) {
+				continue
+			}
+			result = append(result, domain.StaticInboundClient{
+				InboundTag: inb.Tag,
+				Protocol:   proto,
+				ID:         credID,
+				Flow:       flow,
+				Email:      "relay-auto:" + ob.Tag + "@internal",
+			})
+		}
+	}
+
+	if len(result) > 1 {
+		sort.Slice(result, func(i, j int) bool {
+			if result[i].InboundTag != result[j].InboundTag {
+				return result[i].InboundTag < result[j].InboundTag
+			}
+			if result[i].Email != result[j].Email {
+				return result[i].Email < result[j].Email
+			}
+			return result[i].ID < result[j].ID
+		})
+	}
+	return result
 }

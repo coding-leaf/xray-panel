@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -912,5 +913,509 @@ func TestMasterAgent_E2E_QuotaAutoAndOfflineCircuitBreaker(t *testing.T) {
 	}
 	if spooled, err := spool.Load(); err != nil || spooled == nil || spooled.BatchID != "quota-batch-offline-break" {
 		t.Fatalf("expected offline batch retained in spool for future recovery, got spooled=%+v err=%v", spooled, err)
+	}
+}
+
+type mockAgentLogCollector struct {
+	mu      sync.Mutex
+	calls   int
+	service string
+	lines   int
+	output  []string
+	err     error
+}
+
+func (c *mockAgentLogCollector) Collect(_ context.Context, service string, lines int) ([]string, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.calls++
+	c.service = service
+	c.lines = lines
+	if c.err != nil {
+		return nil, c.err
+	}
+	out := make([]string, len(c.output))
+	copy(out, c.output)
+	return out, nil
+}
+
+func (c *mockAgentLogCollector) callCount() int {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.calls
+}
+
+func TestMasterAgent_E2E_FullConfigAutoRelayAndOnDemandLogs(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "e2e_fullcfg.db")
+	db, err := repository.InitSQLite(dbPath)
+	if err != nil {
+		t.Fatalf("InitSQLite failed: %v", err)
+	}
+	if sqlDB, err := db.DB(); err == nil {
+		t.Cleanup(func() {
+			_ = sqlDB.Close()
+		})
+	}
+
+	nodeRepo := repository.NewNodeRepository(db)
+	userRepo := repository.NewUserRepository(db)
+	inboundRepo := repository.NewInboundRepository(db)
+	trafficLogRepo := repository.NewGormTrafficLogRepository(db)
+	snapshotRepo := repository.NewGormConfigSnapshotRepository(db)
+	auditLogRepo := repository.NewGormAuditLogRepository(db)
+
+	compiler := xray.NewXrayCompiler(8080)
+	masterCfgPath := filepath.Join(t.TempDir(), "master_xray.json")
+	if err := os.WriteFile(masterCfgPath, []byte(`{"inbounds":[],"outbounds":[{"tag":"direct","protocol":"freedom"},{"tag":"block","protocol":"blackhole"}],"routing":{"domainStrategy":"IPIfNonMatch","rules":[]}}`), 0644); err != nil {
+		t.Fatalf("seed master config failed: %v", err)
+	}
+	masterConfigMgr := xray.NewConfigManager(masterCfgPath, "")
+
+	nodeSvc := service.NewNodeService(nodeRepo, nodeRepo, inboundRepo, userRepo, compiler).
+		WithLogWaitTimeout(5 * time.Second)
+	configSvc := service.NewConfigService(masterConfigMgr, nil, inboundRepo, userRepo, snapshotRepo, compiler).
+		WithNodeCacheInvalidator(nodeSvc).
+		WithNodeRepo(nodeRepo)
+	nodeSvc.WithLocalOutboundsProvider(configSvc.ListOutbounds)
+	userSvc := service.NewUserService(userRepo, inboundRepo, trafficLogRepo, nil, configSvc).
+		WithNodeCacheInvalidator(nodeSvc)
+	auditSvc := service.NewAuditLogService(auditLogRepo)
+
+	jwtSecret := "e2e-fullcfg-jwt-secret"
+	adminJWT, err := middleware.GenerateToken("admin", jwtSecret, time.Hour)
+	if err != nil {
+		t.Fatalf("GenerateToken failed: %v", err)
+	}
+
+	handlers := &deliveryHTTP.Handlers{
+		Sub:       deliveryHTTP.NewSubHandler(nil),
+		User:      deliveryHTTP.NewUserHandler(userSvc, nil, auditSvc),
+		Inbound:   deliveryHTTP.NewInboundHandler(configSvc, auditSvc),
+		Outbound:  deliveryHTTP.NewOutboundHandler(configSvc, auditSvc),
+		Routing:   deliveryHTTP.NewRoutingHandler(configSvc, auditSvc),
+		DNS:       deliveryHTTP.NewDNSHandler(configSvc),
+		Config:    deliveryHTTP.NewConfigHandler(configSvc, auditSvc),
+		Log:       deliveryHTTP.NewLogHandler(nil, auditSvc).WithNodeService(nodeSvc),
+		Node:      deliveryHTTP.NewNodeHandler(nodeSvc, auditSvc),
+		Agent:     deliveryHTTP.NewAgentHandler(nodeSvc),
+		AgentAuth: deliveryHTTP.AgentAuth(nodeSvc),
+	}
+	router := deliveryHTTP.SetupRouter(handlers, jwtSecret, nil)
+
+	var (
+		spyMu        sync.Mutex
+		syncRequests []agent.SyncRequest
+	)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/api/agent/sync" {
+			var bodyBuf bytes.Buffer
+			_, _ = bodyBuf.ReadFrom(r.Body)
+			_ = r.Body.Close()
+			var decoded agent.SyncRequest
+			if err := json.Unmarshal(bodyBuf.Bytes(), &decoded); err == nil {
+				spyMu.Lock()
+				syncRequests = append(syncRequests, decoded)
+				spyMu.Unlock()
+			}
+			reqClone := r.Clone(r.Context())
+			reqClone.Body = io.NopCloser(bytes.NewReader(bodyBuf.Bytes()))
+			reqClone.ContentLength = int64(bodyBuf.Len())
+			router.ServeHTTP(w, reqClone)
+			return
+		}
+		router.ServeHTTP(w, r)
+	}))
+	defer srv.Close()
+
+	adminCall := func(method, path string, payload interface{}) (int, []byte) {
+		t.Helper()
+		var body bytes.Buffer
+		if payload != nil {
+			if err := json.NewEncoder(&body).Encode(payload); err != nil {
+				t.Fatalf("encode payload failed: %v", err)
+			}
+		}
+		req, err := http.NewRequest(method, srv.URL+path, &body)
+		if err != nil {
+			t.Fatalf("NewRequest failed: %v", err)
+		}
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Authorization", "Bearer "+adminJWT)
+		resp, err := srv.Client().Do(req)
+		if err != nil {
+			t.Fatalf("admin http %s %s failed: %v", method, path, err)
+		}
+		defer resp.Body.Close()
+		var out bytes.Buffer
+		_, _ = out.ReadFrom(resp.Body)
+		return resp.StatusCode, out.Bytes()
+	}
+
+	// 1. Create remote node & remote inbound (default xtls-rprx-vision flow to prove static relay flow="" is NOT overridden)
+	code, rawNode := adminCall(http.MethodPost, "/api/admin/nodes", map[string]interface{}{
+		"name":   "US Warp Edge",
+		"host":   "198.51.100.20",
+		"region": "US",
+	})
+	if code != http.StatusCreated {
+		t.Fatalf("create node expected 201, got %d: %s", code, string(rawNode))
+	}
+	var created domain.CreateNodeResponse
+	if err := json.Unmarshal(rawNode, &created); err != nil {
+		t.Fatalf("unmarshal created node: %v", err)
+	}
+
+	code, rawRemoteInb := adminCall(http.MethodPost, "/api/inbounds", map[string]interface{}{
+		"nodeId":         created.ID,
+		"tag":            "edge-vless",
+		"port":           443,
+		"protocol":       "vless",
+		"settingsJson":   `{"decryption":"none","flow":"xtls-rprx-vision"}`,
+		"streamSettings": `{"network":"tcp","security":"reality","realitySettings":{"dest":"apple.com:443","serverNames":["apple.com"],"privateKey":"OCiaG7JluOeRDE9IIuqPleHWArqqmnKJ_rKTxtjo7mc"}}`,
+		"enabled":        true,
+	})
+	if code != http.StatusCreated {
+		t.Fatalf("create remote inbound expected 201, got %d: %s", code, string(rawRemoteInb))
+	}
+
+	code, rawUser := adminCall(http.MethodPost, "/api/users", map[string]interface{}{
+		"email":       "normal@example.com",
+		"inboundTags": []string{"edge-vless"},
+	})
+	if code != http.StatusCreated {
+		t.Fatalf("create user expected 201, got %d: %s", code, string(rawUser))
+	}
+
+	// Save custom warp-out outbound, routing rule, and DNS on remote node
+	code, rawObResp := adminCall(http.MethodPost, fmt.Sprintf("/api/outbounds?nodeId=%d", created.ID), map[string]interface{}{
+		"tag":          "warp-out",
+		"protocol":     "socks",
+		"settingsJson": `{"servers":[{"address":"127.0.0.1","port":40000}]}`,
+	})
+	if code != http.StatusOK {
+		t.Fatalf("save remote outbound expected 200, got %d: %s", code, string(rawObResp))
+	}
+
+	code, rawRouteResp := adminCall(http.MethodPost, fmt.Sprintf("/api/routing?nodeId=%d", created.ID), map[string]interface{}{
+		"domainStrategy": "IPIfNonMatch",
+		"rules": []map[string]interface{}{
+			{
+				"type":        "field",
+				"domain":      []string{"domain:example.org"},
+				"outboundTag": "warp-out",
+			},
+		},
+	})
+	if code != http.StatusOK {
+		t.Fatalf("save remote routing expected 200, got %d: %s", code, string(rawRouteResp))
+	}
+
+	code, rawDNSResp := adminCall(http.MethodPost, fmt.Sprintf("/api/dns?nodeId=%d", created.ID), map[string]interface{}{
+		"queryStrategy": "UseIPv4",
+		"servers":       []interface{}{"1.1.1.1", "8.8.8.8"},
+	})
+	if code != http.StatusOK {
+		t.Fatalf("save remote dns expected 200, got %d: %s", code, string(rawDNSResp))
+	}
+
+	// Configure a local Master VLESS outbound (flow: "") pointing to the remote node's Host:Port
+	const relayUUID = "11111111-1111-1111-1111-111111111111"
+	code, rawLocalOb := adminCall(http.MethodPost, "/api/outbounds?nodeId=0", map[string]interface{}{
+		"tag":          "to-us-edge",
+		"protocol":     "vless",
+		"settingsJson": fmt.Sprintf(`{"vnext":[{"address":"198.51.100.20","port":443,"users":[{"id":%q,"encryption":"none","flow":""}]}]}`, relayUUID),
+	})
+	if code != http.StatusOK {
+		t.Fatalf("save local relay outbound expected 200, got %d: %s", code, string(rawLocalOb))
+	}
+
+	// Verify GET /api/config/raw?nodeId=<id> returns read-only compiled preview
+	code, rawPreviewBytes := adminCall(http.MethodGet, fmt.Sprintf("/api/config/raw?nodeId=%d", created.ID), nil)
+	if code != http.StatusOK {
+		t.Fatalf("get remote config raw expected 200, got %d: %s", code, string(rawPreviewBytes))
+	}
+	var rawPreview struct {
+		Raw      string `json:"raw"`
+		ReadOnly bool   `json:"readOnly"`
+	}
+	if err := json.Unmarshal(rawPreviewBytes, &rawPreview); err != nil {
+		t.Fatalf("unmarshal config raw preview: %v", err)
+	}
+	if !rawPreview.ReadOnly || !strings.Contains(rawPreview.Raw, `"warp-out"`) || !strings.Contains(rawPreview.Raw, relayUUID) {
+		t.Fatalf("unexpected remote config preview: readOnly=%v raw=%s", rawPreview.ReadOnly, rawPreview.Raw)
+	}
+
+	// Wire real Agent Runner with mockLogCollector
+	agentClient, err := agent.NewClient(srv.URL, created.Token, srv.Client())
+	if err != nil {
+		t.Fatalf("NewClient valid: %v", err)
+	}
+	agentDir := t.TempDir()
+	agentCfgPath := filepath.Join(agentDir, "config.json")
+	spool, err := agent.NewSpool(filepath.Join(agentDir, "spool"))
+	if err != nil {
+		t.Fatalf("NewSpool: %v", err)
+	}
+	cmdRunner := &mockAgentCommandRunner{}
+	agentCfgMgr, err := agent.NewConfigManager(agent.ConfigManagerConfig{
+		ConfigPath:    agentCfgPath,
+		ServiceName:   "xray",
+		ProbeTimeout:  500 * time.Millisecond,
+		ProbeInterval: 10 * time.Millisecond,
+	}, cmdRunner, &mockAgentProber{})
+	if err != nil {
+		t.Fatalf("NewConfigManager: %v", err)
+	}
+	userCtrl := &mockAgentUserController{}
+	userSync, err := agent.NewUserSyncer(userCtrl)
+	if err != nil {
+		t.Fatalf("NewUserSyncer: %v", err)
+	}
+	trafficCol := &mockAgentTrafficCollector{}
+	logCol := &mockAgentLogCollector{
+		output: []string{"Nov 19 21:00:01 xray started", "Nov 19 21:00:02 xray ready"},
+	}
+
+	runner, err := agent.NewRunner(
+		agent.RunnerConfig{AgentVersion: "0.2.0-e2e", Interval: time.Second},
+		agentClient,
+		spool,
+		agentCfgMgr,
+		userSync,
+		trafficCol,
+		agent.NewMetricsCollector(),
+	)
+	if err != nil {
+		t.Fatalf("NewRunner: %v", err)
+	}
+	runner.WithLogCollector(logCol)
+
+	ctx := context.Background()
+
+	// 2. First sync: verify persisted config.json contains warp-out, custom routing/DNS, api inbound/rule, and static relay client with empty flow
+	if err := runner.SyncOnce(ctx); err != nil {
+		t.Fatalf("first SyncOnce failed: %v", err)
+	}
+	cfgBytes, err := os.ReadFile(agentCfgPath)
+	if err != nil {
+		t.Fatalf("read agent config.json failed: %v", err)
+	}
+	var diskCfg struct {
+		DNS struct {
+			QueryStrategy string        `json:"queryStrategy"`
+			Servers       []interface{} `json:"servers"`
+		} `json:"dns"`
+		Inbounds []struct {
+			Tag      string `json:"tag"`
+			Protocol string `json:"protocol"`
+			Settings struct {
+				Clients []struct {
+					ID    string `json:"id"`
+					Flow  string `json:"flow"`
+					Email string `json:"email"`
+				} `json:"clients"`
+			} `json:"settings"`
+		} `json:"inbounds"`
+		Outbounds []struct {
+			Tag      string `json:"tag"`
+			Protocol string `json:"protocol"`
+		} `json:"outbounds"`
+		Routing struct {
+			Rules []struct {
+				InboundTag  []string `json:"inboundTag"`
+				OutboundTag string   `json:"outboundTag"`
+				Domain      []string `json:"domain"`
+			} `json:"rules"`
+		} `json:"routing"`
+	}
+	if err := json.Unmarshal(cfgBytes, &diskCfg); err != nil {
+		t.Fatalf("unmarshal agent disk config.json: %v", err)
+	}
+
+	if diskCfg.DNS.QueryStrategy != "UseIPv4" || len(diskCfg.DNS.Servers) != 2 {
+		t.Fatalf("expected custom DNS on remote config, got %+v", diskCfg.DNS)
+	}
+	var foundAPIInbound, foundStaticRelay bool
+	for _, inb := range diskCfg.Inbounds {
+		if inb.Tag == "api" {
+			foundAPIInbound = true
+		}
+		if inb.Tag == "edge-vless" {
+			for _, cl := range inb.Settings.Clients {
+				if cl.ID == relayUUID {
+					foundStaticRelay = true
+					if cl.Flow != "" {
+						t.Fatalf("static relay client must preserve empty flow \"\", got %q", cl.Flow)
+					}
+					if cl.Email != "relay-auto:to-us-edge@internal" {
+						t.Fatalf("unexpected static relay email: %q", cl.Email)
+					}
+				}
+			}
+		}
+	}
+	if !foundAPIInbound || !foundStaticRelay {
+		t.Fatalf("missing api inbound (%v) or static relay client (%v) in %s", foundAPIInbound, foundStaticRelay, string(cfgBytes))
+	}
+
+	var foundWarpOut, foundDirect, foundBlock bool
+	for _, ob := range diskCfg.Outbounds {
+		switch ob.Tag {
+		case "warp-out":
+			foundWarpOut = true
+		case "direct":
+			foundDirect = true
+		case "block":
+			foundBlock = true
+		}
+	}
+	if !foundWarpOut || !foundDirect || !foundBlock {
+		t.Fatalf("expected warp-out, direct, block outbounds, got %+v", diskCfg.Outbounds)
+	}
+
+	if len(diskCfg.Routing.Rules) < 2 ||
+		len(diskCfg.Routing.Rules[0].InboundTag) != 1 || diskCfg.Routing.Rules[0].InboundTag[0] != "api" || diskCfg.Routing.Rules[0].OutboundTag != "api" {
+		t.Fatalf("expected Layer 1 api -> api rule first, got %+v", diskCfg.Routing.Rules)
+	}
+	if diskCfg.Routing.Rules[1].OutboundTag != "warp-out" || len(diskCfg.Routing.Rules[1].Domain) == 0 || diskCfg.Routing.Rules[1].Domain[0] != "domain:example.org" {
+		t.Fatalf("expected custom warp-out rule second, got %+v", diskCfg.Routing.Rules)
+	}
+
+	// Verify BuildRemoteNodeUsers excluded static relay client, and subsequent user add/delete never removes it
+	code, rawExtraUser := adminCall(http.MethodPost, "/api/users", map[string]interface{}{
+		"email":       "extra@example.com",
+		"inboundTags": []string{"edge-vless"},
+	})
+	if code != http.StatusCreated {
+		t.Fatalf("create extra user expected 201, got %d: %s", code, string(rawExtraUser))
+	}
+	var extraUser domain.User
+	_ = json.Unmarshal(rawExtraUser, &extraUser)
+
+	if err := runner.SyncOnce(ctx); err != nil {
+		t.Fatalf("add user SyncOnce failed: %v", err)
+	}
+	code, _ = adminCall(http.MethodDelete, fmt.Sprintf("/api/users/%d", extraUser.ID), nil)
+	if code != http.StatusOK {
+		t.Fatalf("delete extra user expected 200, got %d", code)
+	}
+	if err := runner.SyncOnce(ctx); err != nil {
+		t.Fatalf("delete user SyncOnce failed: %v", err)
+	}
+	userCtrl.mu.Lock()
+	for _, added := range userCtrl.added {
+		if strings.Contains(added.Email, "relay-auto") || added.UUID == relayUUID {
+			userCtrl.mu.Unlock()
+			t.Fatalf("BuildRemoteNodeUsers must not emit static relay client: %+v", added)
+		}
+	}
+	for _, removed := range userCtrl.removed {
+		if strings.Contains(removed, "relay-auto") {
+			userCtrl.mu.Unlock()
+			t.Fatalf("UserSyncer must never remove static relay client: %q", removed)
+		}
+	}
+	userCtrl.mu.Unlock()
+
+	// 3. Concurrent on-demand remote log retrieval + no duplicate traffic accounting
+	trafficCol.push(&agent.TrafficBatch{
+		BatchID: "fullcfg-batch-1",
+		Users: []agent.UserTrafficDelta{
+			{Email: "normal@example.com", UpBytes: 500, DownBytes: 700},
+		},
+		Inbounds: []agent.InboundTrafficDelta{
+			{Tag: "edge-vless", UpBytes: 500, DownBytes: 700},
+		},
+	})
+
+	spyMu.Lock()
+	syncRequests = nil
+	spyMu.Unlock()
+
+	type logHTTPResp struct {
+		status int
+		body   []byte
+	}
+	logCh := make(chan logHTTPResp, 1)
+	go func() {
+		status, body := adminCall(http.MethodGet, fmt.Sprintf("/api/logs?nodeId=%d&service=xray&lines=50&refresh=true", created.ID), nil)
+		logCh <- logHTTPResp{status: status, body: body}
+	}()
+
+	// Trigger SyncOnce once RequestNodeLogs has queued pendingLogReqs; retry briefly if goroutine scheduling is delayed.
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		if logCol.callCount() > 0 {
+			break
+		}
+		if err := runner.SyncOnce(ctx); err != nil {
+			t.Fatalf("log-cycle SyncOnce failed: %v", err)
+		}
+		if logCol.callCount() > 0 {
+			break
+		}
+		time.Sleep(15 * time.Millisecond)
+	}
+	if logCol.callCount() != 1 {
+		t.Fatalf("expected LogCollector to be called once, got %d", logCol.callCount())
+	}
+
+	gotLog := <-logCh
+	if gotLog.status != http.StatusOK {
+		t.Fatalf("GET /api/logs remote expected 200, got %d: %s", gotLog.status, string(gotLog.body))
+	}
+	var logPayload service.RemoteNodeLogsResponse
+	if err := json.Unmarshal(gotLog.body, &logPayload); err != nil {
+		t.Fatalf("unmarshal remote logs response: %v", err)
+	}
+	if logPayload.NodeID != created.ID || logPayload.Service != "xray" || logPayload.Cached || logPayload.Pending || logPayload.Error != "" {
+		t.Fatalf("unexpected remote logs metadata: %+v", logPayload)
+	}
+	if len(logPayload.Lines) != 2 || logPayload.Lines[0] != "Nov 19 21:00:01 xray started" {
+		t.Fatalf("unexpected remote log lines: %+v", logPayload.Lines)
+	}
+
+	// Verify lightweight ack sync carried LogResult with nil HostMetrics and nil TrafficBatch
+	spyMu.Lock()
+	capturedReqs := append([]agent.SyncRequest(nil), syncRequests...)
+	spyMu.Unlock()
+	var ackCount int
+	for _, r := range capturedReqs {
+		if r.LogResult != nil {
+			ackCount++
+			if r.HostMetrics != nil || r.TrafficBatch != nil {
+				t.Fatalf("lightweight log ack must have nil HostMetrics and TrafficBatch, got metrics=%+v batch=%+v", r.HostMetrics, r.TrafficBatch)
+			}
+		}
+	}
+	if ackCount != 1 {
+		t.Fatalf("expected exactly 1 lightweight log ack request, got %d", ackCount)
+	}
+
+	// Verify traffic was counted strictly once
+	code, rawNodeStats := adminCall(http.MethodGet, fmt.Sprintf("/api/admin/nodes/%d", created.ID), nil)
+	if code != http.StatusOK {
+		t.Fatalf("get node stats expected 200, got %d", code)
+	}
+	var nodeStats domain.Node
+	_ = json.Unmarshal(rawNodeStats, &nodeStats)
+	if nodeStats.XrayUpBytes != 500 || nodeStats.XrayDownBytes != 700 {
+		t.Fatalf("expected node xray traffic 500/700 (counted once), got up=%d down=%d", nodeStats.XrayUpBytes, nodeStats.XrayDownBytes)
+	}
+
+	// Verify 30s cache hit without calling LogCollector again, and invalid service returns 400
+	code, cachedBody := adminCall(http.MethodGet, fmt.Sprintf("/api/logs?nodeId=%d&service=xray&lines=50", created.ID), nil)
+	if code != http.StatusOK {
+		t.Fatalf("cached GET /api/logs expected 200, got %d", code)
+	}
+	var cachedPayload service.RemoteNodeLogsResponse
+	_ = json.Unmarshal(cachedBody, &cachedPayload)
+	if !cachedPayload.Cached || len(cachedPayload.Lines) != 2 || logCol.callCount() != 1 {
+		t.Fatalf("expected cache hit with 1 collector call, got cached=%v calls=%d", cachedPayload.Cached, logCol.callCount())
+	}
+
+	code, _ = adminCall(http.MethodGet, fmt.Sprintf("/api/logs?nodeId=%d&service=bash&lines=50", created.ID), nil)
+	if code != http.StatusBadRequest {
+		t.Fatalf("expected 400 for invalid log service, got %d", code)
 	}
 }

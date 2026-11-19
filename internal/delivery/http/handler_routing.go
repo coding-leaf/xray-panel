@@ -23,23 +23,31 @@ func NewRoutingHandler(configSvc *service.ConfigService, auditSvc ...*service.Au
 }
 
 func (h *RoutingHandler) Get(c *gin.Context) {
-	cfg, err := h.configSvc.GetRoutingConfig(c.Request.Context())
+	nodeID, ok := parseOptionalNodeID(c)
+	if !ok {
+		return
+	}
+	cfg, err := h.configSvc.GetRoutingConfigByNode(c.Request.Context(), nodeID)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		writePerNodeConfigError(c, err)
 		return
 	}
 	c.JSON(http.StatusOK, cfg)
 }
 
 func (h *RoutingHandler) Save(c *gin.Context) {
+	nodeID, ok := parseOptionalNodeID(c)
+	if !ok {
+		return
+	}
 	var cfg domain.RoutingConfig
 	if err := c.ShouldBindJSON(&cfg); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
 
-	if err := h.configSvc.SaveRoutingConfig(c.Request.Context(), &cfg); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+	if err := h.configSvc.SaveRoutingConfigByNode(c.Request.Context(), nodeID, &cfg); err != nil {
+		writePerNodeConfigError(c, err)
 		return
 	}
 

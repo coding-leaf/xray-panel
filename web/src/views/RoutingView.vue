@@ -5,7 +5,7 @@
       class="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 pb-2 border-b border-border/60"
     >
       <div>
-        <div class="flex items-center gap-2">
+        <div class="flex items-center gap-2 flex-wrap">
           <h1 class="text-lg font-semibold text-foreground tracking-tight">
             路由与分流策略 (Routing)
           </h1>
@@ -13,13 +13,23 @@
             {{ routingConfig.rules?.length || 0 }} 条规则
           </Badge>
           <span
+            v-if="isRemoteNode"
+            class="px-2 py-0.5 rounded text-[10px] font-mono bg-sky-500/10 text-sky-300 border border-sky-500/30"
+          >
+            远程节点：{{ activeNode?.name || `#${activeNodeId}` }}
+          </span>
+          <span
             class="px-2 py-0.5 rounded text-[10px] font-mono bg-amber-500/10 text-amber-400 border border-amber-500/20"
           >
-            修改自动重启核心生效
+            {{ isRemoteNode ? '保存后同步至远端节点' : '修改自动重启核心生效' }}
           </span>
         </div>
         <p class="text-xs text-muted-foreground mt-0.5">
-          自上而下优先匹配分流规则，出站与入站标签动态绑定，保存落盘后自动全量重启核心生效
+          {{
+            isRemoteNode
+              ? '管理远端节点路由规则与目标出站，保存校验通过后将在下次心跳同步生效'
+              : '自上而下优先匹配分流规则，出站与入站标签动态绑定，保存落盘后自动全量重启核心生效'
+          }}
         </p>
       </div>
 
@@ -36,8 +46,23 @@
       </div>
     </div>
 
-    <!-- GeoData 规则库在线升级状态卡片 -->
-    <div class="p-3.5 rounded-lg bg-card border border-border flex flex-col gap-3">
+    <!-- Remote Node GeoData Hint -->
+    <div
+      v-if="isRemoteNode"
+      class="px-3.5 py-2.5 rounded-lg bg-sky-500/10 border border-sky-500/30 text-sky-200 text-xs font-mono flex items-center justify-between gap-2"
+    >
+      <div class="flex items-center gap-2">
+        <Database class="w-3.5 h-3.5 text-sky-400 shrink-0" />
+        <span>
+          正在编辑远端节点
+          <strong>{{ activeNode?.name || `#${activeNodeId}` }}</strong> 的路由策略；GeoData
+          规则库在线升级仅对本机 Master 有效。
+        </span>
+      </div>
+    </div>
+
+    <!-- GeoData 规则库在线升级状态卡片 (仅本机 Master 展示) -->
+    <div v-else class="p-3.5 rounded-lg bg-card border border-border flex flex-col gap-3">
       <div class="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
         <div class="flex items-center gap-3">
           <div class="p-2 rounded bg-neutral-900 border border-border text-foreground">
@@ -1013,7 +1038,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted, computed } from 'vue'
+import { ref, onMounted, onUnmounted, computed, watch } from 'vue'
 import {
   Plus,
   Check,
@@ -1031,6 +1056,7 @@ import Drawer from '../components/ui/Drawer.vue'
 import Modal from '../components/ui/Modal.vue'
 import { toast } from '../utils/toast'
 import api from '../api'
+import { useActiveNode } from '../composables/useActiveNode'
 
 export interface RoutingRule {
   tag?: string
@@ -1075,6 +1101,8 @@ export interface RuleFormData {
   network: string
   protocolStr: string
 }
+
+const { activeNodeId, activeNode, isRemoteNode } = useActiveNode()
 
 const routingConfig = ref<RoutingConfig>({
   domainStrategy: 'IPIfNonMatch',
@@ -1195,16 +1223,21 @@ const availableInboundTags = computed(() => {
   return inboundsList.value.map((i) => i.tag).filter((t) => t)
 })
 
+let fetchDepSeq = 0
+
 const fetchAllDependencies = async () => {
+  const seq = ++fetchDepSeq
+  const nodeQuery = `?nodeId=${activeNodeId.value}`
   try {
     const [routeRes, inbRes, outRes]: any = await Promise.all([
-      api.get('/routing'),
-      api.get('/inbounds'),
-      api.get('/outbounds'),
+      api.get(`/routing${nodeQuery}`),
+      api.get(`/inbounds${nodeQuery}`),
+      api.get(`/outbounds${nodeQuery}`),
     ])
+    if (seq !== fetchDepSeq) return
     routingConfig.value = routeRes || { domainStrategy: 'IPIfNonMatch', rules: [] }
-    inboundsList.value = inbRes || []
-    outboundsList.value = outRes || []
+    inboundsList.value = Array.isArray(inbRes) ? inbRes : []
+    outboundsList.value = Array.isArray(outRes) ? outRes : []
   } catch (err) {
     console.error(err)
   }
@@ -1579,8 +1612,8 @@ const formatRuleSummary = (rule: any) => {
 const saveAllRouting = async () => {
   saving.value = true
   try {
-    await api.post('/routing', routingConfig.value)
-    toast.success('路由分流配置已保存并生效')
+    await api.post(`/routing?nodeId=${activeNodeId.value}`, routingConfig.value)
+    toast.success(isRemoteNode.value ? '远端节点路由分流配置已保存' : '路由分流配置已保存并生效')
     await fetchAllDependencies()
   } catch (err: any) {
     toast.error('保存失败：' + err)
@@ -1603,6 +1636,13 @@ const getOutboundBadgeVariant = (
       return 'outline'
   }
 }
+
+watch(activeNodeId, () => {
+  showRuleDrawer.value = false
+  showPresetModal.value = false
+  showReorderModal.value = false
+  fetchAllDependencies()
+})
 
 onMounted(() => {
   fetchAllDependencies()

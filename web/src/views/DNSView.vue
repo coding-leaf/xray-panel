@@ -5,7 +5,7 @@
       class="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 pb-2 border-b border-border/60"
     >
       <div>
-        <div class="flex items-center gap-2">
+        <div class="flex items-center gap-2 flex-wrap">
           <h1 class="text-lg font-semibold text-foreground tracking-tight">
             DNS 模块显式配置 (DNS)
           </h1>
@@ -13,13 +13,23 @@
             {{ dnsConfig.servers?.length || 0 }} 个上游池
           </Badge>
           <span
+            v-if="isRemoteNode"
+            class="px-2 py-0.5 rounded text-[10px] font-mono bg-sky-500/10 text-sky-300 border border-sky-500/30"
+          >
+            远程节点：{{ activeNode?.name || `#${activeNodeId}` }}
+          </span>
+          <span
             class="px-2 py-0.5 rounded text-[10px] font-mono bg-amber-500/10 text-amber-400 border border-amber-500/20"
           >
-            修改自动重启核心生效
+            {{ isRemoteNode ? '保存后同步至远端节点' : '修改自动重启核心生效' }}
           </span>
         </div>
         <p class="text-xs text-muted-foreground mt-0.5">
-          配置 Xray 内置 DNS 解析器、DoH 安全域名查询与静态 Hosts，保存后自动落盘并平滑应用
+          {{
+            isRemoteNode
+              ? '配置远端节点 Xray 内置 DNS 解析器、DoH 安全域名查询与静态 Hosts，保存校验后将自动同步下发'
+              : '配置 Xray 内置 DNS 解析器、DoH 安全域名查询与静态 Hosts，保存后自动落盘并平滑应用'
+          }}
         </p>
       </div>
 
@@ -221,12 +231,15 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, watch } from 'vue'
 import { Globe, Server, Layers, Check, Plus, ArrowUp, ArrowDown, Trash2 } from 'lucide-vue-next'
 import Button from '../components/ui/Button.vue'
 import Badge from '../components/ui/Badge.vue'
 import { toast } from '../utils/toast'
 import api from '../api'
+import { useActiveNode } from '../composables/useActiveNode'
+
+const { activeNodeId, activeNode, isRemoteNode } = useActiveNode()
 
 const dnsConfig = ref<any>({
   queryStrategy: 'UseIPv4',
@@ -237,22 +250,33 @@ const dnsConfig = ref<any>({
 
 const hostsText = ref('')
 const saving = ref(false)
+let fetchDnsSeq = 0
 
 const fetchDNS = async () => {
+  const seq = ++fetchDnsSeq
+  const nodeId = activeNodeId.value
   try {
-    const res: any = await api.get('/dns')
+    const res: any = await api.get(`/dns?nodeId=${nodeId}`)
+    if (seq !== fetchDnsSeq) return
     if (res) {
-      dnsConfig.value = res
-      if (!dnsConfig.value.servers?.length) {
-        dnsConfig.value.servers = ['https://1.1.1.1/dns-query', '8.8.8.8', 'localhost']
+      dnsConfig.value = {
+        queryStrategy: res.queryStrategy || 'UseIPv4',
+        disableCache: Boolean(res.disableCache),
+        clientIp: res.clientIp || '',
+        servers:
+          Array.isArray(res.servers) && res.servers.length > 0
+            ? res.servers
+            : ['https://1.1.1.1/dns-query', '8.8.8.8', 'localhost'],
+        hosts: res.hosts || {},
       }
-      // 转换 hosts map 为换行文本
-      if (res.hosts) {
+      if (res.hosts && typeof res.hosts === 'object') {
         const lines: string[] = []
         for (const [k, v] of Object.entries(res.hosts)) {
           lines.push(`${k}: ${v}`)
         }
         hostsText.value = lines.join('\n')
+      } else {
+        hostsText.value = ''
       }
     }
   } catch (err) {
@@ -329,8 +353,8 @@ const saveDNS = async () => {
     }
     dnsConfig.value.hosts = hostsMap
 
-    await api.post('/dns', dnsConfig.value)
-    toast.success('DNS 模块配置已保存并生效')
+    await api.post(`/dns?nodeId=${activeNodeId.value}`, dnsConfig.value)
+    toast.success(isRemoteNode.value ? '远端节点 DNS 配置已保存' : 'DNS 模块配置已保存并生效')
     await fetchDNS()
   } catch (err: any) {
     toast.error('保存失败：' + err)
@@ -338,6 +362,10 @@ const saveDNS = async () => {
     saving.value = false
   }
 }
+
+watch(activeNodeId, () => {
+  fetchDNS()
+})
 
 onMounted(() => {
   fetchDNS()

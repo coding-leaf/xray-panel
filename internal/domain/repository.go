@@ -133,3 +133,8 @@ type NodeQuotaRepository interface {
 	ResetCycleTraffic(ctx context.Context, nodeID uint, resetMonth int, restoreActive bool) error
 	ListRecentDailyTraffic(ctx context.Context, nodeID uint, days int) ([]NodeTrafficDaily, error)
 }
+
+// NodeConfigRepository 定义远端节点出站/路由/DNS配置持久化接口
+type NodeConfigRepository interface {
+	UpdateNodeConfig(ctx context.Context, nodeID uint, outboundsJSON, routingJSON, dnsJSON string) error
+}

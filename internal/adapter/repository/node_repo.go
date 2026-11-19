@@ -20,6 +20,7 @@ var (
 	_ domain.NodeRepository             = (*GORMNodeRepository)(nil)
 	_ domain.NodeTrafficBatchRepository = (*GORMNodeRepository)(nil)
 	_ domain.NodeQuotaRepository        = (*GORMNodeRepository)(nil)
+	_ domain.NodeConfigRepository       = (*GORMNodeRepository)(nil)
 )
 
 func NewNodeRepository(db *gorm.DB) *GORMNodeRepository {
@@ -72,14 +73,33 @@ func (r *GORMNodeRepository) Update(ctx context.Context, node *domain.Node) erro
 // UpdateHeartbeat atomically records agent heartbeat metadata, NIC traffic deltas, and daily NIC traffic logs.
 func (r *GORMNodeRepository) UpdateHeartbeat(ctx context.Context, nodeID uint, req *domain.AgentSyncRequest, seenAt time.Time) error {
 	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		isLightweightLogAck := req.LogResult != nil && req.TrafficBatch == nil && req.HostMetrics == nil
 		updates := map[string]interface{}{
-			"last_seen_at":     seenAt,
-			"agent_version":    req.AgentVersion,
-			"xray_version":     req.XrayVersion,
-			"last_config_hash": req.ConfigHash,
-			"last_users_hash":  req.UsersHash,
-			"last_sync_error":  req.LastError,
-			"updated_at":       seenAt,
+			"last_seen_at": seenAt,
+			"updated_at":   seenAt,
+		}
+		if !isLightweightLogAck {
+			updates["agent_version"] = req.AgentVersion
+			updates["xray_version"] = req.XrayVersion
+			updates["last_config_hash"] = req.ConfigHash
+			updates["last_users_hash"] = req.UsersHash
+			updates["last_sync_error"] = req.LastError
+		} else {
+			if req.AgentVersion != "" {
+				updates["agent_version"] = req.AgentVersion
+			}
+			if req.XrayVersion != "" {
+				updates["xray_version"] = req.XrayVersion
+			}
+			if req.ConfigHash != "" {
+				updates["last_config_hash"] = req.ConfigHash
+			}
+			if req.UsersHash != "" {
+				updates["last_users_hash"] = req.UsersHash
+			}
+			if req.LastError != "" {
+				updates["last_sync_error"] = req.LastError
+			}
 		}
 		var nicUp, nicDown int64
 		if req.HostMetrics != nil {
@@ -395,6 +415,25 @@ func (r *GORMNodeRepository) ListRecentDailyTraffic(ctx context.Context, nodeID 
 
 func (r *GORMNodeRepository) PruneBatchesBefore(ctx context.Context, before time.Time) error {
 	return r.db.WithContext(ctx).Where("created_at < ?", before).Delete(&domain.NodeTrafficBatch{}).Error
+}
+
+// UpdateNodeConfig atomically persists per-node outbounds, routing, and DNS JSON blobs using a strict column whitelist.
+func (r *GORMNodeRepository) UpdateNodeConfig(ctx context.Context, nodeID uint, outboundsJSON, routingJSON, dnsJSON string) error {
+	res := r.db.WithContext(ctx).Model(&domain.Node{}).
+		Where("id = ?", nodeID).
+		Updates(map[string]interface{}{
+			"outbounds_json": outboundsJSON,
+			"routing_json":   routingJSON,
+			"dns_json":       dnsJSON,
+			"updated_at":     time.Now(),
+		})
+	if res.Error != nil {
+		return res.Error
+	}
+	if res.RowsAffected == 0 {
+		return domain.ErrNotFound
+	}
+	return nil
 }
 
 func maxZero64(v int64) int64 {

@@ -124,6 +124,9 @@ type Node struct {
 	CycleXrayDownBytes int64      `gorm:"default:0" json:"cycleXrayDownBytes"`
 	CycleNicUpBytes    int64      `gorm:"default:0" json:"cycleNicUpBytes"`
 	CycleNicDownBytes  int64      `gorm:"default:0" json:"cycleNicDownBytes"`
+	OutboundsJSON      string     `gorm:"column:outbounds_json;type:text;default:''" json:"-"`
+	RoutingJSON        string     `gorm:"column:routing_json;type:text;default:''" json:"-"`
+	DNSJSON            string     `gorm:"column:dns_json;type:text;default:''" json:"-"`
 	Remark             string     `gorm:"type:varchar(255);default:''" json:"remark"`
 	CreatedAt          time.Time  `json:"createdAt"`
 	UpdatedAt          time.Time  `json:"updatedAt"`
@@ -294,6 +297,31 @@ type AgentTrafficBatch struct {
 	Inbounds []AgentInboundTrafficDelta `json:"inbounds,omitempty"`
 }
 
+// AgentLogRequest represents an on-demand log collection instruction pushed to an agent.
+type AgentLogRequest struct {
+	RequestID string `json:"requestId"`
+	Service   string `json:"service"` // "xray" | "xray-agent"
+	Lines     int    `json:"lines"`
+}
+
+// AgentLogResult carries collected service log lines returned by an agent.
+type AgentLogResult struct {
+	RequestID       string   `json:"requestId"`
+	Service         string   `json:"service"`
+	Lines           []string `json:"lines"`
+	Error           string   `json:"error,omitempty"`
+	CollectedAtUnix int64    `json:"collectedAtUnix"`
+}
+
+// StaticInboundClient represents a static relay credential compiled into a remote inbound.
+type StaticInboundClient struct {
+	InboundTag string `json:"inboundTag"`
+	Protocol   string `json:"protocol"`
+	ID         string `json:"id"`
+	Flow       string `json:"flow,omitempty"`
+	Email      string `json:"email"`
+}
+
 // AgentSyncRequest is the locked POST /api/agent/sync request contract.
 type AgentSyncRequest struct {
 	ConfigHash   string             `json:"configHash"`
@@ -303,6 +331,7 @@ type AgentSyncRequest struct {
 	LastError    string             `json:"lastError"`
 	HostMetrics  *AgentHostMetrics  `json:"hostMetrics,omitempty"`
 	TrafficBatch *AgentTrafficBatch `json:"trafficBatch,omitempty"`
+	LogResult    *AgentLogResult    `json:"logResult,omitempty"`
 }
 
 // AgentSyncUser represents an authorized active user credential for a node inbound.
@@ -336,4 +365,5 @@ type AgentSyncResponse struct {
 	ConfigJSON      string            `json:"configJson,omitempty"`
 	Users           []AgentSyncUser   `json:"users,omitempty"`
 	QuotaPolicy     *AgentQuotaPolicy `json:"quotaPolicy,omitempty"`
+	LogRequest      *AgentLogRequest  `json:"logRequest,omitempty"`
 }

@@ -2179,6 +2179,211 @@ func TestXrayCompiler_VLESSFlowOverrideAndPriority(t *testing.T) {
 	})
 }
 
+func TestXrayCompiler_CompileRemoteNodeFull_OutboundsRoutingDNSAndStaticClients(t *testing.T) {
+	compiler := xray.NewXrayCompiler(19090) // Remote node API inbound must stay 8080
+
+	inbounds := []domain.Inbound{
+		{
+			ID:             1,
+			NodeID:         2,
+			Tag:            "us-vless",
+			Port:           443,
+			Listen:         "0.0.0.0",
+			Protocol:       "vless",
+			SettingsJSON:   `{"decryption":"none","flow":"xtls-rprx-vision"}`,
+			StreamSettings: `{"network":"tcp","security":"reality","realitySettings":{"dest":"apple.com:443","serverNames":["apple.com"],"privateKey":"SL552CAJYk9fBNX_MvMJCaFmDQ-LHhugYSHYZ4bZXU8","shortIds":["0123456789abcdef"]}}`,
+			Enabled:        true,
+		},
+		{
+			ID:           2,
+			NodeID:       2,
+			Tag:          "us-trojan",
+			Port:         8443,
+			Listen:       "0.0.0.0",
+			Protocol:     "trojan",
+			SettingsJSON: `{}`,
+			Enabled:      true,
+		},
+	}
+
+	outbounds := []domain.Outbound{
+		{
+			Tag:          "warp-out",
+			Protocol:     "wireguard",
+			SettingsJSON: `{"secretKey":"test-priv","address":["172.16.0.2/32"],"peers":[{"publicKey":"test-pub","endpoint":"127.0.0.1:2408"}]}`,
+		},
+		{
+			Tag:            "ipv6",
+			Protocol:       "freedom",
+			TargetStrategy: "UseIPv6",
+		},
+	}
+
+	routing := &domain.RoutingConfig{
+		DomainStrategy: "IPIfNonMatch",
+		Rules: []domain.RoutingRule{
+			// User accidentally included an api rule; Layer 1 must still deduplicate and keep api->api first
+			{Type: "field", InboundTag: []string{"api"}, OutboundTag: "direct"},
+			{Type: "field", Domain: []string{"geosite:openai"}, OutboundTag: "warp-out"},
+			{Type: "field", InboundTag: []string{"us-trojan"}, OutboundTag: "ipv6"},
+		},
+	}
+
+	dns := &domain.DNSConfig{
+		Servers:       []interface{}{"1.1.1.1", "8.8.8.8"},
+		QueryStrategy: "UseIPv4",
+	}
+
+	users := []domain.User{
+		{
+			Email:       "db-user@example.com",
+			UUID:        "11111111-1111-1111-1111-111111111111",
+			InboundTags: "us-vless,us-trojan",
+			Enabled:     true,
+		},
+	}
+
+	staticClients := []domain.StaticInboundClient{
+		{
+			InboundTag: "us-vless",
+			Protocol:   "vless",
+			ID:         "22222222-2222-2222-2222-222222222222",
+			Flow:       "", // Empty flow MUST NOT be backfilled with xtls-rprx-vision
+			Email:      "relay-auto:jp-to-us@internal",
+		},
+		{
+			InboundTag: "us-vless",
+			Protocol:   "vless",
+			ID:         "33333333-3333-3333-3333-333333333333",
+			Flow:       "xtls-rprx-vision",
+			Email:      "relay-auto:jp-to-us-vision@internal",
+		},
+		{
+			// Duplicate UUID with DB user (case-insensitive) must be skipped
+			InboundTag: "us-vless",
+			Protocol:   "vless",
+			ID:         "11111111-1111-1111-1111-111111111111",
+			Flow:       "",
+			Email:      "relay-auto:dup@internal",
+		},
+		{
+			InboundTag: "us-trojan",
+			Protocol:   "trojan",
+			ID:         "trojan-relay-secret",
+			Email:      "relay-auto:jp-trojan@internal",
+		},
+	}
+
+	jsonBytes, err := compiler.CompileRemoteNodeFullToJSON(inbounds, outbounds, routing, dns, users, staticClients)
+	if err != nil {
+		t.Fatalf("CompileRemoteNodeFullToJSON failed: %v", err)
+	}
+
+	var raw map[string]interface{}
+	if err := json.Unmarshal(jsonBytes, &raw); err != nil {
+		t.Fatalf("unmarshal compiled json failed: %v", err)
+	}
+
+	// 1. Verify DNS compiled
+	dnsObj, ok := raw["dns"].(map[string]interface{})
+	if !ok || dnsObj["queryStrategy"] != "UseIPv4" {
+		t.Fatalf("expected DNS compiled with UseIPv4, got %+v", raw["dns"])
+	}
+
+	// 2. Verify Inbounds: us-vless, us-trojan, and forced api:8080
+	inbList := raw["inbounds"].([]interface{})
+	if len(inbList) != 3 {
+		t.Fatalf("expected 3 inbounds (2 business + api), got %d", len(inbList))
+	}
+	var apiInb, vlessInb, trojanInb map[string]interface{}
+	for _, item := range inbList {
+		m := item.(map[string]interface{})
+		switch m["tag"] {
+		case "api":
+			apiInb = m
+		case "us-vless":
+			vlessInb = m
+		case "us-trojan":
+			trojanInb = m
+		}
+	}
+	if apiInb == nil || int(apiInb["port"].(float64)) != 8080 || apiInb["listen"] != "127.0.0.1" {
+		t.Fatalf("expected forced api inbound 127.0.0.1:8080, got %+v", apiInb)
+	}
+
+	// 3. Verify static clients flow preservation and deduplication
+	vlessSettings := vlessInb["settings"].(map[string]interface{})
+	if _, hasTopFlow := vlessSettings["flow"]; hasTopFlow {
+		t.Fatalf("top-level settings.flow must not exist on vless inbound")
+	}
+	vlessClients := vlessSettings["clients"].([]interface{})
+	if len(vlessClients) != 3 {
+		t.Fatalf("expected 3 deduplicated vless clients (1 db + 2 static), got %d: %+v", len(vlessClients), vlessClients)
+	}
+	clientByEmail := make(map[string]map[string]interface{})
+	for _, cl := range vlessClients {
+		cm := cl.(map[string]interface{})
+		clientByEmail[cm["email"].(string)] = cm
+	}
+	if dbCl := clientByEmail["db-user@example.com"]; dbCl["flow"] != "xtls-rprx-vision" {
+		t.Fatalf("expected DB user to inherit inbound vision flow, got %+v", dbCl)
+	}
+	if emptyFlowCl := clientByEmail["relay-auto:jp-to-us@internal"]; emptyFlowCl == nil {
+		t.Fatalf("missing static relay client without flow")
+	} else if _, hasFlow := emptyFlowCl["flow"]; hasFlow {
+		t.Fatalf("CRITICAL: empty static relay flow must be omitted, got %v", emptyFlowCl["flow"])
+	}
+	if visionCl := clientByEmail["relay-auto:jp-to-us-vision@internal"]; visionCl == nil || visionCl["flow"] != "xtls-rprx-vision" {
+		t.Fatalf("expected static relay vision flow preserved, got %+v", visionCl)
+	}
+
+	trojanClients := trojanInb["settings"].(map[string]interface{})["clients"].([]interface{})
+	if len(trojanClients) != 2 {
+		t.Fatalf("expected 2 trojan clients (1 db + 1 static), got %d", len(trojanClients))
+	}
+
+	// 4. Verify Outbounds include warp-out, ipv6, plus auto-added direct and block
+	obList := raw["outbounds"].([]interface{})
+	obTags := make(map[string]bool)
+	for _, item := range obList {
+		obTags[item.(map[string]interface{})["tag"].(string)] = true
+	}
+	for _, want := range []string{"warp-out", "ipv6", "direct", "block"} {
+		if !obTags[want] {
+			t.Fatalf("missing expected outbound %q in %+v", want, obTags)
+		}
+	}
+
+	// 5. Verify Routing Layer 1 api -> api rule is first and user rules follow
+	routingObj := raw["routing"].(map[string]interface{})
+	rules := routingObj["rules"].([]interface{})
+	if len(rules) != 3 {
+		t.Fatalf("expected 3 rules (api + 2 user rules), got %d: %+v", len(rules), rules)
+	}
+	r0 := rules[0].(map[string]interface{})
+	if r0["outboundTag"] != "api" || r0["inboundTag"].([]interface{})[0] != "api" {
+		t.Fatalf("first routing rule must be api -> api, got %+v", r0)
+	}
+	r1 := rules[1].(map[string]interface{})
+	if r1["outboundTag"] != "warp-out" {
+		t.Fatalf("second routing rule must be warp-out, got %+v", r1)
+	}
+
+	// 6. BuildRemoteNodeUsers must NOT include static relay clients
+	syncUsers, err := compiler.BuildRemoteNodeUsers(inbounds, users)
+	if err != nil {
+		t.Fatalf("BuildRemoteNodeUsers failed: %v", err)
+	}
+	if len(syncUsers) != 2 {
+		t.Fatalf("expected only 2 DB sync users, got %+v", syncUsers)
+	}
+	for _, su := range syncUsers {
+		if strings.HasPrefix(su.Email, "relay-auto:") {
+			t.Fatalf("static relay client leaked into BuildRemoteNodeUsers: %+v", su)
+		}
+	}
+}
+
 
 
 

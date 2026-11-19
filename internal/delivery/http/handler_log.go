@@ -3,6 +3,7 @@ package http
 import (
 	"net/http"
 	"strconv"
+	"strings"
 
 	"panel/internal/domain"
 	"panel/internal/service"
@@ -13,6 +14,7 @@ import (
 type LogHandler struct {
 	logSvc   *service.LogService
 	auditSvc *service.AuditLogService
+	nodeSvc  *service.NodeService
 }
 
 func NewLogHandler(logSvc *service.LogService, auditSvc ...*service.AuditLogService) *LogHandler {
@@ -23,7 +25,39 @@ func NewLogHandler(logSvc *service.LogService, auditSvc ...*service.AuditLogServ
 	return h
 }
 
+// WithNodeService attaches NodeService for on-demand remote node log retrieval.
+func (h *LogHandler) WithNodeService(nodeSvc *service.NodeService) *LogHandler {
+	h.nodeSvc = nodeSvc
+	return h
+}
+
 func (h *LogHandler) GetLogs(c *gin.Context) {
+	nodeID, ok := parseOptionalNodeID(c)
+	if !ok {
+		return
+	}
+	if nodeID > 0 {
+		if h.nodeSvc == nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "node service not configured"})
+			return
+		}
+		svcName := c.DefaultQuery("service", "xray")
+		linesStr := c.DefaultQuery("lines", "100")
+		lines, err := strconv.Atoi(linesStr)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid lines"})
+			return
+		}
+		refresh := strings.EqualFold(c.Query("refresh"), "true") || c.Query("refresh") == "1"
+		resp, err := h.nodeSvc.RequestNodeLogs(c.Request.Context(), nodeID, svcName, lines, refresh)
+		if err != nil {
+			writePerNodeConfigError(c, err)
+			return
+		}
+		c.JSON(http.StatusOK, resp)
+		return
+	}
+
 	logType := c.DefaultQuery("type", "access")
 	linesStr := c.DefaultQuery("lines", "100")
 	lines, _ := strconv.Atoi(linesStr)

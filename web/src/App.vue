@@ -215,6 +215,56 @@
 
         <!-- Global Status Pill & Quick Controls -->
         <div class="flex items-center gap-2.5">
+          <!-- Global Node Switcher -->
+          <div
+            v-if="isAuthenticated"
+            class="flex items-center gap-1.5 px-2 py-1 rounded-md border text-[11px] font-mono transition-colors"
+            :class="
+              isRemoteNode
+                ? 'bg-sky-500/10 border-sky-500/40 text-sky-300'
+                : 'bg-neutral-900 border-border text-foreground'
+            "
+            :title="
+              isRemoteNode
+                ? `当前正在远程托管节点：${activeNodeLabel}`
+                : '当前管理节点：本机 Master'
+            "
+          >
+            <span
+              class="w-1.5 h-1.5 rounded-full shrink-0"
+              :class="
+                isRemoteNode
+                  ? activeNode?.online
+                    ? 'bg-emerald-400'
+                    : 'bg-amber-400'
+                  : 'bg-neutral-400'
+              "
+            ></span>
+            <span
+              v-if="isRemoteNode"
+              class="px-1 py-0.2 rounded bg-sky-500/20 text-sky-200 border border-sky-500/30 text-[9px] tracking-wider shrink-0"
+            >
+              远程托管
+            </span>
+            <select
+              :value="activeNodeId"
+              @change="onNodeSelectChange"
+              aria-label="切换全局管理节点"
+              class="bg-transparent text-xs font-mono focus:outline-none cursor-pointer pr-1 max-w-[210px]"
+              :class="isRemoteNode ? 'text-sky-200 font-semibold' : 'text-foreground'"
+            >
+              <option :value="0" class="bg-neutral-950 text-foreground">🖥 本机 Master</option>
+              <option
+                v-for="n in nodesList"
+                :key="n.id"
+                :value="n.id"
+                class="bg-neutral-950 text-foreground"
+              >
+                {{ formatNodeOption(n) }}
+              </option>
+            </select>
+          </div>
+
           <!-- Mock Demo Indicator -->
           <div
             v-if="isMock"
@@ -300,6 +350,44 @@
         </div>
 
         <div class="flex items-center gap-1.5">
+          <!-- Mobile Global Node Switcher -->
+          <div
+            v-if="isAuthenticated"
+            class="flex items-center gap-1 px-1.5 py-0.5 rounded-md border text-[10px] font-mono transition-colors max-w-[128px]"
+            :class="
+              isRemoteNode
+                ? 'bg-sky-500/10 border-sky-500/40 text-sky-200'
+                : 'bg-neutral-900 border-border text-foreground'
+            "
+          >
+            <span
+              class="w-1.5 h-1.5 rounded-full shrink-0"
+              :class="
+                isRemoteNode
+                  ? activeNode?.online
+                    ? 'bg-emerald-400'
+                    : 'bg-amber-400'
+                  : 'bg-neutral-400'
+              "
+            ></span>
+            <select
+              :value="activeNodeId"
+              @change="onNodeSelectChange"
+              aria-label="切换管理节点"
+              class="bg-transparent text-[10px] font-mono focus:outline-none cursor-pointer w-full truncate"
+            >
+              <option :value="0" class="bg-neutral-950 text-foreground">🖥 本机 Master</option>
+              <option
+                v-for="n in nodesList"
+                :key="n.id"
+                :value="n.id"
+                class="bg-neutral-950 text-foreground"
+              >
+                {{ formatNodeOption(n) }}
+              </option>
+            </select>
+          </div>
+
           <div
             class="flex items-center gap-1 px-2 py-0.5 rounded-md border text-[10px] font-mono"
             :class="
@@ -373,7 +461,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted } from 'vue'
+import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import {
   LayoutDashboard,
@@ -396,11 +484,36 @@ import {
 import ToastContainer from './components/ToastContainer.vue'
 import { toast } from './utils/toast'
 import api from './api'
+import type { NodeItem } from './api/nodes'
+import { useActiveNode } from './composables/useActiveNode'
 import { isMockMode, resetMockState } from './mock'
 import pkg from '../package.json'
 
 const route = useRoute()
 const router = useRouter()
+
+const { activeNodeId, nodesList, activeNode, isRemoteNode, loadNodes, setActiveNode } =
+  useActiveNode()
+
+const hasToken = ref<boolean>(
+  typeof window !== 'undefined' && Boolean(localStorage.getItem('token'))
+)
+
+const formatNodeOption = (n: NodeItem) => {
+  const regionPart = n.region ? `[${n.region}] ` : ''
+  const statusPart = n.online ? '在线' : '离线'
+  return `${regionPart}${n.name} (${statusPart})`
+}
+
+const activeNodeLabel = computed(() => {
+  if (!isRemoteNode.value) return '本机 Master'
+  return activeNode.value ? formatNodeOption(activeNode.value) : `节点 #${activeNodeId.value}`
+})
+
+const onNodeSelectChange = (e: Event) => {
+  const target = e.target as HTMLSelectElement
+  setActiveNode(Number(target.value))
+}
 
 const isMock = computed(() => isMockMode())
 const handleResetDemo = () => {
@@ -420,6 +533,7 @@ const isBlankLayout = computed(() => {
     route.meta?.layout === 'blank'
   )
 })
+const isAuthenticated = computed(() => !isBlankLayout.value && hasToken.value)
 const username = computed(() => localStorage.getItem('username') || 'admin')
 
 const isMobileDrawerOpen = ref(false)
@@ -537,6 +651,9 @@ const pollCoreStatus = async () => {
 const triggerGlobalRefresh = () => {
   refreshing.value = true
   pollCoreStatus()
+  if (isAuthenticated.value) {
+    loadNodes()
+  }
   setTimeout(() => {
     refreshing.value = false
     toast.info('面板数据已同步')
@@ -570,7 +687,25 @@ const handleVisibilityChange = () => {
   }
 }
 
+watch(
+  () => [isBlankLayout.value, route.fullPath],
+  ([blank], oldVal) => {
+    hasToken.value = typeof window !== 'undefined' && Boolean(localStorage.getItem('token'))
+    const wasBlank = oldVal ? oldVal[0] : true
+    if (!blank && hasToken.value && (wasBlank || nodesList.value.length === 0)) {
+      loadNodes()
+      if (wasBlank) {
+        pollCoreStatus()
+      }
+    }
+  }
+)
+
 onMounted(() => {
+  hasToken.value = typeof window !== 'undefined' && Boolean(localStorage.getItem('token'))
+  if (!isBlankLayout.value && hasToken.value) {
+    loadNodes()
+  }
   pollCoreStatus()
   statusTimer = setInterval(pollCoreStatus, 6000)
   document.addEventListener('visibilitychange', handleVisibilityChange)
@@ -587,6 +722,7 @@ onUnmounted(() => {
 const logout = () => {
   localStorage.removeItem('token')
   localStorage.removeItem('username')
+  hasToken.value = false
   toast.info('已安全退出系统')
   router.push('/login')
 }

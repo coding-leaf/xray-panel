@@ -19,13 +19,14 @@ type RunnerConfig struct {
 // Runner orchestrates periodic Master heartbeats, traffic spooling, config reloads,
 // and differential gRPC user updates.
 type Runner struct {
-	client     *Client
-	spool      *Spool
-	cfgMgr     *ConfigManager
-	userSync   *UserSyncer
-	traffic    TrafficCollector
-	metrics    *MetricsCollector
-	quotaStore *QuotaStore
+	client       *Client
+	spool        *Spool
+	cfgMgr       *ConfigManager
+	userSync     *UserSyncer
+	traffic      TrafficCollector
+	metrics      *MetricsCollector
+	quotaStore   *QuotaStore
+	logCollector LogCollector
 
 	mu            sync.Mutex
 	agentVersion  string
@@ -82,6 +83,14 @@ func NewRunner(
 func (r *Runner) WithQuotaStore(store *QuotaStore) *Runner {
 	r.mu.Lock()
 	r.quotaStore = store
+	r.mu.Unlock()
+	return r
+}
+
+// WithLogCollector attaches an optional LogCollector for on-demand remote log retrieval.
+func (r *Runner) WithLogCollector(c LogCollector) *Runner {
+	r.mu.Lock()
+	r.logCollector = c
 	r.mu.Unlock()
 	return r
 }
@@ -152,7 +161,7 @@ func (r *Runner) SyncOnce(ctx context.Context) error {
 		AgentVersion: r.agentVersion,
 		XrayVersion:  r.xrayVersion,
 		LastError:    r.lastError,
-		HostMetrics:  hostMetrics,
+		HostMetrics:  &hostMetrics,
 		TrafficBatch: pending,
 	}
 	r.mu.Unlock()
@@ -178,6 +187,14 @@ func (r *Runner) SyncOnce(ctx context.Context) error {
 
 	r.syncQuotaStoreOnline(resp)
 
+	reconcileErr := r.reconcileSyncResponse(ctx, resp)
+	if resp.LogRequest != nil {
+		r.handleLogRequest(ctx, resp.LogRequest)
+	}
+	return reconcileErr
+}
+
+func (r *Runner) reconcileSyncResponse(ctx context.Context, resp *SyncResponse) error {
 	if resp.DesiredState == DesiredStateCircuitBroken {
 		r.mu.Lock()
 		alreadyBroken := r.circuitBroken
@@ -240,6 +257,52 @@ func (r *Runner) SyncOnce(ctx context.Context) error {
 	r.lastError = ""
 	r.mu.Unlock()
 	return nil
+}
+
+func (r *Runner) handleLogRequest(ctx context.Context, logReq *LogRequest) {
+	if logReq == nil {
+		return
+	}
+	r.mu.Lock()
+	collector := r.logCollector
+	r.mu.Unlock()
+
+	result := &LogResult{
+		RequestID:       logReq.RequestID,
+		Service:         logReq.Service,
+		CollectedAtUnix: time.Now().Unix(),
+	}
+
+	if collector == nil {
+		result.Error = "log collector not configured"
+	} else {
+		lines, err := collector.Collect(ctx, logReq.Service, logReq.Lines)
+		if err != nil {
+			result.Error = err.Error()
+		} else {
+			result.Lines = lines
+		}
+	}
+
+	r.mu.Lock()
+	ackReq := &SyncRequest{
+		ConfigHash:   r.configHash,
+		UsersHash:    r.usersHash,
+		AgentVersion: r.agentVersion,
+		XrayVersion:  r.xrayVersion,
+		HostMetrics:  nil,
+		TrafficBatch: nil,
+		LogResult:    result,
+	}
+	r.mu.Unlock()
+
+	if _, err := r.client.Sync(ctx, ackReq); err != nil {
+		slog.Warn("Failed to send on-demand log result to master",
+			slog.String("request_id", logReq.RequestID),
+			slog.String("service", logReq.Service),
+			slog.String("error", err.Error()),
+		)
+	}
 }
 
 func (r *Runner) setLastError(msg string) {

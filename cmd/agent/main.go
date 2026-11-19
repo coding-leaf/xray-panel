@@ -115,7 +115,8 @@ func main() {
 		slog.Error("Failed to initialize agent runner", slog.String("error", err.Error()))
 		os.Exit(1)
 	}
-	runner.WithQuotaStore(quotaStore)
+	runner.WithQuotaStore(quotaStore).
+		WithLogCollector(agent.NewJournalctlLogCollector(agent.OSCommandRunner{}))
 
 	slog.Info("Starting xray-panel thin agent",
 		slog.String("version", Version),

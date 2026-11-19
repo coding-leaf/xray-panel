@@ -1,15 +1,43 @@
 package http
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
+	"strconv"
+	"strings"
 
 	"panel/internal/domain"
 	"panel/internal/service"
 
 	"github.com/gin-gonic/gin"
 )
+
+func parseOptionalNodeID(c *gin.Context) (uint, bool) {
+	nodeIDStr := strings.TrimSpace(c.Query("nodeId"))
+	if nodeIDStr == "" || nodeIDStr == "0" {
+		return 0, true
+	}
+	id, err := strconv.ParseUint(nodeIDStr, 10, 64)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid nodeId"})
+		return 0, false
+	}
+	return uint(id), true
+}
+
+func writePerNodeConfigError(c *gin.Context, err error) {
+	if errors.Is(err, domain.ErrNotFound) {
+		c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
+		return
+	}
+	if errors.Is(err, domain.ErrInvalidInput) || errors.Is(err, domain.ErrInvalidConfig) {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+}
 
 type ConfigHandler struct {
 	configSvc *service.ConfigService
@@ -25,6 +53,20 @@ func NewConfigHandler(configSvc *service.ConfigService, auditSvc ...*service.Aud
 }
 
 func (h *ConfigHandler) GetRaw(c *gin.Context) {
+	nodeID, ok := parseOptionalNodeID(c)
+	if !ok {
+		return
+	}
+	if nodeID > 0 {
+		raw, err := h.configSvc.GetNodeCompiledConfigRaw(c.Request.Context(), nodeID)
+		if err != nil {
+			writePerNodeConfigError(c, err)
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"raw": string(raw), "readOnly": true})
+		return
+	}
+
 	raw, err := h.configSvc.GetRawConfig(c.Request.Context())
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})

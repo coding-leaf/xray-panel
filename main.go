@@ -129,6 +129,7 @@ func main() {
 	configSvc := service.NewConfigService(configMgr, supervisor, inboundRepo, userRepo, snapshotRepo, compiler).
 		WithNodeCacheInvalidator(nodeSvc).
 		WithNodeRepo(nodeRepo)
+	nodeSvc.WithLocalOutboundsProvider(configSvc.ListOutbounds)
 	if err := configSvc.SyncFromFile(bgCtx); err != nil {
 		slog.Error("failed to sync config from file on startup, proceeding with database config", slog.Any("error", err))
 	}
@@ -180,7 +181,7 @@ func main() {
 		Config:    deliveryHTTP.NewConfigHandler(configSvc, auditLogSvc),
 		Sub:       deliveryHTTP.NewSubHandler(subSvc),
 		Setting:   deliveryHTTP.NewSettingHandler(settingSvc),
-		Log:       deliveryHTTP.NewLogHandler(logSvc, auditLogSvc),
+		Log:       deliveryHTTP.NewLogHandler(logSvc, auditLogSvc).WithNodeService(nodeSvc),
 		DNS:       deliveryHTTP.NewDNSHandler(configSvc),
 		GeoData:   deliveryHTTP.NewGeoDataHandler(geoSvc),
 		Ticket:    deliveryHTTP.NewTicketHandler(ticketSvc),

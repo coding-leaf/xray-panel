@@ -1,5 +1,249 @@
 <template>
-  <div class="space-y-4">
+  <!-- Remote Node On-Demand Logs Mode -->
+  <div v-if="isRemoteNode" class="space-y-4">
+    <!-- Header & On-Demand Controls -->
+    <div
+      class="flex flex-col lg:flex-row items-start lg:items-center justify-between gap-3 pb-2 border-b border-border/60"
+    >
+      <div>
+        <div class="flex items-center gap-2 flex-wrap">
+          <h1 class="text-lg font-semibold text-foreground tracking-tight">远端节点按需日志</h1>
+          <span
+            class="px-2 py-0.5 rounded text-[10px] font-mono bg-sky-500/10 text-sky-300 border border-sky-500/30"
+          >
+            {{ activeNode?.region ? `[${activeNode.region}] ` : ''
+            }}{{ activeNode?.name || `节点 #${activeNodeId}` }}
+          </span>
+          <span
+            v-if="activeNode"
+            class="px-2 py-0.5 rounded text-[10px] font-mono border"
+            :class="
+              activeNode.online
+                ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20'
+                : 'bg-amber-500/10 text-amber-400 border-amber-500/20'
+            "
+          >
+            {{ activeNode.online ? '在线' : '离线' }}
+          </span>
+        </div>
+        <p class="text-xs text-muted-foreground mt-0.5">
+          平时零流量消耗；点击「拉取日志」向节点下发一次性 journalctl 采集指令并实时回传
+        </p>
+      </div>
+
+      <div class="flex flex-wrap items-center gap-2">
+        <!-- Service Selector -->
+        <div class="bg-neutral-900 p-0.5 rounded-md border border-border flex">
+          <button
+            type="button"
+            @click="remoteService = 'xray'"
+            class="px-2.5 py-1 rounded text-xs font-mono font-semibold transition-all"
+            :class="
+              remoteService === 'xray'
+                ? 'bg-neutral-800 text-cyan-300 shadow-sm'
+                : 'text-muted-foreground hover:text-foreground'
+            "
+          >
+            xray
+          </button>
+          <button
+            type="button"
+            @click="remoteService = 'xray-agent'"
+            class="px-2.5 py-1 rounded text-xs font-mono font-semibold transition-all"
+            :class="
+              remoteService === 'xray-agent'
+                ? 'bg-neutral-800 text-cyan-300 shadow-sm'
+                : 'text-muted-foreground hover:text-foreground'
+            "
+          >
+            xray-agent
+          </button>
+        </div>
+
+        <!-- Lines Selector -->
+        <select
+          v-model.number="remoteLines"
+          aria-label="选择拉取日志行数"
+          class="bg-neutral-950 text-foreground px-3 py-1.5 rounded-md border border-border text-xs font-mono focus:outline-none focus:ring-1 focus:ring-ring cursor-pointer"
+        >
+          <option :value="50">最近 50 行</option>
+          <option :value="100">最近 100 行</option>
+          <option :value="200">最近 200 行</option>
+          <option :value="500">最近 500 行</option>
+        </select>
+
+        <!-- Fetch Button -->
+        <button
+          type="button"
+          @click="fetchRemoteLogs"
+          :disabled="remoteLoading"
+          class="px-3 py-1.5 rounded-md text-xs font-semibold bg-sky-600 hover:bg-sky-500 text-white transition-colors flex items-center gap-1.5 disabled:opacity-60"
+        >
+          <RefreshCw class="w-3.5 h-3.5" :class="{ 'animate-spin': remoteLoading }" />
+          <span>{{ remoteLoading ? '拉取中...' : '拉取日志' }}</span>
+        </button>
+      </div>
+    </div>
+
+    <!-- Local Terminal Filter & Metadata Bar -->
+    <div
+      class="p-3 rounded-lg bg-card border border-border flex flex-col md:flex-row items-stretch md:items-center justify-between gap-2.5"
+    >
+      <div
+        class="flex items-center gap-2 flex-1 bg-neutral-950 px-2.5 py-1.5 rounded-md border border-border focus-within:ring-1 focus-within:ring-ring"
+      >
+        <Search class="w-3.5 h-3.5 text-muted-foreground shrink-0" />
+        <input
+          v-model="remoteKeyword"
+          type="text"
+          placeholder="在已拉取的终端日志中过滤关键字..."
+          class="w-full bg-transparent text-foreground focus:outline-none placeholder:text-muted-foreground font-mono text-xs"
+        />
+        <button
+          v-if="remoteKeyword"
+          type="button"
+          aria-label="清除关键字"
+          @click="remoteKeyword = ''"
+          class="text-muted-foreground hover:text-foreground text-xs"
+        >
+          ✕
+        </button>
+      </div>
+
+      <div class="flex flex-wrap items-center gap-2 shrink-0 text-xs font-mono">
+        <span
+          v-if="remoteLogResult && !remoteLogResult.pending"
+          class="px-2 py-1 rounded border text-[11px]"
+          :class="
+            remoteLogResult.cached
+              ? 'bg-neutral-900 border-border text-muted-foreground'
+              : 'bg-emerald-500/10 border-emerald-500/30 text-emerald-300'
+          "
+        >
+          {{ remoteLogResult.cached ? '缓存命中' : '实时采集' }}
+          <template v-if="remoteCollectedTimeText"> · {{ remoteCollectedTimeText }}</template>
+        </span>
+
+        <button
+          type="button"
+          @click="remoteSortOrder = remoteSortOrder === 'desc' ? 'asc' : 'desc'"
+          class="px-2.5 py-1.5 rounded-md text-xs border transition-colors flex items-center gap-1.5"
+          :class="
+            remoteSortOrder === 'desc'
+              ? 'bg-indigo-500/15 text-indigo-300 border-indigo-500/30 font-semibold'
+              : 'bg-neutral-950 text-muted-foreground border-border hover:text-foreground'
+          "
+        >
+          <ArrowUpDown class="w-3.5 h-3.5" />
+          <span>{{ remoteSortOrder === 'desc' ? '最新在顶' : '时间正序' }}</span>
+        </button>
+
+        <button
+          type="button"
+          @click="copyRemoteLogs"
+          :disabled="!filteredRemoteLines.length"
+          class="px-2.5 py-1.5 rounded-md text-xs border border-border bg-neutral-950 text-muted-foreground hover:text-foreground disabled:opacity-40 transition-colors flex items-center gap-1.5"
+        >
+          <Copy class="w-3.5 h-3.5" />
+          <span>复制日志</span>
+        </button>
+      </div>
+    </div>
+
+    <!-- Loading Notice -->
+    <div
+      v-if="remoteLoading"
+      class="p-3 rounded-lg bg-sky-500/10 border border-sky-500/30 text-sky-200 text-xs flex items-center gap-2.5 font-mono"
+    >
+      <RefreshCw class="w-4 h-4 text-sky-400 animate-spin shrink-0" />
+      <span>
+        已下发 {{ remoteService }} 日志采集指令至节点，正在等待 Agent 轻量同步回传（最长约 25s）...
+      </span>
+    </div>
+
+    <!-- Pending Notice -->
+    <div
+      v-else-if="remoteLogResult?.pending"
+      class="p-3 rounded-lg bg-amber-500/10 border border-amber-500/30 text-amber-200 text-xs flex flex-col sm:flex-row sm:items-center justify-between gap-2.5"
+    >
+      <div class="flex items-start gap-2">
+        <AlertTriangle class="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
+        <div class="space-y-0.5">
+          <p class="font-semibold">节点暂未在本次窗口内回传日志（pending）</p>
+          <p class="text-[11px] text-amber-200/80">
+            采集指令已入队，节点可能处于心跳间隔期或暂时离线；请稍后点击右侧「重新拉取」获取回传结果。
+          </p>
+        </div>
+      </div>
+      <button
+        type="button"
+        @click="fetchRemoteLogs"
+        class="px-3 py-1.5 rounded-md bg-amber-500/20 hover:bg-amber-500/30 text-amber-200 border border-amber-500/40 text-xs font-semibold shrink-0"
+      >
+        重新拉取
+      </button>
+    </div>
+
+    <!-- Error Notice -->
+    <div
+      v-if="remoteError"
+      class="p-3 rounded-lg bg-rose-500/10 border border-rose-500/30 text-rose-300 text-xs flex items-start gap-2 font-mono"
+    >
+      <AlertTriangle class="w-4 h-4 text-rose-400 shrink-0 mt-0.5" />
+      <span>采集异常：{{ remoteError }}</span>
+    </div>
+
+    <!-- Remote Terminal Log Box -->
+    <div class="rounded-lg border border-border overflow-hidden bg-neutral-950">
+      <div
+        class="flex items-center justify-between px-3.5 py-2 bg-neutral-900 border-b border-border text-xs"
+      >
+        <div class="flex items-center gap-2">
+          <span class="w-2.5 h-2.5 rounded-full bg-rose-500/80 inline-block"></span>
+          <span class="w-2.5 h-2.5 rounded-full bg-amber-500/80 inline-block"></span>
+          <span class="w-2.5 h-2.5 rounded-full bg-emerald-500/80 inline-block"></span>
+          <span class="ml-2 font-mono text-foreground font-semibold">
+            journalctl -u {{ remoteService }} -n {{ remoteLines }}
+          </span>
+        </div>
+        <div class="text-muted-foreground font-mono text-xs">
+          展示 {{ filteredRemoteLines.length }} 行
+        </div>
+      </div>
+
+      <div
+        class="h-[600px] overflow-y-auto p-4 sm:p-5 font-['JetBrains_Mono',monospace] text-[13px] leading-[1.7] select-text space-y-0.5 bg-neutral-950 text-foreground"
+      >
+        <div
+          v-for="(item, idx) in filteredRemoteLines"
+          :key="item._rowKey"
+          class="py-0.5 px-2 rounded hover:bg-neutral-900 transition-colors flex items-start gap-3"
+          :class="highlightLine(item.text)"
+        >
+          <span
+            class="text-muted-foreground select-none shrink-0 w-10 text-right font-mono text-xs pt-0.5"
+          >
+            {{ Number(idx) + 1 }}
+          </span>
+          <span class="break-all whitespace-pre-wrap flex-1">{{ item.text }}</span>
+        </div>
+
+        <div
+          v-if="!filteredRemoteLines.length"
+          class="text-center text-muted-foreground py-24 font-sans text-xs space-y-2"
+        >
+          <p v-if="!remoteLogResult">
+            选择服务（xray / xray-agent）与行数后，点击右上角「拉取日志」按需采集远端节点日志
+          </p>
+          <p v-else-if="remoteLogResult.pending">正在等待远端节点回传日志，请稍后重试</p>
+          <p v-else>未返回匹配的日志记录</p>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Local Master Logs Mode (Original Experience) -->
+  <div v-else class="space-y-4">
     <!-- Header & Controls Bar -->
     <div
       class="flex flex-col lg:flex-row items-start lg:items-center justify-between gap-3 pb-2 border-b border-border/60"
@@ -1141,12 +1385,36 @@ import {
   ChevronRight,
   X,
   AlertTriangle,
+  Copy,
 } from 'lucide-vue-next'
 import api from '../api'
 import { toast } from '../utils/toast'
+import { copyText } from '../utils/clipboard'
+import { useActiveNode } from '../composables/useActiveNode'
+
+interface RemoteLogResponse {
+  nodeId: number
+  service: string
+  lines: string[]
+  cached: boolean
+  pending: boolean
+  collectedAt: number | string
+  error?: string
+}
 
 const route = useRoute()
 const router = useRouter()
+const { activeNodeId, activeNode, isRemoteNode } = useActiveNode()
+
+// 远端节点按需日志状态
+const remoteService = ref<'xray' | 'xray-agent'>('xray')
+const remoteLines = ref<number>(100)
+const remoteLoading = ref(false)
+const remoteError = ref('')
+const remoteKeyword = ref('')
+const remoteSortOrder = ref<'asc' | 'desc'>('asc')
+const remoteLogResult = shallowRef<RemoteLogResponse | null>(null)
+let remoteRequestSeq = 0
 
 const viewMode = ref<'table' | 'terminal'>('table')
 const logType = ref<'access' | 'error' | 'audit'>('access')
@@ -1290,6 +1558,7 @@ const switchType = (type: 'access' | 'error' | 'audit') => {
 }
 
 const fetchLogs = async () => {
+  if (isRemoteNode.value) return
   const requestId = ++currentRequestId
   loading.value = true
   try {
@@ -1732,6 +2001,93 @@ const handleVisibilityChange = () => {
   }
 }
 
+const fetchRemoteLogs = async () => {
+  const nodeId = activeNodeId.value
+  if (nodeId <= 0) return
+  const reqSeq = ++remoteRequestSeq
+  remoteLoading.value = true
+  remoteError.value = ''
+  try {
+    const params = new URLSearchParams()
+    params.append('nodeId', String(nodeId))
+    params.append('service', remoteService.value)
+    params.append('lines', String(remoteLines.value))
+    params.append('refresh', 'true')
+
+    const res: RemoteLogResponse = await api.get(`/logs?${params.toString()}`, {
+      timeout: 35000,
+    })
+    if (isUnmounted || reqSeq !== remoteRequestSeq || activeNodeId.value !== nodeId) return
+    remoteLogResult.value = res || null
+    if (res?.error) {
+      remoteError.value = res.error
+    }
+  } catch (err: any) {
+    if (isUnmounted || reqSeq !== remoteRequestSeq || activeNodeId.value !== nodeId) return
+    const msg = typeof err === 'string' ? err : err?.message || '拉取远端日志失败'
+    remoteError.value = msg
+    toast.error('拉取远端日志失败：' + msg)
+  } finally {
+    if (!isUnmounted && reqSeq === remoteRequestSeq) {
+      remoteLoading.value = false
+    }
+  }
+}
+
+const remoteCollectedTimeText = computed(() => {
+  const raw = remoteLogResult.value?.collectedAt
+  if (!raw) return ''
+  try {
+    const date =
+      typeof raw === 'number' ? new Date(raw < 1e12 ? raw * 1000 : raw) : new Date(String(raw))
+    if (Number.isNaN(date.getTime())) return ''
+    return date.toLocaleTimeString('zh-CN', { hour12: false })
+  } catch {
+    return ''
+  }
+})
+
+const filteredRemoteLines = computed(() => {
+  const lines = remoteLogResult.value?.lines
+  if (!Array.isArray(lines) || lines.length === 0) return []
+  const kw = remoteKeyword.value.trim().toLowerCase()
+  const counts = new Map<string, number>()
+  const keyed = lines
+    .filter((line) => !kw || line.toLowerCase().includes(kw))
+    .map((text) => {
+      const seq = counts.get(text) || 0
+      counts.set(text, seq + 1)
+      return { text, _rowKey: `${text}#${seq}` }
+    })
+  return remoteSortOrder.value === 'desc' ? [...keyed].reverse() : keyed
+})
+
+const copyRemoteLogs = () => {
+  if (!filteredRemoteLines.value.length) return
+  const text = filteredRemoteLines.value.map((item) => item.text).join('\n')
+  copyText(text, '远端日志已复制')
+}
+
+watch(activeNodeId, (newId, oldId) => {
+  remoteRequestSeq++
+  remoteLoading.value = false
+  remoteLogResult.value = null
+  remoteError.value = ''
+  remoteKeyword.value = ''
+  if (newId > 0) {
+    if (timer) {
+      clearInterval(timer)
+      timer = null
+    }
+    autoRefresh.value = false
+  } else if (oldId !== undefined && oldId > 0) {
+    if (knownUsers.value.length === 0) fetchUsers()
+    if (knownInbounds.value.length === 0) fetchInbounds()
+    if (knownOutbounds.value.length === 0) fetchOutbounds()
+    fetchLogs()
+  }
+})
+
 onMounted(() => {
   if (typeof window !== 'undefined' && typeof window.matchMedia === 'function') {
     mediaQueryList = window.matchMedia(DESKTOP_MEDIA_QUERY)
@@ -1742,9 +2098,11 @@ onMounted(() => {
       ;(mediaQueryList as any).addListener(handleMediaChange)
     }
   }
-  fetchUsers()
-  fetchInbounds()
-  fetchOutbounds()
+  if (!isRemoteNode.value) {
+    fetchUsers()
+    fetchInbounds()
+    fetchOutbounds()
+  }
   document.addEventListener('visibilitychange', handleVisibilityChange)
 })
 

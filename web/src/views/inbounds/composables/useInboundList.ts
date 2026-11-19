@@ -1,4 +1,4 @@
-import { ref, computed } from 'vue'
+import { ref, computed, watch } from 'vue'
 import api from '../../../api'
 import { toast } from '../../../utils/toast'
 import {
@@ -6,7 +6,8 @@ import {
   checkRealityStatus,
   type RealitySummaryStatus,
 } from '../../../api/reality'
-import { listNodes, type NodeItem } from '../../../api/nodes'
+import type { NodeItem } from '../../../api/nodes'
+import { useActiveNode } from '../../../composables/useActiveNode'
 import type { InboundItem } from '../types'
 
 export function getRealityBadgeClass(status: 'ok' | 'warning' | 'error') {
@@ -230,15 +231,17 @@ export function getAssignedUserEmails(inb: any, usersList: any[] = []): string[]
 }
 
 export function useInboundList() {
+  const { activeNodeId, activeNode, isRemoteNode, nodesList, loadNodes, setActiveNode } =
+    useActiveNode()
+
   const inbounds = ref<InboundItem[]>([])
   const usersList = ref<any[]>([])
-  const nodesList = ref<NodeItem[]>([])
   const availableOutbounds = ref<string[]>(['direct', 'block'])
   const checkingReality = ref(false)
   const realitySummary = ref<RealitySummaryStatus | null>(null)
   const searchQuery = ref('')
   const protocolFilter = ref('all')
-  const nodeFilter = ref('all')
+  const nodeFilter = ref(String(activeNodeId.value))
 
   const nodeMap = computed<Record<number, NodeItem>>(() => {
     const map: Record<number, NodeItem> = {}
@@ -320,15 +323,34 @@ export function useInboundList() {
     }
   }
 
+  const applyOutboundsList = (obRes: any) => {
+    const tags = Array.isArray(obRes) ? obRes.map((o: any) => o.tag).filter((t: string) => t) : []
+    if (!tags.includes('direct')) {
+      tags.unshift('direct')
+    }
+    if (!tags.includes('block')) {
+      tags.push('block')
+    }
+    availableOutbounds.value = tags
+  }
+
+  const fetchOutboundsForNode = async (nodeId: number) => {
+    try {
+      const obRes: any = await api.get(`/outbounds?nodeId=${nodeId}`).catch(() => [])
+      applyOutboundsList(obRes)
+    } catch {
+      // keep existing fallback
+    }
+  }
+
   const fetchAll = async () => {
     try {
-      const [inbRes, uRes, obRes, nRes]: any = await Promise.all([
+      const [inbRes, uRes, obRes]: any = await Promise.all([
         api.get('/inbounds'),
         api.get('/users'),
-        api.get('/outbounds').catch(() => []),
-        listNodes().catch(() => []),
+        api.get(`/outbounds?nodeId=${activeNodeId.value}`).catch(() => []),
+        loadNodes(),
       ])
-      nodesList.value = Array.isArray(nRes) ? nRes : []
       inbounds.value = (inbRes || []).map((ib: any) => {
         let srs: any[] = []
         try {
@@ -346,17 +368,17 @@ export function useInboundList() {
         }
       })
       usersList.value = uRes || []
-      if (Array.isArray(obRes) && obRes.length > 0) {
-        availableOutbounds.value = obRes.map((o: any) => o.tag).filter((t: string) => t)
-      }
-      if (!availableOutbounds.value.includes('direct')) {
-        availableOutbounds.value.unshift('direct')
-      }
+      applyOutboundsList(obRes)
       fetchRealityStatus()
     } catch (err) {
       console.error(err)
     }
   }
+
+  watch(activeNodeId, (newId) => {
+    nodeFilter.value = String(newId)
+    fetchOutboundsForNode(newId)
+  })
 
   const deleteInbound = async (id: number): Promise<boolean> => {
     if (!confirm('确定删除该入站节点吗？')) return false
@@ -372,6 +394,10 @@ export function useInboundList() {
   }
 
   return {
+    activeNodeId,
+    activeNode,
+    isRemoteNode,
+    setActiveNode,
     inbounds,
     usersList,
     nodesList,
@@ -385,6 +411,7 @@ export function useInboundList() {
     filteredInbounds,
     realityAlertCount,
     fetchAll,
+    fetchOutboundsForNode,
     fetchRealityStatus,
     triggerRealityCheck,
     deleteInbound,

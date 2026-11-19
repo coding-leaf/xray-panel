@@ -5,39 +5,88 @@
       class="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 pb-2 border-b border-border/60"
     >
       <div>
-        <div class="flex items-center gap-2">
+        <div class="flex items-center gap-2 flex-wrap">
           <h1 class="text-lg font-semibold text-foreground tracking-tight">Xray 原始配置管理</h1>
           <span
             class="px-2 py-0.5 rounded text-[10px] font-mono bg-neutral-900 border border-border text-cyan-400"
           >
             config.json
           </span>
+          <span
+            v-if="isReadOnly"
+            class="px-2 py-0.5 rounded text-[10px] font-mono bg-sky-500/10 border border-sky-500/30 text-sky-300"
+          >
+            只读编译预览 · {{ activeNode?.name || `#${activeNodeId}` }}
+          </span>
         </div>
         <p class="text-xs text-muted-foreground mt-0.5">
-          完整的 config.json 在线编辑器，支持 JSON 格式化、官方 xray -test 严格校验与快照一键回滚
+          {{
+            isReadOnly
+              ? '展示远端节点动态编译生成的 config.json 预览；如需调整配置，请前往入站网关、出站出口、路由分流或 DNS 设置'
+              : '完整的 config.json 在线编辑器，支持 JSON 格式化、官方 xray -test 严格校验与快照一键回滚'
+          }}
         </p>
       </div>
 
       <div class="flex flex-wrap items-center gap-2">
-        <Button variant="secondary" size="sm" @click="openSnapshotsModal">
+        <Button v-if="!isReadOnly" variant="secondary" size="sm" @click="openSnapshotsModal">
           <History class="w-3.5 h-3.5 mr-1" />
           <span>版本历史</span>
         </Button>
-        <Button variant="secondary" size="sm" @click="formatJSON"> 美化 JSON </Button>
-        <Button variant="secondary" size="sm" :loading="validating" @click="validateConfig">
+        <Button v-if="isReadOnly" variant="secondary" size="sm" @click="fetchRawConfig">
+          <RefreshCw class="w-3.5 h-3.5 mr-1" />
+          <span>刷新预览</span>
+        </Button>
+        <Button v-if="isReadOnly" variant="secondary" size="sm" @click="copyRawConfig">
+          <Copy class="w-3.5 h-3.5 mr-1" />
+          <span>复制配置</span>
+        </Button>
+        <Button v-if="!isReadOnly" variant="secondary" size="sm" @click="formatJSON">
+          美化 JSON
+        </Button>
+        <Button
+          v-if="!isReadOnly"
+          variant="secondary"
+          size="sm"
+          :loading="validating"
+          @click="validateConfig"
+        >
           <CheckCircle2 class="w-3.5 h-3.5 mr-1 text-cyan-400" />
           <span>{{ validating ? '校验中...' : '测试有效性' }}</span>
         </Button>
-        <Button variant="default" size="sm" :loading="saving" @click="saveConfig">
+        <Button
+          v-if="!isReadOnly"
+          variant="default"
+          size="sm"
+          :loading="saving"
+          @click="saveConfig"
+        >
           <Save class="w-3.5 h-3.5 mr-1" />
           <span>{{ saving ? '保存并重载中...' : '保存并重载 Xray' }}</span>
         </Button>
       </div>
     </div>
 
+    <!-- Remote Read-Only Compiled Preview Banner -->
+    <div
+      v-if="isReadOnly"
+      class="p-3 rounded-lg border bg-sky-500/10 border-sky-500/30 text-sky-200 text-xs flex items-start gap-2.5"
+    >
+      <Lock class="w-4 h-4 text-sky-400 mt-0.5 shrink-0" />
+      <div class="space-y-0.5">
+        <p class="font-semibold">
+          远端节点只读编译预览（{{ activeNode?.name || `节点 #${activeNodeId}` }}）
+        </p>
+        <p class="text-[11px] text-sky-200/80">
+          该配置由 Master 根据该节点的入站、出站、路由、DNS 与自动中转凭据实时编译生成，并通过 Agent
+          心跳自动下发；为防止配置漂移，远端节点不支持直接手改覆写或快照回滚。
+        </p>
+      </div>
+    </div>
+
     <!-- Alert / Validation Output Banner -->
     <div
-      v-if="testResult"
+      v-if="testResult && !isReadOnly"
       class="p-3 rounded-lg border text-xs flex items-start gap-2.5 font-mono"
       :class="
         testResult.valid
@@ -62,13 +111,15 @@
       <div
         class="flex items-center justify-between px-3.5 py-2 bg-neutral-900 border-b border-border text-xs text-muted-foreground font-mono"
       >
-        <span>config.json</span>
+        <span>config.json{{ isReadOnly ? ' (Read-Only Preview)' : '' }}</span>
         <span class="text-[11px]">UTF-8 / JSON</span>
       </div>
       <textarea
         v-model="rawContent"
+        :readonly="isReadOnly"
         spellcheck="false"
         class="w-full h-[600px] bg-neutral-950 text-foreground font-['JetBrains_Mono',monospace] text-xs p-4 focus:outline-none leading-relaxed resize-none selection:bg-brand-500 selection:text-white"
+        :class="isReadOnly ? 'text-neutral-300 cursor-default' : ''"
         placeholder="正在加载配置文件..."
       ></textarea>
     </div>
@@ -137,29 +188,57 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
-import { CheckCircle2, AlertCircle, Save, History } from 'lucide-vue-next'
+import { ref, computed, watch, onMounted } from 'vue'
+import { CheckCircle2, AlertCircle, Save, History, Lock, RefreshCw, Copy } from 'lucide-vue-next'
 import Button from '../components/ui/Button.vue'
 import { toast } from '../utils/toast'
+import { copyText } from '../utils/clipboard'
 import { formatDateTime as formatDate } from '../utils/format'
 import api from '../api'
+import { useActiveNode } from '../composables/useActiveNode'
+
+const { activeNodeId, activeNode, isRemoteNode } = useActiveNode()
 
 const rawContent = ref('')
 const validating = ref(false)
 const saving = ref(false)
 const rollingBack = ref(false)
 const testResult = ref<any>(null)
+const remoteReadOnlyFlag = ref(false)
+let fetchConfigSeq = 0
+
+const isReadOnly = computed(() => isRemoteNode.value || remoteReadOnlyFlag.value)
 
 const showSnapshots = ref(false)
 const snapshots = ref<any[]>([])
 
 const fetchRawConfig = async () => {
+  const seq = ++fetchConfigSeq
+  const nodeId = activeNodeId.value
   try {
-    const res: any = await api.get('/config/raw')
-    rawContent.value = typeof res === 'string' ? res : JSON.stringify(res, null, 4)
+    const res: any = await api.get(`/config/raw?nodeId=${nodeId}`)
+    if (seq !== fetchConfigSeq) return
+    if (res && typeof res === 'object' && typeof res.raw === 'string' && 'readOnly' in res) {
+      remoteReadOnlyFlag.value = Boolean(res.readOnly)
+      try {
+        const parsed = JSON.parse(res.raw)
+        rawContent.value = JSON.stringify(parsed, null, 4)
+      } catch {
+        rawContent.value = res.raw
+      }
+    } else {
+      remoteReadOnlyFlag.value = false
+      rawContent.value = typeof res === 'string' ? res : JSON.stringify(res, null, 4)
+    }
   } catch (err: any) {
+    if (seq !== fetchConfigSeq) return
     toast.error('加载配置失败：' + err)
   }
+}
+
+const copyRawConfig = () => {
+  if (!rawContent.value) return
+  copyText(rawContent.value, '配置 JSON 已复制')
 }
 
 const openSnapshotsModal = async () => {
@@ -231,6 +310,12 @@ const saveConfig = async () => {
     saving.value = false
   }
 }
+
+watch(activeNodeId, () => {
+  testResult.value = null
+  showSnapshots.value = false
+  fetchRawConfig()
+})
 
 onMounted(() => {
   fetchRawConfig()

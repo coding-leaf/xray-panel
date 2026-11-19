@@ -34,6 +34,18 @@ type ConfigCompiler interface {
 	CompileToJSON(inbounds []domain.Inbound, outbounds []domain.Outbound, routing *domain.RoutingConfig, dns *domain.DNSConfig, users []domain.User) ([]byte, error)
 }
 
+// RemoteNodeFullCompiler compiles complete per-node Xray configurations including custom outbounds, routing, DNS, and static relay clients.
+type RemoteNodeFullCompiler interface {
+	CompileRemoteNodeFullToJSON(
+		inbounds []domain.Inbound,
+		outbounds []domain.Outbound,
+		routing *domain.RoutingConfig,
+		dns *domain.DNSConfig,
+		users []domain.User,
+		staticClients []domain.StaticInboundClient,
+	) ([]byte, error)
+}
+
 type ConfigService struct {
 	mu           sync.Mutex
 	configMgr    ConfigStorage
@@ -93,6 +105,12 @@ func filterLocalInbounds(inbounds []domain.Inbound) []domain.Inbound {
 func (s *ConfigService) invalidateNodeCache(nodeID uint) {
 	if s.nodeCacheInv != nil && nodeID != 0 {
 		s.nodeCacheInv.InvalidateNode(nodeID)
+	}
+}
+
+func (s *ConfigService) invalidateAllNodeCaches() {
+	if s.nodeCacheInv != nil {
+		s.nodeCacheInv.InvalidateAll()
 	}
 }
 
@@ -900,9 +918,20 @@ func (s *ConfigService) readParsedSectionsLocked(ctx context.Context, inbounds [
 }
 
 func (s *ConfigService) ListOutbounds(ctx context.Context) ([]domain.Outbound, error) {
+	return s.ListOutboundsByNode(ctx, 0)
+}
+
+func (s *ConfigService) ListOutboundsByNode(ctx context.Context, nodeID uint) ([]domain.Outbound, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return s.listOutboundsLocked(ctx)
+	if nodeID == 0 {
+		return s.listOutboundsLocked(ctx)
+	}
+	node, err := s.getNodeForConfigLocked(ctx, nodeID)
+	if err != nil {
+		return nil, err
+	}
+	return parseNodeOutbounds(node.OutboundsJSON, true)
 }
 
 func (s *ConfigService) listOutboundsLocked(ctx context.Context) ([]domain.Outbound, error) {
@@ -926,17 +955,9 @@ func (s *ConfigService) listOutboundsLocked(ctx context.Context) ([]domain.Outbo
 	return parseOutboundsList(root.Outbounds), nil
 }
 
-func (s *ConfigService) SaveOutbound(ctx context.Context, outbound domain.Outbound) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	existingList, err := s.listOutboundsLocked(ctx)
-	if err != nil && !errors.Is(err, domain.ErrNotFound) {
-		return fmt.Errorf("read outbounds failed, abort saving to protect config: %w", err)
-	}
-
+func upsertOutboundItem(existingList []domain.Outbound, outbound domain.Outbound) []domain.Outbound {
 	found := false
-	var updatedList []domain.Outbound
+	updatedList := make([]domain.Outbound, 0, len(existingList)+1)
 	for _, ob := range existingList {
 		if ob.Tag == outbound.Tag {
 			found = true
@@ -956,27 +977,126 @@ func (s *ConfigService) SaveOutbound(ctx context.Context, outbound domain.Outbou
 		outbound.Mux = cleanMux(outbound.Mux)
 		updatedList = append(updatedList, outbound)
 	}
-
-	// 临时保存到配置并重新编译
-	return s.saveOutboundsListAndRecompileLocked(ctx, updatedList, fmt.Sprintf("保存出站节点 %s", outbound.Tag))
+	return updatedList
 }
 
-func (s *ConfigService) DeleteOutbound(ctx context.Context, tag string) error {
+func (s *ConfigService) SaveOutbound(ctx context.Context, outbound domain.Outbound) error {
+	return s.SaveOutboundByNode(ctx, 0, outbound)
+}
+
+func (s *ConfigService) SaveOutboundByNode(ctx context.Context, nodeID uint, outbound domain.Outbound) error {
+	if strings.TrimSpace(outbound.Tag) == "" {
+		return fmt.Errorf("%w: outbound tag is required", domain.ErrInvalidInput)
+	}
+
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	existingList, err := s.listOutboundsLocked(ctx)
-	if err != nil && !errors.Is(err, domain.ErrNotFound) {
-		return fmt.Errorf("read outbounds failed, abort deleting to protect config: %w", err)
+	if nodeID == 0 {
+		existingList, err := s.listOutboundsLocked(ctx)
+		if err != nil && !errors.Is(err, domain.ErrNotFound) {
+			return fmt.Errorf("read outbounds failed, abort saving to protect config: %w", err)
+		}
+
+		updatedList := upsertOutboundItem(existingList, outbound)
+		// 临时保存到配置并重新编译
+		if err := s.saveOutboundsListAndRecompileLocked(ctx, updatedList, fmt.Sprintf("保存出站节点 %s", outbound.Tag)); err != nil {
+			return err
+		}
+		s.invalidateAllNodeCaches()
+		return nil
 	}
-	var updatedList []domain.Outbound
+
+	node, nodeInbounds, _, routing, dns, users, err := s.loadRemoteNodeStateLocked(ctx, nodeID)
+	if err != nil {
+		return err
+	}
+	existingList, err := parseNodeOutbounds(node.OutboundsJSON, true)
+	if err != nil {
+		return fmt.Errorf("parse node %d outbounds failed: %w", nodeID, err)
+	}
+	updatedList := upsertOutboundItem(existingList, outbound)
+
+	localOutbounds, err := s.readLocalOutboundsBestEffortLocked(ctx)
+	if err != nil {
+		return err
+	}
+	staticClients := extractStaticRelayClients(node, nodeInbounds, localOutbounds)
+	if _, err := s.validateRemoteNodeConfig(nodeInbounds, updatedList, routing, dns, users, staticClients); err != nil {
+		return fmt.Errorf("%w: %v", domain.ErrInvalidInput, err)
+	}
+
+	encoded, err := json.Marshal(updatedList)
+	if err != nil {
+		return fmt.Errorf("marshal node %d outbounds failed: %w", nodeID, err)
+	}
+	if err := s.persistRemoteNodeConfig(ctx, nodeID, string(encoded), node.RoutingJSON, node.DNSJSON); err != nil {
+		return err
+	}
+	s.invalidateNodeCache(nodeID)
+	return nil
+}
+
+func (s *ConfigService) DeleteOutbound(ctx context.Context, tag string) error {
+	return s.DeleteOutboundByNode(ctx, 0, tag)
+}
+
+func (s *ConfigService) DeleteOutboundByNode(ctx context.Context, nodeID uint, tag string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if nodeID == 0 {
+		existingList, err := s.listOutboundsLocked(ctx)
+		if err != nil && !errors.Is(err, domain.ErrNotFound) {
+			return fmt.Errorf("read outbounds failed, abort deleting to protect config: %w", err)
+		}
+		var updatedList []domain.Outbound
+		for _, ob := range existingList {
+			if ob.Tag != tag {
+				updatedList = append(updatedList, ob)
+			}
+		}
+
+		if err := s.saveOutboundsListAndRecompileLocked(ctx, updatedList, fmt.Sprintf("删除出站节点 %s", tag)); err != nil {
+			return err
+		}
+		s.invalidateAllNodeCaches()
+		return nil
+	}
+
+	node, nodeInbounds, _, routing, dns, users, err := s.loadRemoteNodeStateLocked(ctx, nodeID)
+	if err != nil {
+		return err
+	}
+	existingList, err := parseNodeOutbounds(node.OutboundsJSON, true)
+	if err != nil {
+		return fmt.Errorf("parse node %d outbounds failed: %w", nodeID, err)
+	}
+	updatedList := make([]domain.Outbound, 0, len(existingList))
 	for _, ob := range existingList {
 		if ob.Tag != tag {
 			updatedList = append(updatedList, ob)
 		}
 	}
 
-	return s.saveOutboundsListAndRecompileLocked(ctx, updatedList, fmt.Sprintf("删除出站节点 %s", tag))
+	localOutbounds, err := s.readLocalOutboundsBestEffortLocked(ctx)
+	if err != nil {
+		return err
+	}
+	staticClients := extractStaticRelayClients(node, nodeInbounds, localOutbounds)
+	if _, err := s.validateRemoteNodeConfig(nodeInbounds, updatedList, routing, dns, users, staticClients); err != nil {
+		return fmt.Errorf("%w: %v", domain.ErrInvalidInput, err)
+	}
+
+	encoded, err := json.Marshal(updatedList)
+	if err != nil {
+		return fmt.Errorf("marshal node %d outbounds failed: %w", nodeID, err)
+	}
+	if err := s.persistRemoteNodeConfig(ctx, nodeID, string(encoded), node.RoutingJSON, node.DNSJSON); err != nil {
+		return err
+	}
+	s.invalidateNodeCache(nodeID)
+	return nil
 }
 
 func (s *ConfigService) saveOutboundsListAndRecompileLocked(ctx context.Context, outbounds []domain.Outbound, remark string) error {
@@ -1018,9 +1138,31 @@ func (s *ConfigService) saveOutboundsListAndRecompileLocked(ctx context.Context,
 // === 路由设置 (Routing Management) ===
 
 func (s *ConfigService) GetRoutingConfig(ctx context.Context) (*domain.RoutingConfig, error) {
+	return s.GetRoutingConfigByNode(ctx, 0)
+}
+
+func (s *ConfigService) GetRoutingConfigByNode(ctx context.Context, nodeID uint) (*domain.RoutingConfig, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return s.getRoutingConfigLocked(ctx)
+	if nodeID == 0 {
+		return s.getRoutingConfigLocked(ctx)
+	}
+	node, err := s.getNodeForConfigLocked(ctx, nodeID)
+	if err != nil {
+		return nil, err
+	}
+	rawCfg, err := parseNodeRouting(node.RoutingJSON)
+	if err != nil {
+		return nil, fmt.Errorf("parse node %d routing failed: %w", nodeID, err)
+	}
+	if rawCfg == nil {
+		rawCfg = &domain.RoutingConfig{}
+	}
+	nodeInbounds, err := s.findInboundsByNode(ctx, nodeID)
+	if err != nil {
+		return nil, fmt.Errorf("read node %d inbounds failed: %w", nodeID, err)
+	}
+	return s.normalizeRoutingConfig(ctx, *rawCfg, nodeInbounds, true)
 }
 
 func (s *ConfigService) getRoutingConfigLocked(ctx context.Context) (*domain.RoutingConfig, error) {
@@ -1045,9 +1187,47 @@ func (s *ConfigService) getRoutingConfigLocked(ctx context.Context) (*domain.Rou
 }
 
 func (s *ConfigService) SaveRoutingConfig(ctx context.Context, cfg *domain.RoutingConfig) error {
+	return s.SaveRoutingConfigByNode(ctx, 0, cfg)
+}
+
+func (s *ConfigService) SaveRoutingConfigByNode(ctx context.Context, nodeID uint, cfg *domain.RoutingConfig) error {
+	if cfg == nil {
+		return fmt.Errorf("%w: routing config is required", domain.ErrInvalidInput)
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return s.saveRoutingConfigLocked(ctx, cfg)
+	if nodeID == 0 {
+		return s.saveRoutingConfigLocked(ctx, cfg)
+	}
+
+	node, nodeInbounds, outbounds, _, dns, users, err := s.loadRemoteNodeStateLocked(ctx, nodeID)
+	if err != nil {
+		return err
+	}
+	cfgCopy := *cfg
+	if cfgCopy.DomainStrategy == "" {
+		cfgCopy.DomainStrategy = "IPIfNonMatch"
+	}
+	s.ensureSubRouteRules(&cfgCopy, nodeInbounds)
+
+	localOutbounds, err := s.readLocalOutboundsBestEffortLocked(ctx)
+	if err != nil {
+		return err
+	}
+	staticClients := extractStaticRelayClients(node, nodeInbounds, localOutbounds)
+	if _, err := s.validateRemoteNodeConfig(nodeInbounds, outbounds, &cfgCopy, dns, users, staticClients); err != nil {
+		return fmt.Errorf("%w: %v", domain.ErrInvalidInput, err)
+	}
+
+	encoded, err := json.Marshal(cfgCopy)
+	if err != nil {
+		return fmt.Errorf("marshal node %d routing failed: %w", nodeID, err)
+	}
+	if err := s.persistRemoteNodeConfig(ctx, nodeID, node.OutboundsJSON, string(encoded), node.DNSJSON); err != nil {
+		return err
+	}
+	s.invalidateNodeCache(nodeID)
+	return nil
 }
 
 func (s *ConfigService) saveRoutingConfigLocked(ctx context.Context, cfg *domain.RoutingConfig) error {
@@ -1196,9 +1376,27 @@ func sliceContains(slice []string, val string) bool {
 // === DNS 设置 (DNS Management) ===
 
 func (s *ConfigService) GetDNSConfig(ctx context.Context) (*domain.DNSConfig, error) {
+	return s.GetDNSConfigByNode(ctx, 0)
+}
+
+func (s *ConfigService) GetDNSConfigByNode(ctx context.Context, nodeID uint) (*domain.DNSConfig, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return s.getDNSConfigLocked(ctx)
+	if nodeID == 0 {
+		return s.getDNSConfigLocked(ctx)
+	}
+	node, err := s.getNodeForConfigLocked(ctx, nodeID)
+	if err != nil {
+		return nil, err
+	}
+	rawDNS, err := parseNodeDNS(node.DNSJSON)
+	if err != nil {
+		return nil, fmt.Errorf("parse node %d dns failed: %w", nodeID, err)
+	}
+	if rawDNS == nil {
+		return normalizeDNSConfig(domain.DNSConfig{}), nil
+	}
+	return normalizeDNSConfig(*rawDNS), nil
 }
 
 func (s *ConfigService) getDNSConfigLocked(ctx context.Context) (*domain.DNSConfig, error) {
@@ -1223,9 +1421,164 @@ func (s *ConfigService) getDNSConfigLocked(ctx context.Context) (*domain.DNSConf
 }
 
 func (s *ConfigService) SaveDNSConfig(ctx context.Context, cfg *domain.DNSConfig) error {
+	return s.SaveDNSConfigByNode(ctx, 0, cfg)
+}
+
+func (s *ConfigService) SaveDNSConfigByNode(ctx context.Context, nodeID uint, cfg *domain.DNSConfig) error {
+	if cfg == nil {
+		return fmt.Errorf("%w: dns config is required", domain.ErrInvalidInput)
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return s.saveDNSConfigLocked(ctx, cfg)
+	if nodeID == 0 {
+		return s.saveDNSConfigLocked(ctx, cfg)
+	}
+
+	node, nodeInbounds, outbounds, routing, _, users, err := s.loadRemoteNodeStateLocked(ctx, nodeID)
+	if err != nil {
+		return err
+	}
+	normalized := normalizeDNSConfig(*cfg)
+
+	localOutbounds, err := s.readLocalOutboundsBestEffortLocked(ctx)
+	if err != nil {
+		return err
+	}
+	staticClients := extractStaticRelayClients(node, nodeInbounds, localOutbounds)
+	if _, err := s.validateRemoteNodeConfig(nodeInbounds, outbounds, routing, normalized, users, staticClients); err != nil {
+		return fmt.Errorf("%w: %v", domain.ErrInvalidInput, err)
+	}
+
+	encoded, err := json.Marshal(normalized)
+	if err != nil {
+		return fmt.Errorf("marshal node %d dns failed: %w", nodeID, err)
+	}
+	if err := s.persistRemoteNodeConfig(ctx, nodeID, node.OutboundsJSON, node.RoutingJSON, string(encoded)); err != nil {
+		return err
+	}
+	s.invalidateNodeCache(nodeID)
+	return nil
+}
+
+// GetNodeCompiledConfigRaw returns the compiled JSON preview for nodeID (delegating to GetRawConfig when nodeID == 0).
+func (s *ConfigService) GetNodeCompiledConfigRaw(ctx context.Context, nodeID uint) ([]byte, error) {
+	if nodeID == 0 {
+		return s.GetRawConfig(ctx)
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	node, nodeInbounds, outbounds, routing, dns, users, err := s.loadRemoteNodeStateLocked(ctx, nodeID)
+	if err != nil {
+		return nil, err
+	}
+	localOutbounds, err := s.readLocalOutboundsBestEffortLocked(ctx)
+	if err != nil {
+		return nil, err
+	}
+	staticClients := extractStaticRelayClients(node, nodeInbounds, localOutbounds)
+	return s.validateRemoteNodeConfig(nodeInbounds, outbounds, routing, dns, users, staticClients)
+}
+
+func (s *ConfigService) getNodeForConfigLocked(ctx context.Context, nodeID uint) (*domain.Node, error) {
+	if s.nodeRepo == nil {
+		return nil, fmt.Errorf("node repository is not configured")
+	}
+	return s.nodeRepo.GetByID(ctx, nodeID)
+}
+
+func (s *ConfigService) findInboundsByNode(ctx context.Context, nodeID uint) ([]domain.Inbound, error) {
+	if s.inboundRepo == nil {
+		return nil, nil
+	}
+	if finder, ok := s.inboundRepo.(nodeInboundFinder); ok {
+		return finder.FindByNodeID(ctx, nodeID)
+	}
+	all, err := s.inboundRepo.ListAll(ctx)
+	if err != nil {
+		return nil, err
+	}
+	matched := make([]domain.Inbound, 0)
+	for _, ib := range all {
+		if ib.NodeID == nodeID {
+			matched = append(matched, ib)
+		}
+	}
+	return matched, nil
+}
+
+func (s *ConfigService) readLocalOutboundsBestEffortLocked(ctx context.Context) ([]domain.Outbound, error) {
+	outbounds, err := s.listOutboundsLocked(ctx)
+	if err != nil {
+		if errors.Is(err, domain.ErrNotFound) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("read local outbounds failed: %w", err)
+	}
+	return outbounds, nil
+}
+
+func (s *ConfigService) loadRemoteNodeStateLocked(ctx context.Context, nodeID uint) (
+	node *domain.Node,
+	nodeInbounds []domain.Inbound,
+	outbounds []domain.Outbound,
+	routing *domain.RoutingConfig,
+	dns *domain.DNSConfig,
+	users []domain.User,
+	err error,
+) {
+	node, err = s.getNodeForConfigLocked(ctx, nodeID)
+	if err != nil {
+		return nil, nil, nil, nil, nil, nil, err
+	}
+	nodeInbounds, err = s.findInboundsByNode(ctx, nodeID)
+	if err != nil {
+		return nil, nil, nil, nil, nil, nil, fmt.Errorf("read node %d inbounds failed: %w", nodeID, err)
+	}
+	if s.userRepo != nil {
+		users, err = s.userRepo.ListAll(ctx)
+		if err != nil {
+			return nil, nil, nil, nil, nil, nil, fmt.Errorf("read users failed: %w", err)
+		}
+	}
+	outbounds, err = parseNodeOutbounds(node.OutboundsJSON, false)
+	if err != nil {
+		return nil, nil, nil, nil, nil, nil, fmt.Errorf("parse node %d outbounds failed: %w", nodeID, err)
+	}
+	routing, err = parseNodeRouting(node.RoutingJSON)
+	if err != nil {
+		return nil, nil, nil, nil, nil, nil, fmt.Errorf("parse node %d routing failed: %w", nodeID, err)
+	}
+	dns, err = parseNodeDNS(node.DNSJSON)
+	if err != nil {
+		return nil, nil, nil, nil, nil, nil, fmt.Errorf("parse node %d dns failed: %w", nodeID, err)
+	}
+	return node, nodeInbounds, outbounds, routing, dns, users, nil
+}
+
+func (s *ConfigService) validateRemoteNodeConfig(
+	nodeInbounds []domain.Inbound,
+	outbounds []domain.Outbound,
+	routing *domain.RoutingConfig,
+	dns *domain.DNSConfig,
+	users []domain.User,
+	staticClients []domain.StaticInboundClient,
+) ([]byte, error) {
+	if s.compiler == nil {
+		return nil, fmt.Errorf("compiler not configured")
+	}
+	if fc, ok := s.compiler.(RemoteNodeFullCompiler); ok {
+		return fc.CompileRemoteNodeFullToJSON(nodeInbounds, outbounds, routing, dns, users, staticClients)
+	}
+	return s.compiler.CompileToJSON(nodeInbounds, outbounds, routing, dns, users)
+}
+
+func (s *ConfigService) persistRemoteNodeConfig(ctx context.Context, nodeID uint, outboundsJSON, routingJSON, dnsJSON string) error {
+	cfgRepo, ok := s.nodeRepo.(domain.NodeConfigRepository)
+	if !ok {
+		return fmt.Errorf("node repository does not support per-node config updates")
+	}
+	return cfgRepo.UpdateNodeConfig(ctx, nodeID, outboundsJSON, routingJSON, dnsJSON)
 }
 
 func (s *ConfigService) saveDNSConfigLocked(ctx context.Context, cfg *domain.DNSConfig) error {

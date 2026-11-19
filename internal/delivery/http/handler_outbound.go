@@ -23,15 +23,23 @@ func NewOutboundHandler(configSvc *service.ConfigService, auditSvc ...*service.A
 }
 
 func (h *OutboundHandler) List(c *gin.Context) {
-	outbounds, err := h.configSvc.ListOutbounds(c.Request.Context())
+	nodeID, ok := parseOptionalNodeID(c)
+	if !ok {
+		return
+	}
+	outbounds, err := h.configSvc.ListOutboundsByNode(c.Request.Context(), nodeID)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		writePerNodeConfigError(c, err)
 		return
 	}
 	c.JSON(http.StatusOK, outbounds)
 }
 
 func (h *OutboundHandler) Save(c *gin.Context) {
+	nodeID, ok := parseOptionalNodeID(c)
+	if !ok {
+		return
+	}
 	var ob domain.Outbound
 	if err := c.ShouldBindJSON(&ob); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
@@ -42,8 +50,8 @@ func (h *OutboundHandler) Save(c *gin.Context) {
 		return
 	}
 
-	if err := h.configSvc.SaveOutbound(c.Request.Context(), ob); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+	if err := h.configSvc.SaveOutboundByNode(c.Request.Context(), nodeID, ob); err != nil {
+		writePerNodeConfigError(c, err)
 		return
 	}
 
@@ -53,14 +61,18 @@ func (h *OutboundHandler) Save(c *gin.Context) {
 }
 
 func (h *OutboundHandler) Delete(c *gin.Context) {
+	nodeID, ok := parseOptionalNodeID(c)
+	if !ok {
+		return
+	}
 	tag := c.Param("tag")
 	if tag == "" {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "tag is required"})
 		return
 	}
 
-	if err := h.configSvc.DeleteOutbound(c.Request.Context(), tag); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+	if err := h.configSvc.DeleteOutboundByNode(c.Request.Context(), nodeID, tag); err != nil {
+		writePerNodeConfigError(c, err)
 		return
 	}
 

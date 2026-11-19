@@ -527,3 +527,283 @@ func TestNodeService_HandleAgentSync_AutoDrainBreakAndReset(t *testing.T) {
 		t.Fatalf("manual draining state must not be overwritten by auto breaker, got %q", respManual.DesiredState)
 	}
 }
+
+func TestNodeService_AutoStaticRelayInjection_PreservesFlowAndConfigHash(t *testing.T) {
+	nodeSvc, configSvc, userSvc, _, _, _ := setupNodeServiceTestEnv(t)
+	configSvc.WithNodeRepo(nil) // not required for SaveOutbound(0)
+	nodeSvc.WithLocalOutboundsProvider(configSvc.ListOutbounds)
+	ctx := context.Background()
+
+	// Initialize local config.json
+	if err := configSvc.SaveConfigQuietly(ctx, "init"); err != nil {
+		t.Fatalf("SaveConfigQuietly failed: %v", err)
+	}
+
+	created, err := nodeSvc.CreateNode(ctx, domain.CreateNodeDTO{
+		Name: "US Relay Target",
+		Host: "127.0.0.1",
+	})
+	if err != nil {
+		t.Fatalf("CreateNode failed: %v", err)
+	}
+
+	// Remote VLESS TCP+REALITY inbound (default flow=xtls-rprx-vision, port=443, externalPort=8443)
+	if err := configSvc.CreateInbound(ctx, &domain.Inbound{
+		NodeID:         created.ID,
+		Tag:            "us-vless",
+		Port:           443,
+		ExternalPort:   8443,
+		Protocol:       "vless",
+		SettingsJSON:   `{"decryption":"none","flow":"xtls-rprx-vision"}`,
+		StreamSettings: `{"network":"tcp","security":"reality","realitySettings":{"dest":"apple.com:443","serverNames":["apple.com"],"privateKey":"SL552CAJYk9fBNX_MvMJCaFmDQ-LHhugYSHYZ4bZXU8","shortIds":["0123456789abcdef"]}}`,
+		Enabled:        true,
+	}); err != nil {
+		t.Fatalf("create remote vless inbound failed: %v", err)
+	}
+	if err := configSvc.CreateInbound(ctx, &domain.Inbound{
+		NodeID:   created.ID,
+		Tag:      "us-trojan",
+		Port:     9443,
+		Protocol: "trojan",
+		Enabled:  true,
+	}); err != nil {
+		t.Fatalf("create remote trojan inbound failed: %v", err)
+	}
+
+	if _, err := userSvc.CreateUser(ctx, service.CreateUserDTO{
+		Email:       "normal-user@example.com",
+		InboundTags: []string{"us-vless"},
+	}); err != nil {
+		t.Fatalf("CreateUser failed: %v", err)
+	}
+
+	// Baseline sync without local relay outbounds
+	baseResp, err := nodeSvc.HandleAgentSync(ctx, created.ID, &domain.AgentSyncRequest{})
+	if err != nil {
+		t.Fatalf("baseline HandleAgentSync failed: %v", err)
+	}
+
+	// Save Master local outbounds:
+	// 1. VLESS matching ExternalPort 8443 with EMPTY flow (must remain empty!)
+	// 2. VLESS matching Port 443 with explicit xtls-rprx-vision
+	// 3. Trojan matching Port 9443
+	// 4. Unrelated host (must NOT inject)
+	if err := configSvc.SaveOutbound(ctx, domain.Outbound{
+		Tag:          "relay-us-noflow",
+		Protocol:     "vless",
+		SettingsJSON: `{"vnext":[{"address":"127.0.0.1","port":8443,"users":[{"id":"22222222-2222-2222-2222-222222222222","encryption":"none"}]}]}`,
+	}); err != nil {
+		t.Fatalf("SaveOutbound relay-us-noflow failed: %v", err)
+	}
+	if err := configSvc.SaveOutbound(ctx, domain.Outbound{
+		Tag:          "relay-us-vision",
+		Protocol:     "vless",
+		SettingsJSON: `{"vnext":[{"address":"127.0.0.1","port":443,"users":[{"id":"33333333-3333-3333-3333-333333333333","encryption":"none","flow":"xtls-rprx-vision"}]}]}`,
+	}); err != nil {
+		t.Fatalf("SaveOutbound relay-us-vision failed: %v", err)
+	}
+	if err := configSvc.SaveOutbound(ctx, domain.Outbound{
+		Tag:          "relay-us-trojan",
+		Protocol:     "trojan",
+		SettingsJSON: `{"servers":[{"address":"127.0.0.1","port":9443,"password":"trojan-relay-pw"}]}`,
+	}); err != nil {
+		t.Fatalf("SaveOutbound relay-us-trojan failed: %v", err)
+	}
+	if err := configSvc.SaveOutbound(ctx, domain.Outbound{
+		Tag:          "other-host",
+		Protocol:     "vless",
+		SettingsJSON: `{"vnext":[{"address":"10.9.9.9","port":443,"users":[{"id":"44444444-4444-4444-4444-444444444444","encryption":"none"}]}]}`,
+	}); err != nil {
+		t.Fatalf("SaveOutbound other-host failed: %v", err)
+	}
+
+	syncResp, err := nodeSvc.HandleAgentSync(ctx, created.ID, &domain.AgentSyncRequest{
+		ConfigHash: baseResp.ConfigHash,
+		UsersHash:  baseResp.UsersHash,
+	})
+	if err != nil {
+		t.Fatalf("HandleAgentSync after local relay add failed: %v", err)
+	}
+	if syncResp.ConfigUnchanged {
+		t.Fatalf("expected ConfigHash to change when matching local relay outbounds are added")
+	}
+
+	var cfgMap map[string]interface{}
+	if err := json.Unmarshal([]byte(syncResp.ConfigJSON), &cfgMap); err != nil {
+		t.Fatalf("unmarshal ConfigJSON failed: %v", err)
+	}
+	var vlessClients, trojanClients []interface{}
+	for _, item := range cfgMap["inbounds"].([]interface{}) {
+		inb := item.(map[string]interface{})
+		switch inb["tag"] {
+		case "us-vless":
+			vlessClients = inb["settings"].(map[string]interface{})["clients"].([]interface{})
+		case "us-trojan":
+			trojanClients = inb["settings"].(map[string]interface{})["clients"].([]interface{})
+		}
+	}
+
+	if len(vlessClients) != 3 {
+		t.Fatalf("expected 3 vless clients (1 db + 2 static), got %d: %+v", len(vlessClients), vlessClients)
+	}
+	byEmail := make(map[string]map[string]interface{})
+	for _, cl := range vlessClients {
+		cm := cl.(map[string]interface{})
+		byEmail[cm["email"].(string)] = cm
+	}
+	if _, hasUnrelated := byEmail["relay-auto:other-host@internal"]; hasUnrelated {
+		t.Fatalf("unrelated host outbound must not be injected")
+	}
+	if noFlowCl := byEmail["relay-auto:relay-us-noflow@internal"]; noFlowCl == nil {
+		t.Fatalf("missing relay-auto:relay-us-noflow@internal")
+	} else if _, hasFlow := noFlowCl["flow"]; hasFlow {
+		t.Fatalf("CRITICAL: empty outbound flow was erroneously filled with %v", noFlowCl["flow"])
+	}
+	if visionCl := byEmail["relay-auto:relay-us-vision@internal"]; visionCl == nil || visionCl["flow"] != "xtls-rprx-vision" {
+		t.Fatalf("expected vision flow preserved, got %+v", visionCl)
+	}
+	if len(trojanClients) != 1 || trojanClients[0].(map[string]interface{})["email"] != "relay-auto:relay-us-trojan@internal" {
+		t.Fatalf("unexpected trojan static clients: %+v", trojanClients)
+	}
+
+	// BuildRemoteNodeUsers (UsersHash & fresh sync Users) must ONLY contain normal DB users
+	if !syncResp.UsersUnchanged {
+		t.Fatalf("expected UsersUnchanged=true when only static relay credentials changed")
+	}
+	freshSync, err := nodeSvc.HandleAgentSync(ctx, created.ID, &domain.AgentSyncRequest{})
+	if err != nil {
+		t.Fatalf("fresh HandleAgentSync failed: %v", err)
+	}
+	if len(freshSync.Users) != 1 || freshSync.Users[0].Email != "normal-user@example.com" {
+		t.Fatalf("static relay credentials leaked into freshSync.Users: %+v", freshSync.Users)
+	}
+}
+
+func TestNodeService_RemoteLogs_CacheWaiterWakeupTimeoutAndWhitelist(t *testing.T) {
+	nodeSvc, _, _, nodeRepo, _, _ := setupNodeServiceTestEnv(t)
+	nodeSvc.WithLogWaitTimeout(120 * time.Millisecond)
+	ctx := context.Background()
+
+	created, err := nodeSvc.CreateNode(ctx, domain.CreateNodeDTO{
+		Name: "Log Node",
+		Host: "127.0.0.1",
+	})
+	if err != nil {
+		t.Fatalf("CreateNode failed: %v", err)
+	}
+
+	// Seed baseline heartbeat metrics to verify lightweight log ack preserves them
+	if err := nodeRepo.UpdateHeartbeat(ctx, created.ID, &domain.AgentSyncRequest{
+		ConfigHash: "c1",
+		UsersHash:  "u1",
+		HostMetrics: &domain.AgentHostMetrics{
+			CPUPercent:   25.5,
+			MemPercent:   55.0,
+			NicUpDelta:   500,
+			NicDownDelta: 1500,
+		},
+	}, time.Now()); err != nil {
+		t.Fatalf("seed heartbeat failed: %v", err)
+	}
+
+	// 1. Whitelist & input checks
+	if _, err := nodeSvc.RequestNodeLogs(ctx, 0, "xray", 100, false); !errors.Is(err, domain.ErrInvalidInput) {
+		t.Fatalf("expected ErrInvalidInput for nodeId=0, got %v", err)
+	}
+	if _, err := nodeSvc.RequestNodeLogs(ctx, created.ID, "bash;rm", 100, false); !errors.Is(err, domain.ErrInvalidInput) {
+		t.Fatalf("expected ErrInvalidInput for disallowed service, got %v", err)
+	}
+	if _, err := nodeSvc.RequestNodeLogs(ctx, 99999, "xray", 100, false); !errors.Is(err, domain.ErrNotFound) {
+		t.Fatalf("expected ErrNotFound for missing node, got %v", err)
+	}
+
+	// 2. Timeout when agent doesn't sync returns Pending=true
+	pendingResp, err := nodeSvc.RequestNodeLogs(ctx, created.ID, "xray", 50, false)
+	if err != nil {
+		t.Fatalf("timeout RequestNodeLogs should not return error, got %v", err)
+	}
+	if !pendingResp.Pending || pendingResp.Cached {
+		t.Fatalf("expected Pending=true, Cached=false on timeout, got %+v", pendingResp)
+	}
+
+	// Normal heartbeat after timeout must NOT receive stale cancelled logRequest
+	idleSync, err := nodeSvc.HandleAgentSync(ctx, created.ID, &domain.AgentSyncRequest{})
+	if err != nil {
+		t.Fatalf("idle HandleAgentSync failed: %v", err)
+	}
+	if idleSync.LogRequest != nil {
+		t.Fatalf("expected nil LogRequest after timed-out request cleanup, got %+v", idleSync.LogRequest)
+	}
+
+	// 3. Live waiter wakeup via HandleAgentSync + lightweight logResult ack
+	nodeSvc.WithLogWaitTimeout(2 * time.Second)
+	type logCallResult struct {
+		resp *service.RemoteNodeLogsResponse
+		err  error
+	}
+	doneCh := make(chan logCallResult, 1)
+	go func() {
+		r, e := nodeSvc.RequestNodeLogs(ctx, created.ID, "xray-agent", 80, false)
+		doneCh <- logCallResult{resp: r, err: e}
+	}()
+
+	// Poll HandleAgentSync until pending LogRequest is delivered
+	var deliveredReq *domain.AgentLogRequest
+	deadline := time.Now().Add(time.Second)
+	for time.Now().Before(deadline) {
+		syncResp, err := nodeSvc.HandleAgentSync(ctx, created.ID, &domain.AgentSyncRequest{})
+		if err != nil {
+			t.Fatalf("HandleAgentSync failed: %v", err)
+		}
+		if syncResp.LogRequest != nil {
+			deliveredReq = syncResp.LogRequest
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if deliveredReq == nil {
+		t.Fatalf("expected pending LogRequest delivered via HandleAgentSync")
+	}
+	if deliveredReq.Service != "xray-agent" || deliveredReq.Lines != 80 {
+		t.Fatalf("unexpected LogRequest: %+v", deliveredReq)
+	}
+
+	// Agent sends lightweight ack with nil HostMetrics and nil TrafficBatch
+	if _, err := nodeSvc.HandleAgentSync(ctx, created.ID, &domain.AgentSyncRequest{
+		LogResult: &domain.AgentLogResult{
+			RequestID:       deliveredReq.RequestID,
+			Service:         "xray-agent",
+			Lines:           []string{"line-1", "line-2", "line-3"},
+			CollectedAtUnix: 1732018802,
+		},
+	}); err != nil {
+		t.Fatalf("logResult HandleAgentSync failed: %v", err)
+	}
+
+	res := <-doneCh
+	if res.err != nil {
+		t.Fatalf("RequestNodeLogs failed: %v", res.err)
+	}
+	if res.resp.Pending || res.resp.Cached || len(res.resp.Lines) != 3 || res.resp.CollectedAt != 1732018802 {
+		t.Fatalf("unexpected RequestNodeLogs response: %+v", res.resp)
+	}
+
+	// Verify baseline CPU/NIC counters were NOT zeroed out by lightweight log ack
+	nodeAfter, _ := nodeRepo.GetByID(ctx, created.ID)
+	if nodeAfter.CPUPercent != 25.5 || nodeAfter.NicUpBytes != 500 {
+		t.Fatalf("lightweight log ack overwrote metrics: %+v", nodeAfter)
+	}
+
+	// 4. Subsequent request within 30s hits cache without queuing another LogRequest
+	cachedResp, err := nodeSvc.RequestNodeLogs(ctx, created.ID, "xray-agent", 2, false)
+	if err != nil {
+		t.Fatalf("cached RequestNodeLogs failed: %v", err)
+	}
+	if !cachedResp.Cached || cachedResp.Pending || len(cachedResp.Lines) != 2 || cachedResp.Lines[0] != "line-2" {
+		t.Fatalf("expected cached last 2 lines [line-2 line-3], got %+v", cachedResp)
+	}
+	afterCacheSync, _ := nodeSvc.HandleAgentSync(ctx, created.ID, &domain.AgentSyncRequest{})
+	if afterCacheSync.LogRequest != nil {
+		t.Fatalf("cache hit must not queue a LogRequest")
+	}
+}

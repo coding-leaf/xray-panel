@@ -5,11 +5,30 @@
       class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-2 border-b border-border/60"
     >
       <div>
-        <div class="flex items-center gap-2">
+        <div class="flex items-center gap-2 flex-wrap">
           <h1 class="text-lg font-semibold text-foreground tracking-tight">入站网关 (Inbounds)</h1>
           <Badge variant="outline" class="text-[10px]">
             {{ filteredInbounds.length }} 个节点
           </Badge>
+          <span
+            v-if="nodeFilter === 'all'"
+            class="inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-[10px] font-mono bg-neutral-900 text-muted-foreground border border-border"
+          >
+            <span>全局筛选：全部节点</span>
+            <button
+              type="button"
+              @click="restoreActiveNodeFilter"
+              class="text-sky-400 hover:text-sky-300 underline"
+            >
+              切回当前节点
+            </button>
+          </span>
+          <span
+            v-else-if="isRemoteNode"
+            class="px-2 py-0.5 rounded text-[10px] font-mono bg-sky-500/10 text-sky-300 border border-sky-500/30"
+          >
+            远程节点：{{ activeNode?.name || `#${activeNodeId}` }}
+          </span>
         </div>
         <p class="text-xs text-muted-foreground mt-0.5">
           管理 Xray 入站代理节点，支持 VLESS REALITY 伪装巡检与单端口多出口分流
@@ -52,6 +71,8 @@
         <!-- Node Filter -->
         <select
           v-model="nodeFilter"
+          @change="onNodeFilterChange"
+          aria-label="按节点筛选入站"
           class="h-8 bg-neutral-950 border border-border text-foreground text-xs rounded-md px-2.5 font-mono focus:outline-none focus:ring-1 focus:ring-ring shrink-0"
         >
           <option value="all">全部节点</option>
@@ -119,6 +140,7 @@
       v-model="showFormDrawer"
       :is-editing="isEditing"
       :initial-data="selectedInbound"
+      :default-node-id="activeNodeId"
       :users-list="usersList"
       :available-outbounds="availableOutbounds"
       :nodes-list="nodesList"
@@ -151,6 +173,10 @@ const selectedInbound = ref<InboundItem | null>(null)
 const isEditing = ref(false)
 
 const {
+  activeNodeId,
+  activeNode,
+  isRemoteNode,
+  setActiveNode,
   inbounds,
   usersList,
   nodesList,
@@ -168,12 +194,23 @@ const {
   deleteInbound,
 } = useInboundList()
 
+const onNodeFilterChange = () => {
+  if (nodeFilter.value !== 'all') {
+    setActiveNode(Number(nodeFilter.value))
+  }
+}
+
+const restoreActiveNodeFilter = () => {
+  nodeFilter.value = String(activeNodeId.value)
+}
+
 const inspectInbound = (inb: InboundItem) => {
   selectedInbound.value = inb
   showInspectorDrawer.value = true
 }
 
 const viewLogs = (inb: InboundItem) => {
+  setActiveNode(Number(inb.nodeId || 0))
   router.push({
     path: '/logs',
     query: {
@@ -240,4 +277,9 @@ watch(
     checkRouteQuery()
   }
 )
+
+watch(activeNodeId, () => {
+  showInspectorDrawer.value = false
+  selectedInbound.value = null
+})
 </script>

@@ -1,0 +1,30 @@
+{
+  "id": "audit-today-stability-cleanup",
+  "name": "audit-today-stability-cleanup",
+  "title": "审查今日开发功能稳定性与冗余清理合并",
+  "description": "全面审查今天所有 git 提交及未提交改动，评估功能稳定性、识别冗余代码与重复逻辑并给出功能合并与精简方案。",
+  "status": "completed",
+  "dev_type": null,
+  "scope": null,
+  "package": null,
+  "priority": "P2",
+  "creator": "coding-leaf",
+  "assignee": "coding-leaf",
+  "createdAt": "2026-11-19",
+  "completedAt": "2026-11-20",
+  "branch": null,
+  "base_branch": "master",
+  "worktree_path": null,
+  "commit": null,
+  "pr_url": null,
+  "subtasks": [],
+  "children": [
+    "11-19-m1-stability-hotfix-and-cleanup",
+    "11-19-m2-async-node-commands-and-pruning",
+    "11-19-m3-frontend-consolidation-and-kiss"
+  ],
+  "parent": null,
+  "relatedFiles": [],
+  "notes": "",
+  "meta": {}
+}

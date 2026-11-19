@@ -1,0 +1,7 @@
+{"file": ".trellis/tasks/11-19-multi-node-direct-agent/research/codebase-audit.md", "reason": "Verify backward compatibility with existing single-node architecture"}
+{"file": ".trellis/spec/backend/index.md", "reason": "Verify layered architecture boundaries and quality gates"}
+{"file": ".trellis/spec/backend/database-guidelines.md", "reason": "Verify SQLite WAL single-connection transaction safety and idempotent batch writes"}
+{"file": ".trellis/spec/backend/error-handling.md", "reason": "Verify zero silent error swallowing and proper HTTP 401/403/409 error handling"}
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "Verify mutex safety, zero goroutine leaks, and clean cmd/agent dependency boundary"}
+{"file": ".trellis/spec/backend/logging-guidelines.md", "reason": "Verify no plaintext tokens, real IPs, or secrets leak in logs/tests/scripts"}
+{"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "Verify Master HTTP contract matches Agent client DTO end-to-end"}

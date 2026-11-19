@@ -1,0 +1,9 @@
+{"file": ".trellis/tasks/11-19-multi-node-direct-agent/research/codebase-audit.md", "reason": "Codebase architecture audit with exact file:line anchors and reuse points"}
+{"file": ".trellis/spec/backend/index.md", "reason": "Backend layered architecture topology and conventions index"}
+{"file": ".trellis/spec/backend/directory-structure.md", "reason": "Go internal/ package boundaries and dependency rules"}
+{"file": ".trellis/spec/backend/database-guidelines.md", "reason": "Pure-Go SQLite WAL single-connection transaction and concurrency guidelines"}
+{"file": ".trellis/spec/backend/error-handling.md", "reason": "Explicit error propagation and HTTP status mapping rules"}
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "Mutex concurrency safety, goroutine lifecycle, and KISS guidelines"}
+{"file": ".trellis/spec/backend/logging-guidelines.md", "reason": "slog structured logging and credential redaction rules"}
+{"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "Cross-layer schema/service/HTTP contract consistency checklist"}
+{"file": ".trellis/spec/guides/code-reuse-thinking-guide.md", "reason": "Reuse existing internal/adapter/xray components without over-abstraction"}

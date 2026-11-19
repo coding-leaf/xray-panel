@@ -4,6 +4,25 @@
 
 ---
 
+## v2.7.0 (2026-11) - 多节点托管控制面、异步指令通道、节点运维工作台与全栈稳定性加固
+
+- **多节点控制面与轻量 `xray-agent` 架构 (`internal/agent`, `cmd/agent`, `internal/service`)**：
+  - **一主控管多节点**：新增多节点数据模型、SHA-256 Bearer 鉴权同步控制面（`POST /api/agent/sync`）及零重型依赖（无 `gin`/`gorm`/`sqlite`/`telegram`）的独立轻量 `xray-agent` 二进制；支持远端入站、出站、路由、DNS 全量配置编译下发、配置同步状态徽章（`synced`/`pending`/`error`）与自动静态中继凭据注入；
+  - **直连节点订阅聚合**：支持在 `/sub` 多格式订阅中按节点聚合远端直连入站、按 UA/Clash 回退导出，并修复远端直连未填 `ExternalPort` 时错落回主控 `443` 的缺陷（改回退至入站自身 `Port`）；
+  - **月度双口径配额、分级告警与自动/离线熔断**：引入节点月度流量配额统计（Xray 精确流量 + 离线物理网卡兜底增量）、Telegram 分级预警（预警 / 自动摘流 / 熔断）与 `/nodedrain`、`/noderestore` 指令，以及重启断网时的本地 Spool 幂等补传；
+  - **默认心跳与安装安全加固**：统一默认心跳间隔为 `60s`、在线窗口为 `180s`；Agent 安装脚本改用 `0600` 权限 `/etc/xray-agent/agent.env` + systemd `EnvironmentFile=`，消除命令行 `--token` 明文暴露。
+- **统一异步 `NodeCommand` 指令通道与稳定性止血 (`internal/service`, `internal/adapter/xray`, `internal/delivery`)**：
+  - **异步节点指令状态机**：合并远端按需日志拉取与远端 GeoData 更新为统一 `NodeCommand` 内存 TTL（`180s`）状态机，支持同节点同目标并发去重、跨节点归属 `404` 隔离、HTTP 立即返回（远端 GeoData 返回 `202 Accepted` 彻底脱离 `WriteTimeout=60s`）及前端自动 `2s` 轮询；Agent 改由受控后台协程异步执行并通过 `POST /api/agent/commands/:id/result` 即时上报（失败暂存有界队列随下次心跳补传），零阻塞主心跳循环；
+  - **本机 vs 远端 gRPC 硬隔离**：`xray.Manager.AddUser`/`RemoveUser` 拦截 `!inbound.IsLocal()`，彻底根治启用远端入站后主控用户增删改/重置流量及 TG `/adduser` 误调本机 gRPC 触发 Saga 回滚的 P0 故障；
+  - **配置一致性与热加载修复**：统一 `NodeService` 快照与 `ConfigView` 预览的 `ensureSubRouteRules` 规范化管道；Raw 保存与快照回滚后自动失效远端缓存，且阻断 Raw 编辑覆盖远端同名 `tag`；远端 Shadowsocks / SS-2022 增量热加载透传 `Method` 修复协议失配；
+  - **存储自裁剪与级联清理**：`GORMNodeRepository.Delete` 事务级联删除 `node_traffic_batches` 与 `node_traffic_dailies`；`TrafficSyncJob` 在独立于 `xrayManager` 的后台维护协程每日自动清理 7 天前旧流量批次；节点写接口统一补齐 `RefreshSyncStatus`。
+- **控制台交互收敛、节点运维工作台与冗余清理 (`web/`, `deploy/`, `internal/pkg/geodata`)**：
+  - **作用域感知全局切换器与防误重启**：全路由显式标注 `meta.nodeScoped`，Global 页隐藏易误导的节点切换下拉，远端节点上下文禁用顶栏/侧栏「重启核心」并切换展示远端状态胶囊；移除 `InboundsView` 冗余本地节点下拉改用轻量「全部节点」开关；`TopologyView` 跳转 `/logs` 携带 `nodeId` 并自动预填远端关键词；
+  - **4-Tab 节点运维抽屉 & 单一节点状态源**：合并 `useActiveNode` 与 `useNodes` 消除缓存分叉与重复轮询；在 `NodesView` 新增 `NodeOpsDrawer`（聚合「状态与配额 / 100 行快速日志 / 编译预览 / 远端 GeoData 与部署」），修正心跳文案为 `180s 内` 并补充离线物理网卡流量口径提示；
+  - **功能精简与去重**：彻底移除拓扑页「1步发布落地线路」向导；将 GeoData 从 `RoutingView` 剥离（本机维护迁至 `SettingsView` ① 区，远端归入节点运维抽屉）；收敛 3 份字节一致的静态 Portal HTML 为单源 `deploy/cloudflare-pages/portal/index.html`（`_worker.js` 统一改写 4 条 `/portal*` 路径）；收敛后端 `domain.NodeRepository` 与 `RemoteNodeCompiler` 消除运行时类型断言，抽取纯标准库 `internal/pkg/geodata` 共享下载校验原语，并补全前端 Demo Mock `/admin/nodes` 全套路由。
+
+---
+
 ## v2.6.10 (2026-11) - 对齐 Xray REALITY 协议机制的域名探测与选站校验强化
 
 - **REALITY 域名探测硬校验补齐 (`internal/adapter/reality` & `internal/domain`)**：

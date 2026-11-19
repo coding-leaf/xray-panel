@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"strconv"
+	"strings"
 
 	"panel/internal/domain"
 	"panel/internal/service"
@@ -223,4 +224,32 @@ func (h *NodeHandler) InstallScript(c *gin.Context) {
 		"nodeId": id,
 		"script": script,
 	})
+}
+
+func (h *NodeHandler) GetCommandStatus(c *gin.Context) {
+	id, ok := parseUintIDParam(c, "id")
+	if !ok {
+		return
+	}
+	commandID := strings.TrimSpace(c.Param("commandId"))
+	if commandID == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid command id"})
+		return
+	}
+
+	snap, err := h.nodeSvc.GetNodeCommandStatus(c.Request.Context(), id, commandID)
+	if err != nil {
+		if errors.Is(err, domain.ErrNotFound) {
+			c.JSON(http.StatusNotFound, gin.H{"error": "command not found"})
+			return
+		}
+		if errors.Is(err, domain.ErrInvalidInput) {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, snap)
 }

@@ -467,19 +467,18 @@ func TestNodeRepo_UpdateNodeConfig_WhitelistAndIsolation(t *testing.T) {
 		t.Fatalf("Update overwrote per-node config blobs")
 	}
 
-	// Lightweight log-ack heartbeat with nil HostMetrics must preserve existing CPU/NIC metrics
+	// Heartbeat with nil HostMetrics (e.g. lightweight config-apply ack) must preserve existing CPU/NIC metrics
 	if err := nodeRepo.UpdateHeartbeat(ctx, node.ID, &domain.AgentSyncRequest{
-		LogResult: &domain.AgentLogResult{
-			RequestID: "req-1",
-			Service:   "xray",
-			Lines:     []string{"line1"},
-		},
+		ConfigHash:   "hash-cfg",
+		UsersHash:    "hash-usr",
+		AgentVersion: "1.0.0",
+		XrayVersion:  "25.1.1",
 	}, time.Now()); err != nil {
 		t.Fatalf("lightweight UpdateHeartbeat failed: %v", err)
 	}
 	afterLogAck, _ := nodeRepo.GetByID(ctx, node.ID)
 	if afterLogAck.CPUPercent != 33.5 || afterLogAck.MemPercent != 61.2 || afterLogAck.NicUpBytes != 1234 {
-		t.Fatalf("lightweight log ack overwrote host metrics: %+v", afterLogAck)
+		t.Fatalf("lightweight ack overwrote host metrics: %+v", afterLogAck)
 	}
 
 	if err := nodeRepo.UpdateNodeConfig(ctx, 999999, outboundsJSON, routingJSON, dnsJSON); !errors.Is(err, domain.ErrNotFound) {
@@ -487,7 +486,7 @@ func TestNodeRepo_UpdateNodeConfig_WhitelistAndIsolation(t *testing.T) {
 	}
 }
 
-func TestNodeRepo_UpdateHeartbeat_GeoAckAndConfigAck(t *testing.T) {
+func TestNodeRepo_UpdateHeartbeat_ConfigAckPreservesHostMetrics(t *testing.T) {
 	nodeRepo, _, _, _ := setupNodeTestRepos(t)
 	ctx := context.Background()
 
@@ -519,32 +518,7 @@ func TestNodeRepo_UpdateHeartbeat_GeoAckAndConfigAck(t *testing.T) {
 		t.Fatalf("seed UpdateHeartbeat failed: %v", err)
 	}
 
-	// 1. Lightweight GeoUpdateResult ack (TrafficBatch == nil, HostMetrics == nil)
-	// must NOT overwrite existing CPU/RAM/NIC metrics or clear existing LastSyncError/LastConfigHash.
-	if err := nodeRepo.UpdateHeartbeat(ctx, node.ID, &domain.AgentSyncRequest{
-		GeoUpdateResult: &domain.AgentGeoUpdateResult{
-			RequestID:     "geo-1",
-			GeoIPSize:     1024000,
-			GeoSiteSize:   512000,
-			DurationMs:    1200,
-			UpdatedAtUnix: 1732020004,
-		},
-	}, time.Now()); err != nil {
-		t.Fatalf("lightweight GeoUpdateResult UpdateHeartbeat failed: %v", err)
-	}
-	afterGeoAck, err := nodeRepo.GetByID(ctx, node.ID)
-	if err != nil {
-		t.Fatalf("GetByID after geo ack failed: %v", err)
-	}
-	if afterGeoAck.CPUPercent != 42.5 || afterGeoAck.MemPercent != 68.0 || afterGeoAck.NicUpBytes != 2048 || afterGeoAck.NicDownBytes != 4096 {
-		t.Fatalf("lightweight geo ack overwrote host metrics: %+v", afterGeoAck)
-	}
-	if afterGeoAck.LastConfigHash != "cfg-old" || afterGeoAck.LastUsersHash != "usr-old" || afterGeoAck.LastSyncError != "previous reload failed" {
-		t.Fatalf("lightweight geo ack overwrote hashes/error: cfg=%q usr=%q err=%q",
-			afterGeoAck.LastConfigHash, afterGeoAck.LastUsersHash, afterGeoAck.LastSyncError)
-	}
-
-	// 2. Lightweight config-apply ack (LogResult == nil, GeoUpdateResult == nil, HostMetrics == nil, TrafficBatch == nil)
+	// Lightweight config-apply ack (HostMetrics == nil, TrafficBatch == nil)
 	// MUST update last_config_hash/last_users_hash and clear old last_sync_error while preserving CPU/RAM/NIC counters.
 	if err := nodeRepo.UpdateHeartbeat(ctx, node.ID, &domain.AgentSyncRequest{
 		ConfigHash:   "cfg-new",
@@ -568,5 +542,79 @@ func TestNodeRepo_UpdateHeartbeat_GeoAckAndConfigAck(t *testing.T) {
 	}
 	if afterConfigAck.CPUPercent != 42.5 || afterConfigAck.MemPercent != 68.0 || afterConfigAck.NicUpBytes != 2048 || afterConfigAck.NicDownBytes != 4096 {
 		t.Fatalf("config-apply ack overwrote host metrics: %+v", afterConfigAck)
+	}
+}
+
+func TestNodeRepo_Delete_CascadesTrafficTablesAndReturnsErrNotFound(t *testing.T) {
+	nodeRepo, _, inboundRepo, _ := setupNodeTestRepos(t)
+	ctx := context.Background()
+
+	node1 := &domain.Node{
+		Name:         "Cascade Node 1",
+		Host:         "127.0.0.1",
+		TokenHash:    "7777777777777777777777777777777777777777777777777777777777777771",
+		Enabled:      true,
+		DesiredState: domain.NodeStateActive,
+	}
+	node2 := &domain.Node{
+		Name:         "Cascade Node 2",
+		Host:         "127.0.0.2",
+		TokenHash:    "7777777777777777777777777777777777777777777777777777777777777772",
+		Enabled:      true,
+		DesiredState: domain.NodeStateActive,
+	}
+	if err := nodeRepo.Create(ctx, node1); err != nil {
+		t.Fatalf("create node1 failed: %v", err)
+	}
+	if err := nodeRepo.Create(ctx, node2); err != nil {
+		t.Fatalf("create node2 failed: %v", err)
+	}
+	if err := inboundRepo.Create(ctx, &domain.Inbound{NodeID: node1.ID, Tag: "c1-in", Port: 10001, Protocol: "vless", Enabled: true}); err != nil {
+		t.Fatalf("create inbound1 failed: %v", err)
+	}
+	if err := inboundRepo.Create(ctx, &domain.Inbound{NodeID: node2.ID, Tag: "c2-in", Port: 10002, Protocol: "vless", Enabled: true}); err != nil {
+		t.Fatalf("create inbound2 failed: %v", err)
+	}
+
+	now := time.Now()
+	if _, _, err := nodeRepo.ApplyNodeTrafficBatch(ctx, node1.ID, &domain.AgentTrafficBatch{
+		BatchID:  "cascade-b1",
+		Inbounds: []domain.AgentInboundTrafficDelta{{Tag: "c1-in", UpBytes: 100, DownBytes: 200}},
+	}, now.Format("2006-01-02")); err != nil {
+		t.Fatalf("apply batch node1 failed: %v", err)
+	}
+	if _, _, err := nodeRepo.ApplyNodeTrafficBatch(ctx, node2.ID, &domain.AgentTrafficBatch{
+		BatchID:  "cascade-b2",
+		Inbounds: []domain.AgentInboundTrafficDelta{{Tag: "c2-in", UpBytes: 300, DownBytes: 400}},
+	}, now.Format("2006-01-02")); err != nil {
+		t.Fatalf("apply batch node2 failed: %v", err)
+	}
+	if err := nodeRepo.UpdateHeartbeat(ctx, node1.ID, &domain.AgentSyncRequest{
+		HostMetrics: &domain.AgentHostMetrics{NicUpDelta: 10, NicDownDelta: 20},
+	}, now); err != nil {
+		t.Fatalf("update heartbeat node1 failed: %v", err)
+	}
+
+	// Delete node1 -> must remove its batches & dailies while leaving node2 intact
+	if err := nodeRepo.Delete(ctx, node1.ID); err != nil {
+		t.Fatalf("Delete node1 failed: %v", err)
+	}
+
+	var n1Batches, n1Dailies, n2Batches, n2Dailies int64
+	nodeRepo.db.Model(&domain.NodeTrafficBatch{}).Where("node_id = ?", node1.ID).Count(&n1Batches)
+	nodeRepo.db.Model(&domain.NodeTrafficDaily{}).Where("node_id = ?", node1.ID).Count(&n1Dailies)
+	nodeRepo.db.Model(&domain.NodeTrafficBatch{}).Where("node_id = ?", node2.ID).Count(&n2Batches)
+	nodeRepo.db.Model(&domain.NodeTrafficDaily{}).Where("node_id = ?", node2.ID).Count(&n2Dailies)
+
+	if n1Batches != 0 || n1Dailies != 0 {
+		t.Fatalf("expected 0 orphan traffic rows for deleted node1, got batches=%d dailies=%d", n1Batches, n1Dailies)
+	}
+	if n2Batches != 1 || n2Dailies != 1 {
+		t.Fatalf("expected node2 traffic rows untouched (1/1), got batches=%d dailies=%d", n2Batches, n2Dailies)
+	}
+
+	// Deleting missing node must return ErrNotFound
+	if err := nodeRepo.Delete(ctx, 999999); !errors.Is(err, domain.ErrNotFound) {
+		t.Fatalf("expected ErrNotFound deleting missing node, got %v", err)
 	}
 }

@@ -88,6 +88,7 @@ func SetupRouter(handlers *Handlers, jwtSecret string, staticFS fs.FS) *gin.Engi
 			agentGroup.Use(handlers.AgentAuth)
 			{
 				agentGroup.POST("/sync", handlers.Agent.Sync)
+				agentGroup.POST("/commands/:id/result", handlers.Agent.ReportCommandResult)
 			}
 		}
 
@@ -192,6 +193,7 @@ func SetupRouter(handlers *Handlers, jwtSecret string, staticFS fs.FS) *gin.Engi
 					adminNodes.POST("/:id/rotate-token", handlers.Node.RotateToken)
 					adminNodes.POST("/:id/reset-traffic", handlers.Node.ResetTraffic)
 					adminNodes.GET("/:id/install-script", handlers.Node.InstallScript)
+					adminNodes.GET("/:id/commands/:commandId", handlers.Node.GetCommandStatus)
 				}
 			}
 		}

@@ -22,8 +22,8 @@ import (
 const (
 	defaultNodeSyncIntervalSec  = 60
 	defaultRemoteLogCacheTTL    = 30 * time.Second
-	defaultRemoteLogWaitTimout  = 25 * time.Second
-	defaultRemoteGeoWaitTimeout = 75 * time.Second
+	defaultNodeCommandTTL       = 180 * time.Second
+	defaultNodeCommandResultTTL = 180 * time.Second
 )
 
 // NodeStateChangeCallback is invoked when a node automatically changes or recovers its desired state.
@@ -64,19 +64,64 @@ type RemoteNodeLogsResponse struct {
 	Lines       []string `json:"lines"`
 	Cached      bool     `json:"cached"`
 	Pending     bool     `json:"pending"`
-	CollectedAt int64    `json:"collectedAt"`
-	Error       string   `json:"error"`
+	CommandID   string   `json:"commandId,omitempty"`
+	Status      string   `json:"status,omitempty"`
+	CollectedAt string   `json:"collectedAt,omitempty"`
+	Error       string   `json:"error,omitempty"`
 }
 
 // RemoteGeoUpdateResponse represents the HTTP/service response payload for remote on-demand GeoData updates.
 type RemoteGeoUpdateResponse struct {
 	NodeID      uint   `json:"nodeId"`
 	Pending     bool   `json:"pending"`
+	CommandID   string `json:"commandId,omitempty"`
+	Status      string `json:"status,omitempty"`
+	GeoIPSize   int64  `json:"geoipSize,omitempty"`
+	GeoSiteSize int64  `json:"geositeSize,omitempty"`
+	DurationMs  int64  `json:"durationMs,omitempty"`
+	UpdatedAt   string `json:"updatedAt,omitempty"`
+	Error       string `json:"error,omitempty"`
+}
+
+// NodeLogCommandResult holds the completed log payload of an async log_tail command.
+type NodeLogCommandResult struct {
+	Service     string   `json:"service"`
+	Lines       []string `json:"lines"`
+	CollectedAt string   `json:"collectedAt,omitempty"`
+}
+
+// NodeGeoCommandResult holds the completed update metadata of an async geodata_update command.
+type NodeGeoCommandResult struct {
 	GeoIPSize   int64  `json:"geoipSize"`
 	GeoSiteSize int64  `json:"geositeSize"`
 	DurationMs  int64  `json:"durationMs"`
-	UpdatedAt   int64  `json:"updatedAt"`
-	Error       string `json:"error"`
+	UpdatedAt   string `json:"updatedAt,omitempty"`
+}
+
+// NodeCommandSnapshot is the read-only HTTP/service view of an asynchronous node command.
+type NodeCommandSnapshot struct {
+	ID        string                `json:"id"`
+	NodeID    uint                  `json:"nodeId"`
+	Type      string                `json:"type"`
+	Status    string                `json:"status"`
+	CreatedAt time.Time             `json:"createdAt"`
+	UpdatedAt time.Time             `json:"updatedAt"`
+	Error     string                `json:"error,omitempty"`
+	LogResult *NodeLogCommandResult `json:"logResult,omitempty"`
+	GeoResult *NodeGeoCommandResult `json:"geoResult,omitempty"`
+}
+
+type nodeCommandRecord struct {
+	Seq       uint64
+	ID        string
+	NodeID    uint
+	Command   domain.AgentCommand
+	Status    string
+	CreatedAt time.Time
+	UpdatedAt time.Time
+	Error     string
+	LogResult *NodeLogCommandResult
+	GeoResult *NodeGeoCommandResult
 }
 
 // NodeService manages remote direct-connect nodes, tokens, sync snapshots, and traffic ingestion.
@@ -90,20 +135,18 @@ type NodeService struct {
 	stateNotifier          NodeStateChangeCallback
 	localOutboundsProvider func(context.Context) ([]domain.Outbound, error)
 	syncIntervalSec        int
-	logWaitTimeout         time.Duration
-	geoWaitTimeout         time.Duration
+	commandTTL             time.Duration
+	commandResultTTL       time.Duration
+	nowFn                  func() time.Time
 
 	mu             sync.RWMutex
 	snapshots      map[uint]*cachedNodeSnapshot
 	globalEpoch    uint64
 	nodeEpochs     map[uint]uint64
-	pendingLogReqs map[uint]*domain.AgentLogRequest
+	cmdSeq         uint64
+	commands       map[string]*nodeCommandRecord
+	activeCmdByKey map[string]string
 	logCache       map[string]*cachedRemoteLog
-	logWaiters     map[string][]chan *cachedRemoteLog
-	logReqLines    map[string]int
-	pendingGeoReqs map[uint]*domain.AgentGeoUpdateRequest
-	activeGeoReqs  map[uint]string
-	geoWaiters     map[string][]chan *domain.AgentGeoUpdateResult
 }
 
 func NewNodeService(
@@ -114,23 +157,20 @@ func NewNodeService(
 	compiler RemoteNodeCompiler,
 ) *NodeService {
 	svc := &NodeService{
-		nodeRepo:        nodeRepo,
-		batchRepo:       batchRepo,
-		inboundRepo:     inboundRepo,
-		userRepo:        userRepo,
-		compiler:        compiler,
-		syncIntervalSec: defaultNodeSyncIntervalSec,
-		logWaitTimeout:  defaultRemoteLogWaitTimout,
-		geoWaitTimeout:  defaultRemoteGeoWaitTimeout,
-		snapshots:       make(map[uint]*cachedNodeSnapshot),
-		nodeEpochs:      make(map[uint]uint64),
-		pendingLogReqs:  make(map[uint]*domain.AgentLogRequest),
-		logCache:        make(map[string]*cachedRemoteLog),
-		logWaiters:      make(map[string][]chan *cachedRemoteLog),
-		logReqLines:     make(map[string]int),
-		pendingGeoReqs:  make(map[uint]*domain.AgentGeoUpdateRequest),
-		activeGeoReqs:   make(map[uint]string),
-		geoWaiters:      make(map[string][]chan *domain.AgentGeoUpdateResult),
+		nodeRepo:         nodeRepo,
+		batchRepo:        batchRepo,
+		inboundRepo:      inboundRepo,
+		userRepo:         userRepo,
+		compiler:         compiler,
+		syncIntervalSec:  defaultNodeSyncIntervalSec,
+		commandTTL:       defaultNodeCommandTTL,
+		commandResultTTL: defaultNodeCommandResultTTL,
+		nowFn:            time.Now,
+		snapshots:        make(map[uint]*cachedNodeSnapshot),
+		nodeEpochs:       make(map[uint]uint64),
+		commands:         make(map[string]*nodeCommandRecord),
+		activeCmdByKey:   make(map[string]string),
+		logCache:         make(map[string]*cachedRemoteLog),
 	}
 	if qr, ok := nodeRepo.(domain.NodeQuotaRepository); ok {
 		svc.quotaRepo = qr
@@ -156,20 +196,34 @@ func (s *NodeService) WithLocalOutboundsProvider(fn func(context.Context) ([]dom
 	return s
 }
 
-// WithLogWaitTimeout overrides the wait timeout for on-demand remote log collection (primarily for tests).
-func (s *NodeService) WithLogWaitTimeout(d time.Duration) *NodeService {
-	if d > 0 {
-		s.logWaitTimeout = d
+// WithNowFunc overrides the clock source used by command TTL and log cache logic (primarily for deterministic tests).
+func (s *NodeService) WithNowFunc(fn func() time.Time) *NodeService {
+	if fn != nil {
+		s.mu.Lock()
+		s.nowFn = fn
+		s.mu.Unlock()
 	}
 	return s
 }
 
-// WithGeoWaitTimeout overrides the wait timeout for on-demand remote GeoData updates (primarily for tests).
-func (s *NodeService) WithGeoWaitTimeout(d time.Duration) *NodeService {
-	if d > 0 {
-		s.geoWaitTimeout = d
+// WithCommandTTL overrides command execution and terminal result retention TTLs (primarily for tests).
+func (s *NodeService) WithCommandTTL(commandTTL, resultTTL time.Duration) *NodeService {
+	s.mu.Lock()
+	if commandTTL > 0 {
+		s.commandTTL = commandTTL
 	}
+	if resultTTL > 0 {
+		s.commandResultTTL = resultTTL
+	}
+	s.mu.Unlock()
 	return s
+}
+
+func (s *NodeService) nowLocked() time.Time {
+	if s.nowFn != nil {
+		return s.nowFn()
+	}
+	return time.Now()
 }
 
 // HashNodeToken returns the lowercase SHA-256 hex digest of a plaintext node token.
@@ -365,6 +419,7 @@ func (s *NodeService) CreateNode(ctx context.Context, dto domain.CreateNodeDTO) 
 		return nil, fmt.Errorf("create node failed: %w", err)
 	}
 	node.RefreshComputed(now)
+	node.RefreshSyncStatus(s.resolveExpectedConfigHash(ctx, node.ID))
 
 	return &domain.CreateNodeResponse{
 		Node:  *node,
@@ -459,7 +514,8 @@ func (s *NodeService) UpdateNode(ctx context.Context, id uint, dto domain.Update
 		s.InvalidateNode(id)
 	}
 
-	node.RefreshOnline(time.Now())
+	node.RefreshComputed(time.Now())
+	node.RefreshSyncStatus(s.resolveExpectedConfigHash(ctx, node.ID))
 	return node, nil
 }
 
@@ -492,6 +548,7 @@ func (s *NodeService) SetNodeDesiredState(ctx context.Context, id uint, desiredS
 		return nil, err
 	}
 	updated.RefreshComputed(time.Now())
+	updated.RefreshSyncStatus(s.resolveExpectedConfigHash(ctx, updated.ID))
 	return updated, nil
 }
 
@@ -508,6 +565,7 @@ func (s *NodeService) ResetNodeCycleTraffic(ctx context.Context, id uint) (*doma
 		return nil, err
 	}
 	node.RefreshComputed(time.Now())
+	node.RefreshSyncStatus(s.resolveExpectedConfigHash(ctx, node.ID))
 	return node, nil
 }
 
@@ -582,7 +640,7 @@ func (s *NodeService) DeleteNode(ctx context.Context, id uint) error {
 	if err := s.nodeRepo.Delete(ctx, id); err != nil {
 		return err
 	}
-	s.InvalidateNode(id)
+	s.purgeNodeMemoryState(id)
 	return nil
 }
 
@@ -746,11 +804,15 @@ func (s *NodeService) HandleAgentSync(ctx context.Context, nodeID uint, req *dom
 			slog.String("last_error", req.LastError),
 		)
 	}
-	if req.LogResult != nil {
-		s.handleIncomingLogResult(nodeID, req.LogResult, now)
-	}
-	if req.GeoUpdateResult != nil {
-		s.handleIncomingGeoResult(nodeID, req.GeoUpdateResult)
+	for i := range req.CommandResults {
+		res := req.CommandResults[i]
+		if reportErr := s.ReportAgentCommandResult(ctx, nodeID, &res); reportErr != nil && !errors.Is(reportErr, domain.ErrNotFound) {
+			slog.Warn("Failed to record agent fallback command result",
+				slog.Uint64("node_id", uint64(nodeID)),
+				slog.String("command_id", res.ID),
+				slog.String("error", reportErr.Error()),
+			)
+		}
 	}
 
 	// Re-read latest node after batch & heartbeat increments so quota evaluation sees updated cycle counters.
@@ -829,8 +891,9 @@ func (s *NodeService) HandleAgentSync(ctx context.Context, nodeID uint, req *dom
 	if !usersUnchanged {
 		resp.Users = snap.Users
 	}
-	resp.LogRequest = s.popPendingLogRequest(nodeID, req.LogResult)
-	resp.GeoUpdateRequest = s.popPendingGeoRequest(nodeID, req.GeoUpdateResult)
+	s.mu.Lock()
+	resp.Commands = s.popPendingCommandsLocked(nodeID, s.nowLocked())
+	s.mu.Unlock()
 
 	return resp, nil
 }
@@ -953,11 +1016,30 @@ func remoteLogCacheKey(nodeID uint, service string) string {
 	return fmt.Sprintf("%d:%s", nodeID, service)
 }
 
+func commandDedupKey(cmdType string, nodeID uint, service string) string {
+	if cmdType == domain.NodeCommandTypeLogTail {
+		return fmt.Sprintf("%s:%d:%s", cmdType, nodeID, service)
+	}
+	return fmt.Sprintf("%s:%d", cmdType, nodeID)
+}
+
+func isActiveCommandStatus(status string) bool {
+	return status == domain.NodeCommandStatusQueued || status == domain.NodeCommandStatusDispatched
+}
+
+func isTerminalCommandStatus(status string) bool {
+	return status == domain.NodeCommandStatusSucceeded ||
+		status == domain.NodeCommandStatusFailed ||
+		status == domain.NodeCommandStatusExpired
+}
+
 func nonNilLines(lines []string) []string {
 	if lines == nil {
 		return []string{}
 	}
-	return lines
+	out := make([]string, len(lines))
+	copy(out, lines)
+	return out
 }
 
 func tailLines(lines []string, maxLines int) []string {
@@ -974,13 +1056,88 @@ func tailLines(lines []string, maxLines int) []string {
 	return out
 }
 
-func generateLogRequestID() string {
-	buf := make([]byte, 4)
-	_, _ = rand.Read(buf)
-	return fmt.Sprintf("log-%d-%s", time.Now().UnixNano(), hex.EncodeToString(buf))
+func formatUnixRFC3339(ts int64) string {
+	if ts <= 0 {
+		return ""
+	}
+	return time.Unix(ts, 0).UTC().Format(time.RFC3339)
 }
 
-// RequestNodeLogs fetches on-demand service logs from a remote node using 30s cache and waiter wakeup.
+func generateCommandID(now time.Time) string {
+	buf := make([]byte, 4)
+	if _, err := rand.Read(buf); err != nil {
+		return fmt.Sprintf("cmd-%d", now.UnixNano())
+	}
+	return fmt.Sprintf("cmd-%d-%s", now.UnixNano(), hex.EncodeToString(buf))
+}
+
+func (s *NodeService) effectiveCommandTTLsLocked() (time.Duration, time.Duration) {
+	cmdTTL := s.commandTTL
+	if cmdTTL <= 0 {
+		cmdTTL = defaultNodeCommandTTL
+	}
+	resTTL := s.commandResultTTL
+	if resTTL <= 0 {
+		resTTL = defaultNodeCommandResultTTL
+	}
+	return cmdTTL, resTTL
+}
+
+func (s *NodeService) pruneExpiredCommandsLocked(now time.Time) {
+	cmdTTL, resTTL := s.effectiveCommandTTLsLocked()
+	for id, rec := range s.commands {
+		if rec == nil {
+			delete(s.commands, id)
+			continue
+		}
+		if isActiveCommandStatus(rec.Status) && now.Sub(rec.CreatedAt) > cmdTTL {
+			rec.Status = domain.NodeCommandStatusExpired
+			rec.UpdatedAt = now
+			rec.Error = "command timed out waiting for agent"
+			key := commandDedupKey(rec.Command.Type, rec.NodeID, rec.Command.Service)
+			if s.activeCmdByKey[key] == id {
+				delete(s.activeCmdByKey, key)
+			}
+		}
+		if isTerminalCommandStatus(rec.Status) && now.Sub(rec.UpdatedAt) > resTTL {
+			delete(s.commands, id)
+		}
+	}
+	for key, id := range s.activeCmdByKey {
+		rec, ok := s.commands[id]
+		if !ok || rec == nil || !isActiveCommandStatus(rec.Status) {
+			delete(s.activeCmdByKey, key)
+		}
+	}
+}
+
+func (s *NodeService) purgeNodeMemoryState(nodeID uint) {
+	if s == nil || nodeID == 0 {
+		return
+	}
+	logPrefix := fmt.Sprintf("%d:", nodeID)
+	s.mu.Lock()
+	s.nodeEpochs[nodeID]++
+	delete(s.snapshots, nodeID)
+	for id, rec := range s.commands {
+		if rec == nil || rec.NodeID == nodeID {
+			delete(s.commands, id)
+		}
+	}
+	for key, id := range s.activeCmdByKey {
+		if _, exists := s.commands[id]; !exists {
+			delete(s.activeCmdByKey, key)
+		}
+	}
+	for cacheKey := range s.logCache {
+		if strings.HasPrefix(cacheKey, logPrefix) {
+			delete(s.logCache, cacheKey)
+		}
+	}
+	s.mu.Unlock()
+}
+
+// RequestNodeLogs returns cached remote logs when valid, or enqueues/reuses an async log_tail command immediately.
 func (s *NodeService) RequestNodeLogs(
 	ctx context.Context,
 	nodeID uint,
@@ -1010,165 +1167,77 @@ func (s *NodeService) RequestNodeLogs(
 	}
 
 	cacheKey := remoteLogCacheKey(nodeID, svc)
-	now := time.Now()
+	dedupKey := commandDedupKey(domain.NodeCommandTypeLogTail, nodeID, svc)
 
 	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	now := s.nowLocked()
+	s.pruneExpiredCommandsLocked(now)
+
 	if !forceRefresh {
 		if cached, ok := s.logCache[cacheKey]; ok && now.Sub(cached.CachedAt) <= defaultRemoteLogCacheTTL && cached.RequestedLines >= lines {
-			resp := &RemoteNodeLogsResponse{
+			return &RemoteNodeLogsResponse{
 				NodeID:      nodeID,
 				Service:     svc,
 				Lines:       tailLines(cached.Lines, lines),
 				Cached:      true,
 				Pending:     false,
-				CollectedAt: cached.CollectedAtUnix,
+				CollectedAt: formatUnixRFC3339(cached.CollectedAtUnix),
 				Error:       cached.Error,
+			}, nil
+		}
+	}
+
+	if activeID, ok := s.activeCmdByKey[dedupKey]; ok {
+		if rec, exists := s.commands[activeID]; exists && isActiveCommandStatus(rec.Status) {
+			if rec.Status == domain.NodeCommandStatusQueued && rec.Command.Lines < lines {
+				rec.Command.Lines = lines
+				rec.UpdatedAt = now
 			}
-			s.mu.Unlock()
-			return resp, nil
+			return &RemoteNodeLogsResponse{
+				NodeID:    nodeID,
+				Service:   svc,
+				Lines:     []string{},
+				Cached:    false,
+				Pending:   true,
+				CommandID: rec.ID,
+				Status:    rec.Status,
+			}, nil
 		}
 	}
 
-	reqID := generateLogRequestID()
-	waitCh := make(chan *cachedRemoteLog, 1)
-	s.pendingLogReqs[nodeID] = &domain.AgentLogRequest{
-		RequestID: reqID,
-		Service:   svc,
-		Lines:     lines,
-	}
-	s.logReqLines[reqID] = lines
-	s.logWaiters[reqID] = append(s.logWaiters[reqID], waitCh)
-	waitTimeout := s.logWaitTimeout
-	if waitTimeout <= 0 {
-		waitTimeout = defaultRemoteLogWaitTimout
-	}
-	s.mu.Unlock()
-
-	defer func() {
-		s.mu.Lock()
-		removeWaiterLocked(s.logWaiters, reqID, waitCh)
-		if len(s.logWaiters[reqID]) == 0 {
-			delete(s.logReqLines, reqID)
-		}
-		if cur, ok := s.pendingLogReqs[nodeID]; ok && cur.RequestID == reqID {
-			delete(s.pendingLogReqs, nodeID)
-		}
-		s.mu.Unlock()
-	}()
-
-	timer := time.NewTimer(waitTimeout)
-	defer timer.Stop()
-
-	select {
-	case res := <-waitCh:
-		return &RemoteNodeLogsResponse{
-			NodeID:      nodeID,
-			Service:     svc,
-			Lines:       tailLines(res.Lines, lines),
-			Cached:      false,
-			Pending:     false,
-			CollectedAt: res.CollectedAtUnix,
-			Error:       res.Error,
-		}, nil
-	case <-timer.C:
-		return &RemoteNodeLogsResponse{
-			NodeID:  nodeID,
+	s.cmdSeq++
+	cmdID := generateCommandID(now)
+	rec := &nodeCommandRecord{
+		Seq:    s.cmdSeq,
+		ID:     cmdID,
+		NodeID: nodeID,
+		Command: domain.AgentCommand{
+			ID:      cmdID,
+			Type:    domain.NodeCommandTypeLogTail,
 			Service: svc,
-			Lines:   []string{},
-			Cached:  false,
-			Pending: true,
-			Error:   "timed out waiting for agent log response",
-		}, nil
-	case <-ctx.Done():
-		return nil, ctx.Err()
+			Lines:   lines,
+		},
+		Status:    domain.NodeCommandStatusQueued,
+		CreatedAt: now,
+		UpdatedAt: now,
 	}
+	s.commands[cmdID] = rec
+	s.activeCmdByKey[dedupKey] = cmdID
+
+	return &RemoteNodeLogsResponse{
+		NodeID:    nodeID,
+		Service:   svc,
+		Lines:     []string{},
+		Cached:    false,
+		Pending:   true,
+		CommandID: rec.ID,
+		Status:    rec.Status,
+	}, nil
 }
 
-func removeWaiterLocked[T any](waiters map[string][]chan T, reqID string, target chan T) {
-	list := waiters[reqID]
-	if len(list) == 0 {
-		return
-	}
-	filtered := list[:0]
-	for _, ch := range list {
-		if ch != target {
-			filtered = append(filtered, ch)
-		}
-	}
-	if len(filtered) == 0 {
-		delete(waiters, reqID)
-	} else {
-		waiters[reqID] = filtered
-	}
-}
-
-func dispatchWaitersLocked[T any](waiters map[string][]chan T, reqID string, payload T) {
-	list := waiters[reqID]
-	delete(waiters, reqID)
-	for _, ch := range list {
-		select {
-		case ch <- payload:
-		default:
-		}
-	}
-}
-
-func (s *NodeService) handleIncomingLogResult(nodeID uint, res *domain.AgentLogResult, now time.Time) {
-	if res == nil {
-		return
-	}
-	svc := strings.TrimSpace(res.Service)
-	if !isValidRemoteLogService(svc) {
-		return
-	}
-	linesCopy := make([]string, len(res.Lines))
-	copy(linesCopy, res.Lines)
-
-	s.mu.Lock()
-	reqLines := s.logReqLines[res.RequestID]
-	if reqLines <= 0 {
-		reqLines = len(linesCopy)
-	}
-	delete(s.logReqLines, res.RequestID)
-
-	entry := &cachedRemoteLog{
-		Service:         svc,
-		Lines:           linesCopy,
-		RequestedLines:  reqLines,
-		Error:           res.Error,
-		CollectedAtUnix: res.CollectedAtUnix,
-		CachedAt:        now,
-	}
-	s.logCache[remoteLogCacheKey(nodeID, svc)] = entry
-
-	dispatchWaitersLocked(s.logWaiters, res.RequestID, entry)
-	s.mu.Unlock()
-}
-
-func (s *NodeService) popPendingLogRequest(nodeID uint, ack *domain.AgentLogResult) *domain.AgentLogRequest {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	pending, ok := s.pendingLogReqs[nodeID]
-	if !ok || pending == nil {
-		return nil
-	}
-	if ack != nil && ack.RequestID == pending.RequestID {
-		delete(s.pendingLogReqs, nodeID)
-		return nil
-	}
-	delete(s.pendingLogReqs, nodeID)
-	return pending
-}
-
-func generateGeoRequestID() string {
-	buf := make([]byte, 4)
-	if _, err := rand.Read(buf); err != nil {
-		return fmt.Sprintf("geo-%d", time.Now().UnixNano())
-	}
-	return fmt.Sprintf("geo-%d-%s", time.Now().UnixNano(), hex.EncodeToString(buf))
-}
-
-// RequestNodeGeoUpdate queues an on-demand GeoData update instruction for a remote node and waits up to geoWaitTimeout for the 1-RTT ack.
+// RequestNodeGeoUpdate enqueues or reuses an async geodata_update command for a remote node and returns immediately.
 func (s *NodeService) RequestNodeGeoUpdate(ctx context.Context, nodeID uint) (*RemoteGeoUpdateResponse, error) {
 	if nodeID == 0 {
 		return nil, fmt.Errorf("%w: nodeId must be > 0", domain.ErrInvalidInput)
@@ -1177,89 +1246,200 @@ func (s *NodeService) RequestNodeGeoUpdate(ctx context.Context, nodeID uint) (*R
 		return nil, err
 	}
 
-	waitCh := make(chan *domain.AgentGeoUpdateResult, 1)
+	dedupKey := commandDedupKey(domain.NodeCommandTypeGeoDataUpdate, nodeID, "")
 
-	s.mu.Lock()
-	reqID := s.activeGeoReqs[nodeID]
-	if reqID == "" {
-		reqID = generateGeoRequestID()
-		s.activeGeoReqs[nodeID] = reqID
-		s.pendingGeoReqs[nodeID] = &domain.AgentGeoUpdateRequest{
-			RequestID: reqID,
-		}
-	}
-	s.geoWaiters[reqID] = append(s.geoWaiters[reqID], waitCh)
-	waitTimeout := s.geoWaitTimeout
-	if waitTimeout <= 0 {
-		waitTimeout = defaultRemoteGeoWaitTimeout
-	}
-	s.mu.Unlock()
-
-	defer func() {
-		s.mu.Lock()
-		removeWaiterLocked(s.geoWaiters, reqID, waitCh)
-		if len(s.geoWaiters[reqID]) == 0 {
-			if s.activeGeoReqs[nodeID] == reqID {
-				delete(s.activeGeoReqs, nodeID)
-			}
-			if cur, ok := s.pendingGeoReqs[nodeID]; ok && cur.RequestID == reqID {
-				delete(s.pendingGeoReqs, nodeID)
-			}
-		}
-		s.mu.Unlock()
-	}()
-
-	timer := time.NewTimer(waitTimeout)
-	defer timer.Stop()
-
-	select {
-	case res := <-waitCh:
-		return &RemoteGeoUpdateResponse{
-			NodeID:      nodeID,
-			Pending:     false,
-			GeoIPSize:   res.GeoIPSize,
-			GeoSiteSize: res.GeoSiteSize,
-			DurationMs:  res.DurationMs,
-			UpdatedAt:   res.UpdatedAtUnix,
-			Error:       res.Error,
-		}, nil
-	case <-timer.C:
-		return &RemoteGeoUpdateResponse{
-			NodeID:  nodeID,
-			Pending: true,
-			Error:   "timed out waiting for agent geodata update response",
-		}, nil
-	case <-ctx.Done():
-		return nil, ctx.Err()
-	}
-}
-
-func (s *NodeService) handleIncomingGeoResult(nodeID uint, res *domain.AgentGeoUpdateResult) {
-	if res == nil || strings.TrimSpace(res.RequestID) == "" {
-		return
-	}
-	resCopy := *res
-	s.mu.Lock()
-	if s.activeGeoReqs[nodeID] == resCopy.RequestID {
-		delete(s.activeGeoReqs, nodeID)
-	}
-	dispatchWaitersLocked(s.geoWaiters, resCopy.RequestID, &resCopy)
-	s.mu.Unlock()
-}
-
-func (s *NodeService) popPendingGeoRequest(nodeID uint, ack *domain.AgentGeoUpdateResult) *domain.AgentGeoUpdateRequest {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	pending, ok := s.pendingGeoReqs[nodeID]
-	if !ok || pending == nil {
+
+	now := s.nowLocked()
+	s.pruneExpiredCommandsLocked(now)
+
+	if activeID, ok := s.activeCmdByKey[dedupKey]; ok {
+		if rec, exists := s.commands[activeID]; exists && isActiveCommandStatus(rec.Status) {
+			return &RemoteGeoUpdateResponse{
+				NodeID:    nodeID,
+				Pending:   true,
+				CommandID: rec.ID,
+				Status:    rec.Status,
+			}, nil
+		}
+	}
+
+	s.cmdSeq++
+	cmdID := generateCommandID(now)
+	rec := &nodeCommandRecord{
+		Seq:    s.cmdSeq,
+		ID:     cmdID,
+		NodeID: nodeID,
+		Command: domain.AgentCommand{
+			ID:   cmdID,
+			Type: domain.NodeCommandTypeGeoDataUpdate,
+		},
+		Status:    domain.NodeCommandStatusQueued,
+		CreatedAt: now,
+		UpdatedAt: now,
+	}
+	s.commands[cmdID] = rec
+	s.activeCmdByKey[dedupKey] = cmdID
+
+	return &RemoteGeoUpdateResponse{
+		NodeID:    nodeID,
+		Pending:   true,
+		CommandID: rec.ID,
+		Status:    rec.Status,
+	}, nil
+}
+
+func (s *NodeService) popPendingCommandsLocked(nodeID uint, now time.Time) []domain.AgentCommand {
+	s.pruneExpiredCommandsLocked(now)
+
+	var pending []*nodeCommandRecord
+	for _, rec := range s.commands {
+		if rec != nil && rec.NodeID == nodeID && rec.Status == domain.NodeCommandStatusQueued {
+			pending = append(pending, rec)
+		}
+	}
+	if len(pending) == 0 {
 		return nil
 	}
-	if ack != nil && ack.RequestID == pending.RequestID {
-		delete(s.pendingGeoReqs, nodeID)
+
+	sort.Slice(pending, func(i, j int) bool {
+		if pending[i].CreatedAt.Equal(pending[j].CreatedAt) {
+			return pending[i].Seq < pending[j].Seq
+		}
+		return pending[i].CreatedAt.Before(pending[j].CreatedAt)
+	})
+
+	cmds := make([]domain.AgentCommand, 0, len(pending))
+	for _, rec := range pending {
+		rec.Status = domain.NodeCommandStatusDispatched
+		rec.UpdatedAt = now
+		cmds = append(cmds, rec.Command)
+	}
+	return cmds
+}
+
+// ReportAgentCommandResult records the terminal execution result reported by an authenticated node agent.
+func (s *NodeService) ReportAgentCommandResult(_ context.Context, nodeID uint, res *domain.AgentCommandResult) error {
+	if nodeID == 0 || res == nil || strings.TrimSpace(res.ID) == "" {
+		return fmt.Errorf("%w: valid nodeId and command id are required", domain.ErrInvalidInput)
+	}
+	cmdID := strings.TrimSpace(res.ID)
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	now := s.nowLocked()
+	s.pruneExpiredCommandsLocked(now)
+
+	rec, ok := s.commands[cmdID]
+	if !ok || rec == nil || rec.NodeID != nodeID {
+		return domain.ErrNotFound
+	}
+	if isTerminalCommandStatus(rec.Status) {
 		return nil
 	}
-	delete(s.pendingGeoReqs, nodeID)
-	return pending
+
+	status := strings.TrimSpace(res.Status)
+	if status != domain.NodeCommandStatusSucceeded && status != domain.NodeCommandStatusFailed {
+		status = domain.NodeCommandStatusFailed
+	}
+
+	rec.Status = status
+	rec.Error = res.Error
+	rec.UpdatedAt = now
+
+	dedupKey := commandDedupKey(rec.Command.Type, rec.NodeID, rec.Command.Service)
+	if s.activeCmdByKey[dedupKey] == rec.ID {
+		delete(s.activeCmdByKey, dedupKey)
+	}
+
+	if status == domain.NodeCommandStatusSucceeded {
+		switch rec.Command.Type {
+		case domain.NodeCommandTypeLogTail:
+			svc := strings.TrimSpace(res.Service)
+			if svc == "" {
+				svc = rec.Command.Service
+			}
+			collectedAt := res.CollectedAtUnix
+			if collectedAt <= 0 {
+				collectedAt = now.Unix()
+			}
+			linesCopy := nonNilLines(res.Lines)
+			rec.LogResult = &NodeLogCommandResult{
+				Service:     svc,
+				Lines:       linesCopy,
+				CollectedAt: formatUnixRFC3339(collectedAt),
+			}
+			if isValidRemoteLogService(svc) {
+				reqLines := rec.Command.Lines
+				if reqLines <= 0 {
+					reqLines = len(linesCopy)
+				}
+				s.logCache[remoteLogCacheKey(nodeID, svc)] = &cachedRemoteLog{
+					Service:         svc,
+					Lines:           nonNilLines(linesCopy),
+					RequestedLines:  reqLines,
+					Error:           "",
+					CollectedAtUnix: collectedAt,
+					CachedAt:        now,
+				}
+			}
+		case domain.NodeCommandTypeGeoDataUpdate:
+			updatedAt := res.UpdatedAtUnix
+			if updatedAt <= 0 {
+				updatedAt = now.Unix()
+			}
+			rec.GeoResult = &NodeGeoCommandResult{
+				GeoIPSize:   res.GeoIPSize,
+				GeoSiteSize: res.GeoSiteSize,
+				DurationMs:  res.DurationMs,
+				UpdatedAt:   formatUnixRFC3339(updatedAt),
+			}
+		}
+	}
+
+	return nil
+}
+
+// GetNodeCommandStatus returns a read-only snapshot of an async node command scoped strictly to nodeID.
+func (s *NodeService) GetNodeCommandStatus(_ context.Context, nodeID uint, commandID string) (*NodeCommandSnapshot, error) {
+	if nodeID == 0 || strings.TrimSpace(commandID) == "" {
+		return nil, fmt.Errorf("%w: valid nodeId and commandId are required", domain.ErrInvalidInput)
+	}
+	cmdID := strings.TrimSpace(commandID)
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	s.pruneExpiredCommandsLocked(s.nowLocked())
+
+	rec, ok := s.commands[cmdID]
+	if !ok || rec == nil || rec.NodeID != nodeID {
+		return nil, domain.ErrNotFound
+	}
+
+	snap := &NodeCommandSnapshot{
+		ID:        rec.ID,
+		NodeID:    rec.NodeID,
+		Type:      rec.Command.Type,
+		Status:    rec.Status,
+		CreatedAt: rec.CreatedAt,
+		UpdatedAt: rec.UpdatedAt,
+		Error:     rec.Error,
+	}
+	if rec.LogResult != nil {
+		snap.LogResult = &NodeLogCommandResult{
+			Service:     rec.LogResult.Service,
+			Lines:       nonNilLines(rec.LogResult.Lines),
+			CollectedAt: rec.LogResult.CollectedAt,
+		}
+	}
+	if rec.GeoResult != nil {
+		geoCopy := *rec.GeoResult
+		snap.GeoResult = &geoCopy
+	}
+	return snap, nil
 }
 
 func parseNodeOutbounds(raw string, withDefaults bool) ([]domain.Outbound, error) {

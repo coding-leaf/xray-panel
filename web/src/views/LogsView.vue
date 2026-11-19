@@ -112,7 +112,9 @@
 
       <div class="flex flex-wrap items-center gap-2 shrink-0 text-xs font-mono">
         <span
-          v-if="remoteLogResult && !remoteLogResult.pending"
+          v-if="
+            remoteLogResult && !remoteLogResult.pending && !remoteLogResult.error && !remoteError
+          "
           class="px-2 py-1 rounded border text-[11px]"
           :class="
             remoteLogResult.cached
@@ -156,29 +158,58 @@
       class="p-3 rounded-lg bg-sky-500/10 border border-sky-500/30 text-sky-200 text-xs flex items-center gap-2.5 font-mono"
     >
       <RefreshCw class="w-4 h-4 text-sky-400 animate-spin shrink-0" />
-      <span>
-        已下发 {{ remoteService }} 日志采集指令至节点，正在等待 Agent 轻量同步回传（最长约 25s）...
-      </span>
+      <span>正在向远端节点提交 {{ remoteService }} 日志采集指令...</span>
     </div>
 
-    <!-- Pending Notice -->
+    <!-- Pending Polling Notice -->
     <div
       v-else-if="remoteLogResult?.pending"
-      class="p-3 rounded-lg bg-amber-500/10 border border-amber-500/30 text-amber-200 text-xs flex flex-col sm:flex-row sm:items-center justify-between gap-2.5"
+      class="p-3 rounded-lg border text-xs flex flex-col sm:flex-row sm:items-center justify-between gap-2.5"
+      :class="
+        remoteLogResult.status === 'dispatched'
+          ? 'bg-sky-500/10 border-sky-500/30 text-sky-200'
+          : 'bg-amber-500/10 border-amber-500/30 text-amber-200'
+      "
     >
       <div class="flex items-start gap-2">
-        <AlertTriangle class="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
+        <RefreshCw
+          class="w-4 h-4 shrink-0 mt-0.5 animate-spin"
+          :class="remoteLogResult.status === 'dispatched' ? 'text-sky-400' : 'text-amber-400'"
+        />
         <div class="space-y-0.5">
-          <p class="font-semibold">节点暂未在本次窗口内回传日志（pending）</p>
-          <p class="text-[11px] text-amber-200/80">
-            采集指令已入队，节点可能处于心跳间隔期或暂时离线；请稍后点击右侧「重新拉取」获取回传结果。
+          <p class="font-semibold">
+            {{
+              remoteLogResult.status === 'dispatched'
+                ? '远端节点正在采集日志...'
+                : '等待远端节点下一次心跳领取（最多约 60s）...'
+            }}
+          </p>
+          <p
+            class="text-[11px] font-mono"
+            :class="
+              remoteLogResult.status === 'dispatched' ? 'text-sky-200/80' : 'text-amber-200/80'
+            "
+          >
+            {{
+              remoteLogResult.status === 'dispatched'
+                ? '指令已下发至 Agent 执行，正在每 2s 自动轮询回传结果'
+                : '指令已进入队列，节点将在下次心跳领取后立即回传，正在每 2s 自动轮询'
+            }}
+            <template v-if="remoteLogResult.commandId">
+              · {{ remoteLogResult.commandId }}
+            </template>
           </p>
         </div>
       </div>
       <button
         type="button"
         @click="fetchRemoteLogs"
-        class="px-3 py-1.5 rounded-md bg-amber-500/20 hover:bg-amber-500/30 text-amber-200 border border-amber-500/40 text-xs font-semibold shrink-0"
+        class="px-3 py-1.5 rounded-md border text-xs font-semibold shrink-0 transition-colors"
+        :class="
+          remoteLogResult.status === 'dispatched'
+            ? 'bg-sky-500/20 hover:bg-sky-500/30 text-sky-200 border-sky-500/40'
+            : 'bg-amber-500/20 hover:bg-amber-500/30 text-amber-200 border-amber-500/40'
+        "
       >
         重新拉取
       </button>
@@ -187,10 +218,19 @@
     <!-- Error Notice -->
     <div
       v-if="remoteError"
-      class="p-3 rounded-lg bg-rose-500/10 border border-rose-500/30 text-rose-300 text-xs flex items-start gap-2 font-mono"
+      class="p-3 rounded-lg bg-rose-500/10 border border-rose-500/30 text-rose-300 text-xs flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 font-mono"
     >
-      <AlertTriangle class="w-4 h-4 text-rose-400 shrink-0 mt-0.5" />
-      <span>采集异常：{{ remoteError }}</span>
+      <div class="flex items-start gap-2">
+        <AlertTriangle class="w-4 h-4 text-rose-400 shrink-0 mt-0.5" />
+        <span>采集异常：{{ remoteError }}</span>
+      </div>
+      <button
+        type="button"
+        @click="fetchRemoteLogs"
+        class="px-3 py-1.5 rounded-md bg-rose-500/20 hover:bg-rose-500/30 text-rose-200 border border-rose-500/40 text-xs font-semibold font-sans shrink-0 transition-colors"
+      >
+        重试拉取
+      </button>
     </div>
 
     <!-- Remote Terminal Log Box -->
@@ -235,7 +275,13 @@
           <p v-if="!remoteLogResult">
             选择服务（xray / xray-agent）与行数后，点击右上角「拉取日志」按需采集远端节点日志
           </p>
-          <p v-else-if="remoteLogResult.pending">正在等待远端节点回传日志，请稍后重试</p>
+          <p v-else-if="remoteLogResult.pending">
+            {{
+              remoteLogResult.status === 'dispatched'
+                ? '远端节点正在采集日志...'
+                : '等待远端节点下一次心跳领取（最多约 60s）...'
+            }}
+          </p>
           <p v-else>未返回匹配的日志记录</p>
         </div>
       </div>
@@ -1387,20 +1433,10 @@ import {
   AlertTriangle,
   Copy,
 } from 'lucide-vue-next'
-import api from '../api'
+import api, { getNodeCommandStatus, type RemoteLogResponse } from '../api'
 import { toast } from '../utils/toast'
 import { copyText } from '../utils/clipboard'
 import { useActiveNode } from '../composables/useActiveNode'
-
-interface RemoteLogResponse {
-  nodeId: number
-  service: string
-  lines: string[]
-  cached: boolean
-  pending: boolean
-  collectedAt: number | string
-  error?: string
-}
 
 const route = useRoute()
 const router = useRouter()
@@ -1415,6 +1451,8 @@ const remoteKeyword = ref('')
 const remoteSortOrder = ref<'asc' | 'desc'>('asc')
 const remoteLogResult = shallowRef<RemoteLogResponse | null>(null)
 let remoteRequestSeq = 0
+let remotePollTimer: ReturnType<typeof setInterval> | null = null
+let remotePollInFlight = false
 
 const viewMode = ref<'table' | 'terminal'>('table')
 const logType = ref<'access' | 'error' | 'audit'>('access')
@@ -2001,9 +2039,101 @@ const handleVisibilityChange = () => {
   }
 }
 
+const stopRemotePolling = () => {
+  if (remotePollTimer) {
+    clearInterval(remotePollTimer)
+    remotePollTimer = null
+  }
+  remotePollInFlight = false
+}
+
+const startRemotePolling = (nodeId: number, commandId: string, reqSeq: number) => {
+  stopRemotePolling()
+  const pollOnce = async () => {
+    if (isUnmounted || reqSeq !== remoteRequestSeq || activeNodeId.value !== nodeId) {
+      stopRemotePolling()
+      return
+    }
+    if (remotePollInFlight) return
+    remotePollInFlight = true
+    try {
+      const snap = await getNodeCommandStatus(nodeId, commandId)
+      if (isUnmounted || reqSeq !== remoteRequestSeq || activeNodeId.value !== nodeId) {
+        return
+      }
+      if (snap.status === 'queued' || snap.status === 'dispatched') {
+        remoteLogResult.value = {
+          nodeId,
+          service: remoteLogResult.value?.service || remoteService.value,
+          lines: remoteLogResult.value?.lines || [],
+          cached: false,
+          pending: true,
+          commandId: snap.id,
+          status: snap.status,
+        }
+        return
+      }
+      stopRemotePolling()
+      if (snap.status === 'succeeded') {
+        remoteError.value = ''
+        remoteLogResult.value = {
+          nodeId,
+          service: snap.logResult?.service || remoteService.value,
+          lines: Array.isArray(snap.logResult?.lines) ? snap.logResult.lines : [],
+          cached: false,
+          pending: false,
+          commandId: snap.id,
+          status: 'succeeded',
+          collectedAt: snap.logResult?.collectedAt || snap.updatedAt,
+        }
+        return
+      }
+      const errMsg =
+        snap.error ||
+        (snap.status === 'expired' ? '采集指令已超时过期，请重新拉取' : '远端节点采集日志失败')
+      remoteError.value = errMsg
+      remoteLogResult.value = {
+        nodeId,
+        service: remoteLogResult.value?.service || remoteService.value,
+        lines: [],
+        cached: false,
+        pending: false,
+        commandId: snap.id,
+        status: snap.status,
+        error: errMsg,
+      }
+    } catch (err: any) {
+      if (isUnmounted || reqSeq !== remoteRequestSeq || activeNodeId.value !== nodeId) {
+        return
+      }
+      stopRemotePolling()
+      const msg = typeof err === 'string' ? err : err?.message || '查询远端日志状态失败'
+      remoteError.value = msg
+      remoteLogResult.value = {
+        nodeId,
+        service: remoteLogResult.value?.service || remoteService.value,
+        lines: [],
+        cached: false,
+        pending: false,
+        commandId,
+        status: 'failed',
+        error: msg,
+      }
+      toast.error('查询远端日志状态失败：' + msg)
+    } finally {
+      remotePollInFlight = false
+    }
+  }
+
+  remotePollTimer = setInterval(() => {
+    void pollOnce()
+  }, 2000)
+}
+
 const fetchRemoteLogs = async () => {
   const nodeId = activeNodeId.value
   if (nodeId <= 0) return
+  stopRemotePolling()
   const reqSeq = ++remoteRequestSeq
   remoteLoading.value = true
   remoteError.value = ''
@@ -2014,13 +2144,13 @@ const fetchRemoteLogs = async () => {
     params.append('lines', String(remoteLines.value))
     params.append('refresh', 'true')
 
-    const res: RemoteLogResponse = await api.get(`/logs?${params.toString()}`, {
-      timeout: 35000,
-    })
+    const res = await api.get<RemoteLogResponse>(`/logs?${params.toString()}`)
     if (isUnmounted || reqSeq !== remoteRequestSeq || activeNodeId.value !== nodeId) return
     remoteLogResult.value = res || null
     if (res?.error) {
       remoteError.value = res.error
+    } else if (res?.pending && res.commandId) {
+      startRemotePolling(nodeId, res.commandId, reqSeq)
     }
   } catch (err: any) {
     if (isUnmounted || reqSeq !== remoteRequestSeq || activeNodeId.value !== nodeId) return
@@ -2038,8 +2168,7 @@ const remoteCollectedTimeText = computed(() => {
   const raw = remoteLogResult.value?.collectedAt
   if (!raw) return ''
   try {
-    const date =
-      typeof raw === 'number' ? new Date(raw < 1e12 ? raw * 1000 : raw) : new Date(String(raw))
+    const date = new Date(raw)
     if (Number.isNaN(date.getTime())) return ''
     return date.toLocaleTimeString('zh-CN', { hour12: false })
   } catch {
@@ -2068,7 +2197,16 @@ const copyRemoteLogs = () => {
   copyText(text, '远端日志已复制')
 }
 
+watch(remoteService, () => {
+  stopRemotePolling()
+  remoteRequestSeq++
+  remoteLoading.value = false
+  remoteLogResult.value = null
+  remoteError.value = ''
+})
+
 watch(activeNodeId, (newId, oldId) => {
+  stopRemotePolling()
   remoteRequestSeq++
   remoteLoading.value = false
   remoteLogResult.value = null
@@ -2108,6 +2246,8 @@ onMounted(() => {
 
 onUnmounted(() => {
   isUnmounted = true
+  remoteRequestSeq++
+  stopRemotePolling()
   if (timer) {
     clearInterval(timer)
     timer = null

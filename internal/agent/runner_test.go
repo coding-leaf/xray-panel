@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -460,21 +461,36 @@ func (f *fakeLogCollector) Collect(_ context.Context, service string, lines int)
 	return f.lines, nil
 }
 
-func TestRunner_OnDemandLogCollectionAndLightweightAck(t *testing.T) {
+func TestRunner_OnDemandLogCollectionAndImmediateCommandResult(t *testing.T) {
 	var mu sync.Mutex
-	var requests []SyncRequest
-	var nextLogReq *LogRequest
+	var syncReqs []SyncRequest
+	var cmdResults []CommandResult
+	var nextCommands []Command
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasPrefix(r.URL.Path, "/api/agent/commands/") && strings.HasSuffix(r.URL.Path, "/result") {
+			var res CommandResult
+			if err := json.NewDecoder(r.Body).Decode(&res); err != nil {
+				w.WriteHeader(http.StatusBadRequest)
+				return
+			}
+			mu.Lock()
+			cmdResults = append(cmdResults, res)
+			mu.Unlock()
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
+			return
+		}
+
 		var req SyncRequest
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			w.WriteHeader(http.StatusBadRequest)
 			return
 		}
 		mu.Lock()
-		requests = append(requests, req)
-		logReq := nextLogReq
-		nextLogReq = nil
+		syncReqs = append(syncReqs, req)
+		cmds := nextCommands
+		nextCommands = nil
 		mu.Unlock()
 
 		w.Header().Set("Content-Type", "application/json")
@@ -486,7 +502,7 @@ func TestRunner_OnDemandLogCollectionAndLightweightAck(t *testing.T) {
 			UsersHash:       "usr-v1",
 			ConfigUnchanged: true,
 			UsersUnchanged:  true,
-			LogRequest:      logReq,
+			Commands:        cmds,
 		})
 	}))
 	defer srv.Close()
@@ -537,91 +553,81 @@ func TestRunner_OnDemandLogCollectionAndLightweightAck(t *testing.T) {
 	}
 	runner.WithLogCollector(collector)
 
-	// 1. Normal sync without LogRequest -> only 1 HTTP request, LogResult is nil, HostMetrics & TrafficBatch present.
+	// 1. Normal sync without Commands -> only 1 HTTP sync, no command result POSTs.
 	if err := runner.SyncOnce(context.Background()); err != nil {
 		t.Fatalf("SyncOnce #1: %v", err)
 	}
+	runner.WaitCommands()
 	mu.Lock()
-	if len(requests) != 1 {
-		t.Fatalf("expected 1 request on normal sync, got %d", len(requests))
+	if len(syncReqs) != 1 || len(cmdResults) != 0 {
+		t.Fatalf("expected 1 sync and 0 command results, got syncs=%d results=%d", len(syncReqs), len(cmdResults))
 	}
-	if requests[0].LogResult != nil {
-		t.Fatalf("expected nil LogResult on normal sync, got %+v", requests[0].LogResult)
+	if syncReqs[0].HostMetrics == nil || syncReqs[0].TrafficBatch == nil {
+		t.Fatalf("expected HostMetrics and TrafficBatch on normal sync")
 	}
-	if requests[0].HostMetrics == nil || requests[0].TrafficBatch == nil {
-		t.Fatalf("expected HostMetrics and TrafficBatch on normal sync, got metrics=%v batch=%v", requests[0].HostMetrics, requests[0].TrafficBatch)
-	}
-	requests = nil
-	nextLogReq = &LogRequest{
-		RequestID: "log-req-1",
-		Service:   "xray",
-		Lines:     50,
-	}
+	syncReqs = nil
+	nextCommands = []Command{{
+		ID:      "cmd-log-1",
+		Type:    CommandTypeLogTail,
+		Service: "xray",
+		Lines:   50,
+	}}
 	mu.Unlock()
 
-	// 2. Sync with LogRequest -> sends normal sync #1 + immediate lightweight ack #2 with LogResult and nil HostMetrics/TrafficBatch.
+	// 2. Sync with log_tail command -> executes asynchronously and POSTs /api/agent/commands/cmd-log-1/result.
 	if err := runner.SyncOnce(context.Background()); err != nil {
 		t.Fatalf("SyncOnce #2: %v", err)
 	}
+	runner.WaitCommands()
+
 	mu.Lock()
-	if len(requests) != 2 {
-		t.Fatalf("expected 2 requests (sync + lightweight ack), got %d", len(requests))
+	if len(syncReqs) != 1 || len(cmdResults) != 1 {
+		t.Fatalf("expected 1 sync and 1 command result POST, got syncs=%d results=%d", len(syncReqs), len(cmdResults))
 	}
-	normalReq := requests[0]
-	ackReq := requests[1]
-	requests = nil
+	normalReq := syncReqs[0]
+	res1 := cmdResults[0]
+	syncReqs = nil
+	cmdResults = nil
 	mu.Unlock()
 
 	if normalReq.TrafficBatch == nil || normalReq.TrafficBatch.BatchID != "b-2" {
 		t.Fatalf("expected normal sync to carry b-2, got %+v", normalReq.TrafficBatch)
 	}
-	if ackReq.TrafficBatch != nil {
-		t.Fatalf("expected lightweight ack TrafficBatch == nil, got %+v", ackReq.TrafficBatch)
+	if res1.ID != "cmd-log-1" || res1.Type != CommandTypeLogTail || res1.Status != CommandStatusSucceeded || res1.Service != "xray" || res1.Error != "" {
+		t.Fatalf("unexpected log command result metadata: %+v", res1)
 	}
-	if ackReq.HostMetrics != nil {
-		t.Fatalf("expected lightweight ack HostMetrics == nil, got %+v", ackReq.HostMetrics)
-	}
-	if ackReq.AgentVersion != "1.2.3" {
-		t.Fatalf("expected AgentVersion 1.2.3 on ack, got %q", ackReq.AgentVersion)
-	}
-	if ackReq.LogResult == nil {
-		t.Fatal("expected LogResult on lightweight ack")
-	}
-	if ackReq.LogResult.RequestID != "log-req-1" || ackReq.LogResult.Service != "xray" || ackReq.LogResult.Error != "" {
-		t.Fatalf("unexpected LogResult metadata: %+v", ackReq.LogResult)
-	}
-	if len(ackReq.LogResult.Lines) != 2 || ackReq.LogResult.CollectedAtUnix <= 0 {
-		t.Fatalf("unexpected LogResult payload: %+v", ackReq.LogResult)
+	if len(res1.Lines) != 2 || res1.CollectedAtUnix <= 0 {
+		t.Fatalf("unexpected log command result payload: %+v", res1)
 	}
 
-	// 3. Collection error -> still sends lightweight ack with LogResult.Error populated.
+	// 3. Collection error -> reports Status=failed with Error populated.
 	collector.mu.Lock()
 	collector.err = errors.New("journalctl permission denied")
 	collector.mu.Unlock()
 
 	mu.Lock()
-	nextLogReq = &LogRequest{
-		RequestID: "log-req-2",
-		Service:   "xray-agent",
-		Lines:     100,
-	}
+	nextCommands = []Command{{
+		ID:      "cmd-log-2",
+		Type:    CommandTypeLogTail,
+		Service: "xray-agent",
+		Lines:   100,
+	}}
 	mu.Unlock()
 
 	if err := runner.SyncOnce(context.Background()); err != nil {
 		t.Fatalf("SyncOnce #3: %v", err)
 	}
+	runner.WaitCommands()
+
 	mu.Lock()
-	if len(requests) != 2 {
-		t.Fatalf("expected 2 requests on error-ack cycle, got %d", len(requests))
+	if len(cmdResults) != 1 {
+		t.Fatalf("expected 1 error command result POST, got %d", len(cmdResults))
 	}
-	errAck := requests[1]
+	errRes := cmdResults[0]
 	mu.Unlock()
 
-	if errAck.TrafficBatch != nil || errAck.HostMetrics != nil {
-		t.Fatalf("expected nil TrafficBatch and HostMetrics on error ack, got batch=%v metrics=%v", errAck.TrafficBatch, errAck.HostMetrics)
-	}
-	if errAck.LogResult == nil || errAck.LogResult.RequestID != "log-req-2" || errAck.LogResult.Error != "journalctl permission denied" {
-		t.Fatalf("expected LogResult.Error to be propagated, got %+v", errAck.LogResult)
+	if errRes.ID != "cmd-log-2" || errRes.Status != CommandStatusFailed || errRes.Error != "journalctl permission denied" {
+		t.Fatalf("expected failed command result with error, got %+v", errRes)
 	}
 }
 
@@ -631,12 +637,33 @@ type fakeGeoDataUpdater struct {
 	geoipSize   int64
 	geositeSize int64
 	err         error
+	startedCh   chan struct{}
+	releaseCh   chan struct{}
 }
 
-func (f *fakeGeoDataUpdater) Update(_ context.Context) (int64, int64, error) {
+func (f *fakeGeoDataUpdater) Update(ctx context.Context) (int64, int64, error) {
+	f.mu.Lock()
+	f.calls++
+	started := f.startedCh
+	release := f.releaseCh
+	f.mu.Unlock()
+
+	if started != nil {
+		select {
+		case started <- struct{}{}:
+		default:
+		}
+	}
+	if release != nil {
+		select {
+		case <-release:
+		case <-ctx.Done():
+			return 0, 0, ctx.Err()
+		}
+	}
+
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	f.calls++
 	return f.geoipSize, f.geositeSize, f.err
 }
 
@@ -768,33 +795,57 @@ func TestRunner_ImmediateLightweightAckOnConfigAndUsersApply(t *testing.T) {
 	}
 }
 
-func TestRunner_OnDemandGeoDataUpdateAndLightweightAck(t *testing.T) {
+func TestRunner_OnDemandGeoDataUpdate_NonBlockingFallbackAndCancel(t *testing.T) {
 	var mu sync.Mutex
-	var requests []SyncRequest
-	var nextGeoReq *GeoUpdateRequest
+	var syncReqs []SyncRequest
+	var cmdResults []CommandResult
+	var nextCommands []Command
+	failImmediateReport := false
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasPrefix(r.URL.Path, "/api/agent/commands/") && strings.HasSuffix(r.URL.Path, "/result") {
+			mu.Lock()
+			shouldFail := failImmediateReport
+			mu.Unlock()
+			if shouldFail {
+				w.WriteHeader(http.StatusInternalServerError)
+				_, _ = w.Write([]byte(`{"error":"temporary master outage"}`))
+				return
+			}
+			var res CommandResult
+			if err := json.NewDecoder(r.Body).Decode(&res); err != nil {
+				w.WriteHeader(http.StatusBadRequest)
+				return
+			}
+			mu.Lock()
+			cmdResults = append(cmdResults, res)
+			mu.Unlock()
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
+			return
+		}
+
 		var req SyncRequest
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			w.WriteHeader(http.StatusBadRequest)
 			return
 		}
 		mu.Lock()
-		requests = append(requests, req)
-		geoReq := nextGeoReq
-		nextGeoReq = nil
+		syncReqs = append(syncReqs, req)
+		cmds := nextCommands
+		nextCommands = nil
 		mu.Unlock()
 
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(SyncResponse{
-			OK:               true,
-			DesiredState:     DesiredStateActive,
-			SyncIntervalSec:  20,
-			ConfigHash:       "cfg-v1",
-			UsersHash:        "usr-v1",
-			ConfigUnchanged:  true,
-			UsersUnchanged:   true,
-			GeoUpdateRequest: geoReq,
+			OK:              true,
+			DesiredState:    DesiredStateActive,
+			SyncIntervalSec: 20,
+			ConfigHash:      "cfg-v1",
+			UsersHash:       "usr-v1",
+			ConfigUnchanged: true,
+			UsersUnchanged:  true,
+			Commands:        cmds,
 		})
 	}))
 	defer srv.Close()
@@ -808,9 +859,14 @@ func TestRunner_OnDemandGeoDataUpdateAndLightweightAck(t *testing.T) {
 		ProbeInterval: 10 * time.Millisecond,
 	}, &fakeCommandRunner{}, &fakeHealthProber{})
 	userSync, _ := NewUserSyncer(&fakeUserController{})
+
+	startedCh := make(chan struct{}, 2)
+	releaseCh := make(chan struct{})
 	updater := &fakeGeoDataUpdater{
 		geoipSize:   10485760,
 		geositeSize: 5242880,
+		startedCh:   startedCh,
+		releaseCh:   releaseCh,
 	}
 
 	runner, err := NewRunner(
@@ -827,69 +883,133 @@ func TestRunner_OnDemandGeoDataUpdateAndLightweightAck(t *testing.T) {
 	}
 	runner.WithGeoDataUpdater(updater)
 
-	// 1. Normal sync without GeoUpdateRequest -> 1 request, GeoUpdateResult == nil.
+	// 1. Slow GeoData update MUST NOT block SyncOnce or subsequent heartbeats!
+	mu.Lock()
+	nextCommands = []Command{{ID: "cmd-geo-1", Type: CommandTypeGeoDataUpdate}}
+	mu.Unlock()
+
+	start := time.Now()
 	if err := runner.SyncOnce(context.Background()); err != nil {
 		t.Fatalf("SyncOnce #1: %v", err)
 	}
-	mu.Lock()
-	if len(requests) != 1 || requests[0].GeoUpdateResult != nil {
-		t.Fatalf("expected 1 normal request with nil GeoUpdateResult, got %+v", requests)
+	if elapsed := time.Since(start); elapsed > 500*time.Millisecond {
+		t.Fatalf("SyncOnce #1 blocked on slow GeoData update (%v)", elapsed)
 	}
-	requests = nil
-	nextGeoReq = &GeoUpdateRequest{RequestID: "geo-req-1"}
-	mu.Unlock()
 
-	// 2. Sync with GeoUpdateRequest -> executes updater and sends lightweight ack with GeoUpdateResult.
+	// Wait until background GeoData goroutine is actively blocked inside Update()
+	select {
+	case <-startedCh:
+	case <-time.After(time.Second):
+		t.Fatal("expected background GeoData updater to start")
+	}
+
+	// Execute another SyncOnce heartbeat while GeoData download is still blocked
+	hbStart := time.Now()
 	if err := runner.SyncOnce(context.Background()); err != nil {
-		t.Fatalf("SyncOnce #2: %v", err)
+		t.Fatalf("SyncOnce #2 during slow GeoData failed: %v", err)
 	}
+	if elapsed := time.Since(hbStart); elapsed > 500*time.Millisecond {
+		t.Fatalf("heartbeat SyncOnce #2 blocked during GeoData update (%v)", elapsed)
+	}
+
+	// Release slow GeoData update and wait for immediate POST /api/agent/commands/cmd-geo-1/result
+	close(releaseCh)
+	runner.WaitCommands()
+
 	mu.Lock()
-	if len(requests) != 2 {
-		t.Fatalf("expected 2 requests (sync + geo ack), got %d", len(requests))
+	if len(cmdResults) != 1 {
+		t.Fatalf("expected 1 immediate geo command result POST, got %d", len(cmdResults))
 	}
-	geoAck := requests[1]
-	requests = nil
+	geoRes := cmdResults[0]
+	cmdResults = nil
+	syncReqs = nil
 	mu.Unlock()
 
-	if geoAck.HostMetrics != nil || geoAck.TrafficBatch != nil {
-		t.Fatalf("expected nil HostMetrics and TrafficBatch on geo ack, got metrics=%v batch=%v", geoAck.HostMetrics, geoAck.TrafficBatch)
-	}
-	if geoAck.GeoUpdateResult == nil {
-		t.Fatal("expected GeoUpdateResult on lightweight ack")
-	}
-	if geoAck.GeoUpdateResult.RequestID != "geo-req-1" ||
-		geoAck.GeoUpdateResult.GeoIPSize != 10485760 ||
-		geoAck.GeoUpdateResult.GeoSiteSize != 5242880 ||
-		geoAck.GeoUpdateResult.Error != "" ||
-		geoAck.GeoUpdateResult.UpdatedAtUnix <= 0 {
-		t.Fatalf("unexpected GeoUpdateResult: %+v", geoAck.GeoUpdateResult)
+	if geoRes.ID != "cmd-geo-1" || geoRes.Status != CommandStatusSucceeded ||
+		geoRes.GeoIPSize != 10485760 || geoRes.GeoSiteSize != 5242880 || geoRes.UpdatedAtUnix <= 0 {
+		t.Fatalf("unexpected geo command result: %+v", geoRes)
 	}
 
-	// 3. Updater error -> still sends lightweight ack with Error populated.
+	// 2. When immediate POST /api/agent/commands/:id/result fails, result falls back to next SyncOnce.CommandResults
 	updater.mu.Lock()
+	updater.releaseCh = nil
+	updater.startedCh = nil
 	updater.geoipSize = 0
 	updater.geositeSize = 0
 	updater.err = errors.New("reload/probe failed; rolled back")
 	updater.mu.Unlock()
 
 	mu.Lock()
-	nextGeoReq = &GeoUpdateRequest{RequestID: "geo-req-2"}
+	failImmediateReport = true
+	nextCommands = []Command{{ID: "cmd-geo-2", Type: CommandTypeGeoDataUpdate}}
 	mu.Unlock()
 
 	if err := runner.SyncOnce(context.Background()); err != nil {
 		t.Fatalf("SyncOnce #3: %v", err)
 	}
+	runner.WaitCommands()
+
+	// Next SyncOnce must carry cmd-geo-2 in CommandResults
 	mu.Lock()
-	if len(requests) != 2 {
-		t.Fatalf("expected 2 requests on geo error ack, got %d", len(requests))
+	syncReqs = nil
+	mu.Unlock()
+	if err := runner.SyncOnce(context.Background()); err != nil {
+		t.Fatalf("SyncOnce #4 (fallback upload): %v", err)
 	}
-	errAck := requests[1]
+	mu.Lock()
+	if len(syncReqs) != 1 || len(syncReqs[0].CommandResults) != 1 {
+		t.Fatalf("expected 1 fallback CommandResult in SyncOnce #4, got %+v", syncReqs)
+	}
+	fallbackRes := syncReqs[0].CommandResults[0]
+	syncReqs = nil
+	mu.Unlock()
+	if fallbackRes.ID != "cmd-geo-2" || fallbackRes.Status != CommandStatusFailed || fallbackRes.Error != "reload/probe failed; rolled back" {
+		t.Fatalf("unexpected fallback CommandResult: %+v", fallbackRes)
+	}
+
+	// Subsequent SyncOnce after ack must NOT resend cmd-geo-2
+	if err := runner.SyncOnce(context.Background()); err != nil {
+		t.Fatalf("SyncOnce #5: %v", err)
+	}
+	mu.Lock()
+	if len(syncReqs) != 1 || len(syncReqs[0].CommandResults) != 0 {
+		t.Fatalf("expected 0 CommandResults after ack, got %+v", syncReqs)
+	}
 	mu.Unlock()
 
-	if errAck.HostMetrics != nil || errAck.TrafficBatch != nil {
-		t.Fatalf("expected nil HostMetrics and TrafficBatch on geo error ack")
+	// 3. Run(ctx) cancellation cleanly aborts in-flight command goroutine without hanging/leaking
+	cancelStarted := make(chan struct{}, 1)
+	neverRelease := make(chan struct{})
+	updater.mu.Lock()
+	updater.startedCh = cancelStarted
+	updater.releaseCh = neverRelease
+	updater.err = nil
+	updater.mu.Unlock()
+
+	mu.Lock()
+	failImmediateReport = false
+	nextCommands = []Command{{ID: "cmd-geo-cancel", Type: CommandTypeGeoDataUpdate}}
+	mu.Unlock()
+
+	runCtx, runCancel := context.WithCancel(context.Background())
+	runDone := make(chan error, 1)
+	go func() {
+		runDone <- runner.Run(runCtx)
+	}()
+
+	select {
+	case <-cancelStarted:
+	case <-time.After(time.Second):
+		t.Fatal("expected cmd-geo-cancel to start during Run")
 	}
-	if errAck.GeoUpdateResult == nil || errAck.GeoUpdateResult.RequestID != "geo-req-2" || errAck.GeoUpdateResult.Error != "reload/probe failed; rolled back" {
-		t.Fatalf("expected GeoUpdateResult.Error propagated, got %+v", errAck.GeoUpdateResult)
+
+	runCancel()
+	select {
+	case err := <-runDone:
+		if err != nil {
+			t.Fatalf("Run returned unexpected error on cancel: %v", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("Run did not exit cleanly after ctx cancel (possible goroutine leak)")
 	}
 }

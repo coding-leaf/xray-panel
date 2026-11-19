@@ -200,7 +200,8 @@ func main() {
 
 	httpSvc := deliveryHTTP.NewServer(cfg.ListenPort, router, deliveryHTTP.WithShutdownTimeout(5*time.Second))
 	syncJob := deliveryCron.NewTrafficSyncJob(xrayManager, userRepo, inboundRepo, trafficLogRepo, alertSvc, userSvc, ticketRepo, 5*time.Second).
-		WithNodeQuotaCron(nodeSvc)
+		WithNodeQuotaCron(nodeSvc).
+		WithNodeBatchRepo(nodeRepo)
 	realitySyncJob := deliveryCron.NewRealitySyncJob(realityMonitorSvc, 12*time.Hour)
 
 	services := []struct {

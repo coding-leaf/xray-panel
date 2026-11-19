@@ -24,20 +24,25 @@ type NodeQuotaCron interface {
 	CheckAndResetMonthlyTraffic(ctx context.Context) error
 }
 
-const trafficLogRetentionDays = 180
+const (
+	trafficLogRetentionDays       = 180
+	nodeTrafficBatchRetentionDays = 7
+)
 
 type TrafficSyncJob struct {
-	xrayManager    XrayTrafficManager
-	userRepo       domain.UserRepository
-	inboundRepo    domain.InboundRepository
-	trafficLogRepo domain.TrafficLogRepository
-	alertSvc       *service.AlertService
-	userSvc        *service.UserService
-	nodeSvc        NodeQuotaCron
-	ticketRepo     domain.TicketRepository
-	interval       time.Duration
-	pruneMu        sync.Mutex
-	lastPruneDate  string
+	xrayManager            XrayTrafficManager
+	userRepo               domain.UserRepository
+	inboundRepo            domain.InboundRepository
+	trafficLogRepo         domain.TrafficLogRepository
+	nodeBatchRepo          domain.NodeTrafficBatchRepository
+	alertSvc               *service.AlertService
+	userSvc                *service.UserService
+	nodeSvc                NodeQuotaCron
+	ticketRepo             domain.TicketRepository
+	interval               time.Duration
+	pruneMu                sync.Mutex
+	lastPruneDate          string
+	lastNodeBatchPruneDate string
 }
 
 func NewTrafficSyncJob(
@@ -71,6 +76,12 @@ func (j *TrafficSyncJob) WithNodeQuotaCron(nodeSvc NodeQuotaCron) *TrafficSyncJo
 	return j
 }
 
+// WithNodeBatchRepo 注入节点流量批次仓储，用于独立于 xrayManager 的每日定时清理过期去重记录
+func (j *TrafficSyncJob) WithNodeBatchRepo(repo domain.NodeTrafficBatchRepository) *TrafficSyncJob {
+	j.nodeBatchRepo = repo
+	return j
+}
+
 func (j *TrafficSyncJob) Start(ctx context.Context) error {
 	ticker := time.NewTicker(j.interval)
 	defer ticker.Stop()
@@ -82,12 +93,17 @@ func (j *TrafficSyncJob) Start(ctx context.Context) error {
 
 	var wg sync.WaitGroup
 
-	// 1. 独立外部告警与周期维护协程：执行 Telegram 外部网络通知与月度流量重置
+	// 1. 独立外部告警与周期维护协程：执行 Telegram 外部网络通知、月度流量重置与节点批次表清理（不依赖 xrayManager）
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
 		defer alertTicker.Stop()
 		defer ticketCleanTicker.Stop()
+
+		startupPruneCtx, startupPruneCancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+		j.pruneOldNodeTrafficBatchesIfNeeded(startupPruneCtx, time.Now())
+		startupPruneCancel()
+
 		for {
 			select {
 			case <-ctx.Done():
@@ -99,6 +115,7 @@ func (j *TrafficSyncJob) Start(ctx context.Context) error {
 					}
 				}
 			case <-alertTicker.C:
+				j.pruneOldNodeTrafficBatchesIfNeeded(ctx, time.Now())
 				if j.userSvc != nil {
 					if err := j.userSvc.CheckAndResetMonthlyTraffic(ctx); err != nil {
 						slog.Warn("Failed to check and reset monthly traffic", slog.String("error", err.Error()))
@@ -347,4 +364,22 @@ func (j *TrafficSyncJob) pruneOldTrafficLogsIfNeeded(ctx context.Context, today 
 		return
 	}
 	j.lastPruneDate = today
+}
+
+func (j *TrafficSyncJob) pruneOldNodeTrafficBatchesIfNeeded(ctx context.Context, now time.Time) {
+	if j.nodeBatchRepo == nil {
+		return
+	}
+	today := now.Format("2006-01-02")
+	j.pruneMu.Lock()
+	defer j.pruneMu.Unlock()
+	if j.lastNodeBatchPruneDate == today {
+		return
+	}
+	cutoff := now.AddDate(0, 0, -nodeTrafficBatchRetentionDays)
+	if err := j.nodeBatchRepo.PruneBatchesBefore(ctx, cutoff); err != nil {
+		slog.Warn("Failed to prune expired node traffic batches", slog.Time("cutoff", cutoff), slog.Any("error", err))
+		return
+	}
+	j.lastNodeBatchPruneDate = today
 }

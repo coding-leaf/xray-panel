@@ -52,7 +52,7 @@ func (h *GeoDataHandler) UpdateGeoData(c *gin.Context) {
 			writePerNodeConfigError(c, err)
 			return
 		}
-		c.JSON(http.StatusOK, resp)
+		c.JSON(http.StatusAccepted, resp)
 		return
 	}
 

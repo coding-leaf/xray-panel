@@ -5,19 +5,24 @@ const (
 	DesiredStateActive        = "active"
 	DesiredStateDraining      = "draining"
 	DesiredStateCircuitBroken = "circuit_broken"
+
+	CommandTypeLogTail       = "log_tail"
+	CommandTypeGeoDataUpdate = "geodata_update"
+
+	CommandStatusSucceeded = "succeeded"
+	CommandStatusFailed    = "failed"
 )
 
 // SyncRequest is the locked HTTP JSON payload sent by cmd/agent to POST /api/agent/sync.
 type SyncRequest struct {
-	ConfigHash   string        `json:"configHash"`
-	UsersHash    string        `json:"usersHash"`
-	AgentVersion string        `json:"agentVersion"`
-	XrayVersion  string        `json:"xrayVersion"`
-	LastError    string        `json:"lastError"`
-	HostMetrics     *HostMetrics     `json:"hostMetrics,omitempty"`
-	TrafficBatch    *TrafficBatch    `json:"trafficBatch,omitempty"`
-	LogResult       *LogResult       `json:"logResult,omitempty"`
-	GeoUpdateResult *GeoUpdateResult `json:"geoUpdateResult,omitempty"`
+	ConfigHash     string          `json:"configHash"`
+	UsersHash      string          `json:"usersHash"`
+	AgentVersion   string          `json:"agentVersion"`
+	XrayVersion    string          `json:"xrayVersion"`
+	LastError      string          `json:"lastError"`
+	HostMetrics    *HostMetrics    `json:"hostMetrics,omitempty"`
+	TrafficBatch   *TrafficBatch   `json:"trafficBatch,omitempty"`
+	CommandResults []CommandResult `json:"commandResults,omitempty"`
 }
 
 // HostMetrics carries host CPU, memory, and primary NIC byte deltas.
@@ -60,40 +65,31 @@ type SyncResponse struct {
 	UsersUnchanged  bool         `json:"usersUnchanged"`
 	ConfigJSON      string       `json:"configJson,omitempty"`
 	Users           []RemoteUser `json:"users,omitempty"`
-	QuotaPolicy      *QuotaPolicy      `json:"quotaPolicy,omitempty"`
-	LogRequest       *LogRequest       `json:"logRequest,omitempty"`
-	GeoUpdateRequest *GeoUpdateRequest `json:"geoUpdateRequest,omitempty"`
+	QuotaPolicy     *QuotaPolicy `json:"quotaPolicy,omitempty"`
+	Commands        []Command    `json:"commands,omitempty"`
 }
 
-// GeoUpdateRequest instructs the agent to download and atomically apply updated geoip.dat and geosite.dat files.
-type GeoUpdateRequest struct {
-	RequestID string `json:"requestId"`
+// Command represents an asynchronous instruction dispatched by Master during sync.
+type Command struct {
+	ID      string `json:"id"`
+	Type    string `json:"type"`
+	Service string `json:"service,omitempty"`
+	Lines   int    `json:"lines,omitempty"`
 }
 
-// GeoUpdateResult carries the outcome of an on-demand GeoData update back to Master.
-type GeoUpdateResult struct {
-	RequestID     string `json:"requestId"`
-	GeoIPSize     int64  `json:"geoipSize"`
-	GeoSiteSize   int64  `json:"geositeSize"`
-	DurationMs    int64  `json:"durationMs"`
-	Error         string `json:"error,omitempty"`
-	UpdatedAtUnix int64  `json:"updatedAtUnix"`
-}
-
-// LogRequest instructs the agent to collect recent systemd journal lines for a whitelisted service.
-type LogRequest struct {
-	RequestID string `json:"requestId"`
-	Service   string `json:"service"`
-	Lines     int    `json:"lines"`
-}
-
-// LogResult carries the collected log lines (or collection error) back to Master.
-type LogResult struct {
-	RequestID       string   `json:"requestId"`
-	Service         string   `json:"service"`
-	Lines           []string `json:"lines,omitempty"`
+// CommandResult carries the outcome of an asynchronous command reported back to Master.
+type CommandResult struct {
+	ID              string   `json:"id"`
+	Type            string   `json:"type"`
+	Status          string   `json:"status"`
 	Error           string   `json:"error,omitempty"`
-	CollectedAtUnix int64    `json:"collectedAtUnix"`
+	Service         string   `json:"service,omitempty"`
+	Lines           []string `json:"lines,omitempty"`
+	CollectedAtUnix int64    `json:"collectedAtUnix,omitempty"`
+	GeoIPSize       int64    `json:"geoipSize,omitempty"`
+	GeoSiteSize     int64    `json:"geositeSize,omitempty"`
+	DurationMs      int64    `json:"durationMs,omitempty"`
+	UpdatedAtUnix   int64    `json:"updatedAtUnix,omitempty"`
 }
 
 // QuotaPolicy describes the node's monthly quota and autonomous circuit-breaker policy pushed by Master.

@@ -42,6 +42,18 @@ function applyRouteIdToUuid(uuid: string, routeId: number): string {
   return uuid
 }
 
+interface MockNodeCommandRecord {
+  id: string
+  nodeId: number
+  type: 'log_tail' | 'geodata_update'
+  service?: string
+  lines?: number
+  createdAt: string
+  pollCount: number
+}
+
+const mockNodeCommands = new Map<string, MockNodeCommandRecord>()
+
 export async function handleMockRequest(url: string, method: string, data?: any): Promise<any> {
   const cleanUrl = url.split('?')[0]
   const state = loadMockState()
@@ -649,6 +661,30 @@ export async function handleMockRequest(url: string, method: string, data?: any)
 
   if (cleanUrl.endsWith('/logs') && method === 'GET') {
     const urlObj = new URL(url, 'http://localhost')
+    const nodeId = Number(urlObj.searchParams.get('nodeId') || '0')
+    if (nodeId > 0) {
+      const service = urlObj.searchParams.get('service') === 'xray-agent' ? 'xray-agent' : 'xray'
+      const lines = Math.max(1, Math.min(1000, Number(urlObj.searchParams.get('lines') || '100')))
+      const commandId = `mock-cmd-log-${nodeId}-${Date.now()}`
+      mockNodeCommands.set(commandId, {
+        id: commandId,
+        nodeId,
+        type: 'log_tail',
+        service,
+        lines,
+        createdAt: new Date().toISOString(),
+        pollCount: 0,
+      })
+      return delay({
+        nodeId,
+        service,
+        lines: [],
+        cached: false,
+        pending: true,
+        commandId,
+        status: 'queued',
+      })
+    }
     const logType = urlObj.searchParams.get('type') || 'access'
     const inbound = urlObj.searchParams.get('inbound') || ''
     const outbound = urlObj.searchParams.get('outbound') || ''
@@ -1025,7 +1061,107 @@ export async function handleMockRequest(url: string, method: string, data?: any)
   }
 
   if (cleanUrl.endsWith('/geodata/update') && method === 'POST') {
+    const urlObj = new URL(url, 'http://localhost')
+    const nodeId = Number(urlObj.searchParams.get('nodeId') || '0')
+    if (nodeId > 0) {
+      const commandId = `mock-cmd-geo-${nodeId}-${Date.now()}`
+      mockNodeCommands.set(commandId, {
+        id: commandId,
+        nodeId,
+        type: 'geodata_update',
+        createdAt: new Date().toISOString(),
+        pollCount: 0,
+      })
+      return delay({
+        nodeId,
+        pending: true,
+        commandId,
+        status: 'queued',
+      })
+    }
     return delay({ success: true, message: 'GeoData 规则库更新任务已在后台启动' })
+  }
+
+  const nodeCmdMatch = cleanUrl.match(/\/admin\/nodes\/(\d+)\/commands\/([^/]+)$/)
+  if (nodeCmdMatch && method === 'GET') {
+    const nodeId = Number(nodeCmdMatch[1])
+    const commandId = decodeURIComponent(nodeCmdMatch[2])
+    const rec = mockNodeCommands.get(commandId)
+    const nowIso = new Date().toISOString()
+
+    if (rec && rec.nodeId === nodeId) {
+      rec.pollCount++
+      if (rec.pollCount === 1) {
+        return delay({
+          id: rec.id,
+          nodeId: rec.nodeId,
+          type: rec.type,
+          status: 'dispatched',
+          createdAt: rec.createdAt,
+          updatedAt: nowIso,
+        })
+      }
+      if (rec.type === 'geodata_update') {
+        return delay({
+          id: rec.id,
+          nodeId: rec.nodeId,
+          type: 'geodata_update',
+          status: 'succeeded',
+          createdAt: rec.createdAt,
+          updatedAt: nowIso,
+          geoResult: {
+            geoipSize: 8941200,
+            geositeSize: 23518400,
+            durationMs: 1420,
+            updatedAt: nowIso,
+          },
+        })
+      }
+      const svc = rec.service || 'xray'
+      const sampleCount = Math.min(rec.lines || 5, 5)
+      const lines = Array.from({ length: sampleCount }, (_, idx) => {
+        return `${nowIso} [Info] ${svc}: mock remote journalctl line #${idx + 1} (node=${nodeId})`
+      })
+      return delay({
+        id: rec.id,
+        nodeId: rec.nodeId,
+        type: 'log_tail',
+        status: 'succeeded',
+        createdAt: rec.createdAt,
+        updatedAt: nowIso,
+        logResult: {
+          service: svc,
+          lines,
+          collectedAt: nowIso,
+        },
+      })
+    }
+
+    const isGeo = commandId.includes('geo')
+    return delay({
+      id: commandId,
+      nodeId,
+      type: isGeo ? 'geodata_update' : 'log_tail',
+      status: 'succeeded',
+      createdAt: nowIso,
+      updatedAt: nowIso,
+      ...(isGeo
+        ? {
+            geoResult: {
+              geoipSize: 8941200,
+              geositeSize: 23518400,
+              durationMs: 1420,
+              updatedAt: nowIso,
+            },
+          }
+        : {
+            logResult: {
+              service: 'xray',
+              lines: [`${nowIso} [Info] xray: mock remote journalctl line #1 (node=${nodeId})`],
+              collectedAt: nowIso,
+            },
+          }),
+    })
   }
 
   if (cleanUrl.endsWith('/geodata/progress') && method === 'GET') {

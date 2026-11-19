@@ -3,6 +3,7 @@ package repository
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"time"
 
@@ -73,33 +74,14 @@ func (r *GORMNodeRepository) Update(ctx context.Context, node *domain.Node) erro
 // UpdateHeartbeat atomically records agent heartbeat metadata, NIC traffic deltas, and daily NIC traffic logs.
 func (r *GORMNodeRepository) UpdateHeartbeat(ctx context.Context, nodeID uint, req *domain.AgentSyncRequest, seenAt time.Time) error {
 	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		isLightweightResultAck := (req.LogResult != nil || req.GeoUpdateResult != nil) && req.TrafficBatch == nil && req.HostMetrics == nil
 		updates := map[string]interface{}{
-			"last_seen_at": seenAt,
-			"updated_at":   seenAt,
-		}
-		if !isLightweightResultAck {
-			updates["agent_version"] = req.AgentVersion
-			updates["xray_version"] = req.XrayVersion
-			updates["last_config_hash"] = req.ConfigHash
-			updates["last_users_hash"] = req.UsersHash
-			updates["last_sync_error"] = req.LastError
-		} else {
-			if req.AgentVersion != "" {
-				updates["agent_version"] = req.AgentVersion
-			}
-			if req.XrayVersion != "" {
-				updates["xray_version"] = req.XrayVersion
-			}
-			if req.ConfigHash != "" {
-				updates["last_config_hash"] = req.ConfigHash
-			}
-			if req.UsersHash != "" {
-				updates["last_users_hash"] = req.UsersHash
-			}
-			if req.LastError != "" {
-				updates["last_sync_error"] = req.LastError
-			}
+			"last_seen_at":     seenAt,
+			"updated_at":       seenAt,
+			"agent_version":    req.AgentVersion,
+			"xray_version":     req.XrayVersion,
+			"last_config_hash": req.ConfigHash,
+			"last_users_hash":  req.UsersHash,
+			"last_sync_error":  req.LastError,
 		}
 		var nicUp, nicDown int64
 		if req.HostMetrics != nil {
@@ -145,14 +127,22 @@ func (r *GORMNodeRepository) UpdateHeartbeat(ctx context.Context, nodeID uint, r
 }
 
 func (r *GORMNodeRepository) Delete(ctx context.Context, id uint) error {
-	res := r.db.WithContext(ctx).Delete(&domain.Node{}, id)
-	if res.Error != nil {
-		return res.Error
-	}
-	if res.RowsAffected == 0 {
-		return domain.ErrNotFound
-	}
-	return nil
+	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if err := tx.Where("node_id = ?", id).Delete(&domain.NodeTrafficBatch{}).Error; err != nil {
+			return fmt.Errorf("delete node traffic batches: %w", err)
+		}
+		if err := tx.Where("node_id = ?", id).Delete(&domain.NodeTrafficDaily{}).Error; err != nil {
+			return fmt.Errorf("delete node traffic dailies: %w", err)
+		}
+		res := tx.Delete(&domain.Node{}, id)
+		if res.Error != nil {
+			return fmt.Errorf("delete node: %w", res.Error)
+		}
+		if res.RowsAffected == 0 {
+			return domain.ErrNotFound
+		}
+		return nil
+	})
 }
 
 func (r *GORMNodeRepository) GetByID(ctx context.Context, id uint) (*domain.Node, error) {

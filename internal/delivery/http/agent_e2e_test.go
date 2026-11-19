@@ -977,8 +977,7 @@ func TestMasterAgent_E2E_FullConfigAutoRelayAndOnDemandLogs(t *testing.T) {
 	}
 	masterConfigMgr := xray.NewConfigManager(masterCfgPath, "")
 
-	nodeSvc := service.NewNodeService(nodeRepo, nodeRepo, inboundRepo, userRepo, compiler).
-		WithLogWaitTimeout(5 * time.Second)
+	nodeSvc := service.NewNodeService(nodeRepo, nodeRepo, inboundRepo, userRepo, compiler)
 	configSvc := service.NewConfigService(masterConfigMgr, nil, inboundRepo, userRepo, snapshotRepo, compiler).
 		WithNodeCacheInvalidator(nodeSvc).
 		WithNodeRepo(nodeRepo)
@@ -1323,7 +1322,7 @@ func TestMasterAgent_E2E_FullConfigAutoRelayAndOnDemandLogs(t *testing.T) {
 	}
 	userCtrl.mu.Unlock()
 
-	// 3. Concurrent on-demand remote log retrieval + no duplicate traffic accounting
+	// 3. Async on-demand remote log retrieval + immediate POST /api/agent/commands/:id/result + no duplicate traffic accounting
 	trafficCol.push(&agent.TrafficBatch{
 		BatchID: "fullcfg-batch-1",
 		Users: []agent.UserTrafficDelta{
@@ -1338,64 +1337,51 @@ func TestMasterAgent_E2E_FullConfigAutoRelayAndOnDemandLogs(t *testing.T) {
 	syncRequests = nil
 	spyMu.Unlock()
 
-	type logHTTPResp struct {
-		status int
-		body   []byte
+	// Admin requests remote logs -> immediately returns 200 OK with pending=true and commandId
+	logStatus, logBody := adminCall(http.MethodGet, fmt.Sprintf("/api/logs?nodeId=%d&service=xray&lines=50&refresh=true", created.ID), nil)
+	if logStatus != http.StatusOK {
+		t.Fatalf("GET /api/logs remote expected 200, got %d: %s", logStatus, string(logBody))
 	}
-	logCh := make(chan logHTTPResp, 1)
-	go func() {
-		status, body := adminCall(http.MethodGet, fmt.Sprintf("/api/logs?nodeId=%d&service=xray&lines=50&refresh=true", created.ID), nil)
-		logCh <- logHTTPResp{status: status, body: body}
-	}()
+	var logPayload service.RemoteNodeLogsResponse
+	if err := json.Unmarshal(logBody, &logPayload); err != nil {
+		t.Fatalf("unmarshal remote logs response: %v", err)
+	}
+	if logPayload.NodeID != created.ID || logPayload.Service != "xray" || logPayload.Cached || !logPayload.Pending || logPayload.CommandID == "" || logPayload.Status != domain.NodeCommandStatusQueued {
+		t.Fatalf("unexpected async remote logs enqueue payload: %+v", logPayload)
+	}
 
-	// Trigger SyncOnce once RequestNodeLogs has queued pendingLogReqs; retry briefly if goroutine scheduling is delayed.
-	deadline := time.Now().Add(3 * time.Second)
-	for time.Now().Before(deadline) {
-		if logCol.callCount() > 0 {
-			break
-		}
-		if err := runner.SyncOnce(ctx); err != nil {
-			t.Fatalf("log-cycle SyncOnce failed: %v", err)
-		}
-		if logCol.callCount() > 0 {
-			break
-		}
-		time.Sleep(15 * time.Millisecond)
+	// Single Agent SyncOnce receives command, executes asynchronously, and POSTs /api/agent/commands/:id/result
+	if err := runner.SyncOnce(ctx); err != nil {
+		t.Fatalf("log-cycle SyncOnce failed: %v", err)
 	}
+	runner.WaitCommands()
+
 	if logCol.callCount() != 1 {
 		t.Fatalf("expected LogCollector to be called once, got %d", logCol.callCount())
 	}
 
-	gotLog := <-logCh
-	if gotLog.status != http.StatusOK {
-		t.Fatalf("GET /api/logs remote expected 200, got %d: %s", gotLog.status, string(gotLog.body))
+	// Admin polls GET /api/admin/nodes/:id/commands/:commandId -> succeeded with collected lines
+	cmdStatus, cmdBody := adminCall(http.MethodGet, fmt.Sprintf("/api/admin/nodes/%d/commands/%s", created.ID, logPayload.CommandID), nil)
+	if cmdStatus != http.StatusOK {
+		t.Fatalf("GET command status expected 200, got %d: %s", cmdStatus, string(cmdBody))
 	}
-	var logPayload service.RemoteNodeLogsResponse
-	if err := json.Unmarshal(gotLog.body, &logPayload); err != nil {
-		t.Fatalf("unmarshal remote logs response: %v", err)
+	var cmdSnap service.NodeCommandSnapshot
+	if err := json.Unmarshal(cmdBody, &cmdSnap); err != nil {
+		t.Fatalf("unmarshal command snapshot: %v", err)
 	}
-	if logPayload.NodeID != created.ID || logPayload.Service != "xray" || logPayload.Cached || logPayload.Pending || logPayload.Error != "" {
-		t.Fatalf("unexpected remote logs metadata: %+v", logPayload)
+	if cmdSnap.Status != domain.NodeCommandStatusSucceeded || cmdSnap.Type != domain.NodeCommandTypeLogTail || cmdSnap.LogResult == nil {
+		t.Fatalf("unexpected completed log command snapshot: %+v", cmdSnap)
 	}
-	if len(logPayload.Lines) != 2 || logPayload.Lines[0] != "Nov 19 21:00:01 xray started" {
-		t.Fatalf("unexpected remote log lines: %+v", logPayload.Lines)
+	if len(cmdSnap.LogResult.Lines) != 2 || cmdSnap.LogResult.Lines[0] != "Nov 19 21:00:01 xray started" {
+		t.Fatalf("unexpected remote log lines: %+v", cmdSnap.LogResult.Lines)
 	}
 
-	// Verify lightweight ack sync carried LogResult with nil HostMetrics and nil TrafficBatch
+	// Verify only 1 /api/agent/sync occurred (result was reported via /api/agent/commands/:id/result, not a redundant sync)
 	spyMu.Lock()
 	capturedReqs := append([]agent.SyncRequest(nil), syncRequests...)
 	spyMu.Unlock()
-	var ackCount int
-	for _, r := range capturedReqs {
-		if r.LogResult != nil {
-			ackCount++
-			if r.HostMetrics != nil || r.TrafficBatch != nil {
-				t.Fatalf("lightweight log ack must have nil HostMetrics and TrafficBatch, got metrics=%+v batch=%+v", r.HostMetrics, r.TrafficBatch)
-			}
-		}
-	}
-	if ackCount != 1 {
-		t.Fatalf("expected exactly 1 lightweight log ack request, got %d", ackCount)
+	if len(capturedReqs) != 1 {
+		t.Fatalf("expected exactly 1 /api/agent/sync request in log cycle, got %d", len(capturedReqs))
 	}
 
 	// Verify traffic was counted strictly once
@@ -1416,8 +1402,8 @@ func TestMasterAgent_E2E_FullConfigAutoRelayAndOnDemandLogs(t *testing.T) {
 	}
 	var cachedPayload service.RemoteNodeLogsResponse
 	_ = json.Unmarshal(cachedBody, &cachedPayload)
-	if !cachedPayload.Cached || len(cachedPayload.Lines) != 2 || logCol.callCount() != 1 {
-		t.Fatalf("expected cache hit with 1 collector call, got cached=%v calls=%d", cachedPayload.Cached, logCol.callCount())
+	if !cachedPayload.Cached || cachedPayload.Pending || len(cachedPayload.Lines) != 2 || logCol.callCount() != 1 {
+		t.Fatalf("expected cache hit with 1 collector call, got cached=%v pending=%v calls=%d", cachedPayload.Cached, cachedPayload.Pending, logCol.callCount())
 	}
 
 	code, _ = adminCall(http.MethodGet, fmt.Sprintf("/api/logs?nodeId=%d&service=bash&lines=50", created.ID), nil)
@@ -1480,8 +1466,7 @@ func TestMasterAgent_E2E_SyncStatusAckAndRemoteGeoUpdate(t *testing.T) {
 	}
 	masterConfigMgr := xray.NewConfigManager(masterCfgPath, "")
 
-	nodeSvc := service.NewNodeService(nodeRepo, nodeRepo, inboundRepo, userRepo, compiler).
-		WithGeoWaitTimeout(5 * time.Second)
+	nodeSvc := service.NewNodeService(nodeRepo, nodeRepo, inboundRepo, userRepo, compiler)
 	configSvc := service.NewConfigService(masterConfigMgr, nil, inboundRepo, userRepo, snapshotRepo, compiler).
 		WithNodeCacheInvalidator(nodeSvc).
 		WithNodeRepo(nodeRepo)
@@ -1730,7 +1715,7 @@ func TestMasterAgent_E2E_SyncStatusAckAndRemoteGeoUpdate(t *testing.T) {
 		t.Fatalf("expected lightweight config ack with nil metrics/batch and new hash %q, got %+v", node2.ExpectedConfigHash, step3Reqs[1])
 	}
 
-	// 4. Concurrent POST /api/geodata/update?nodeId=<id> + Runner.SyncOnce -> 1-RTT wakeup with sizes/durationMs, pending=false, and no traffic recount.
+	// 4. Async POST /api/geodata/update?nodeId=<id> (202 Accepted) + Runner.SyncOnce + immediate command result POST + admin poll
 	trafficCol.push(&agent.TrafficBatch{
 		BatchID: "polish-batch-2",
 		Users: []agent.UserTrafficDelta{
@@ -1741,59 +1726,46 @@ func TestMasterAgent_E2E_SyncStatusAckAndRemoteGeoUpdate(t *testing.T) {
 		},
 	})
 
-	type geoHTTPResp struct {
-		status int
-		body   []byte
+	geoStatus, geoBody := adminCall(http.MethodPost, fmt.Sprintf("/api/geodata/update?nodeId=%d", created.ID), nil)
+	if geoStatus != http.StatusAccepted {
+		t.Fatalf("POST /api/geodata/update?nodeId=%d expected 202, got %d: %s", created.ID, geoStatus, string(geoBody))
 	}
-	geoCh := make(chan geoHTTPResp, 1)
-	go func() {
-		status, body := adminCall(http.MethodPost, fmt.Sprintf("/api/geodata/update?nodeId=%d", created.ID), nil)
-		geoCh <- geoHTTPResp{status: status, body: body}
-	}()
+	var geoPayload service.RemoteGeoUpdateResponse
+	if err := json.Unmarshal(geoBody, &geoPayload); err != nil {
+		t.Fatalf("unmarshal remote geodata response: %v", err)
+	}
+	if !geoPayload.Pending || geoPayload.NodeID != created.ID || geoPayload.CommandID == "" || geoPayload.Status != domain.NodeCommandStatusQueued {
+		t.Fatalf("unexpected remote geodata enqueue response: %+v", geoPayload)
+	}
 
-	deadline := time.Now().Add(3 * time.Second)
-	for time.Now().Before(deadline) {
-		if geoUpdater.callCount() > 0 {
-			break
-		}
-		if err := runner.SyncOnce(ctx); err != nil {
-			t.Fatalf("geo-cycle SyncOnce failed: %v", err)
-		}
-		if geoUpdater.callCount() > 0 {
-			break
-		}
-		time.Sleep(15 * time.Millisecond)
+	if err := runner.SyncOnce(ctx); err != nil {
+		t.Fatalf("geo-cycle SyncOnce failed: %v", err)
 	}
+	runner.WaitCommands()
+
 	if geoUpdater.callCount() != 1 {
 		t.Fatalf("expected GeoDataUpdater called once, got %d", geoUpdater.callCount())
 	}
 
-	gotGeo := <-geoCh
-	if gotGeo.status != http.StatusOK {
-		t.Fatalf("POST /api/geodata/update?nodeId=%d expected 200, got %d: %s", created.ID, gotGeo.status, string(gotGeo.body))
+	// Admin polls command status -> succeeded with geoResult
+	pollCode, pollBody := adminCall(http.MethodGet, fmt.Sprintf("/api/admin/nodes/%d/commands/%s", created.ID, geoPayload.CommandID), nil)
+	if pollCode != http.StatusOK {
+		t.Fatalf("GET geo command status expected 200, got %d: %s", pollCode, string(pollBody))
 	}
-	var geoPayload service.RemoteGeoUpdateResponse
-	if err := json.Unmarshal(gotGeo.body, &geoPayload); err != nil {
-		t.Fatalf("unmarshal remote geodata response: %v", err)
+	var geoSnap service.NodeCommandSnapshot
+	if err := json.Unmarshal(pollBody, &geoSnap); err != nil {
+		t.Fatalf("unmarshal geo command snapshot: %v", err)
 	}
-	if geoPayload.Pending || geoPayload.NodeID != created.ID || geoPayload.GeoIPSize != 10485760 || geoPayload.GeoSiteSize != 5242880 || geoPayload.DurationMs < 5 || geoPayload.UpdatedAt <= 0 || geoPayload.Error != "" {
-		t.Fatalf("unexpected remote geodata response: %+v", geoPayload)
+	if geoSnap.Status != domain.NodeCommandStatusSucceeded || geoSnap.Type != domain.NodeCommandTypeGeoDataUpdate || geoSnap.GeoResult == nil ||
+		geoSnap.GeoResult.GeoIPSize != 10485760 || geoSnap.GeoResult.GeoSiteSize != 5242880 || geoSnap.GeoResult.DurationMs < 5 || geoSnap.GeoResult.UpdatedAt == "" {
+		t.Fatalf("unexpected completed geo command snapshot: %+v", geoSnap)
 	}
 
 	spyMu.Lock()
 	step4Reqs := append([]agent.SyncRequest(nil), syncRequests...)
 	spyMu.Unlock()
-	var geoAckCount int
-	for _, r := range step4Reqs {
-		if r.GeoUpdateResult != nil {
-			geoAckCount++
-			if r.HostMetrics != nil || r.TrafficBatch != nil {
-				t.Fatalf("lightweight geo ack must have nil HostMetrics and TrafficBatch, got metrics=%+v batch=%+v", r.HostMetrics, r.TrafficBatch)
-			}
-		}
-	}
-	if geoAckCount != 1 {
-		t.Fatalf("expected exactly 1 lightweight geo ack, got %d", geoAckCount)
+	if len(step4Reqs) != 1 {
+		t.Fatalf("expected exactly 1 /api/agent/sync in geo cycle, got %d", len(step4Reqs))
 	}
 
 	// Traffic must be 2048+300 = 2348 and 4096+700 = 4796 (counted strictly once per batch).

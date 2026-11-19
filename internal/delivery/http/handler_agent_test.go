@@ -61,6 +61,8 @@ func setupNodeHTTPTestRouter(t *testing.T) (http.Handler, string) {
 		Sub:       deliveryHTTP.NewSubHandler(nil),
 		User:      deliveryHTTP.NewUserHandler(userSvc, nil, auditSvc),
 		Inbound:   deliveryHTTP.NewInboundHandler(configSvc, auditSvc),
+		Log:       deliveryHTTP.NewLogHandler(nil, auditSvc).WithNodeService(nodeSvc),
+		GeoData:   deliveryHTTP.NewGeoDataHandler(nil).WithNodeService(nodeSvc),
 		Node:      deliveryHTTP.NewNodeHandler(nodeSvc, auditSvc),
 		Agent:     deliveryHTTP.NewAgentHandler(nodeSvc),
 		AgentAuth: deliveryHTTP.AgentAuth(nodeSvc),
@@ -378,5 +380,106 @@ func TestNodeQuotaAndResetHTTP(t *testing.T) {
 	notFoundRes := doJSONReq(t, router, http.MethodPost, "/api/admin/nodes/99999/reset-traffic", adminJWT, nil)
 	if notFoundRes.Code != http.StatusNotFound {
 		t.Fatalf("expected 404 for missing node reset-traffic, got %d", notFoundRes.Code)
+	}
+}
+
+func TestNodeCommandsHTTP_OwnershipAuthAndLifecycle(t *testing.T) {
+	router, adminJWT := setupNodeHTTPTestRouter(t)
+
+	// Create two nodes to test strict cross-node ownership isolation
+	createNode := func(name, host string) domain.CreateNodeResponse {
+		res := doJSONReq(t, router, http.MethodPost, "/api/admin/nodes", adminJWT, map[string]interface{}{
+			"name": name,
+			"host": host,
+		})
+		if res.Code != http.StatusCreated {
+			t.Fatalf("create node %s failed (%d): %s", name, res.Code, res.Body.String())
+		}
+		var out domain.CreateNodeResponse
+		_ = json.Unmarshal(res.Body.Bytes(), &out)
+		return out
+	}
+	node1 := createNode("Cmd Node 1", "127.0.0.1")
+	node2 := createNode("Cmd Node 2", "127.0.0.2")
+
+	// Trigger remote log command on node1 -> 200 OK with pending=true + commandId
+	logRes := doJSONReq(t, router, http.MethodGet, fmt.Sprintf("/api/logs?nodeId=%d&service=xray&lines=40", node1.ID), adminJWT, nil)
+	if logRes.Code != http.StatusOK {
+		t.Fatalf("expected 200 OK on remote logs, got %d: %s", logRes.Code, logRes.Body.String())
+	}
+	var logPayload service.RemoteNodeLogsResponse
+	_ = json.Unmarshal(logRes.Body.Bytes(), &logPayload)
+	if !logPayload.Pending || logPayload.CommandID == "" || logPayload.Status != domain.NodeCommandStatusQueued {
+		t.Fatalf("unexpected remote log enqueue payload: %+v", logPayload)
+	}
+
+	// Agent token CANNOT query admin command status endpoint (401)
+	unauthCmd := doJSONReq(t, router, http.MethodGet, fmt.Sprintf("/api/admin/nodes/%d/commands/%s", node1.ID, logPayload.CommandID), node1.Token, nil)
+	if unauthCmd.Code != http.StatusUnauthorized {
+		t.Fatalf("expected 401 when agent token queries admin command endpoint, got %d", unauthCmd.Code)
+	}
+
+	// Admin querying node2 with node1's commandId -> 404 Not Found
+	crossQuery := doJSONReq(t, router, http.MethodGet, fmt.Sprintf("/api/admin/nodes/%d/commands/%s", node2.ID, logPayload.CommandID), adminJWT, nil)
+	if crossQuery.Code != http.StatusNotFound {
+		t.Fatalf("expected 404 on cross-node command status query, got %d: %s", crossQuery.Code, crossQuery.Body.String())
+	}
+
+	// Unknown commandId -> 404 Not Found
+	unknownQuery := doJSONReq(t, router, http.MethodGet, fmt.Sprintf("/api/admin/nodes/%d/commands/cmd-does-not-exist", node1.ID), adminJWT, nil)
+	if unknownQuery.Code != http.StatusNotFound {
+		t.Fatalf("expected 404 on unknown commandId, got %d", unknownQuery.Code)
+	}
+
+	// Node2 agent CANNOT report result for Node1's command -> 404 Not Found
+	crossReport := doJSONReq(t, router, http.MethodPost, fmt.Sprintf("/api/agent/commands/%s/result", logPayload.CommandID), node2.Token, domain.AgentCommandResult{
+		ID:      logPayload.CommandID,
+		Type:    domain.NodeCommandTypeLogTail,
+		Status:  domain.NodeCommandStatusSucceeded,
+		Service: "xray",
+		Lines:   []string{"hijack"},
+	})
+	if crossReport.Code != http.StatusNotFound {
+		t.Fatalf("expected 404 on cross-node agent command result report, got %d: %s", crossReport.Code, crossReport.Body.String())
+	}
+
+	// Mismatched path vs body command ID -> 400 Bad Request
+	mismatchReport := doJSONReq(t, router, http.MethodPost, fmt.Sprintf("/api/agent/commands/%s/result", logPayload.CommandID), node1.Token, domain.AgentCommandResult{
+		ID:     "other-id",
+		Type:   domain.NodeCommandTypeLogTail,
+		Status: domain.NodeCommandStatusSucceeded,
+	})
+	if mismatchReport.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 on body/path command id mismatch, got %d: %s", mismatchReport.Code, mismatchReport.Body.String())
+	}
+
+	// Owning agent reports result -> 200 OK {"status":"ok"}
+	okReport := doJSONReq(t, router, http.MethodPost, fmt.Sprintf("/api/agent/commands/%s/result", logPayload.CommandID), node1.Token, domain.AgentCommandResult{
+		Type:            domain.NodeCommandTypeLogTail,
+		Status:          domain.NodeCommandStatusSucceeded,
+		Service:         "xray",
+		Lines:           []string{"hello-from-agent"},
+		CollectedAtUnix: 1732030000,
+	})
+	if okReport.Code != http.StatusOK {
+		t.Fatalf("expected 200 OK on owning agent command result report, got %d: %s", okReport.Code, okReport.Body.String())
+	}
+	var ackBody map[string]string
+	_ = json.Unmarshal(okReport.Body.Bytes(), &ackBody)
+	if ackBody["status"] != "ok" {
+		t.Fatalf("expected {status:ok}, got %+v", ackBody)
+	}
+
+	// Admin polls command status -> 200 OK with succeeded + logResult
+	pollRes := doJSONReq(t, router, http.MethodGet, fmt.Sprintf("/api/admin/nodes/%d/commands/%s", node1.ID, logPayload.CommandID), adminJWT, nil)
+	if pollRes.Code != http.StatusOK {
+		t.Fatalf("expected 200 OK polling command status, got %d: %s", pollRes.Code, pollRes.Body.String())
+	}
+	var snap service.NodeCommandSnapshot
+	_ = json.Unmarshal(pollRes.Body.Bytes(), &snap)
+	if snap.ID != logPayload.CommandID || snap.NodeID != node1.ID || snap.Type != domain.NodeCommandTypeLogTail ||
+		snap.Status != domain.NodeCommandStatusSucceeded || snap.LogResult == nil ||
+		len(snap.LogResult.Lines) != 1 || snap.LogResult.Lines[0] != "hello-from-agent" {
+		t.Fatalf("unexpected polled command snapshot: %+v", snap)
 	}
 }

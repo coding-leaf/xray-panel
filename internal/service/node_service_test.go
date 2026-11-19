@@ -679,132 +679,176 @@ func TestNodeService_AutoStaticRelayInjection_PreservesFlowAndConfigHash(t *test
 	}
 }
 
-func TestNodeService_RemoteLogs_CacheWaiterWakeupTimeoutAndWhitelist(t *testing.T) {
-	nodeSvc, _, _, nodeRepo, _, _ := setupNodeServiceTestEnv(t)
-	nodeSvc.WithLogWaitTimeout(120 * time.Millisecond)
+func TestNodeService_RemoteLogs_AsyncCommandDedupCancelSafeCacheTTLAndPurge(t *testing.T) {
+	nodeSvc, _, _, _, _, _ := setupNodeServiceTestEnv(t)
 	ctx := context.Background()
 
-	created, err := nodeSvc.CreateNode(ctx, domain.CreateNodeDTO{
-		Name: "Log Node",
-		Host: "127.0.0.1",
-	})
-	if err != nil {
-		t.Fatalf("CreateNode failed: %v", err)
-	}
+	now := time.Date(2026, 11, 19, 12, 0, 0, 0, time.UTC)
+	nodeSvc.WithNowFunc(func() time.Time { return now })
 
-	// Seed baseline heartbeat metrics to verify lightweight log ack preserves them
-	if err := nodeRepo.UpdateHeartbeat(ctx, created.ID, &domain.AgentSyncRequest{
-		ConfigHash: "c1",
-		UsersHash:  "u1",
-		HostMetrics: &domain.AgentHostMetrics{
-			CPUPercent:   25.5,
-			MemPercent:   55.0,
-			NicUpDelta:   500,
-			NicDownDelta: 1500,
-		},
-	}, time.Now()); err != nil {
-		t.Fatalf("seed heartbeat failed: %v", err)
+	node1, err := nodeSvc.CreateNode(ctx, domain.CreateNodeDTO{Name: "Log Node 1", Host: "127.0.0.1"})
+	if err != nil {
+		t.Fatalf("CreateNode node1 failed: %v", err)
+	}
+	node2, err := nodeSvc.CreateNode(ctx, domain.CreateNodeDTO{Name: "Log Node 2", Host: "127.0.0.2"})
+	if err != nil {
+		t.Fatalf("CreateNode node2 failed: %v", err)
 	}
 
 	// 1. Whitelist & input checks
 	if _, err := nodeSvc.RequestNodeLogs(ctx, 0, "xray", 100, false); !errors.Is(err, domain.ErrInvalidInput) {
 		t.Fatalf("expected ErrInvalidInput for nodeId=0, got %v", err)
 	}
-	if _, err := nodeSvc.RequestNodeLogs(ctx, created.ID, "bash;rm", 100, false); !errors.Is(err, domain.ErrInvalidInput) {
+	if _, err := nodeSvc.RequestNodeLogs(ctx, node1.ID, "bash;rm", 100, false); !errors.Is(err, domain.ErrInvalidInput) {
 		t.Fatalf("expected ErrInvalidInput for disallowed service, got %v", err)
 	}
 	if _, err := nodeSvc.RequestNodeLogs(ctx, 99999, "xray", 100, false); !errors.Is(err, domain.ErrNotFound) {
 		t.Fatalf("expected ErrNotFound for missing node, got %v", err)
 	}
 
-	// 2. Timeout when agent doesn't sync returns Pending=true
-	pendingResp, err := nodeSvc.RequestNodeLogs(ctx, created.ID, "xray", 50, false)
+	// 2. Immediate async enqueue returns pending=true + commandId + status="queued"
+	reqCtx, cancel := context.WithCancel(ctx)
+	resp1, err := nodeSvc.RequestNodeLogs(reqCtx, node1.ID, "xray", 50, false)
 	if err != nil {
-		t.Fatalf("timeout RequestNodeLogs should not return error, got %v", err)
+		t.Fatalf("RequestNodeLogs #1 failed: %v", err)
 	}
-	if !pendingResp.Pending || pendingResp.Cached {
-		t.Fatalf("expected Pending=true, Cached=false on timeout, got %+v", pendingResp)
+	if !resp1.Pending || resp1.Cached || resp1.CommandID == "" || resp1.Status != domain.NodeCommandStatusQueued {
+		t.Fatalf("unexpected async log enqueue response: %+v", resp1)
 	}
+	// Cancelling the HTTP caller context must NEVER delete the queued command!
+	cancel()
 
-	// Normal heartbeat after timeout must NOT receive stale cancelled logRequest
-	idleSync, err := nodeSvc.HandleAgentSync(ctx, created.ID, &domain.AgentSyncRequest{})
+	// 3. Duplicate trigger for same (nodeID, service) reuses commandId and bumps lines if larger while queued
+	resp2, err := nodeSvc.RequestNodeLogs(ctx, node1.ID, "xray", 120, false)
 	if err != nil {
-		t.Fatalf("idle HandleAgentSync failed: %v", err)
+		t.Fatalf("RequestNodeLogs #2 failed: %v", err)
 	}
-	if idleSync.LogRequest != nil {
-		t.Fatalf("expected nil LogRequest after timed-out request cleanup, got %+v", idleSync.LogRequest)
-	}
-
-	// 3. Live waiter wakeup via HandleAgentSync + lightweight logResult ack
-	nodeSvc.WithLogWaitTimeout(2 * time.Second)
-	type logCallResult struct {
-		resp *service.RemoteNodeLogsResponse
-		err  error
-	}
-	doneCh := make(chan logCallResult, 1)
-	go func() {
-		r, e := nodeSvc.RequestNodeLogs(ctx, created.ID, "xray-agent", 80, false)
-		doneCh <- logCallResult{resp: r, err: e}
-	}()
-
-	// Poll HandleAgentSync until pending LogRequest is delivered
-	var deliveredReq *domain.AgentLogRequest
-	deadline := time.Now().Add(time.Second)
-	for time.Now().Before(deadline) {
-		syncResp, err := nodeSvc.HandleAgentSync(ctx, created.ID, &domain.AgentSyncRequest{})
-		if err != nil {
-			t.Fatalf("HandleAgentSync failed: %v", err)
-		}
-		if syncResp.LogRequest != nil {
-			deliveredReq = syncResp.LogRequest
-			break
-		}
-		time.Sleep(10 * time.Millisecond)
-	}
-	if deliveredReq == nil {
-		t.Fatalf("expected pending LogRequest delivered via HandleAgentSync")
-	}
-	if deliveredReq.Service != "xray-agent" || deliveredReq.Lines != 80 {
-		t.Fatalf("unexpected LogRequest: %+v", deliveredReq)
+	if resp2.CommandID != resp1.CommandID || resp2.Status != domain.NodeCommandStatusQueued {
+		t.Fatalf("expected deduplicated commandId %q, got %+v", resp1.CommandID, resp2)
 	}
 
-	// Agent sends lightweight ack with nil HostMetrics and nil TrafficBatch
-	if _, err := nodeSvc.HandleAgentSync(ctx, created.ID, &domain.AgentSyncRequest{
-		LogResult: &domain.AgentLogResult{
-			RequestID:       deliveredReq.RequestID,
-			Service:         "xray-agent",
-			Lines:           []string{"line-1", "line-2", "line-3"},
-			CollectedAtUnix: 1732018802,
-		},
+	// Different service on same node gets its own command (no overwrite!)
+	respAgentSvc, err := nodeSvc.RequestNodeLogs(ctx, node1.ID, "xray-agent", 60, false)
+	if err != nil {
+		t.Fatalf("RequestNodeLogs xray-agent failed: %v", err)
+	}
+	if respAgentSvc.CommandID == "" || respAgentSvc.CommandID == resp1.CommandID {
+		t.Fatalf("expected independent command for xray-agent, got %+v", respAgentSvc)
+	}
+
+	// 4. HandleAgentSync pops both queued commands in order and transitions them to dispatched
+	syncResp, err := nodeSvc.HandleAgentSync(ctx, node1.ID, &domain.AgentSyncRequest{})
+	if err != nil {
+		t.Fatalf("HandleAgentSync failed: %v", err)
+	}
+	if len(syncResp.Commands) != 2 {
+		t.Fatalf("expected 2 dispatched commands, got %+v", syncResp.Commands)
+	}
+	if syncResp.Commands[0].ID != resp1.CommandID || syncResp.Commands[0].Lines != 120 || syncResp.Commands[0].Service != "xray" {
+		t.Fatalf("expected bumped lines=120 for first command, got %+v", syncResp.Commands[0])
+	}
+	if syncResp.Commands[1].ID != respAgentSvc.CommandID || syncResp.Commands[1].Service != "xray-agent" {
+		t.Fatalf("unexpected second command: %+v", syncResp.Commands[1])
+	}
+
+	// Next sync does NOT re-deliver already dispatched commands
+	syncResp2, err := nodeSvc.HandleAgentSync(ctx, node1.ID, &domain.AgentSyncRequest{})
+	if err != nil {
+		t.Fatalf("HandleAgentSync #2 failed: %v", err)
+	}
+	if len(syncResp2.Commands) != 0 {
+		t.Fatalf("expected 0 commands on second sync while dispatched, got %+v", syncResp2.Commands)
+	}
+
+	// Status snapshot shows dispatched, and cross-node query is rejected with ErrNotFound
+	snapDispatched, err := nodeSvc.GetNodeCommandStatus(ctx, node1.ID, resp1.CommandID)
+	if err != nil || snapDispatched.Status != domain.NodeCommandStatusDispatched {
+		t.Fatalf("expected dispatched snapshot, got %+v err=%v", snapDispatched, err)
+	}
+	if _, err := nodeSvc.GetNodeCommandStatus(ctx, node2.ID, resp1.CommandID); !errors.Is(err, domain.ErrNotFound) {
+		t.Fatalf("expected ErrNotFound for cross-node GetNodeCommandStatus, got %v", err)
+	}
+
+	// 5. Cross-node ReportAgentCommandResult is rejected with ErrNotFound
+	if err := nodeSvc.ReportAgentCommandResult(ctx, node2.ID, &domain.AgentCommandResult{
+		ID:      resp1.CommandID,
+		Type:    domain.NodeCommandTypeLogTail,
+		Status:  domain.NodeCommandStatusSucceeded,
+		Service: "xray",
+		Lines:   []string{"spoof"},
+	}); !errors.Is(err, domain.ErrNotFound) {
+		t.Fatalf("expected ErrNotFound for cross-node ReportAgentCommandResult, got %v", err)
+	}
+
+	// Owning node reports succeeded result -> updates snapshot and populates 30s logCache
+	if err := nodeSvc.ReportAgentCommandResult(ctx, node1.ID, &domain.AgentCommandResult{
+		ID:              resp1.CommandID,
+		Type:            domain.NodeCommandTypeLogTail,
+		Status:          domain.NodeCommandStatusSucceeded,
+		Service:         "xray",
+		Lines:           []string{"line-1", "line-2", "line-3"},
+		CollectedAtUnix: 1732018802,
 	}); err != nil {
-		t.Fatalf("logResult HandleAgentSync failed: %v", err)
+		t.Fatalf("ReportAgentCommandResult failed: %v", err)
 	}
 
-	res := <-doneCh
-	if res.err != nil {
-		t.Fatalf("RequestNodeLogs failed: %v", res.err)
-	}
-	if res.resp.Pending || res.resp.Cached || len(res.resp.Lines) != 3 || res.resp.CollectedAt != 1732018802 {
-		t.Fatalf("unexpected RequestNodeLogs response: %+v", res.resp)
-	}
-
-	// Verify baseline CPU/NIC counters were NOT zeroed out by lightweight log ack
-	nodeAfter, _ := nodeRepo.GetByID(ctx, created.ID)
-	if nodeAfter.CPUPercent != 25.5 || nodeAfter.NicUpBytes != 500 {
-		t.Fatalf("lightweight log ack overwrote metrics: %+v", nodeAfter)
+	// Duplicate report on terminal command is idempotent no-op
+	if err := nodeSvc.ReportAgentCommandResult(ctx, node1.ID, &domain.AgentCommandResult{
+		ID:     resp1.CommandID,
+		Type:   domain.NodeCommandTypeLogTail,
+		Status: domain.NodeCommandStatusFailed,
+		Error:  "late duplicate",
+	}); err != nil {
+		t.Fatalf("idempotent duplicate ReportAgentCommandResult failed: %v", err)
 	}
 
-	// 4. Subsequent request within 30s hits cache without queuing another LogRequest
-	cachedResp, err := nodeSvc.RequestNodeLogs(ctx, created.ID, "xray-agent", 2, false)
+	snapDone, err := nodeSvc.GetNodeCommandStatus(ctx, node1.ID, resp1.CommandID)
+	if err != nil {
+		t.Fatalf("GetNodeCommandStatus after report failed: %v", err)
+	}
+	expectedCollectedAt := time.Unix(1732018802, 0).UTC().Format(time.RFC3339)
+	if snapDone.Status != domain.NodeCommandStatusSucceeded || snapDone.LogResult == nil ||
+		len(snapDone.LogResult.Lines) != 3 || snapDone.LogResult.CollectedAt != expectedCollectedAt {
+		t.Fatalf("unexpected succeeded log snapshot: %+v", snapDone)
+	}
+
+	// 6. Subsequent RequestNodeLogs within 30s hits cache without queuing another command
+	cachedResp, err := nodeSvc.RequestNodeLogs(ctx, node1.ID, "xray", 2, false)
 	if err != nil {
 		t.Fatalf("cached RequestNodeLogs failed: %v", err)
 	}
 	if !cachedResp.Cached || cachedResp.Pending || len(cachedResp.Lines) != 2 || cachedResp.Lines[0] != "line-2" {
 		t.Fatalf("expected cached last 2 lines [line-2 line-3], got %+v", cachedResp)
 	}
-	afterCacheSync, _ := nodeSvc.HandleAgentSync(ctx, created.ID, &domain.AgentSyncRequest{})
-	if afterCacheSync.LogRequest != nil {
-		t.Fatalf("cache hit must not queue a LogRequest")
+	afterCacheSync, _ := nodeSvc.HandleAgentSync(ctx, node1.ID, &domain.AgentSyncRequest{})
+	if len(afterCacheSync.Commands) != 0 {
+		t.Fatalf("cache hit must not queue a command, got %+v", afterCacheSync.Commands)
+	}
+
+	// 7. TTL expiration: advance clock > 180s -> pending xray-agent command expires; advance > 180s again -> pruned
+	now = now.Add(181 * time.Second)
+	snapExpired, err := nodeSvc.GetNodeCommandStatus(ctx, node1.ID, respAgentSvc.CommandID)
+	if err != nil {
+		t.Fatalf("expected expired snapshot still queryable during result retention, got err=%v", err)
+	}
+	if snapExpired.Status != domain.NodeCommandStatusExpired || snapExpired.Error == "" {
+		t.Fatalf("expected status=expired with error, got %+v", snapExpired)
+	}
+	// First completed command was already terminal at t=0, so at t=181s (> 180s) it is pruned
+	if _, err := nodeSvc.GetNodeCommandStatus(ctx, node1.ID, resp1.CommandID); !errors.Is(err, domain.ErrNotFound) {
+		t.Fatalf("expected completed command pruned after result TTL, got err=%v", err)
+	}
+
+	// 8. DeleteNode purges node's in-memory commands and logCache
+	freshCmd, err := nodeSvc.RequestNodeLogs(ctx, node1.ID, "xray", 50, true)
+	if err != nil {
+		t.Fatalf("fresh RequestNodeLogs failed: %v", err)
+	}
+	if err := nodeSvc.DeleteNode(ctx, node1.ID); err != nil {
+		t.Fatalf("DeleteNode failed: %v", err)
+	}
+	if _, err := nodeSvc.GetNodeCommandStatus(ctx, node1.ID, freshCmd.CommandID); !errors.Is(err, domain.ErrNotFound) {
+		t.Fatalf("expected ErrNotFound after DeleteNode memory purge, got %v", err)
 	}
 }
 
@@ -977,10 +1021,12 @@ func TestNodeService_SyncStatusPopulation_AndCompilerFallback(t *testing.T) {
 	}
 }
 
-func TestNodeService_RemoteGeoUpdate_BrokerSuccessTimeoutAndConcurrentWaiters(t *testing.T) {
-	nodeSvc, _, _, nodeRepo, _, _ := setupNodeServiceTestEnv(t)
-	nodeSvc.WithGeoWaitTimeout(120 * time.Millisecond)
+func TestNodeService_RemoteGeoUpdate_AsyncCommandDedupSyncFallbackAndExpiration(t *testing.T) {
+	nodeSvc, _, _, _, _, _ := setupNodeServiceTestEnv(t)
 	ctx := context.Background()
+
+	now := time.Date(2026, 11, 19, 13, 0, 0, 0, time.UTC)
+	nodeSvc.WithNowFunc(func() time.Time { return now })
 
 	created, err := nodeSvc.CreateNode(ctx, domain.CreateNodeDTO{
 		Name: "Geo Node",
@@ -988,20 +1034,6 @@ func TestNodeService_RemoteGeoUpdate_BrokerSuccessTimeoutAndConcurrentWaiters(t 
 	})
 	if err != nil {
 		t.Fatalf("CreateNode failed: %v", err)
-	}
-
-	// Seed baseline metrics to verify lightweight geo ack preserves them
-	if err := nodeRepo.UpdateHeartbeat(ctx, created.ID, &domain.AgentSyncRequest{
-		ConfigHash: "c1",
-		UsersHash:  "u1",
-		HostMetrics: &domain.AgentHostMetrics{
-			CPUPercent:   18.5,
-			MemPercent:   44.0,
-			NicUpDelta:   900,
-			NicDownDelta: 1800,
-		},
-	}, time.Now()); err != nil {
-		t.Fatalf("seed heartbeat failed: %v", err)
 	}
 
 	// 1. Input & existence checks
@@ -1012,87 +1044,89 @@ func TestNodeService_RemoteGeoUpdate_BrokerSuccessTimeoutAndConcurrentWaiters(t 
 		t.Fatalf("expected ErrNotFound for missing node, got %v", err)
 	}
 
-	// 2. Timeout returns Pending=true and cleans up pendingGeoReqs
-	timedOutResp, err := nodeSvc.RequestNodeGeoUpdate(ctx, created.ID)
+	// 2. Concurrent callers deduplicate onto the same queued commandId immediately
+	r1, err := nodeSvc.RequestNodeGeoUpdate(ctx, created.ID)
 	if err != nil {
-		t.Fatalf("timeout RequestNodeGeoUpdate should not return error, got %v", err)
+		t.Fatalf("RequestNodeGeoUpdate #1 failed: %v", err)
 	}
-	if !timedOutResp.Pending || timedOutResp.NodeID != created.ID {
-		t.Fatalf("expected Pending=true for node %d, got %+v", created.ID, timedOutResp)
-	}
-	idleSync, err := nodeSvc.HandleAgentSync(ctx, created.ID, &domain.AgentSyncRequest{})
+	r2, err := nodeSvc.RequestNodeGeoUpdate(ctx, created.ID)
 	if err != nil {
-		t.Fatalf("idle HandleAgentSync failed: %v", err)
+		t.Fatalf("RequestNodeGeoUpdate #2 failed: %v", err)
 	}
-	if idleSync.GeoUpdateRequest != nil {
-		t.Fatalf("expected nil GeoUpdateRequest after timeout cleanup, got %+v", idleSync.GeoUpdateRequest)
+	if !r1.Pending || r1.CommandID == "" || r1.Status != domain.NodeCommandStatusQueued {
+		t.Fatalf("unexpected geo enqueue #1: %+v", r1)
 	}
-
-	// 3. Concurrent callers + 1-RTT wakeup via HandleAgentSync
-	nodeSvc.WithGeoWaitTimeout(2 * time.Second)
-	type geoCallResult struct {
-		resp *service.RemoteGeoUpdateResponse
-		err  error
-	}
-	const callers = 2
-	doneCh := make(chan geoCallResult, callers)
-	for i := 0; i < callers; i++ {
-		go func() {
-			r, e := nodeSvc.RequestNodeGeoUpdate(ctx, created.ID)
-			doneCh <- geoCallResult{resp: r, err: e}
-		}()
+	if r2.CommandID != r1.CommandID {
+		t.Fatalf("expected deduplicated commandId %q, got %q", r1.CommandID, r2.CommandID)
 	}
 
-	var deliveredReq *domain.AgentGeoUpdateRequest
-	deadline := time.Now().Add(time.Second)
-	for time.Now().Before(deadline) {
-		syncResp, err := nodeSvc.HandleAgentSync(ctx, created.ID, &domain.AgentSyncRequest{})
-		if err != nil {
-			t.Fatalf("HandleAgentSync failed: %v", err)
-		}
-		if syncResp.GeoUpdateRequest != nil {
-			deliveredReq = syncResp.GeoUpdateRequest
-			break
-		}
-		time.Sleep(10 * time.Millisecond)
+	// 3. Agent picks up command via HandleAgentSync and reports result via Sync fallback CommandResults
+	syncResp, err := nodeSvc.HandleAgentSync(ctx, created.ID, &domain.AgentSyncRequest{})
+	if err != nil {
+		t.Fatalf("HandleAgentSync #1 failed: %v", err)
 	}
-	if deliveredReq == nil || deliveredReq.RequestID == "" {
-		t.Fatalf("expected pending GeoUpdateRequest delivered via HandleAgentSync")
+	if len(syncResp.Commands) != 1 || syncResp.Commands[0].ID != r1.CommandID || syncResp.Commands[0].Type != domain.NodeCommandTypeGeoDataUpdate {
+		t.Fatalf("expected geodata_update command, got %+v", syncResp.Commands)
 	}
 
-	// Agent sends lightweight ack with GeoUpdateResult (HostMetrics == nil, TrafficBatch == nil)
+	// Request while dispatched still reuses same commandId with status="dispatched"
+	r3, err := nodeSvc.RequestNodeGeoUpdate(ctx, created.ID)
+	if err != nil {
+		t.Fatalf("RequestNodeGeoUpdate while dispatched failed: %v", err)
+	}
+	if r3.CommandID != r1.CommandID || r3.Status != domain.NodeCommandStatusDispatched {
+		t.Fatalf("expected reused dispatched commandId %q, got %+v", r1.CommandID, r3)
+	}
+
+	// Fallback result via HandleAgentSync.CommandResults completes the command
 	ackResp, err := nodeSvc.HandleAgentSync(ctx, created.ID, &domain.AgentSyncRequest{
-		ConfigHash: idleSync.ConfigHash,
-		UsersHash:  idleSync.UsersHash,
-		GeoUpdateResult: &domain.AgentGeoUpdateResult{
-			RequestID:     deliveredReq.RequestID,
-			GeoIPSize:     10485760,
-			GeoSiteSize:   5242880,
-			DurationMs:    3240,
-			UpdatedAtUnix: 1732020004,
+		ConfigHash: syncResp.ConfigHash,
+		UsersHash:  syncResp.UsersHash,
+		CommandResults: []domain.AgentCommandResult{
+			{
+				ID:            r1.CommandID,
+				Type:          domain.NodeCommandTypeGeoDataUpdate,
+				Status:        domain.NodeCommandStatusSucceeded,
+				GeoIPSize:     10485760,
+				GeoSiteSize:   5242880,
+				DurationMs:    3240,
+				UpdatedAtUnix: 1732020004,
+			},
 		},
 	})
 	if err != nil {
-		t.Fatalf("geoUpdateResult HandleAgentSync failed: %v", err)
+		t.Fatalf("fallback CommandResults HandleAgentSync failed: %v", err)
 	}
-	if ackResp.GeoUpdateRequest != nil {
-		t.Fatalf("expected nil GeoUpdateRequest after completion ack, got %+v", ackResp.GeoUpdateRequest)
-	}
-
-	for i := 0; i < callers; i++ {
-		res := <-doneCh
-		if res.err != nil {
-			t.Fatalf("concurrent RequestNodeGeoUpdate #%d failed: %v", i, res.err)
-		}
-		if res.resp.Pending || res.resp.GeoIPSize != 10485760 || res.resp.GeoSiteSize != 5242880 || res.resp.DurationMs != 3240 || res.resp.UpdatedAt != 1732020004 || res.resp.Error != "" {
-			t.Fatalf("unexpected RequestNodeGeoUpdate #%d response: %+v", i, res.resp)
-		}
+	if len(ackResp.Commands) != 0 {
+		t.Fatalf("expected 0 commands after completion, got %+v", ackResp.Commands)
 	}
 
-	// Verify baseline CPU/NIC counters were NOT zeroed out by lightweight geo ack
-	nodeAfter, _ := nodeRepo.GetByID(ctx, created.ID)
-	if nodeAfter.CPUPercent != 18.5 || nodeAfter.NicUpBytes != 900 || nodeAfter.NicDownBytes != 1800 {
-		t.Fatalf("lightweight geo ack overwrote metrics: %+v", nodeAfter)
+	snap, err := nodeSvc.GetNodeCommandStatus(ctx, created.ID, r1.CommandID)
+	if err != nil {
+		t.Fatalf("GetNodeCommandStatus failed: %v", err)
+	}
+	expectedUpdatedAt := time.Unix(1732020004, 0).UTC().Format(time.RFC3339)
+	if snap.Status != domain.NodeCommandStatusSucceeded || snap.GeoResult == nil ||
+		snap.GeoResult.GeoIPSize != 10485760 || snap.GeoResult.GeoSiteSize != 5242880 ||
+		snap.GeoResult.DurationMs != 3240 || snap.GeoResult.UpdatedAt != expectedUpdatedAt {
+		t.Fatalf("unexpected geo command snapshot: %+v", snap)
+	}
+
+	// 4. After completion, new geo update creates a fresh commandId; if agent never picks it up > 180s -> expires
+	r4, err := nodeSvc.RequestNodeGeoUpdate(ctx, created.ID)
+	if err != nil {
+		t.Fatalf("RequestNodeGeoUpdate #4 failed: %v", err)
+	}
+	if r4.CommandID == r1.CommandID {
+		t.Fatalf("expected new commandId after prior completion")
+	}
+	now = now.Add(181 * time.Second)
+	expiredSnap, err := nodeSvc.GetNodeCommandStatus(ctx, created.ID, r4.CommandID)
+	if err != nil {
+		t.Fatalf("GetNodeCommandStatus expired failed: %v", err)
+	}
+	if expiredSnap.Status != domain.NodeCommandStatusExpired {
+		t.Fatalf("expected status=expired, got %+v", expiredSnap)
 	}
 }
 
@@ -1230,5 +1264,62 @@ func TestNodeService_RenderInstallScript_EnvFileAndInterval(t *testing.T) {
 				t.Errorf("ExecStart must use --interval 60s: %s", trimmed)
 			}
 		}
+	}
+}
+
+func TestNodeService_WriteEndpoints_PopulateSyncStatus(t *testing.T) {
+	nodeSvc, _, _, _, _, _ := setupNodeServiceTestEnv(t)
+	ctx := context.Background()
+
+	// 1. CreateNode must populate ExpectedConfigHash and ConfigSyncStatus
+	created, err := nodeSvc.CreateNode(ctx, domain.CreateNodeDTO{
+		Name: "Write Sync Node",
+		Host: "127.0.0.1",
+	})
+	if err != nil {
+		t.Fatalf("CreateNode failed: %v", err)
+	}
+	if created.ExpectedConfigHash == "" || created.ConfigSyncStatus != domain.NodeSyncStatusPending {
+		t.Fatalf("CreateNode missing sync status: hash=%q status=%q", created.ExpectedConfigHash, created.ConfigSyncStatus)
+	}
+
+	// Sync agent so node becomes "synced"
+	syncResp, err := nodeSvc.HandleAgentSync(ctx, created.ID, &domain.AgentSyncRequest{})
+	if err != nil {
+		t.Fatalf("initial sync failed: %v", err)
+	}
+	if _, err := nodeSvc.HandleAgentSync(ctx, created.ID, &domain.AgentSyncRequest{
+		ConfigHash: syncResp.ConfigHash,
+		UsersHash:  syncResp.UsersHash,
+	}); err != nil {
+		t.Fatalf("ack sync failed: %v", err)
+	}
+
+	// 2. UpdateNode must populate ExpectedConfigHash and ConfigSyncStatus
+	newName := "Write Sync Node Renamed"
+	updated, err := nodeSvc.UpdateNode(ctx, created.ID, domain.UpdateNodeDTO{Name: &newName})
+	if err != nil {
+		t.Fatalf("UpdateNode failed: %v", err)
+	}
+	if updated.ExpectedConfigHash != syncResp.ConfigHash || updated.ConfigSyncStatus != domain.NodeSyncStatusSynced {
+		t.Fatalf("UpdateNode missing sync status: hash=%q status=%q", updated.ExpectedConfigHash, updated.ConfigSyncStatus)
+	}
+
+	// 3. SetNodeDesiredState must populate ExpectedConfigHash and ConfigSyncStatus
+	drained, err := nodeSvc.SetNodeDesiredState(ctx, created.ID, domain.NodeStateDraining)
+	if err != nil {
+		t.Fatalf("SetNodeDesiredState failed: %v", err)
+	}
+	if drained.ExpectedConfigHash != syncResp.ConfigHash || drained.ConfigSyncStatus != domain.NodeSyncStatusSynced {
+		t.Fatalf("SetNodeDesiredState missing sync status: hash=%q status=%q", drained.ExpectedConfigHash, drained.ConfigSyncStatus)
+	}
+
+	// 4. ResetNodeCycleTraffic must populate ExpectedConfigHash and ConfigSyncStatus
+	reset, err := nodeSvc.ResetNodeCycleTraffic(ctx, created.ID)
+	if err != nil {
+		t.Fatalf("ResetNodeCycleTraffic failed: %v", err)
+	}
+	if reset.ExpectedConfigHash != syncResp.ConfigHash || reset.ConfigSyncStatus != domain.NodeSyncStatusSynced {
+		t.Fatalf("ResetNodeCycleTraffic missing sync status: hash=%q status=%q", reset.ExpectedConfigHash, reset.ConfigSyncStatus)
 	}
 }

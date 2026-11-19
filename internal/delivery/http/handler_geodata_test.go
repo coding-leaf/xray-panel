@@ -139,72 +139,65 @@ func TestGeoDataHandler_UpdateGeoData_RemoteBranchingAndWakeup(t *testing.T) {
 		t.Fatalf("expected 404 Not Found for missing node, got %d (%s)", wMissing.Code, wMissing.Body.String())
 	}
 
-	// 4. Timeout on remote nodeId > 0 -> 200 OK with pending=true
-	nodeSvc.WithGeoWaitTimeout(60 * time.Millisecond)
-	wTimeout := httptest.NewRecorder()
-	cTimeout, _ := gin.CreateTestContext(wTimeout)
-	cTimeout.Request = httptest.NewRequest(http.MethodPost, "/api/geodata/update?nodeId=1", nil)
-	handler.UpdateGeoData(cTimeout)
-	if wTimeout.Code != http.StatusOK {
-		t.Fatalf("expected 200 OK on remote geo timeout, got %d (%s)", wTimeout.Code, wTimeout.Body.String())
+	// 4. Remote nodeId > 0 immediately returns 202 Accepted with pending=true, commandId, status="queued"
+	wQueued := httptest.NewRecorder()
+	cQueued, _ := gin.CreateTestContext(wQueued)
+	cQueued.Request = httptest.NewRequest(http.MethodPost, "/api/geodata/update?nodeId=1", nil)
+	handler.UpdateGeoData(cQueued)
+	if wQueued.Code != http.StatusAccepted {
+		t.Fatalf("expected 202 Accepted on remote geo trigger, got %d (%s)", wQueued.Code, wQueued.Body.String())
 	}
-	var timeoutPayload service.RemoteGeoUpdateResponse
-	if err := json.Unmarshal(wTimeout.Body.Bytes(), &timeoutPayload); err != nil {
-		t.Fatalf("unmarshal timeout payload failed: %v", err)
+	var queuedPayload service.RemoteGeoUpdateResponse
+	if err := json.Unmarshal(wQueued.Body.Bytes(), &queuedPayload); err != nil {
+		t.Fatalf("unmarshal queued payload failed: %v", err)
 	}
-	if !timeoutPayload.Pending || timeoutPayload.NodeID != nodeID {
-		t.Fatalf("expected pending=true nodeId=%d, got %+v", nodeID, timeoutPayload)
-	}
-
-	// 5. Live 1-RTT wakeup via HandleAgentSync -> 200 OK with sizes and durationMs
-	nodeSvc.WithGeoWaitTimeout(2 * time.Second)
-	respCh := make(chan *httptest.ResponseRecorder, 1)
-	go func() {
-		w := httptest.NewRecorder()
-		c, _ := gin.CreateTestContext(w)
-		c.Request = httptest.NewRequest(http.MethodPost, "/api/geodata/update?nodeId=1", nil)
-		handler.UpdateGeoData(c)
-		respCh <- w
-	}()
-
-	var reqID string
-	deadline := time.Now().Add(time.Second)
-	for time.Now().Before(deadline) {
-		syncResp, err := nodeSvc.HandleAgentSync(context.Background(), nodeID, &domain.AgentSyncRequest{})
-		if err != nil {
-			t.Fatalf("HandleAgentSync failed: %v", err)
-		}
-		if syncResp.GeoUpdateRequest != nil {
-			reqID = syncResp.GeoUpdateRequest.RequestID
-			break
-		}
-		time.Sleep(10 * time.Millisecond)
-	}
-	if reqID == "" {
-		t.Fatalf("expected GeoUpdateRequest delivered to agent")
+	if !queuedPayload.Pending || queuedPayload.NodeID != nodeID || queuedPayload.CommandID == "" || queuedPayload.Status != domain.NodeCommandStatusQueued {
+		t.Fatalf("expected pending=true queued commandId for nodeId=%d, got %+v", nodeID, queuedPayload)
 	}
 
-	if _, err := nodeSvc.HandleAgentSync(context.Background(), nodeID, &domain.AgentSyncRequest{
-		GeoUpdateResult: &domain.AgentGeoUpdateResult{
-			RequestID:     reqID,
-			GeoIPSize:     10485760,
-			GeoSiteSize:   5242880,
-			DurationMs:    2850,
-			UpdatedAtUnix: 1732020100,
-		},
+	// Duplicate trigger while queued reuses the same commandId
+	wDup := httptest.NewRecorder()
+	cDup, _ := gin.CreateTestContext(wDup)
+	cDup.Request = httptest.NewRequest(http.MethodPost, "/api/geodata/update?nodeId=1", nil)
+	handler.UpdateGeoData(cDup)
+	if wDup.Code != http.StatusAccepted {
+		t.Fatalf("expected 202 Accepted on duplicate remote geo trigger, got %d (%s)", wDup.Code, wDup.Body.String())
+	}
+	var dupPayload service.RemoteGeoUpdateResponse
+	_ = json.Unmarshal(wDup.Body.Bytes(), &dupPayload)
+	if dupPayload.CommandID != queuedPayload.CommandID {
+		t.Fatalf("expected deduplicated commandId %q, got %q", queuedPayload.CommandID, dupPayload.CommandID)
+	}
+
+	// 5. Agent receives command on sync, reports completion, and command snapshot transitions to succeeded
+	syncResp, err := nodeSvc.HandleAgentSync(context.Background(), nodeID, &domain.AgentSyncRequest{})
+	if err != nil {
+		t.Fatalf("HandleAgentSync failed: %v", err)
+	}
+	if len(syncResp.Commands) != 1 || syncResp.Commands[0].ID != queuedPayload.CommandID || syncResp.Commands[0].Type != domain.NodeCommandTypeGeoDataUpdate {
+		t.Fatalf("expected geodata_update command dispatched, got %+v", syncResp.Commands)
+	}
+
+	if err := nodeSvc.ReportAgentCommandResult(context.Background(), nodeID, &domain.AgentCommandResult{
+		ID:            queuedPayload.CommandID,
+		Type:          domain.NodeCommandTypeGeoDataUpdate,
+		Status:        domain.NodeCommandStatusSucceeded,
+		GeoIPSize:     10485760,
+		GeoSiteSize:   5242880,
+		DurationMs:    2850,
+		UpdatedAtUnix: 1732020100,
 	}); err != nil {
-		t.Fatalf("agent GeoUpdateResult ack failed: %v", err)
+		t.Fatalf("ReportAgentCommandResult failed: %v", err)
 	}
 
-	wLive := <-respCh
-	if wLive.Code != http.StatusOK {
-		t.Fatalf("expected 200 OK on live remote geo update, got %d (%s)", wLive.Code, wLive.Body.String())
+	snap, err := nodeSvc.GetNodeCommandStatus(context.Background(), nodeID, queuedPayload.CommandID)
+	if err != nil {
+		t.Fatalf("GetNodeCommandStatus failed: %v", err)
 	}
-	var livePayload service.RemoteGeoUpdateResponse
-	if err := json.Unmarshal(wLive.Body.Bytes(), &livePayload); err != nil {
-		t.Fatalf("unmarshal live payload failed: %v", err)
-	}
-	if livePayload.Pending || livePayload.NodeID != nodeID || livePayload.GeoIPSize != 10485760 || livePayload.GeoSiteSize != 5242880 || livePayload.DurationMs != 2850 || livePayload.UpdatedAt != 1732020100 || livePayload.Error != "" {
-		t.Fatalf("unexpected live remote geo payload: %+v", livePayload)
+	expectedUpdatedAt := time.Unix(1732020100, 0).UTC().Format(time.RFC3339)
+	if snap.Status != domain.NodeCommandStatusSucceeded || snap.GeoResult == nil ||
+		snap.GeoResult.GeoIPSize != 10485760 || snap.GeoResult.GeoSiteSize != 5242880 ||
+		snap.GeoResult.DurationMs != 2850 || snap.GeoResult.UpdatedAt != expectedUpdatedAt {
+		t.Fatalf("unexpected succeeded geo command snapshot: %+v", snap)
 	}
 }

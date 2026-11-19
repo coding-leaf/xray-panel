@@ -320,3 +320,67 @@ return m.grpcClient.AddUser(ctx, inbound, user)
 EnvironmentFile=/etc/xray-agent/agent.env
 ExecStart=/usr/local/bin/xray-agent --spool-dir /var/lib/xray-agent --interval 60s
 ```
+
+---
+
+## 13. 异步节点指令通道、流量批次清理与级联删除契约 (Async NodeCommand & Storage Hygiene Invariants)
+
+### 1. Scope / Trigger
+- **Trigger**: 任何修改远端节点指令下发/上报（`NodeService`、`handler_node`/`handler_agent`/`handler_log`/`handler_geodata`、`agent.Runner`）、前端节点命令轮询（`web/src/api/nodes.ts`、`LogsView.vue`、`RoutingView.vue`）、节点删除级联或 `TrafficSyncJob` 后台维护任务的路径。
+
+### 2. Signatures
+- `domain.AgentCommand` / `domain.AgentCommandResult` (`internal/domain/node.go`)
+- `GET /api/admin/nodes/:id/commands/:commandId` (JWT 鉴权) -> `NodeCommandSnapshot`
+- `POST /api/agent/commands/:id/result` (`AgentAuth` 鉴权) -> `{"status":"ok"}`
+- `(*NodeService).GetNodeCommandStatus(ctx, nodeID, commandID)` & `ReportAgentCommandResult(ctx, nodeID, res)` (`internal/service/node_service.go`)
+- `(*GORMNodeRepository).Delete(ctx, id)` (`internal/adapter/repository/node_repo.go`)
+- `(*TrafficSyncJob).WithNodeBatchRepo(repo domain.NodeTrafficBatchRepository)` (`internal/delivery/cron/traffic_sync.go`)
+
+### 3. Contracts
+- **非阻塞异步指令状态机（严禁跨越 60s `WriteTimeout` 同步阻塞）**：
+  - 远端操作统一经 `NodeCommand` 内存 TTL 注册表流转：`queued -> dispatched -> succeeded | failed | expired`（指令 TTL `180s`，终态结果保留 `180s`，惰性清理）。
+  - `GET /api/logs?nodeId=` 未命中 30s 缓存时立即返回 `200` + `{pending:true, commandId, status}`；`POST /api/geodata/update?nodeId=` 立即返回 **`202 Accepted`** + `{pending:true, commandId, status}`。
+  - 同一节点同类型同目标（`log_tail:<nodeID>:<service>`、`geodata_update:<nodeID>`）已有活跃指令时必须去重复用（`queued` 日志指令若新请求 `lines` 更大则原地提升）；HTTP 客户端取消或超时**严禁删除**队列中尚未下发的指令。
+  - `DeleteNode` 必须同步清理该节点内存中的命令记录、去重键与日志缓存。
+- **Agent 后台非阻塞执行与断网兜底**：
+  - `Runner.SyncOnce` 收到 `resp.Commands` 后必须在受控后台 goroutine（`cmdWG` 追踪、响应 `ctx.Done()`、按命令 ID/类型防重入）执行，严禁阻塞主心跳循环；
+  - 执行完毕优先立即调用 `POST /api/agent/commands/:id/result` 上报，上报失败时暂存有界队列（上限 `32`）待下次 `SyncOnce` 随 `AgentSyncRequest.CommandResults` 补传。
+- **跨节点归属校验**：
+  - `GetNodeCommandStatus` 与 `ReportAgentCommandResult` 均必须校验 `rec.NodeID == nodeID`，不匹配一律返回 `domain.ErrNotFound`（HTTP `404`）。
+- **SQLite 事务级联与独立清理**：
+  - `GORMNodeRepository.Delete` 必须在同一事务内先删 `node_traffic_batches` 与 `node_traffic_dailies`（`Where("node_id = ?", id)`）再删 `nodes` 主记录；
+  - `TrafficSyncJob` 的 `PruneBatchesBefore`（保留 7 天幂等窗口，每日单次去重，失败允许重试）必须挂在**不依赖 `xrayManager != nil`** 的后台维护协程中，并在 `main.go` 通过 `.WithNodeBatchRepo(nodeRepo)` 注入。
+- **写接口 `RefreshSyncStatus` 与前端轮询清理**：
+  - `CreateNode`、`UpdateNode`（在 `InvalidateNode` 后）、`SetNodeDesiredState`、`ResetNodeCycleTraffic` 返回前均须调用 `RefreshComputed` + `RefreshSyncStatus`；
+  - 前端 `LogsView.vue` / `RoutingView.vue` 的 `2s` 轮询 `setInterval` 必须在 `watch(activeNodeId)`、目标切换与 `onUnmounted` 清理，并使用单调序号守卫拦截过期响应。
+
+### 4. Validation & Error Matrix
+- 跨节点查询 `GET /api/admin/nodes/2/commands/<node1-cmd>` 或跨节点 Agent 上报 -> `404 Not Found`；
+- Agent 上报路径 `:id` 与 body `id` 不一致 -> `400 Bad Request`；
+- 超过 `180s` 未完成指令 -> 状态自动转为 `expired` 并释放活跃去重键；
+- 删除不存在的节点 -> 事务内 `RowsAffected == 0` 返回 `domain.ErrNotFound`。
+
+### 5. Good / Base / Bad Cases
+- **Good**: 60s 心跳周期下触发远端日志或 GeoData 更新，HTTP `< 100ms` 即返回 `commandId`；Agent 慢网下载 GeoData 耗时 90s 期间心跳照常上报不掉线，完成后立即回传，前端 2s 轮询自动收敛渲染。
+- **Base**: 30s 内再次查询同服务且 `lines <= cached.RequestedLines` 的远端日志直接命中缓存（`cached: true, pending: false`）；`xrayManager == nil` 模式下每日定时清理仍正常修剪 7 天前 `node_traffic_batches`。
+- **Bad**: 在 HTTP handler 中同步 `select` 等待 Agent 心跳（触发 25s 死循环或 60s `WriteTimeout` 断连）；在 `defer` 中删除 `pending*`；或把 `PruneBatchesBefore` 挂在 `xrayManager == nil` 会早退的 `syncOnce` 末尾。
+
+### 6. Tests Required
+- `internal/service/node_service_test.go`：异步入队去重、ctx 取消不删队、180s TTL 过期、跨节点归属 404、`DeleteNode` 内存清理、4 个写接口 `RefreshSyncStatus`。
+- `internal/agent/runner_test.go`：慢速 GeoData 不阻塞并发 `SyncOnce`、即时上报与失败后心跳 `CommandResults` 补传、`-race` 零 goroutine 泄漏。
+- `internal/adapter/repository/node_repo_test.go` & `internal/delivery/cron/traffic_sync_test.go`：事务级联删子表、`xrayManager == nil` 每日清理。
+- `internal/delivery/http/handler_geodata_test.go`、`handler_agent_test.go`、`agent_e2e_test.go`：`202 Accepted`、跨节点 404 与 Master-Agent 端到端闭环。
+
+### 7. Wrong vs Correct
+#### Wrong
+```go
+// 错误：同步等待超过 WriteTimeout=60s，且超时 defer 删除未下发指令造成 60s 心跳死循环
+defer func() { delete(s.pendingLogReqs, nodeID) }()
+select { case res := <-waitCh: ... case <-time.After(25 * time.Second): ... }
+```
+#### Correct
+```go
+// 正确：非阻塞入队/复用带 180s TTL 的 NodeCommand，立即返回 commandId 由前端 2s 轮询；Agent 后台执行完毕即时 POST 上报
+cmd := s.enqueueOrReuseCommandLocked(nodeID, domain.NodeCommandTypeLogTail, svc, lines, now)
+return &RemoteNodeLogsResponse{NodeID: nodeID, Service: svc, Pending: true, CommandID: cmd.ID, Status: cmd.Status}, nil
+```

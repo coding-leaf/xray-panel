@@ -27,6 +27,15 @@ const (
 	AutoReasonDrainQuota = "auto_drain_quota"
 	AutoReasonBreakQuota = "auto_break_quota"
 	AutoReasonManual     = "manual"
+
+	NodeCommandTypeLogTail       = "log_tail"
+	NodeCommandTypeGeoDataUpdate = "geodata_update"
+
+	NodeCommandStatusQueued     = "queued"
+	NodeCommandStatusDispatched = "dispatched"
+	NodeCommandStatusSucceeded  = "succeeded"
+	NodeCommandStatusFailed     = "failed"
+	NodeCommandStatusExpired    = "expired"
 )
 
 var ErrNodeHasInbounds = errors.New("node still has bound inbounds")
@@ -321,35 +330,27 @@ type AgentTrafficBatch struct {
 	Inbounds []AgentInboundTrafficDelta `json:"inbounds,omitempty"`
 }
 
-// AgentLogRequest represents an on-demand log collection instruction pushed to an agent.
-type AgentLogRequest struct {
-	RequestID string `json:"requestId"`
-	Service   string `json:"service"` // "xray" | "xray-agent"
-	Lines     int    `json:"lines"`
+// AgentCommand represents an asynchronous instruction queued by Master and dispatched to an agent on sync.
+type AgentCommand struct {
+	ID      string `json:"id"`
+	Type    string `json:"type"`
+	Service string `json:"service,omitempty"` // log_tail: "xray" | "xray-agent"
+	Lines   int    `json:"lines,omitempty"`   // log_tail: 1..1000
 }
 
-// AgentLogResult carries collected service log lines returned by an agent.
-type AgentLogResult struct {
-	RequestID       string   `json:"requestId"`
-	Service         string   `json:"service"`
-	Lines           []string `json:"lines"`
+// AgentCommandResult carries the terminal execution outcome of an AgentCommand reported back to Master.
+type AgentCommandResult struct {
+	ID              string   `json:"id"`
+	Type            string   `json:"type"`
+	Status          string   `json:"status"` // "succeeded" | "failed"
 	Error           string   `json:"error,omitempty"`
-	CollectedAtUnix int64    `json:"collectedAtUnix"`
-}
-
-// AgentGeoUpdateRequest represents an on-demand GeoData update instruction pushed to an agent.
-type AgentGeoUpdateRequest struct {
-	RequestID string `json:"requestId"`
-}
-
-// AgentGeoUpdateResult carries the result of an on-demand GeoData update returned by an agent.
-type AgentGeoUpdateResult struct {
-	RequestID     string `json:"requestId"`
-	GeoIPSize     int64  `json:"geoipSize"`
-	GeoSiteSize   int64  `json:"geositeSize"`
-	DurationMs    int64  `json:"durationMs"`
-	Error         string `json:"error,omitempty"`
-	UpdatedAtUnix int64  `json:"updatedAtUnix"`
+	Service         string   `json:"service,omitempty"`
+	Lines           []string `json:"lines,omitempty"`
+	CollectedAtUnix int64    `json:"collectedAtUnix,omitempty"`
+	GeoIPSize       int64    `json:"geoipSize,omitempty"`
+	GeoSiteSize     int64    `json:"geositeSize,omitempty"`
+	DurationMs      int64    `json:"durationMs,omitempty"`
+	UpdatedAtUnix   int64    `json:"updatedAtUnix,omitempty"`
 }
 
 // StaticInboundClient represents a static relay credential compiled into a remote inbound.
@@ -363,15 +364,14 @@ type StaticInboundClient struct {
 
 // AgentSyncRequest is the locked POST /api/agent/sync request contract.
 type AgentSyncRequest struct {
-	ConfigHash      string                `json:"configHash"`
-	UsersHash       string                `json:"usersHash"`
-	AgentVersion    string                `json:"agentVersion"`
-	XrayVersion     string                `json:"xrayVersion"`
-	LastError       string                `json:"lastError"`
-	HostMetrics     *AgentHostMetrics     `json:"hostMetrics,omitempty"`
-	TrafficBatch    *AgentTrafficBatch    `json:"trafficBatch,omitempty"`
-	LogResult       *AgentLogResult       `json:"logResult,omitempty"`
-	GeoUpdateResult *AgentGeoUpdateResult `json:"geoUpdateResult,omitempty"`
+	ConfigHash     string               `json:"configHash"`
+	UsersHash      string               `json:"usersHash"`
+	AgentVersion   string               `json:"agentVersion"`
+	XrayVersion    string               `json:"xrayVersion"`
+	LastError      string               `json:"lastError"`
+	HostMetrics    *AgentHostMetrics    `json:"hostMetrics,omitempty"`
+	TrafficBatch   *AgentTrafficBatch   `json:"trafficBatch,omitempty"`
+	CommandResults []AgentCommandResult `json:"commandResults,omitempty"`
 }
 
 // AgentSyncUser represents an authorized active user credential for a node inbound.
@@ -405,7 +405,6 @@ type AgentSyncResponse struct {
 	UsersUnchanged  bool              `json:"usersUnchanged"`
 	ConfigJSON      string            `json:"configJson,omitempty"`
 	Users           []AgentSyncUser   `json:"users,omitempty"`
-	QuotaPolicy      *AgentQuotaPolicy      `json:"quotaPolicy,omitempty"`
-	LogRequest       *AgentLogRequest       `json:"logRequest,omitempty"`
-	GeoUpdateRequest *AgentGeoUpdateRequest `json:"geoUpdateRequest,omitempty"`
+	QuotaPolicy     *AgentQuotaPolicy `json:"quotaPolicy,omitempty"`
+	Commands        []AgentCommand    `json:"commands,omitempty"`
 }

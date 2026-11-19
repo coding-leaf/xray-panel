@@ -93,14 +93,56 @@ export interface InstallScriptResult {
   script: string
 }
 
-export interface RemoteGeoUpdateResult {
-  nodeId: number
-  pending: boolean
+export type NodeCommandStatus = 'queued' | 'dispatched' | 'succeeded' | 'failed' | 'expired'
+export type NodeCommandType = 'log_tail' | 'geodata_update'
+
+export interface NodeCommandLogResult {
+  service: string
+  lines: string[]
+  collectedAt?: string
+}
+
+export interface NodeCommandGeoResult {
   geoipSize: number
   geositeSize: number
   durationMs: number
-  updatedAt: number
-  error: string
+  updatedAt?: string
+}
+
+export interface NodeCommandSnapshot {
+  id: string
+  nodeId: number
+  type: NodeCommandType
+  status: NodeCommandStatus
+  createdAt: string
+  updatedAt: string
+  error?: string
+  logResult?: NodeCommandLogResult
+  geoResult?: NodeCommandGeoResult
+}
+
+export interface RemoteLogResponse {
+  nodeId: number
+  service: string
+  lines: string[]
+  cached: boolean
+  pending: boolean
+  commandId?: string
+  status?: NodeCommandStatus
+  collectedAt?: string
+  error?: string
+}
+
+export interface RemoteGeoUpdateResult {
+  nodeId: number
+  pending: boolean
+  commandId?: string
+  status?: NodeCommandStatus
+  geoipSize?: number
+  geositeSize?: number
+  durationMs?: number
+  updatedAt?: string
+  error?: string
 }
 
 export function getNodeSyncStatus(
@@ -171,4 +213,13 @@ export const getNodeInstallScript = async (
   const trimmed = (masterUrl || '').trim()
   const query = trimmed ? `?masterUrl=${encodeURIComponent(trimmed)}` : ''
   return api.get<InstallScriptResult>(`/admin/nodes/${id}/install-script${query}`)
+}
+
+export const getNodeCommandStatus = async (
+  nodeId: number,
+  commandId: string
+): Promise<NodeCommandSnapshot> => {
+  return api.get<NodeCommandSnapshot>(
+    `/admin/nodes/${nodeId}/commands/${encodeURIComponent(commandId)}`
+  )
 }

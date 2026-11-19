@@ -3,9 +3,12 @@ package cron_test
 import (
 	"context"
 	"errors"
+	"path/filepath"
+	"sync"
 	"testing"
 	"time"
 
+	"panel/internal/adapter/repository"
 	deliveryCron "panel/internal/delivery/cron"
 	"panel/internal/domain"
 )
@@ -525,5 +528,114 @@ func TestTrafficSyncJob_HandlesRepoAndXrayErrorsGracefully(t *testing.T) {
 	}
 	if len(mockXray.removedCalls) != 1 {
 		t.Fatalf("expected 1 RemoveUser attempt for disabled user, got %d", len(mockXray.removedCalls))
+	}
+}
+
+type mockNodeBatchRepoForCron struct {
+	mu           sync.Mutex
+	pruneCalls   int
+	lastBefore   time.Time
+	errToReturn  error
+}
+
+func (m *mockNodeBatchRepoForCron) ApplyNodeTrafficBatch(ctx context.Context, nodeID uint, batch *domain.AgentTrafficBatch, date string) (bool, []domain.User, error) {
+	return false, nil, nil
+}
+
+func (m *mockNodeBatchRepoForCron) PruneBatchesBefore(ctx context.Context, before time.Time) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.pruneCalls++
+	m.lastBefore = before
+	return m.errToReturn
+}
+
+func TestTrafficSyncJob_PrunesOldNodeTrafficBatchesWithoutXrayManager(t *testing.T) {
+	mockBatch := &mockNodeBatchRepoForCron{
+		errToReturn: errors.New("transient sqlite busy"),
+	}
+	// xrayManager is intentionally nil to verify remote-only control plane still prunes node_traffic_batches.
+	job := deliveryCron.NewTrafficSyncJob(nil, nil, nil, nil, nil, nil, nil, 3*time.Second).
+		WithNodeBatchRepo(mockBatch)
+
+	// 1. First run fails -> must not mark today as pruned so subsequent attempt retries.
+	ctx1, cancel1 := context.WithCancel(context.Background())
+	cancel1()
+	if err := job.Start(ctx1); err != nil {
+		t.Fatalf("unexpected error on start #1: %v", err)
+	}
+	mockBatch.mu.Lock()
+	callsAfterErr := mockBatch.pruneCalls
+	mockBatch.errToReturn = nil
+	mockBatch.mu.Unlock()
+	if callsAfterErr != 1 {
+		t.Fatalf("expected 1 PruneBatchesBefore call on start #1, got %d", callsAfterErr)
+	}
+
+	// 2. Second run succeeds -> records today's prune and passes ~7-day cutoff.
+	beforeStart := time.Now().AddDate(0, 0, -7).Add(-5 * time.Second)
+	ctx2, cancel2 := context.WithCancel(context.Background())
+	cancel2()
+	if err := job.Start(ctx2); err != nil {
+		t.Fatalf("unexpected error on start #2: %v", err)
+	}
+	afterStart := time.Now().AddDate(0, 0, -7).Add(5 * time.Second)
+
+	mockBatch.mu.Lock()
+	callsAfterSuccess := mockBatch.pruneCalls
+	cutoff := mockBatch.lastBefore
+	mockBatch.mu.Unlock()
+	if callsAfterSuccess != 2 {
+		t.Fatalf("expected retry to bring PruneBatchesBefore count to 2, got %d", callsAfterSuccess)
+	}
+	if cutoff.Before(beforeStart) || cutoff.After(afterStart) {
+		t.Fatalf("expected 7-day cutoff around [%v, %v], got %v", beforeStart, afterStart, cutoff)
+	}
+
+	// 3. Third run on the same calendar day -> deduplicated, must remain 2.
+	ctx3, cancel3 := context.WithCancel(context.Background())
+	cancel3()
+	if err := job.Start(ctx3); err != nil {
+		t.Fatalf("unexpected error on start #3: %v", err)
+	}
+	mockBatch.mu.Lock()
+	callsAfterDedup := mockBatch.pruneCalls
+	mockBatch.mu.Unlock()
+	if callsAfterDedup != 2 {
+		t.Fatalf("expected same-day dedup to keep PruneBatchesBefore count at 2, got %d", callsAfterDedup)
+	}
+
+	// 4. SQLite integration check: 8-day-old batch is pruned while 2-day-old batch is preserved.
+	dbPath := filepath.Join(t.TempDir(), "cron_node_batch_prune.db")
+	db, err := repository.InitSQLite(dbPath)
+	if err != nil {
+		t.Fatalf("InitSQLite failed: %v", err)
+	}
+	if sqlDB, err := db.DB(); err == nil {
+		t.Cleanup(func() { _ = sqlDB.Close() })
+	}
+	nodeRepo := repository.NewNodeRepository(db)
+	now := time.Now()
+	if err := db.Create(&domain.NodeTrafficBatch{NodeID: 1, BatchID: "old-batch", CreatedAt: now.AddDate(0, 0, -8)}).Error; err != nil {
+		t.Fatalf("seed old batch failed: %v", err)
+	}
+	if err := db.Create(&domain.NodeTrafficBatch{NodeID: 1, BatchID: "recent-batch", CreatedAt: now.AddDate(0, 0, -2)}).Error; err != nil {
+		t.Fatalf("seed recent batch failed: %v", err)
+	}
+
+	realJob := deliveryCron.NewTrafficSyncJob(nil, nil, nil, nil, nil, nil, nil, 3*time.Second).
+		WithNodeBatchRepo(nodeRepo)
+	ctx4, cancel4 := context.WithCancel(context.Background())
+	cancel4()
+	if err := realJob.Start(ctx4); err != nil {
+		t.Fatalf("realJob.Start failed: %v", err)
+	}
+
+	var remaining []domain.NodeTrafficBatch
+	if err := db.Find(&remaining).Error; err != nil {
+		t.Fatalf("query remaining batches failed: %v", err)
+	}
+	if len(remaining) != 1 || remaining[0].BatchID != "recent-batch" {
+		t.Fatalf("expected only recent-batch to survive 7-day prune, got %+v", remaining)
 	}
 }

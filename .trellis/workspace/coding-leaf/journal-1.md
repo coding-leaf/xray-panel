@@ -817,3 +817,27 @@ Delivered M1 (Node model, Master single-endpoint sync control plane with hash sh
 ### Status
 
 [OK] **Completed**
+
+
+## Session 36: Global Node Switcher, Per-Node Full Config & On-Demand Logs
+<!-- trellis-session: v=2 fp=0bf1b8db8683c965 -->
+
+**Date**: 2026-11-19
+**Task**: Global Node Switcher, Per-Node Full Config & On-Demand Logs
+**Branch**: `master`
+
+### Summary
+
+Delivered global top-bar node switcher (zero-Pinia), per-node Outbound/Routing/DNS persistence & compilation, automatic static relay credential injection (eliminating manual relay-*@internal DB users), and on-demand whitelisted journalctl remote log viewer.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `f7d7d06` | fix(agent): preserve .json extension for xray -test temp config and 0644 permissions for nobody service |
+| `b0330a6` | chore(node): set default agent sync interval to 60s and online window to 180s |
+| `5c9f559` | feat(node): add global node switcher, per-node full config/logs, and auto static relay injection |
+
+### Status
+
+[OK] **Completed**

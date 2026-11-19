@@ -863,3 +863,25 @@ Added real-time synced/pending/error config sync status badges with 1-RTT agent 
 ### Status
 
 [OK] **Completed**
+
+
+## Session 38: M1: 核心稳定性止血修复、拓扑一键发布剔除与快速去重
+<!-- trellis-session: v=2 fp=9fe6e07d077f89f1 -->
+
+**Date**: 2026-11-19
+**Task**: M1: 核心稳定性止血修复、拓扑一键发布剔除与快速去重
+**Branch**: `master`
+
+### Summary
+
+完成 2026-11-19 审查与 M1 实施：修复 P0-1(xray.Manager 拦截远端入站+非空 E2E 与 TG /adduser 回归)、P1-2/P1-6(远端 SubRoute 编译统一与 Raw 缓存失效/冲突阻断)、P1-3(SS/SS-2022 增量热加载 Method 透传)、P1-4(远端直连 ExternalPort 回退)、P1-8(0600 EnvironmentFile 与 60s 默认间隔)、彻底移除拓扑一键发布、删除死代码与重复逻辑、沉淀 backend/quality-guidelines 第 12 节。全量 Go(-race)/Agent/前端门禁通过。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `459c8ab` | fix(m1): harden multi-node stability, remove topology quick publish, and cleanup duplicates |
+
+### Status
+
+[OK] **Completed**

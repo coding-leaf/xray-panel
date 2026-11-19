@@ -155,6 +155,20 @@ func (m *ConfigManager) ApplyCircuitBreaker(ctx context.Context) error {
 	return m.Apply(ctx, silenceCfg)
 }
 
+// ReloadAndProbe safely reloads the Xray service and waits for the local gRPC endpoint to pass health probing.
+func (m *ConfigManager) ReloadAndProbe(ctx context.Context) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	if err := m.reloadService(ctx); err != nil {
+		return fmt.Errorf("reload xray failed: %w", err)
+	}
+	if err := m.waitForProbe(ctx); err != nil {
+		return fmt.Errorf("xray grpc probe failed: %w", err)
+	}
+	return nil
+}
+
 // DetectXrayVersion queries `xray version` and returns the version token (e.g. "25.1.1"), or "" on error.
 func (m *ConfigManager) DetectXrayVersion(ctx context.Context) string {
 	out, err := m.runner.Run(ctx, m.cfg.XrayBin, "version")

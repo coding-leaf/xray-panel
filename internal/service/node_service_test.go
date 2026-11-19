@@ -807,3 +807,291 @@ func TestNodeService_RemoteLogs_CacheWaiterWakeupTimeoutAndWhitelist(t *testing.
 		t.Fatalf("cache hit must not queue a LogRequest")
 	}
 }
+
+func TestNodeDomain_RefreshSyncStatus_ThreeStates(t *testing.T) {
+	cases := []struct {
+		name     string
+		node     domain.Node
+		expected string
+		want     string
+	}{
+		{
+			name:     "error takes precedence over matching hashes",
+			node:     domain.Node{LastConfigHash: "abc", LastSyncError: "xray reload failed"},
+			expected: "abc",
+			want:     domain.NodeSyncStatusError,
+		},
+		{
+			name:     "whitespace error does not count as error",
+			node:     domain.Node{LastConfigHash: "abc", LastSyncError: "   "},
+			expected: "abc",
+			want:     domain.NodeSyncStatusSynced,
+		},
+		{
+			name:     "matching non-empty hashes is synced",
+			node:     domain.Node{LastConfigHash: "hash-1"},
+			expected: "hash-1",
+			want:     domain.NodeSyncStatusSynced,
+		},
+		{
+			name:     "both empty is pending",
+			node:     domain.Node{},
+			expected: "",
+			want:     domain.NodeSyncStatusPending,
+		},
+		{
+			name:     "mismatched hashes is pending",
+			node:     domain.Node{LastConfigHash: "hash-old"},
+			expected: "hash-new",
+			want:     domain.NodeSyncStatusPending,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			n := tc.node
+			n.RefreshSyncStatus(tc.expected)
+			if n.ExpectedConfigHash != tc.expected {
+				t.Fatalf("expected ExpectedConfigHash=%q, got %q", tc.expected, n.ExpectedConfigHash)
+			}
+			if n.ConfigSyncStatus != tc.want {
+				t.Fatalf("expected ConfigSyncStatus=%q, got %q", tc.want, n.ConfigSyncStatus)
+			}
+		})
+	}
+
+	// Nil receiver safety
+	var nilNode *domain.Node
+	nilNode.RefreshSyncStatus("abc")
+}
+
+func TestNodeService_SyncStatusPopulation_AndCompilerFallback(t *testing.T) {
+	nodeSvc, _, _, nodeRepo, inboundRepo, _ := setupNodeServiceTestEnv(t)
+	ctx := context.Background()
+
+	created, err := nodeSvc.CreateNode(ctx, domain.CreateNodeDTO{
+		Name: "Sync Status Node",
+		Host: "127.0.0.1",
+	})
+	if err != nil {
+		t.Fatalf("CreateNode failed: %v", err)
+	}
+
+	// Initially never synced -> pending with non-empty expectedConfigHash
+	got, err := nodeSvc.GetNode(ctx, created.ID)
+	if err != nil {
+		t.Fatalf("GetNode failed: %v", err)
+	}
+	if got.ExpectedConfigHash == "" || got.ConfigSyncStatus != domain.NodeSyncStatusPending {
+		t.Fatalf("expected non-empty expectedConfigHash and pending status, got hash=%q status=%q",
+			got.ExpectedConfigHash, got.ConfigSyncStatus)
+	}
+
+	// Agent sync reports matching ConfigHash -> synced
+	syncResp, err := nodeSvc.HandleAgentSync(ctx, created.ID, &domain.AgentSyncRequest{})
+	if err != nil {
+		t.Fatalf("HandleAgentSync initial failed: %v", err)
+	}
+	if _, err := nodeSvc.HandleAgentSync(ctx, created.ID, &domain.AgentSyncRequest{
+		ConfigHash: syncResp.ConfigHash,
+		UsersHash:  syncResp.UsersHash,
+	}); err != nil {
+		t.Fatalf("HandleAgentSync ack failed: %v", err)
+	}
+
+	list, err := nodeSvc.ListNodes(ctx)
+	if err != nil || len(list) != 1 {
+		t.Fatalf("ListNodes failed: %v", err)
+	}
+	if list[0].ConfigSyncStatus != domain.NodeSyncStatusSynced || list[0].ExpectedConfigHash != syncResp.ConfigHash {
+		t.Fatalf("expected synced after hash match, got hash=%q status=%q",
+			list[0].ExpectedConfigHash, list[0].ConfigSyncStatus)
+	}
+
+	// Mutate node inbound & invalidate -> pending again with new expectedConfigHash
+	if err := inboundRepo.Create(ctx, &domain.Inbound{
+		NodeID:       created.ID,
+		Tag:          "edge-vless",
+		Port:         443,
+		Protocol:     "vless",
+		Enabled:      true,
+		SettingsJSON: `{"decryption":"none"}`,
+	}); err != nil {
+		t.Fatalf("Create inbound failed: %v", err)
+	}
+	nodeSvc.InvalidateNode(created.ID)
+
+	afterChange, err := nodeSvc.GetNode(ctx, created.ID)
+	if err != nil {
+		t.Fatalf("GetNode after inbound change failed: %v", err)
+	}
+	if afterChange.ExpectedConfigHash == "" || afterChange.ExpectedConfigHash == syncResp.ConfigHash {
+		t.Fatalf("expected updated expectedConfigHash, got %q", afterChange.ExpectedConfigHash)
+	}
+	if afterChange.ConfigSyncStatus != domain.NodeSyncStatusPending {
+		t.Fatalf("expected pending after config change, got %q", afterChange.ConfigSyncStatus)
+	}
+
+	// Agent reports sync error -> error
+	if _, err := nodeSvc.HandleAgentSync(ctx, created.ID, &domain.AgentSyncRequest{
+		ConfigHash: afterChange.ExpectedConfigHash,
+		UsersHash:  syncResp.UsersHash,
+		LastError:  "xray validate failed",
+	}); err != nil {
+		t.Fatalf("HandleAgentSync error report failed: %v", err)
+	}
+	afterErr, _ := nodeSvc.GetNode(ctx, created.ID)
+	if afterErr.ConfigSyncStatus != domain.NodeSyncStatusError {
+		t.Fatalf("expected error status, got %q", afterErr.ConfigSyncStatus)
+	}
+
+	// Degraded snapshot build (e.g. corrupt outbounds_json on one node, or nil compiler) must not fail ListNodes/GetNode
+	corrupt, err := nodeSvc.CreateNode(ctx, domain.CreateNodeDTO{
+		Name: "Corrupt Node",
+		Host: "127.0.0.1",
+	})
+	if err != nil {
+		t.Fatalf("CreateNode corrupt failed: %v", err)
+	}
+	if err := nodeRepo.UpdateNodeConfig(ctx, corrupt.ID, "{bad-json", "", ""); err != nil {
+		t.Fatalf("UpdateNodeConfig failed: %v", err)
+	}
+	nodeSvc.InvalidateNode(corrupt.ID)
+
+	listWithCorrupt, err := nodeSvc.ListNodes(ctx)
+	if err != nil || len(listWithCorrupt) != 2 {
+		t.Fatalf("ListNodes must not fail when one node snapshot fails: len=%d err=%v", len(listWithCorrupt), err)
+	}
+	if listWithCorrupt[1].ExpectedConfigHash != "" || listWithCorrupt[1].ConfigSyncStatus != domain.NodeSyncStatusPending {
+		t.Fatalf("expected graceful empty hash + pending fallback, got hash=%q status=%q",
+			listWithCorrupt[1].ExpectedConfigHash, listWithCorrupt[1].ConfigSyncStatus)
+	}
+
+	nilCompilerSvc := service.NewNodeService(nodeRepo, nodeRepo, inboundRepo, nil, nil)
+	nilList, err := nilCompilerSvc.ListNodes(ctx)
+	if err != nil || len(nilList) != 2 {
+		t.Fatalf("ListNodes with nil compiler failed: %v", err)
+	}
+	if nilList[0].ExpectedConfigHash != "" || nilList[0].ConfigSyncStatus != domain.NodeSyncStatusError {
+		t.Fatalf("expected empty expectedConfigHash and preserved error status with nil compiler, got %+v", nilList[0])
+	}
+}
+
+func TestNodeService_RemoteGeoUpdate_BrokerSuccessTimeoutAndConcurrentWaiters(t *testing.T) {
+	nodeSvc, _, _, nodeRepo, _, _ := setupNodeServiceTestEnv(t)
+	nodeSvc.WithGeoWaitTimeout(120 * time.Millisecond)
+	ctx := context.Background()
+
+	created, err := nodeSvc.CreateNode(ctx, domain.CreateNodeDTO{
+		Name: "Geo Node",
+		Host: "127.0.0.1",
+	})
+	if err != nil {
+		t.Fatalf("CreateNode failed: %v", err)
+	}
+
+	// Seed baseline metrics to verify lightweight geo ack preserves them
+	if err := nodeRepo.UpdateHeartbeat(ctx, created.ID, &domain.AgentSyncRequest{
+		ConfigHash: "c1",
+		UsersHash:  "u1",
+		HostMetrics: &domain.AgentHostMetrics{
+			CPUPercent:   18.5,
+			MemPercent:   44.0,
+			NicUpDelta:   900,
+			NicDownDelta: 1800,
+		},
+	}, time.Now()); err != nil {
+		t.Fatalf("seed heartbeat failed: %v", err)
+	}
+
+	// 1. Input & existence checks
+	if _, err := nodeSvc.RequestNodeGeoUpdate(ctx, 0); !errors.Is(err, domain.ErrInvalidInput) {
+		t.Fatalf("expected ErrInvalidInput for nodeId=0, got %v", err)
+	}
+	if _, err := nodeSvc.RequestNodeGeoUpdate(ctx, 99999); !errors.Is(err, domain.ErrNotFound) {
+		t.Fatalf("expected ErrNotFound for missing node, got %v", err)
+	}
+
+	// 2. Timeout returns Pending=true and cleans up pendingGeoReqs
+	timedOutResp, err := nodeSvc.RequestNodeGeoUpdate(ctx, created.ID)
+	if err != nil {
+		t.Fatalf("timeout RequestNodeGeoUpdate should not return error, got %v", err)
+	}
+	if !timedOutResp.Pending || timedOutResp.NodeID != created.ID {
+		t.Fatalf("expected Pending=true for node %d, got %+v", created.ID, timedOutResp)
+	}
+	idleSync, err := nodeSvc.HandleAgentSync(ctx, created.ID, &domain.AgentSyncRequest{})
+	if err != nil {
+		t.Fatalf("idle HandleAgentSync failed: %v", err)
+	}
+	if idleSync.GeoUpdateRequest != nil {
+		t.Fatalf("expected nil GeoUpdateRequest after timeout cleanup, got %+v", idleSync.GeoUpdateRequest)
+	}
+
+	// 3. Concurrent callers + 1-RTT wakeup via HandleAgentSync
+	nodeSvc.WithGeoWaitTimeout(2 * time.Second)
+	type geoCallResult struct {
+		resp *service.RemoteGeoUpdateResponse
+		err  error
+	}
+	const callers = 2
+	doneCh := make(chan geoCallResult, callers)
+	for i := 0; i < callers; i++ {
+		go func() {
+			r, e := nodeSvc.RequestNodeGeoUpdate(ctx, created.ID)
+			doneCh <- geoCallResult{resp: r, err: e}
+		}()
+	}
+
+	var deliveredReq *domain.AgentGeoUpdateRequest
+	deadline := time.Now().Add(time.Second)
+	for time.Now().Before(deadline) {
+		syncResp, err := nodeSvc.HandleAgentSync(ctx, created.ID, &domain.AgentSyncRequest{})
+		if err != nil {
+			t.Fatalf("HandleAgentSync failed: %v", err)
+		}
+		if syncResp.GeoUpdateRequest != nil {
+			deliveredReq = syncResp.GeoUpdateRequest
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if deliveredReq == nil || deliveredReq.RequestID == "" {
+		t.Fatalf("expected pending GeoUpdateRequest delivered via HandleAgentSync")
+	}
+
+	// Agent sends lightweight ack with GeoUpdateResult (HostMetrics == nil, TrafficBatch == nil)
+	ackResp, err := nodeSvc.HandleAgentSync(ctx, created.ID, &domain.AgentSyncRequest{
+		ConfigHash: idleSync.ConfigHash,
+		UsersHash:  idleSync.UsersHash,
+		GeoUpdateResult: &domain.AgentGeoUpdateResult{
+			RequestID:     deliveredReq.RequestID,
+			GeoIPSize:     10485760,
+			GeoSiteSize:   5242880,
+			DurationMs:    3240,
+			UpdatedAtUnix: 1732020004,
+		},
+	})
+	if err != nil {
+		t.Fatalf("geoUpdateResult HandleAgentSync failed: %v", err)
+	}
+	if ackResp.GeoUpdateRequest != nil {
+		t.Fatalf("expected nil GeoUpdateRequest after completion ack, got %+v", ackResp.GeoUpdateRequest)
+	}
+
+	for i := 0; i < callers; i++ {
+		res := <-doneCh
+		if res.err != nil {
+			t.Fatalf("concurrent RequestNodeGeoUpdate #%d failed: %v", i, res.err)
+		}
+		if res.resp.Pending || res.resp.GeoIPSize != 10485760 || res.resp.GeoSiteSize != 5242880 || res.resp.DurationMs != 3240 || res.resp.UpdatedAt != 1732020004 || res.resp.Error != "" {
+			t.Fatalf("unexpected RequestNodeGeoUpdate #%d response: %+v", i, res.resp)
+		}
+	}
+
+	// Verify baseline CPU/NIC counters were NOT zeroed out by lightweight geo ack
+	nodeAfter, _ := nodeRepo.GetByID(ctx, created.ID)
+	if nodeAfter.CPUPercent != 18.5 || nodeAfter.NicUpBytes != 900 || nodeAfter.NicDownBytes != 1800 {
+		t.Fatalf("lightweight geo ack overwrote metrics: %+v", nodeAfter)
+	}
+}

@@ -14,9 +14,10 @@ type SyncRequest struct {
 	AgentVersion string        `json:"agentVersion"`
 	XrayVersion  string        `json:"xrayVersion"`
 	LastError    string        `json:"lastError"`
-	HostMetrics  *HostMetrics  `json:"hostMetrics,omitempty"`
-	TrafficBatch *TrafficBatch `json:"trafficBatch,omitempty"`
-	LogResult    *LogResult    `json:"logResult,omitempty"`
+	HostMetrics     *HostMetrics     `json:"hostMetrics,omitempty"`
+	TrafficBatch    *TrafficBatch    `json:"trafficBatch,omitempty"`
+	LogResult       *LogResult       `json:"logResult,omitempty"`
+	GeoUpdateResult *GeoUpdateResult `json:"geoUpdateResult,omitempty"`
 }
 
 // HostMetrics carries host CPU, memory, and primary NIC byte deltas.
@@ -59,8 +60,24 @@ type SyncResponse struct {
 	UsersUnchanged  bool         `json:"usersUnchanged"`
 	ConfigJSON      string       `json:"configJson,omitempty"`
 	Users           []RemoteUser `json:"users,omitempty"`
-	QuotaPolicy     *QuotaPolicy `json:"quotaPolicy,omitempty"`
-	LogRequest      *LogRequest  `json:"logRequest,omitempty"`
+	QuotaPolicy      *QuotaPolicy      `json:"quotaPolicy,omitempty"`
+	LogRequest       *LogRequest       `json:"logRequest,omitempty"`
+	GeoUpdateRequest *GeoUpdateRequest `json:"geoUpdateRequest,omitempty"`
+}
+
+// GeoUpdateRequest instructs the agent to download and atomically apply updated geoip.dat and geosite.dat files.
+type GeoUpdateRequest struct {
+	RequestID string `json:"requestId"`
+}
+
+// GeoUpdateResult carries the outcome of an on-demand GeoData update back to Master.
+type GeoUpdateResult struct {
+	RequestID     string `json:"requestId"`
+	GeoIPSize     int64  `json:"geoipSize"`
+	GeoSiteSize   int64  `json:"geositeSize"`
+	DurationMs    int64  `json:"durationMs"`
+	Error         string `json:"error,omitempty"`
+	UpdatedAtUnix int64  `json:"updatedAtUnix"`
 }
 
 // LogRequest instructs the agent to collect recent systemd journal lines for a whitelisted service.

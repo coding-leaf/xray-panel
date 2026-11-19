@@ -1,3 +1,5 @@
+import type { NodeItem } from '../../api/nodes'
+
 export type NodeType = 'inbound' | 'channel' | 'outbound'
 export type ChannelCategory = 'subroute' | 'scoped_rule' | 'global_rule' | 'fallback'
 export type LinkStatus = 'active' | 'paused' | 'blocked'
@@ -79,4 +81,36 @@ export interface StreamPipelineUnit {
   inbound: TopologyNode
   channel: TopologyNode
   outbound: TopologyNode
+}
+
+export function matchManagedNodeForOutbound(
+  ob: any,
+  nodesList: NodeItem[],
+  activeNodeId: number
+): NodeItem | null {
+  if (activeNodeId !== 0 || !ob || !Array.isArray(nodesList) || nodesList.length === 0) {
+    return null
+  }
+  const protocol = String(ob.protocol || '').toLowerCase()
+  if (
+    protocol === 'freedom' ||
+    protocol === 'blackhole' ||
+    protocol === 'wireguard' ||
+    protocol === 'dns'
+  ) {
+    return null
+  }
+  try {
+    const s = JSON.parse(ob.settingsJson || '{}')
+    const endpoint = s?.vnext?.[0] || s?.servers?.[0]
+    const address = typeof endpoint?.address === 'string' ? endpoint.address.trim() : ''
+    const port = Number(endpoint?.port || 0)
+    if (!address || !(port > 0)) {
+      return null
+    }
+    const normalizedAddr = address.toLowerCase()
+    return nodesList.find((n) => (n.host || '').trim().toLowerCase() === normalizedAddr) || null
+  } catch {
+    return null
+  }
 }

@@ -2,6 +2,7 @@ import api from './index'
 
 export type NodeDesiredState = 'active' | 'draining' | 'circuit_broken'
 export type NodeTrafficCountMode = 'both' | 'outbound' | 'max'
+export type NodeSyncStatus = 'synced' | 'pending' | 'error'
 
 export interface NodeItem {
   id: number
@@ -15,6 +16,8 @@ export interface NodeItem {
   agentVersion: string
   xrayVersion: string
   lastConfigHash: string
+  expectedConfigHash?: string
+  configSyncStatus?: NodeSyncStatus
   lastUsersHash: string
   lastSyncError: string
   cpuPercent: number
@@ -88,6 +91,48 @@ export interface RotateTokenResult {
 export interface InstallScriptResult {
   nodeId: number
   script: string
+}
+
+export interface RemoteGeoUpdateResult {
+  nodeId: number
+  pending: boolean
+  geoipSize: number
+  geositeSize: number
+  durationMs: number
+  updatedAt: number
+  error: string
+}
+
+export function getNodeSyncStatus(
+  node?: Pick<
+    NodeItem,
+    'lastSyncError' | 'lastConfigHash' | 'expectedConfigHash' | 'configSyncStatus'
+  > | null
+): NodeSyncStatus {
+  if (!node) return 'pending'
+  if (
+    node.configSyncStatus === 'synced' ||
+    node.configSyncStatus === 'pending' ||
+    node.configSyncStatus === 'error'
+  ) {
+    return node.configSyncStatus
+  }
+  if ((node.lastSyncError || '').trim() !== '') {
+    return 'error'
+  }
+  if (
+    node.lastConfigHash &&
+    node.expectedConfigHash &&
+    node.lastConfigHash === node.expectedConfigHash
+  ) {
+    return 'synced'
+  }
+  return 'pending'
+}
+
+export function formatShortHash(hash?: string): string {
+  const trimmed = (hash || '').trim()
+  return trimmed ? trimmed.slice(0, 8) : '-'
 }
 
 export const listNodes = async (): Promise<NodeItem[]> => {

@@ -270,17 +270,60 @@
               </div>
             </td>
 
-            <!-- 6. Sync Error -->
-            <td class="p-3.5 align-middle max-w-[200px]">
-              <div
-                v-if="node.lastSyncError"
-                class="inline-flex items-start gap-1 px-2 py-1 rounded bg-rose-500/10 border border-rose-500/20 text-rose-300 font-mono text-[10px] max-w-full"
-                :title="node.lastSyncError"
-              >
-                <AlertTriangle class="w-3 h-3 text-rose-400 shrink-0 mt-0.5" />
-                <span class="truncate">{{ node.lastSyncError }}</span>
+            <!-- 6. Sync Status -->
+            <td class="p-3.5 align-middle max-w-[220px]">
+              <div v-if="getNodeSyncStatus(node) === 'error'" class="space-y-1">
+                <Badge
+                  variant="destructive"
+                  :dot="true"
+                  class="text-[10px]"
+                  :title="node.lastSyncError || '配置同步失败'"
+                >
+                  同步失败
+                </Badge>
+                <div
+                  v-if="node.lastSyncError"
+                  class="inline-flex items-start gap-1 px-2 py-0.5 rounded bg-rose-500/10 border border-rose-500/20 text-rose-300 font-mono text-[10px] max-w-full"
+                  :title="node.lastSyncError"
+                >
+                  <AlertTriangle class="w-3 h-3 text-rose-400 shrink-0 mt-0.5" />
+                  <span class="truncate">{{ node.lastSyncError }}</span>
+                </div>
               </div>
-              <span v-else class="text-[11px] font-mono text-muted-foreground">正常</span>
+              <div v-else-if="getNodeSyncStatus(node) === 'synced'" class="space-y-1">
+                <Badge
+                  variant="success"
+                  :dot="true"
+                  class="text-[10px]"
+                  :title="`配置已同步生效：${node.lastConfigHash || node.expectedConfigHash || '-'}`"
+                >
+                  已同步
+                </Badge>
+                <div
+                  class="text-[10px] font-mono text-muted-foreground"
+                  :title="`配置 Hash：${node.lastConfigHash || node.expectedConfigHash || '-'}`"
+                >
+                  #{{ formatShortHash(node.lastConfigHash || node.expectedConfigHash) }}
+                </div>
+              </div>
+              <div v-else class="space-y-1">
+                <Badge
+                  variant="warning"
+                  :dot="true"
+                  dot-color="bg-amber-400 animate-pulse"
+                  class="text-[10px]"
+                  :title="`配置待同步 · 期望 ${node.expectedConfigHash || '-'} / 当前 ${node.lastConfigHash || '-'}`"
+                >
+                  待同步
+                </Badge>
+                <div
+                  class="text-[10px] font-mono text-muted-foreground truncate"
+                  :title="`期望 ${node.expectedConfigHash || '-'} / 当前 ${node.lastConfigHash || '-'}`"
+                >
+                  期望 {{ formatShortHash(node.expectedConfigHash) }} / 当前
+                  {{ formatShortHash(node.lastConfigHash) }}
+                </div>
+              </div>
             </td>
 
             <!-- 7. Actions -->
@@ -445,11 +488,42 @@
         </div>
 
         <div
-          v-if="node.lastSyncError"
-          class="p-2 rounded bg-rose-500/10 border border-rose-500/20 text-rose-300 font-mono text-[10px] flex items-start gap-1.5"
+          v-if="getNodeSyncStatus(node) === 'error'"
+          class="p-2 rounded bg-rose-500/10 border border-rose-500/20 text-rose-300 font-mono text-[10px] space-y-1"
         >
-          <AlertTriangle class="w-3.5 h-3.5 text-rose-400 shrink-0 mt-0.5" />
-          <span class="break-all">{{ node.lastSyncError }}</span>
+          <div class="flex items-center gap-1.5">
+            <Badge variant="destructive" :dot="true" class="text-[10px]">同步失败</Badge>
+          </div>
+          <div v-if="node.lastSyncError" class="flex items-start gap-1.5">
+            <AlertTriangle class="w-3.5 h-3.5 text-rose-400 shrink-0 mt-0.5" />
+            <span class="break-all">{{ node.lastSyncError }}</span>
+          </div>
+        </div>
+        <div
+          v-else-if="getNodeSyncStatus(node) === 'synced'"
+          class="flex items-center justify-between gap-2 px-2 py-1.5 rounded bg-emerald-500/5 border border-emerald-500/20 font-mono text-[10px]"
+        >
+          <Badge variant="success" :dot="true" class="text-[10px]">已同步</Badge>
+          <span class="text-muted-foreground">
+            #{{ formatShortHash(node.lastConfigHash || node.expectedConfigHash) }}
+          </span>
+        </div>
+        <div
+          v-else
+          class="flex items-center justify-between gap-2 px-2 py-1.5 rounded bg-amber-500/5 border border-amber-500/20 font-mono text-[10px]"
+        >
+          <Badge
+            variant="warning"
+            :dot="true"
+            dot-color="bg-amber-400 animate-pulse"
+            class="text-[10px]"
+          >
+            待同步
+          </Badge>
+          <span class="text-muted-foreground truncate">
+            期望 {{ formatShortHash(node.expectedConfigHash) }} / 当前
+            {{ formatShortHash(node.lastConfigHash) }}
+          </span>
         </div>
 
         <div
@@ -544,7 +618,12 @@ import {
 import Badge from '../components/ui/Badge.vue'
 import Button from '../components/ui/Button.vue'
 import { formatBytes, formatDateTime } from '../utils/format'
-import type { CreateNodeResult, NodeItem } from '../api/nodes'
+import {
+  formatShortHash,
+  getNodeSyncStatus,
+  type CreateNodeResult,
+  type NodeItem,
+} from '../api/nodes'
 import type { NodeTokenModalState } from './nodes/types'
 import {
   formatLastSeen,

@@ -20,9 +20,10 @@ import (
 )
 
 const (
-	defaultNodeSyncIntervalSec = 60
-	defaultRemoteLogCacheTTL   = 30 * time.Second
-	defaultRemoteLogWaitTimout = 25 * time.Second
+	defaultNodeSyncIntervalSec  = 60
+	defaultRemoteLogCacheTTL    = 30 * time.Second
+	defaultRemoteLogWaitTimout  = 25 * time.Second
+	defaultRemoteGeoWaitTimeout = 75 * time.Second
 )
 
 // NodeStateChangeCallback is invoked when a node automatically changes or recovers its desired state.
@@ -71,6 +72,17 @@ type RemoteNodeLogsResponse struct {
 	Error       string   `json:"error"`
 }
 
+// RemoteGeoUpdateResponse represents the HTTP/service response payload for remote on-demand GeoData updates.
+type RemoteGeoUpdateResponse struct {
+	NodeID      uint   `json:"nodeId"`
+	Pending     bool   `json:"pending"`
+	GeoIPSize   int64  `json:"geoipSize"`
+	GeoSiteSize int64  `json:"geositeSize"`
+	DurationMs  int64  `json:"durationMs"`
+	UpdatedAt   int64  `json:"updatedAt"`
+	Error       string `json:"error"`
+}
+
 // NodeService manages remote direct-connect nodes, tokens, sync snapshots, and traffic ingestion.
 type NodeService struct {
 	nodeRepo               domain.NodeRepository
@@ -83,6 +95,7 @@ type NodeService struct {
 	localOutboundsProvider func(context.Context) ([]domain.Outbound, error)
 	syncIntervalSec        int
 	logWaitTimeout         time.Duration
+	geoWaitTimeout         time.Duration
 
 	mu             sync.RWMutex
 	snapshots      map[uint]*cachedNodeSnapshot
@@ -92,6 +105,9 @@ type NodeService struct {
 	logCache       map[string]*cachedRemoteLog
 	logWaiters     map[string][]chan *cachedRemoteLog
 	logReqLines    map[string]int
+	pendingGeoReqs map[uint]*domain.AgentGeoUpdateRequest
+	activeGeoReqs  map[uint]string
+	geoWaiters     map[string][]chan *domain.AgentGeoUpdateResult
 }
 
 func NewNodeService(
@@ -109,12 +125,16 @@ func NewNodeService(
 		compiler:        compiler,
 		syncIntervalSec: defaultNodeSyncIntervalSec,
 		logWaitTimeout:  defaultRemoteLogWaitTimout,
+		geoWaitTimeout:  defaultRemoteGeoWaitTimeout,
 		snapshots:       make(map[uint]*cachedNodeSnapshot),
 		nodeEpochs:      make(map[uint]uint64),
 		pendingLogReqs:  make(map[uint]*domain.AgentLogRequest),
 		logCache:        make(map[string]*cachedRemoteLog),
 		logWaiters:      make(map[string][]chan *cachedRemoteLog),
 		logReqLines:     make(map[string]int),
+		pendingGeoReqs:  make(map[uint]*domain.AgentGeoUpdateRequest),
+		activeGeoReqs:   make(map[uint]string),
+		geoWaiters:      make(map[string][]chan *domain.AgentGeoUpdateResult),
 	}
 	if qr, ok := nodeRepo.(domain.NodeQuotaRepository); ok {
 		svc.quotaRepo = qr
@@ -144,6 +164,14 @@ func (s *NodeService) WithLocalOutboundsProvider(fn func(context.Context) ([]dom
 func (s *NodeService) WithLogWaitTimeout(d time.Duration) *NodeService {
 	if d > 0 {
 		s.logWaitTimeout = d
+	}
+	return s
+}
+
+// WithGeoWaitTimeout overrides the wait timeout for on-demand remote GeoData updates (primarily for tests).
+func (s *NodeService) WithGeoWaitTimeout(d time.Duration) *NodeService {
+	if d > 0 {
+		s.geoWaitTimeout = d
 	}
 	return s
 }
@@ -190,6 +218,24 @@ func (s *NodeService) InvalidateAll() {
 	s.mu.Unlock()
 }
 
+func (s *NodeService) resolveExpectedConfigHash(ctx context.Context, nodeID uint) string {
+	if s.compiler == nil {
+		return ""
+	}
+	snap, err := s.getOrBuildSnapshot(ctx, nodeID)
+	if err != nil {
+		slog.Warn("Failed to resolve expected config hash for node",
+			slog.Uint64("node_id", uint64(nodeID)),
+			slog.String("error", err.Error()),
+		)
+		return ""
+	}
+	if snap == nil {
+		return ""
+	}
+	return snap.ConfigHash
+}
+
 func (s *NodeService) ListNodes(ctx context.Context) ([]domain.Node, error) {
 	nodes, err := s.nodeRepo.ListAll(ctx)
 	if err != nil {
@@ -198,6 +244,7 @@ func (s *NodeService) ListNodes(ctx context.Context) ([]domain.Node, error) {
 	now := time.Now()
 	for i := range nodes {
 		nodes[i].RefreshOnline(now)
+		nodes[i].RefreshSyncStatus(s.resolveExpectedConfigHash(ctx, nodes[i].ID))
 	}
 	return nodes, nil
 }
@@ -208,6 +255,7 @@ func (s *NodeService) GetNode(ctx context.Context, id uint) (*domain.Node, error
 		return nil, err
 	}
 	node.RefreshOnline(time.Now())
+	node.RefreshSyncStatus(s.resolveExpectedConfigHash(ctx, node.ID))
 	return node, nil
 }
 
@@ -694,6 +742,9 @@ func (s *NodeService) HandleAgentSync(ctx context.Context, nodeID uint, req *dom
 	if req.LogResult != nil {
 		s.handleIncomingLogResult(nodeID, req.LogResult, now)
 	}
+	if req.GeoUpdateResult != nil {
+		s.handleIncomingGeoResult(nodeID, req.GeoUpdateResult)
+	}
 
 	// Re-read latest node after batch & heartbeat increments so quota evaluation sees updated cycle counters.
 	latestNode, err := s.nodeRepo.GetByID(ctx, nodeID)
@@ -772,6 +823,7 @@ func (s *NodeService) HandleAgentSync(ctx context.Context, nodeID uint, req *dom
 		resp.Users = snap.Users
 	}
 	resp.LogRequest = s.popPendingLogRequest(nodeID, req.LogResult)
+	resp.GeoUpdateRequest = s.popPendingGeoRequest(nodeID, req.GeoUpdateResult)
 
 	return resp, nil
 }
@@ -999,7 +1051,7 @@ func (s *NodeService) RequestNodeLogs(
 
 	defer func() {
 		s.mu.Lock()
-		s.removeLogWaiterLocked(reqID, waitCh)
+		removeWaiterLocked(s.logWaiters, reqID, waitCh)
 		if len(s.logWaiters[reqID]) == 0 {
 			delete(s.logReqLines, reqID)
 		}
@@ -1037,8 +1089,8 @@ func (s *NodeService) RequestNodeLogs(
 	}
 }
 
-func (s *NodeService) removeLogWaiterLocked(reqID string, target chan *cachedRemoteLog) {
-	list := s.logWaiters[reqID]
+func removeWaiterLocked[T any](waiters map[string][]chan T, reqID string, target chan T) {
+	list := waiters[reqID]
 	if len(list) == 0 {
 		return
 	}
@@ -1049,9 +1101,20 @@ func (s *NodeService) removeLogWaiterLocked(reqID string, target chan *cachedRem
 		}
 	}
 	if len(filtered) == 0 {
-		delete(s.logWaiters, reqID)
+		delete(waiters, reqID)
 	} else {
-		s.logWaiters[reqID] = filtered
+		waiters[reqID] = filtered
+	}
+}
+
+func dispatchWaitersLocked[T any](waiters map[string][]chan T, reqID string, payload T) {
+	list := waiters[reqID]
+	delete(waiters, reqID)
+	for _, ch := range list {
+		select {
+		case ch <- payload:
+		default:
+		}
 	}
 }
 
@@ -1083,14 +1146,7 @@ func (s *NodeService) handleIncomingLogResult(nodeID uint, res *domain.AgentLogR
 	}
 	s.logCache[remoteLogCacheKey(nodeID, svc)] = entry
 
-	waiters := s.logWaiters[res.RequestID]
-	delete(s.logWaiters, res.RequestID)
-	for _, ch := range waiters {
-		select {
-		case ch <- entry:
-		default:
-		}
-	}
+	dispatchWaitersLocked(s.logWaiters, res.RequestID, entry)
 	s.mu.Unlock()
 }
 
@@ -1106,6 +1162,108 @@ func (s *NodeService) popPendingLogRequest(nodeID uint, ack *domain.AgentLogResu
 		return nil
 	}
 	delete(s.pendingLogReqs, nodeID)
+	return pending
+}
+
+func generateGeoRequestID() string {
+	buf := make([]byte, 4)
+	if _, err := rand.Read(buf); err != nil {
+		return fmt.Sprintf("geo-%d", time.Now().UnixNano())
+	}
+	return fmt.Sprintf("geo-%d-%s", time.Now().UnixNano(), hex.EncodeToString(buf))
+}
+
+// RequestNodeGeoUpdate queues an on-demand GeoData update instruction for a remote node and waits up to geoWaitTimeout for the 1-RTT ack.
+func (s *NodeService) RequestNodeGeoUpdate(ctx context.Context, nodeID uint) (*RemoteGeoUpdateResponse, error) {
+	if nodeID == 0 {
+		return nil, fmt.Errorf("%w: nodeId must be > 0", domain.ErrInvalidInput)
+	}
+	if _, err := s.nodeRepo.GetByID(ctx, nodeID); err != nil {
+		return nil, err
+	}
+
+	waitCh := make(chan *domain.AgentGeoUpdateResult, 1)
+
+	s.mu.Lock()
+	reqID := s.activeGeoReqs[nodeID]
+	if reqID == "" {
+		reqID = generateGeoRequestID()
+		s.activeGeoReqs[nodeID] = reqID
+		s.pendingGeoReqs[nodeID] = &domain.AgentGeoUpdateRequest{
+			RequestID: reqID,
+		}
+	}
+	s.geoWaiters[reqID] = append(s.geoWaiters[reqID], waitCh)
+	waitTimeout := s.geoWaitTimeout
+	if waitTimeout <= 0 {
+		waitTimeout = defaultRemoteGeoWaitTimeout
+	}
+	s.mu.Unlock()
+
+	defer func() {
+		s.mu.Lock()
+		removeWaiterLocked(s.geoWaiters, reqID, waitCh)
+		if len(s.geoWaiters[reqID]) == 0 {
+			if s.activeGeoReqs[nodeID] == reqID {
+				delete(s.activeGeoReqs, nodeID)
+			}
+			if cur, ok := s.pendingGeoReqs[nodeID]; ok && cur.RequestID == reqID {
+				delete(s.pendingGeoReqs, nodeID)
+			}
+		}
+		s.mu.Unlock()
+	}()
+
+	timer := time.NewTimer(waitTimeout)
+	defer timer.Stop()
+
+	select {
+	case res := <-waitCh:
+		return &RemoteGeoUpdateResponse{
+			NodeID:      nodeID,
+			Pending:     false,
+			GeoIPSize:   res.GeoIPSize,
+			GeoSiteSize: res.GeoSiteSize,
+			DurationMs:  res.DurationMs,
+			UpdatedAt:   res.UpdatedAtUnix,
+			Error:       res.Error,
+		}, nil
+	case <-timer.C:
+		return &RemoteGeoUpdateResponse{
+			NodeID:  nodeID,
+			Pending: true,
+			Error:   "timed out waiting for agent geodata update response",
+		}, nil
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
+}
+
+func (s *NodeService) handleIncomingGeoResult(nodeID uint, res *domain.AgentGeoUpdateResult) {
+	if res == nil || strings.TrimSpace(res.RequestID) == "" {
+		return
+	}
+	resCopy := *res
+	s.mu.Lock()
+	if s.activeGeoReqs[nodeID] == resCopy.RequestID {
+		delete(s.activeGeoReqs, nodeID)
+	}
+	dispatchWaitersLocked(s.geoWaiters, resCopy.RequestID, &resCopy)
+	s.mu.Unlock()
+}
+
+func (s *NodeService) popPendingGeoRequest(nodeID uint, ack *domain.AgentGeoUpdateResult) *domain.AgentGeoUpdateRequest {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	pending, ok := s.pendingGeoReqs[nodeID]
+	if !ok || pending == nil {
+		return nil
+	}
+	if ack != nil && ack.RequestID == pending.RequestID {
+		delete(s.pendingGeoReqs, nodeID)
+		return nil
+	}
+	delete(s.pendingGeoReqs, nodeID)
 	return pending
 }
 

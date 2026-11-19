@@ -1419,3 +1419,389 @@ func TestMasterAgent_E2E_FullConfigAutoRelayAndOnDemandLogs(t *testing.T) {
 		t.Fatalf("expected 400 for invalid log service, got %d", code)
 	}
 }
+
+type mockAgentGeoDataUpdater struct {
+	mu          sync.Mutex
+	calls       int
+	geoipSize   int64
+	geositeSize int64
+	delay       time.Duration
+	err         error
+}
+
+func (u *mockAgentGeoDataUpdater) Update(_ context.Context) (int64, int64, error) {
+	if u.delay > 0 {
+		time.Sleep(u.delay)
+	}
+	u.mu.Lock()
+	defer u.mu.Unlock()
+	u.calls++
+	if u.err != nil {
+		return 0, 0, u.err
+	}
+	return u.geoipSize, u.geositeSize, nil
+}
+
+func (u *mockAgentGeoDataUpdater) callCount() int {
+	u.mu.Lock()
+	defer u.mu.Unlock()
+	return u.calls
+}
+
+func TestMasterAgent_E2E_SyncStatusAckAndRemoteGeoUpdate(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "e2e_polish.db")
+	db, err := repository.InitSQLite(dbPath)
+	if err != nil {
+		t.Fatalf("InitSQLite failed: %v", err)
+	}
+	if sqlDB, err := db.DB(); err == nil {
+		t.Cleanup(func() {
+			_ = sqlDB.Close()
+		})
+	}
+
+	nodeRepo := repository.NewNodeRepository(db)
+	userRepo := repository.NewUserRepository(db)
+	inboundRepo := repository.NewInboundRepository(db)
+	trafficLogRepo := repository.NewGormTrafficLogRepository(db)
+	snapshotRepo := repository.NewGormConfigSnapshotRepository(db)
+	auditLogRepo := repository.NewGormAuditLogRepository(db)
+
+	compiler := xray.NewXrayCompiler(8080)
+	masterCfgPath := filepath.Join(t.TempDir(), "master_xray.json")
+	if err := os.WriteFile(masterCfgPath, []byte(`{"inbounds":[],"outbounds":[{"tag":"direct","protocol":"freedom"}],"routing":{"domainStrategy":"IPIfNonMatch","rules":[]}}`), 0644); err != nil {
+		t.Fatalf("seed master config failed: %v", err)
+	}
+	masterConfigMgr := xray.NewConfigManager(masterCfgPath, "")
+
+	nodeSvc := service.NewNodeService(nodeRepo, nodeRepo, inboundRepo, userRepo, compiler).
+		WithGeoWaitTimeout(5 * time.Second)
+	configSvc := service.NewConfigService(masterConfigMgr, nil, inboundRepo, userRepo, snapshotRepo, compiler).
+		WithNodeCacheInvalidator(nodeSvc).
+		WithNodeRepo(nodeRepo)
+	userSvc := service.NewUserService(userRepo, inboundRepo, trafficLogRepo, nil, configSvc).
+		WithNodeCacheInvalidator(nodeSvc)
+	auditSvc := service.NewAuditLogService(auditLogRepo)
+
+	jwtSecret := "e2e-polish-jwt-secret"
+	adminJWT, err := middleware.GenerateToken("admin", jwtSecret, time.Hour)
+	if err != nil {
+		t.Fatalf("GenerateToken failed: %v", err)
+	}
+
+	handlers := &deliveryHTTP.Handlers{
+		Sub:       deliveryHTTP.NewSubHandler(nil),
+		User:      deliveryHTTP.NewUserHandler(userSvc, nil, auditSvc),
+		Inbound:   deliveryHTTP.NewInboundHandler(configSvc, auditSvc),
+		Outbound:  deliveryHTTP.NewOutboundHandler(configSvc, auditSvc),
+		Routing:   deliveryHTTP.NewRoutingHandler(configSvc, auditSvc),
+		DNS:       deliveryHTTP.NewDNSHandler(configSvc),
+		Config:    deliveryHTTP.NewConfigHandler(configSvc, auditSvc),
+		GeoData:   deliveryHTTP.NewGeoDataHandler(nil).WithNodeService(nodeSvc),
+		Node:      deliveryHTTP.NewNodeHandler(nodeSvc, auditSvc),
+		Agent:     deliveryHTTP.NewAgentHandler(nodeSvc),
+		AgentAuth: deliveryHTTP.AgentAuth(nodeSvc),
+	}
+	router := deliveryHTTP.SetupRouter(handlers, jwtSecret, nil)
+
+	var (
+		spyMu        sync.Mutex
+		syncRequests []agent.SyncRequest
+	)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/api/agent/sync" {
+			var bodyBuf bytes.Buffer
+			_, _ = bodyBuf.ReadFrom(r.Body)
+			_ = r.Body.Close()
+			var decoded agent.SyncRequest
+			if err := json.Unmarshal(bodyBuf.Bytes(), &decoded); err == nil {
+				spyMu.Lock()
+				syncRequests = append(syncRequests, decoded)
+				spyMu.Unlock()
+			}
+			reqClone := r.Clone(r.Context())
+			reqClone.Body = io.NopCloser(bytes.NewReader(bodyBuf.Bytes()))
+			reqClone.ContentLength = int64(bodyBuf.Len())
+			router.ServeHTTP(w, reqClone)
+			return
+		}
+		router.ServeHTTP(w, r)
+	}))
+	defer srv.Close()
+
+	adminCall := func(method, path string, payload interface{}) (int, []byte) {
+		t.Helper()
+		var body bytes.Buffer
+		if payload != nil {
+			if err := json.NewEncoder(&body).Encode(payload); err != nil {
+				t.Fatalf("encode payload failed: %v", err)
+			}
+		}
+		req, err := http.NewRequest(method, srv.URL+path, &body)
+		if err != nil {
+			t.Fatalf("NewRequest failed: %v", err)
+		}
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Authorization", "Bearer "+adminJWT)
+		resp, err := srv.Client().Do(req)
+		if err != nil {
+			t.Fatalf("admin http %s %s failed: %v", method, path, err)
+		}
+		defer resp.Body.Close()
+		var out bytes.Buffer
+		_, _ = out.ReadFrom(resp.Body)
+		return resp.StatusCode, out.Bytes()
+	}
+
+	findNodeFromList := func(nodeID uint) domain.Node {
+		t.Helper()
+		code, raw := adminCall(http.MethodGet, "/api/admin/nodes", nil)
+		if code != http.StatusOK {
+			t.Fatalf("GET /api/admin/nodes expected 200, got %d: %s", code, string(raw))
+		}
+		var nodes []domain.Node
+		if err := json.Unmarshal(raw, &nodes); err != nil {
+			t.Fatalf("unmarshal nodes list: %v", err)
+		}
+		for _, n := range nodes {
+			if n.ID == nodeID {
+				return n
+			}
+		}
+		t.Fatalf("node %d not found in GET /api/admin/nodes", nodeID)
+		return domain.Node{}
+	}
+
+	// Provision remote node, inbound, and user.
+	code, rawNode := adminCall(http.MethodPost, "/api/admin/nodes", map[string]interface{}{
+		"name":   "Polish E2E Edge",
+		"host":   "198.51.100.30",
+		"region": "SG",
+	})
+	if code != http.StatusCreated {
+		t.Fatalf("create node expected 201, got %d: %s", code, string(rawNode))
+	}
+	var created domain.CreateNodeResponse
+	if err := json.Unmarshal(rawNode, &created); err != nil {
+		t.Fatalf("unmarshal created node: %v", err)
+	}
+
+	code, rawRemoteInb := adminCall(http.MethodPost, "/api/inbounds", map[string]interface{}{
+		"nodeId":         created.ID,
+		"tag":            "edge-vless",
+		"port":           443,
+		"protocol":       "vless",
+		"streamSettings": `{"network":"tcp","security":"reality","realitySettings":{"dest":"apple.com:443","serverNames":["apple.com"],"privateKey":"OCiaG7JluOeRDE9IIuqPleHWArqqmnKJ_rKTxtjo7mc"}}`,
+		"enabled":        true,
+	})
+	if code != http.StatusCreated {
+		t.Fatalf("create remote inbound expected 201, got %d: %s", code, string(rawRemoteInb))
+	}
+
+	code, rawUser := adminCall(http.MethodPost, "/api/users", map[string]interface{}{
+		"email":       "polish@example.com",
+		"inboundTags": []string{"edge-vless"},
+	})
+	if code != http.StatusCreated {
+		t.Fatalf("create user expected 201, got %d: %s", code, string(rawUser))
+	}
+
+	// Wire real Agent Runner with mock GeoDataUpdater.
+	agentClient, err := agent.NewClient(srv.URL, created.Token, srv.Client())
+	if err != nil {
+		t.Fatalf("NewClient: %v", err)
+	}
+	agentDir := t.TempDir()
+	agentCfgMgr, err := agent.NewConfigManager(agent.ConfigManagerConfig{
+		ConfigPath:    filepath.Join(agentDir, "config.json"),
+		ServiceName:   "xray",
+		ProbeTimeout:  500 * time.Millisecond,
+		ProbeInterval: 10 * time.Millisecond,
+	}, &mockAgentCommandRunner{}, &mockAgentProber{})
+	if err != nil {
+		t.Fatalf("NewConfigManager: %v", err)
+	}
+	spool, err := agent.NewSpool(filepath.Join(agentDir, "spool"))
+	if err != nil {
+		t.Fatalf("NewSpool: %v", err)
+	}
+	userSync, err := agent.NewUserSyncer(&mockAgentUserController{})
+	if err != nil {
+		t.Fatalf("NewUserSyncer: %v", err)
+	}
+	trafficCol := &mockAgentTrafficCollector{}
+	geoUpdater := &mockAgentGeoDataUpdater{
+		geoipSize:   10485760,
+		geositeSize: 5242880,
+		delay:       10 * time.Millisecond,
+	}
+
+	runner, err := agent.NewRunner(
+		agent.RunnerConfig{AgentVersion: "0.3.0-e2e", Interval: time.Second},
+		agentClient,
+		spool,
+		agentCfgMgr,
+		userSync,
+		trafficCol,
+		agent.NewMetricsCollector(),
+	)
+	if err != nil {
+		t.Fatalf("NewRunner: %v", err)
+	}
+	runner.WithGeoDataUpdater(geoUpdater)
+
+	ctx := context.Background()
+
+	// 1. Initial sync -> GET /api/admin/nodes reports configSyncStatus == "synced".
+	if err := runner.SyncOnce(ctx); err != nil {
+		t.Fatalf("initial SyncOnce failed: %v", err)
+	}
+	node1 := findNodeFromList(created.ID)
+	if node1.ConfigSyncStatus != domain.NodeSyncStatusSynced || node1.ExpectedConfigHash == "" || node1.LastConfigHash != node1.ExpectedConfigHash {
+		t.Fatalf("expected initial configSyncStatus=synced with matching hashes, got status=%q expected=%q last=%q",
+			node1.ConfigSyncStatus, node1.ExpectedConfigHash, node1.LastConfigHash)
+	}
+
+	// 2. Modify remote node outbound -> immediately pending and expectedConfigHash != lastConfigHash.
+	code, rawObResp := adminCall(http.MethodPost, fmt.Sprintf("/api/outbounds?nodeId=%d", created.ID), map[string]interface{}{
+		"tag":          "socks-out",
+		"protocol":     "socks",
+		"settingsJson": `{"servers":[{"address":"127.0.0.1","port":40000}]}`,
+	})
+	if code != http.StatusOK {
+		t.Fatalf("save remote outbound expected 200, got %d: %s", code, string(rawObResp))
+	}
+	node2 := findNodeFromList(created.ID)
+	if node2.ConfigSyncStatus != domain.NodeSyncStatusPending || node2.ExpectedConfigHash == "" || node2.ExpectedConfigHash == node2.LastConfigHash {
+		t.Fatalf("expected configSyncStatus=pending with diverged hashes after outbound edit, got status=%q expected=%q last=%q",
+			node2.ConfigSyncStatus, node2.ExpectedConfigHash, node2.LastConfigHash)
+	}
+
+	// 3. Single Runner.SyncOnce with traffic batch -> applies config, sends lightweight ack -> synced immediately and traffic counted once.
+	trafficCol.push(&agent.TrafficBatch{
+		BatchID: "polish-batch-1",
+		Users: []agent.UserTrafficDelta{
+			{Email: "polish@example.com", UpBytes: 2048, DownBytes: 4096},
+		},
+		Inbounds: []agent.InboundTrafficDelta{
+			{Tag: "edge-vless", UpBytes: 2048, DownBytes: 4096},
+		},
+	})
+	spyMu.Lock()
+	syncRequests = nil
+	spyMu.Unlock()
+
+	if err := runner.SyncOnce(ctx); err != nil {
+		t.Fatalf("outbound update SyncOnce failed: %v", err)
+	}
+	node3 := findNodeFromList(created.ID)
+	if node3.ConfigSyncStatus != domain.NodeSyncStatusSynced || node3.LastConfigHash != node2.ExpectedConfigHash {
+		t.Fatalf("expected immediate synced status after single SyncOnce ack, got status=%q last=%q expected=%q",
+			node3.ConfigSyncStatus, node3.LastConfigHash, node2.ExpectedConfigHash)
+	}
+	if node3.XrayUpBytes != 2048 || node3.XrayDownBytes != 4096 {
+		t.Fatalf("expected node xray traffic 2048/4096 (counted once), got up=%d down=%d", node3.XrayUpBytes, node3.XrayDownBytes)
+	}
+
+	code, rawUsers := adminCall(http.MethodGet, "/api/users", nil)
+	if code != http.StatusOK {
+		t.Fatalf("GET /api/users expected 200, got %d", code)
+	}
+	var listedUsers []domain.User
+	_ = json.Unmarshal(rawUsers, &listedUsers)
+	if len(listedUsers) != 1 || listedUsers[0].UpBytes != 2048 || listedUsers[0].DownBytes != 4096 {
+		t.Fatalf("expected user traffic 2048/4096 (counted once), got %+v", listedUsers)
+	}
+
+	spyMu.Lock()
+	step3Reqs := append([]agent.SyncRequest(nil), syncRequests...)
+	syncRequests = nil
+	spyMu.Unlock()
+	if len(step3Reqs) != 2 {
+		t.Fatalf("expected 2 sync requests in step 3 (heartbeat+batch, then lightweight ack), got %d", len(step3Reqs))
+	}
+	if step3Reqs[1].HostMetrics != nil || step3Reqs[1].TrafficBatch != nil || step3Reqs[1].ConfigHash != node2.ExpectedConfigHash {
+		t.Fatalf("expected lightweight config ack with nil metrics/batch and new hash %q, got %+v", node2.ExpectedConfigHash, step3Reqs[1])
+	}
+
+	// 4. Concurrent POST /api/geodata/update?nodeId=<id> + Runner.SyncOnce -> 1-RTT wakeup with sizes/durationMs, pending=false, and no traffic recount.
+	trafficCol.push(&agent.TrafficBatch{
+		BatchID: "polish-batch-2",
+		Users: []agent.UserTrafficDelta{
+			{Email: "polish@example.com", UpBytes: 300, DownBytes: 700},
+		},
+		Inbounds: []agent.InboundTrafficDelta{
+			{Tag: "edge-vless", UpBytes: 300, DownBytes: 700},
+		},
+	})
+
+	type geoHTTPResp struct {
+		status int
+		body   []byte
+	}
+	geoCh := make(chan geoHTTPResp, 1)
+	go func() {
+		status, body := adminCall(http.MethodPost, fmt.Sprintf("/api/geodata/update?nodeId=%d", created.ID), nil)
+		geoCh <- geoHTTPResp{status: status, body: body}
+	}()
+
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		if geoUpdater.callCount() > 0 {
+			break
+		}
+		if err := runner.SyncOnce(ctx); err != nil {
+			t.Fatalf("geo-cycle SyncOnce failed: %v", err)
+		}
+		if geoUpdater.callCount() > 0 {
+			break
+		}
+		time.Sleep(15 * time.Millisecond)
+	}
+	if geoUpdater.callCount() != 1 {
+		t.Fatalf("expected GeoDataUpdater called once, got %d", geoUpdater.callCount())
+	}
+
+	gotGeo := <-geoCh
+	if gotGeo.status != http.StatusOK {
+		t.Fatalf("POST /api/geodata/update?nodeId=%d expected 200, got %d: %s", created.ID, gotGeo.status, string(gotGeo.body))
+	}
+	var geoPayload service.RemoteGeoUpdateResponse
+	if err := json.Unmarshal(gotGeo.body, &geoPayload); err != nil {
+		t.Fatalf("unmarshal remote geodata response: %v", err)
+	}
+	if geoPayload.Pending || geoPayload.NodeID != created.ID || geoPayload.GeoIPSize != 10485760 || geoPayload.GeoSiteSize != 5242880 || geoPayload.DurationMs < 5 || geoPayload.UpdatedAt <= 0 || geoPayload.Error != "" {
+		t.Fatalf("unexpected remote geodata response: %+v", geoPayload)
+	}
+
+	spyMu.Lock()
+	step4Reqs := append([]agent.SyncRequest(nil), syncRequests...)
+	spyMu.Unlock()
+	var geoAckCount int
+	for _, r := range step4Reqs {
+		if r.GeoUpdateResult != nil {
+			geoAckCount++
+			if r.HostMetrics != nil || r.TrafficBatch != nil {
+				t.Fatalf("lightweight geo ack must have nil HostMetrics and TrafficBatch, got metrics=%+v batch=%+v", r.HostMetrics, r.TrafficBatch)
+			}
+		}
+	}
+	if geoAckCount != 1 {
+		t.Fatalf("expected exactly 1 lightweight geo ack, got %d", geoAckCount)
+	}
+
+	// Traffic must be 2048+300 = 2348 and 4096+700 = 4796 (counted strictly once per batch).
+	node4 := findNodeFromList(created.ID)
+	if node4.XrayUpBytes != 2348 || node4.XrayDownBytes != 4796 {
+		t.Fatalf("expected node xray traffic 2348/4796 (no recount on geo ack), got up=%d down=%d", node4.XrayUpBytes, node4.XrayDownBytes)
+	}
+	code, rawUsers4 := adminCall(http.MethodGet, "/api/users", nil)
+	if code != http.StatusOK {
+		t.Fatalf("GET /api/users expected 200, got %d", code)
+	}
+	var users4 []domain.User
+	_ = json.Unmarshal(rawUsers4, &users4)
+	if len(users4) != 1 || users4[0].UpBytes != 2348 || users4[0].DownBytes != 4796 {
+		t.Fatalf("expected user traffic 2348/4796 (no recount on geo ack), got %+v", users4)
+	}
+}

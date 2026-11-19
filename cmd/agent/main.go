@@ -41,8 +41,9 @@ func main() {
 		xrayBin     = flag.String("xray-bin", envOrDefault("XRAY_BIN", "xray"), "Path to xray binary")
 		xrayConfig  = flag.String("xray-config", envOrDefault("XRAY_CONFIG", "/usr/local/etc/xray/config.json"), "Path to xray config.json")
 		xrayGRPC    = flag.String("xray-grpc", envOrDefault("XRAY_GRPC", "127.0.0.1:8080"), "Local xray gRPC API address")
-		xrayService = flag.String("xray-service", envOrDefault("XRAY_SERVICE", "xray"), "Systemd service name for xray")
-		spoolDir    = flag.String("spool-dir", envOrDefault("SPOOL_DIR", "/var/lib/xray-agent"), "Directory for pending traffic batch spool")
+		xrayService   = flag.String("xray-service", envOrDefault("XRAY_SERVICE", "xray"), "Systemd service name for xray")
+		xrayAssetsDir = flag.String("xray-assets-dir", envOrDefault("XRAY_ASSETS_DIR", "/usr/local/share/xray"), "Directory for xray geoip.dat and geosite.dat")
+		spoolDir      = flag.String("spool-dir", envOrDefault("SPOOL_DIR", "/var/lib/xray-agent"), "Directory for pending traffic batch spool")
 		interval    = flag.Duration("interval", envDurationOrDefault("SYNC_INTERVAL", 20*time.Second), "Heartbeat sync interval")
 		logLevel    = flag.String("log-level", envOrDefault("LOG_LEVEL", "info"), "Log level (debug, info, warn, error)")
 		logJSON     = flag.Bool("log-json", false, "Output structured JSON logs")
@@ -99,6 +100,14 @@ func main() {
 		os.Exit(1)
 	}
 
+	geoUpdater, err := agent.NewHTTPGeoDataUpdater(agent.HTTPGeoDataUpdaterConfig{
+		AssetsDir: *xrayAssetsDir,
+	}, cfgMgr)
+	if err != nil {
+		slog.Error("Failed to initialize geodata updater", slog.String("error", err.Error()))
+		os.Exit(1)
+	}
+
 	runner, err := agent.NewRunner(
 		agent.RunnerConfig{
 			AgentVersion: Version,
@@ -116,7 +125,8 @@ func main() {
 		os.Exit(1)
 	}
 	runner.WithQuotaStore(quotaStore).
-		WithLogCollector(agent.NewJournalctlLogCollector(agent.OSCommandRunner{}))
+		WithLogCollector(agent.NewJournalctlLogCollector(agent.OSCommandRunner{})).
+		WithGeoDataUpdater(geoUpdater)
 
 	slog.Info("Starting xray-panel thin agent",
 		slog.String("version", Version),

@@ -297,6 +297,19 @@
               </span>
             </div>
 
+            <div v-if="getManagedNode(ob)" class="mb-2.5 flex items-center">
+              <span
+                class="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md text-[10px] font-mono font-semibold bg-sky-500/15 text-sky-300 border border-sky-500/30 max-w-full"
+                :title="`中转至托管节点：${getManagedNode(ob)!.name} (${getManagedNode(ob)!.host}) · ${getManagedNode(ob)!.online ? '在线' : '离线'}`"
+              >
+                <span
+                  class="w-1.5 h-1.5 rounded-full shrink-0"
+                  :class="getManagedNode(ob)!.online ? 'bg-emerald-400' : 'bg-neutral-500'"
+                />
+                <span class="truncate">→ 托管节点 {{ getManagedNode(ob)!.name }}</span>
+              </span>
+            </div>
+
             <div class="space-y-2 text-xs text-muted-foreground">
               <div class="flex justify-between py-1 border-b border-border/50">
                 <span>出站协议</span>
@@ -340,6 +353,8 @@
 <script setup lang="ts">
 import { ref } from 'vue'
 import { Plus, Radio, Send, Network } from 'lucide-vue-next'
+import { useActiveNode } from '../../../composables/useActiveNode'
+import { matchManagedNodeForOutbound } from '../types'
 
 interface Props {
   inbounds: any[]
@@ -348,6 +363,10 @@ interface Props {
 }
 
 const props = defineProps<Props>()
+const { activeNodeId, nodesList } = useActiveNode()
+
+const getManagedNode = (ob: any) =>
+  matchManagedNodeForOutbound(ob, nodesList.value, activeNodeId.value)
 
 defineEmits<{
   (e: 'openWizard'): void

@@ -56,6 +56,17 @@ func TestRunner_EndToEndSpoolRetryDiffSyncAndCircuitBreaker(t *testing.T) {
 			_, _ = w.Write([]byte("temporary error"))
 			return
 		}
+		if req.HostMetrics == nil && req.TrafficBatch == nil {
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(SyncResponse{
+				OK:              true,
+				DesiredState:    DesiredStateActive,
+				SyncIntervalSec: 20,
+				ConfigUnchanged: true,
+				UsersUnchanged:  true,
+			})
+			return
+		}
 
 		step++
 		w.Header().Set("Content-Type", "application/json")
@@ -611,5 +622,274 @@ func TestRunner_OnDemandLogCollectionAndLightweightAck(t *testing.T) {
 	}
 	if errAck.LogResult == nil || errAck.LogResult.RequestID != "log-req-2" || errAck.LogResult.Error != "journalctl permission denied" {
 		t.Fatalf("expected LogResult.Error to be propagated, got %+v", errAck.LogResult)
+	}
+}
+
+type fakeGeoDataUpdater struct {
+	mu          sync.Mutex
+	calls       int
+	geoipSize   int64
+	geositeSize int64
+	err         error
+}
+
+func (f *fakeGeoDataUpdater) Update(_ context.Context) (int64, int64, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.calls++
+	return f.geoipSize, f.geositeSize, f.err
+}
+
+func TestRunner_ImmediateLightweightAckOnConfigAndUsersApply(t *testing.T) {
+	var mu sync.Mutex
+	var requests []SyncRequest
+	var nextResp SyncResponse
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var req SyncRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+		mu.Lock()
+		requests = append(requests, req)
+		var resp SyncResponse
+		if req.HostMetrics == nil && req.TrafficBatch == nil {
+			// Lightweight ack -> Master replies unchanged so no recursive ack is triggered.
+			resp = SyncResponse{
+				OK:              true,
+				DesiredState:    DesiredStateActive,
+				SyncIntervalSec: 20,
+				ConfigHash:      req.ConfigHash,
+				UsersHash:       req.UsersHash,
+				ConfigUnchanged: true,
+				UsersUnchanged:  true,
+			}
+		} else {
+			resp = nextResp
+		}
+		mu.Unlock()
+
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(resp)
+	}))
+	defer srv.Close()
+
+	dir := t.TempDir()
+	client, _ := NewClient(srv.URL, "test-token", srv.Client())
+	spool, _ := NewSpool(filepath.Join(dir, "spool"))
+	cfgMgr, _ := NewConfigManager(ConfigManagerConfig{
+		ConfigPath:    filepath.Join(dir, "config.json"),
+		ProbeTimeout:  200 * time.Millisecond,
+		ProbeInterval: 10 * time.Millisecond,
+	}, &fakeCommandRunner{}, &fakeHealthProber{})
+	userSync, _ := NewUserSyncer(&fakeUserController{})
+
+	runner, err := NewRunner(
+		RunnerConfig{AgentVersion: "1.2.3", Interval: 20 * time.Second},
+		client,
+		spool,
+		cfgMgr,
+		userSync,
+		nil,
+		NewMetricsCollector(),
+	)
+	if err != nil {
+		t.Fatalf("NewRunner: %v", err)
+	}
+
+	// 1. ConfigJSON + Users applied -> sends normal sync + 1 immediate lightweight ack.
+	mu.Lock()
+	nextResp = SyncResponse{
+		OK:              true,
+		DesiredState:    DesiredStateActive,
+		SyncIntervalSec: 20,
+		ConfigHash:      "cfg-v1",
+		UsersHash:       "usr-v1",
+		ConfigUnchanged: false,
+		UsersUnchanged:  false,
+		ConfigJSON:      `{"inbounds":[{"tag":"vless-1"}]}`,
+		Users:           []RemoteUser{{InboundTag: "vless-1", Protocol: "vless", Email: "a@example.com", UUID: "u1"}},
+	}
+	mu.Unlock()
+
+	if err := runner.SyncOnce(context.Background()); err != nil {
+		t.Fatalf("SyncOnce config apply: %v", err)
+	}
+
+	mu.Lock()
+	if len(requests) != 2 {
+		t.Fatalf("expected 2 requests (sync + lightweight ack), got %d", len(requests))
+	}
+	cfgAck := requests[1]
+	requests = nil
+	mu.Unlock()
+
+	if cfgAck.HostMetrics != nil || cfgAck.TrafficBatch != nil {
+		t.Fatalf("expected nil HostMetrics and TrafficBatch on config ack, got metrics=%v batch=%v", cfgAck.HostMetrics, cfgAck.TrafficBatch)
+	}
+	if cfgAck.ConfigHash != "cfg-v1" || cfgAck.UsersHash != "usr-v1" || cfgAck.LastError != "" {
+		t.Fatalf("unexpected config ack hashes/error: %+v", cfgAck)
+	}
+
+	// 2. Differential Users update only -> sends normal sync + 1 immediate lightweight ack.
+	mu.Lock()
+	nextResp = SyncResponse{
+		OK:              true,
+		DesiredState:    DesiredStateActive,
+		SyncIntervalSec: 20,
+		ConfigHash:      "cfg-v1",
+		UsersHash:       "usr-v2",
+		ConfigUnchanged: true,
+		UsersUnchanged:  false,
+		Users: []RemoteUser{
+			{InboundTag: "vless-1", Protocol: "vless", Email: "a@example.com", UUID: "u1"},
+			{InboundTag: "vless-1", Protocol: "vless", Email: "b@example.com", UUID: "u2"},
+		},
+	}
+	mu.Unlock()
+
+	if err := runner.SyncOnce(context.Background()); err != nil {
+		t.Fatalf("SyncOnce users diff: %v", err)
+	}
+
+	mu.Lock()
+	if len(requests) != 2 {
+		t.Fatalf("expected 2 requests (sync + lightweight ack) on users diff, got %d", len(requests))
+	}
+	usrAck := requests[1]
+	mu.Unlock()
+
+	if usrAck.HostMetrics != nil || usrAck.TrafficBatch != nil {
+		t.Fatalf("expected nil HostMetrics and TrafficBatch on users ack, got metrics=%v batch=%v", usrAck.HostMetrics, usrAck.TrafficBatch)
+	}
+	if usrAck.ConfigHash != "cfg-v1" || usrAck.UsersHash != "usr-v2" || usrAck.LastError != "" {
+		t.Fatalf("unexpected users ack hashes/error: %+v", usrAck)
+	}
+}
+
+func TestRunner_OnDemandGeoDataUpdateAndLightweightAck(t *testing.T) {
+	var mu sync.Mutex
+	var requests []SyncRequest
+	var nextGeoReq *GeoUpdateRequest
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var req SyncRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+		mu.Lock()
+		requests = append(requests, req)
+		geoReq := nextGeoReq
+		nextGeoReq = nil
+		mu.Unlock()
+
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(SyncResponse{
+			OK:               true,
+			DesiredState:     DesiredStateActive,
+			SyncIntervalSec:  20,
+			ConfigHash:       "cfg-v1",
+			UsersHash:        "usr-v1",
+			ConfigUnchanged:  true,
+			UsersUnchanged:   true,
+			GeoUpdateRequest: geoReq,
+		})
+	}))
+	defer srv.Close()
+
+	dir := t.TempDir()
+	client, _ := NewClient(srv.URL, "test-token", srv.Client())
+	spool, _ := NewSpool(filepath.Join(dir, "spool"))
+	cfgMgr, _ := NewConfigManager(ConfigManagerConfig{
+		ConfigPath:    filepath.Join(dir, "config.json"),
+		ProbeTimeout:  200 * time.Millisecond,
+		ProbeInterval: 10 * time.Millisecond,
+	}, &fakeCommandRunner{}, &fakeHealthProber{})
+	userSync, _ := NewUserSyncer(&fakeUserController{})
+	updater := &fakeGeoDataUpdater{
+		geoipSize:   10485760,
+		geositeSize: 5242880,
+	}
+
+	runner, err := NewRunner(
+		RunnerConfig{AgentVersion: "1.2.3", Interval: 20 * time.Second},
+		client,
+		spool,
+		cfgMgr,
+		userSync,
+		nil,
+		NewMetricsCollector(),
+	)
+	if err != nil {
+		t.Fatalf("NewRunner: %v", err)
+	}
+	runner.WithGeoDataUpdater(updater)
+
+	// 1. Normal sync without GeoUpdateRequest -> 1 request, GeoUpdateResult == nil.
+	if err := runner.SyncOnce(context.Background()); err != nil {
+		t.Fatalf("SyncOnce #1: %v", err)
+	}
+	mu.Lock()
+	if len(requests) != 1 || requests[0].GeoUpdateResult != nil {
+		t.Fatalf("expected 1 normal request with nil GeoUpdateResult, got %+v", requests)
+	}
+	requests = nil
+	nextGeoReq = &GeoUpdateRequest{RequestID: "geo-req-1"}
+	mu.Unlock()
+
+	// 2. Sync with GeoUpdateRequest -> executes updater and sends lightweight ack with GeoUpdateResult.
+	if err := runner.SyncOnce(context.Background()); err != nil {
+		t.Fatalf("SyncOnce #2: %v", err)
+	}
+	mu.Lock()
+	if len(requests) != 2 {
+		t.Fatalf("expected 2 requests (sync + geo ack), got %d", len(requests))
+	}
+	geoAck := requests[1]
+	requests = nil
+	mu.Unlock()
+
+	if geoAck.HostMetrics != nil || geoAck.TrafficBatch != nil {
+		t.Fatalf("expected nil HostMetrics and TrafficBatch on geo ack, got metrics=%v batch=%v", geoAck.HostMetrics, geoAck.TrafficBatch)
+	}
+	if geoAck.GeoUpdateResult == nil {
+		t.Fatal("expected GeoUpdateResult on lightweight ack")
+	}
+	if geoAck.GeoUpdateResult.RequestID != "geo-req-1" ||
+		geoAck.GeoUpdateResult.GeoIPSize != 10485760 ||
+		geoAck.GeoUpdateResult.GeoSiteSize != 5242880 ||
+		geoAck.GeoUpdateResult.Error != "" ||
+		geoAck.GeoUpdateResult.UpdatedAtUnix <= 0 {
+		t.Fatalf("unexpected GeoUpdateResult: %+v", geoAck.GeoUpdateResult)
+	}
+
+	// 3. Updater error -> still sends lightweight ack with Error populated.
+	updater.mu.Lock()
+	updater.geoipSize = 0
+	updater.geositeSize = 0
+	updater.err = errors.New("reload/probe failed; rolled back")
+	updater.mu.Unlock()
+
+	mu.Lock()
+	nextGeoReq = &GeoUpdateRequest{RequestID: "geo-req-2"}
+	mu.Unlock()
+
+	if err := runner.SyncOnce(context.Background()); err != nil {
+		t.Fatalf("SyncOnce #3: %v", err)
+	}
+	mu.Lock()
+	if len(requests) != 2 {
+		t.Fatalf("expected 2 requests on geo error ack, got %d", len(requests))
+	}
+	errAck := requests[1]
+	mu.Unlock()
+
+	if errAck.HostMetrics != nil || errAck.TrafficBatch != nil {
+		t.Fatalf("expected nil HostMetrics and TrafficBatch on geo error ack")
+	}
+	if errAck.GeoUpdateResult == nil || errAck.GeoUpdateResult.RequestID != "geo-req-2" || errAck.GeoUpdateResult.Error != "reload/probe failed; rolled back" {
+		t.Fatalf("expected GeoUpdateResult.Error propagated, got %+v", errAck.GeoUpdateResult)
 	}
 }

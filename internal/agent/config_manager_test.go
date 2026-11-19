@@ -223,3 +223,78 @@ func TestConfigManager_ApplyCircuitBreaker(t *testing.T) {
 		t.Fatalf("expected only api inbound in circuit-breaker config, got %+v", parsed.Inbounds)
 	}
 }
+
+func TestConfigManager_ReloadAndProbe(t *testing.T) {
+	dir := t.TempDir()
+	cfgPath := filepath.Join(dir, "config.json")
+
+	t.Run("success", func(t *testing.T) {
+		runner := &fakeCommandRunner{}
+		prober := &fakeHealthProber{}
+		mgr, err := NewConfigManager(ConfigManagerConfig{
+			ConfigPath:    cfgPath,
+			ProbeTimeout:  200 * time.Millisecond,
+			ProbeInterval: 10 * time.Millisecond,
+		}, runner, prober)
+		if err != nil {
+			t.Fatalf("NewConfigManager: %v", err)
+		}
+
+		if err := mgr.ReloadAndProbe(context.Background()); err != nil {
+			t.Fatalf("ReloadAndProbe failed: %v", err)
+		}
+		if len(runner.calls) != 1 || runner.calls[0].name != "systemctl" {
+			t.Fatalf("expected 1 systemctl reload call, got %+v", runner.calls)
+		}
+		if prober.calls != 1 {
+			t.Fatalf("expected 1 probe call, got %d", prober.calls)
+		}
+	})
+
+	t.Run("reload failure skips probe", func(t *testing.T) {
+		runner := &fakeCommandRunner{
+			fn: func(ctx context.Context, name string, args ...string) ([]byte, error) {
+				return []byte("systemd error"), errors.New("exit status 1")
+			},
+		}
+		prober := &fakeHealthProber{}
+		mgr, err := NewConfigManager(ConfigManagerConfig{
+			ConfigPath:    cfgPath,
+			ProbeTimeout:  100 * time.Millisecond,
+			ProbeInterval: 10 * time.Millisecond,
+		}, runner, prober)
+		if err != nil {
+			t.Fatalf("NewConfigManager: %v", err)
+		}
+
+		err = mgr.ReloadAndProbe(context.Background())
+		if err == nil || !strings.Contains(err.Error(), "reload xray failed") {
+			t.Fatalf("expected reload failure, got: %v", err)
+		}
+		if prober.calls != 0 {
+			t.Fatalf("expected 0 probe calls on reload failure, got %d", prober.calls)
+		}
+	})
+
+	t.Run("probe failure returns error", func(t *testing.T) {
+		runner := &fakeCommandRunner{}
+		prober := &fakeHealthProber{
+			fn: func(ctx context.Context, attempt int) error {
+				return errors.New("grpc unavailable")
+			},
+		}
+		mgr, err := NewConfigManager(ConfigManagerConfig{
+			ConfigPath:    cfgPath,
+			ProbeTimeout:  60 * time.Millisecond,
+			ProbeInterval: 10 * time.Millisecond,
+		}, runner, prober)
+		if err != nil {
+			t.Fatalf("NewConfigManager: %v", err)
+		}
+
+		err = mgr.ReloadAndProbe(context.Background())
+		if err == nil || !strings.Contains(err.Error(), "probe failed") {
+			t.Fatalf("expected probe failure, got: %v", err)
+		}
+	})
+}

@@ -101,13 +101,28 @@
         <span>未挂载</span>
       </span>
     </div>
+
+    <!-- Line 3 (Local Master View): Matched Managed Node Badge -->
+    <div v-if="matchedManagedNode" class="mt-1.5 flex items-center">
+      <span
+        class="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md text-[10px] font-mono font-semibold bg-sky-500/15 text-sky-300 border border-sky-500/30 max-w-full"
+        :title="`中转至托管节点：${matchedManagedNode.name} (${matchedManagedNode.host}) · ${matchedManagedNode.online ? '在线' : '离线'}`"
+      >
+        <span
+          class="w-1.5 h-1.5 rounded-full shrink-0"
+          :class="matchedManagedNode.online ? 'bg-emerald-400' : 'bg-neutral-500'"
+        />
+        <span class="truncate">→ 托管节点 {{ matchedManagedNode.name }}</span>
+      </span>
+    </div>
   </div>
 </template>
 
 <script setup lang="ts">
 import { computed } from 'vue'
 import { Zap, Pencil, Trash2 } from 'lucide-vue-next'
-import type { TopologyNode } from '../types'
+import { useActiveNode } from '../../../composables/useActiveNode'
+import { matchManagedNodeForOutbound, type TopologyNode } from '../types'
 
 interface Props {
   node: TopologyNode
@@ -116,6 +131,12 @@ interface Props {
 }
 
 const props = defineProps<Props>()
+
+const { activeNodeId, nodesList } = useActiveNode()
+
+const matchedManagedNode = computed(() =>
+  matchManagedNodeForOutbound(props.node.raw, nodesList.value, activeNodeId.value)
+)
 
 defineEmits<{
   (e: 'hover', id: string): void

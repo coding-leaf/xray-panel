@@ -216,53 +216,68 @@
         <!-- Global Status Pill & Quick Controls -->
         <div class="flex items-center gap-2.5">
           <!-- Global Node Switcher -->
-          <div
-            v-if="isAuthenticated"
-            class="flex items-center gap-1.5 px-2 py-1 rounded-md border text-[11px] font-mono transition-colors"
-            :class="
-              isRemoteNode
-                ? 'bg-sky-500/10 border-sky-500/40 text-sky-300'
-                : 'bg-neutral-900 border-border text-foreground'
-            "
-            :title="
-              isRemoteNode
-                ? `当前正在远程托管节点：${activeNodeLabel}`
-                : '当前管理节点：本机 Master'
-            "
-          >
-            <span
-              class="w-1.5 h-1.5 rounded-full shrink-0"
+          <div v-if="isAuthenticated" class="flex items-center gap-1.5">
+            <div
+              class="flex items-center gap-1.5 px-2 py-1 rounded-md border text-[11px] font-mono transition-colors"
               :class="
                 isRemoteNode
-                  ? activeNode?.online
-                    ? 'bg-emerald-400'
-                    : 'bg-amber-400'
-                  : 'bg-neutral-400'
+                  ? 'bg-sky-500/10 border-sky-500/40 text-sky-300'
+                  : 'bg-neutral-900 border-border text-foreground'
               "
-            ></span>
-            <span
-              v-if="isRemoteNode"
-              class="px-1 py-0.2 rounded bg-sky-500/20 text-sky-200 border border-sky-500/30 text-[9px] tracking-wider shrink-0"
+              :title="
+                isRemoteNode
+                  ? `当前正在远程托管节点：${activeNodeLabel}`
+                  : '当前管理节点：本机 Master'
+              "
             >
-              远程托管
-            </span>
-            <select
-              :value="activeNodeId"
-              @change="onNodeSelectChange"
-              aria-label="切换全局管理节点"
-              class="bg-transparent text-xs font-mono focus:outline-none cursor-pointer pr-1 max-w-[210px]"
-              :class="isRemoteNode ? 'text-sky-200 font-semibold' : 'text-foreground'"
-            >
-              <option :value="0" class="bg-neutral-950 text-foreground">🖥 本机 Master</option>
-              <option
-                v-for="n in nodesList"
-                :key="n.id"
-                :value="n.id"
-                class="bg-neutral-950 text-foreground"
+              <span
+                class="w-1.5 h-1.5 rounded-full shrink-0"
+                :class="
+                  isRemoteNode
+                    ? activeNode?.online
+                      ? 'bg-emerald-400'
+                      : 'bg-amber-400'
+                    : 'bg-neutral-400'
+                "
+              ></span>
+              <span
+                v-if="isRemoteNode"
+                class="px-1 py-0.2 rounded bg-sky-500/20 text-sky-200 border border-sky-500/30 text-[9px] tracking-wider shrink-0"
               >
-                {{ formatNodeOption(n) }}
-              </option>
-            </select>
+                远程托管
+              </span>
+              <select
+                :value="activeNodeId"
+                @change="onNodeSelectChange"
+                aria-label="切换全局管理节点"
+                class="bg-transparent text-xs font-mono focus:outline-none cursor-pointer pr-1 max-w-[210px]"
+                :class="isRemoteNode ? 'text-sky-200 font-semibold' : 'text-foreground'"
+              >
+                <option :value="0" class="bg-neutral-950 text-foreground">🖥 本机 Master</option>
+                <option
+                  v-for="n in nodesList"
+                  :key="n.id"
+                  :value="n.id"
+                  class="bg-neutral-950 text-foreground"
+                >
+                  {{ formatNodeOption(n) }}
+                </option>
+              </select>
+            </div>
+
+            <!-- Remote Node Config Sync Tri-State Badge -->
+            <div
+              v-if="activeNodeSyncBadge"
+              class="flex items-center gap-1.5 px-2 py-1 rounded-md border text-[11px] font-mono shrink-0"
+              :class="activeNodeSyncBadge.pillClass"
+              :title="activeNodeSyncBadge.title"
+            >
+              <span
+                class="w-1.5 h-1.5 rounded-full shrink-0"
+                :class="activeNodeSyncBadge.dotClass"
+              ></span>
+              <span>{{ activeNodeSyncBadge.label }}</span>
+            </div>
           </div>
 
           <!-- Mock Demo Indicator -->
@@ -351,41 +366,54 @@
 
         <div class="flex items-center gap-1.5">
           <!-- Mobile Global Node Switcher -->
-          <div
-            v-if="isAuthenticated"
-            class="flex items-center gap-1 px-1.5 py-0.5 rounded-md border text-[10px] font-mono transition-colors max-w-[128px]"
-            :class="
-              isRemoteNode
-                ? 'bg-sky-500/10 border-sky-500/40 text-sky-200'
-                : 'bg-neutral-900 border-border text-foreground'
-            "
-          >
-            <span
-              class="w-1.5 h-1.5 rounded-full shrink-0"
+          <div v-if="isAuthenticated" class="flex items-center gap-1">
+            <div
+              class="flex items-center gap-1 px-1.5 py-0.5 rounded-md border text-[10px] font-mono transition-colors max-w-[118px]"
               :class="
                 isRemoteNode
-                  ? activeNode?.online
-                    ? 'bg-emerald-400'
-                    : 'bg-amber-400'
-                  : 'bg-neutral-400'
+                  ? 'bg-sky-500/10 border-sky-500/40 text-sky-200'
+                  : 'bg-neutral-900 border-border text-foreground'
               "
-            ></span>
-            <select
-              :value="activeNodeId"
-              @change="onNodeSelectChange"
-              aria-label="切换管理节点"
-              class="bg-transparent text-[10px] font-mono focus:outline-none cursor-pointer w-full truncate"
             >
-              <option :value="0" class="bg-neutral-950 text-foreground">🖥 本机 Master</option>
-              <option
-                v-for="n in nodesList"
-                :key="n.id"
-                :value="n.id"
-                class="bg-neutral-950 text-foreground"
+              <span
+                class="w-1.5 h-1.5 rounded-full shrink-0"
+                :class="
+                  isRemoteNode
+                    ? activeNode?.online
+                      ? 'bg-emerald-400'
+                      : 'bg-amber-400'
+                    : 'bg-neutral-400'
+                "
+              ></span>
+              <select
+                :value="activeNodeId"
+                @change="onNodeSelectChange"
+                aria-label="切换管理节点"
+                class="bg-transparent text-[10px] font-mono focus:outline-none cursor-pointer w-full truncate"
               >
-                {{ formatNodeOption(n) }}
-              </option>
-            </select>
+                <option :value="0" class="bg-neutral-950 text-foreground">🖥 本机 Master</option>
+                <option
+                  v-for="n in nodesList"
+                  :key="n.id"
+                  :value="n.id"
+                  class="bg-neutral-950 text-foreground"
+                >
+                  {{ formatNodeOption(n) }}
+                </option>
+              </select>
+            </div>
+            <div
+              v-if="activeNodeSyncBadge"
+              class="flex items-center gap-1 px-1.5 py-0.5 rounded-md border text-[10px] font-mono shrink-0"
+              :class="activeNodeSyncBadge.pillClass"
+              :title="activeNodeSyncBadge.title"
+            >
+              <span
+                class="w-1.5 h-1.5 rounded-full shrink-0"
+                :class="activeNodeSyncBadge.dotClass"
+              ></span>
+              <span class="hidden sm:inline">{{ activeNodeSyncBadge.label }}</span>
+            </div>
           </div>
 
           <div
@@ -484,7 +512,7 @@ import {
 import ToastContainer from './components/ToastContainer.vue'
 import { toast } from './utils/toast'
 import api from './api'
-import type { NodeItem } from './api/nodes'
+import { formatShortHash, getNodeSyncStatus, type NodeItem } from './api/nodes'
 import { useActiveNode } from './composables/useActiveNode'
 import { isMockMode, resetMockState } from './mock'
 import pkg from '../package.json'
@@ -492,8 +520,15 @@ import pkg from '../package.json'
 const route = useRoute()
 const router = useRouter()
 
-const { activeNodeId, nodesList, activeNode, isRemoteNode, loadNodes, setActiveNode } =
-  useActiveNode()
+const {
+  activeNodeId,
+  nodesList,
+  activeNode,
+  isRemoteNode,
+  loadNodes,
+  refreshNodesNow,
+  setActiveNode,
+} = useActiveNode()
 
 const hasToken = ref<boolean>(
   typeof window !== 'undefined' && Boolean(localStorage.getItem('token'))
@@ -508,6 +543,40 @@ const formatNodeOption = (n: NodeItem) => {
 const activeNodeLabel = computed(() => {
   if (!isRemoteNode.value) return '本机 Master'
   return activeNode.value ? formatNodeOption(activeNode.value) : `节点 #${activeNodeId.value}`
+})
+
+const activeNodeSyncBadge = computed(() => {
+  if (!isRemoteNode.value || !activeNode.value) return null
+  const node = activeNode.value
+  const status = getNodeSyncStatus(node)
+  if (status === 'error') {
+    return {
+      status,
+      label: '同步失败',
+      dotClass: 'bg-rose-400',
+      pillClass: 'bg-rose-500/10 border-rose-500/30 text-rose-300',
+      title: node.lastSyncError || '远端配置同步失败',
+    }
+  }
+  if (status === 'synced') {
+    const hash = formatShortHash(node.lastConfigHash || node.expectedConfigHash)
+    return {
+      status,
+      label: '已同步',
+      dotClass: 'bg-emerald-400',
+      pillClass: 'bg-emerald-500/10 border-emerald-500/25 text-emerald-300',
+      title: hash !== '-' ? `配置已同步生效 (#${hash})` : '配置已同步生效',
+    }
+  }
+  const expected = formatShortHash(node.expectedConfigHash)
+  const current = formatShortHash(node.lastConfigHash)
+  return {
+    status,
+    label: '待同步',
+    dotClass: 'bg-amber-400 animate-pulse',
+    pillClass: 'bg-amber-500/10 border-amber-500/30 text-amber-300',
+    title: `配置待同步生效（期望 ${expected} / 当前 ${current}）`,
+  }
 })
 
 const onNodeSelectChange = (e: Event) => {
@@ -652,7 +721,7 @@ const triggerGlobalRefresh = () => {
   refreshing.value = true
   pollCoreStatus()
   if (isAuthenticated.value) {
-    loadNodes()
+    refreshNodesNow()
   }
   setTimeout(() => {
     refreshing.value = false

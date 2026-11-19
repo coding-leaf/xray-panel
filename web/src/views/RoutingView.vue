@@ -46,40 +46,35 @@
       </div>
     </div>
 
-    <!-- Remote Node GeoData Hint -->
-    <div
-      v-if="isRemoteNode"
-      class="px-3.5 py-2.5 rounded-lg bg-sky-500/10 border border-sky-500/30 text-sky-200 text-xs font-mono flex items-center justify-between gap-2"
-    >
-      <div class="flex items-center gap-2">
-        <Database class="w-3.5 h-3.5 text-sky-400 shrink-0" />
-        <span>
-          正在编辑远端节点
-          <strong>{{ activeNode?.name || `#${activeNodeId}` }}</strong> 的路由策略；GeoData
-          规则库在线升级仅对本机 Master 有效。
-        </span>
-      </div>
-    </div>
-
-    <!-- GeoData 规则库在线升级状态卡片 (仅本机 Master 展示) -->
-    <div v-else class="p-3.5 rounded-lg bg-card border border-border flex flex-col gap-3">
+    <!-- GeoData 规则库在线升级状态卡片 (支持本机 Master 与远端节点按需更新) -->
+    <div class="p-3.5 rounded-lg bg-card border border-border flex flex-col gap-3">
       <div class="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
         <div class="flex items-center gap-3">
           <div class="p-2 rounded bg-neutral-900 border border-border text-foreground">
             <Database class="w-4 h-4 text-cyan-400" />
           </div>
           <div class="space-y-0.5 text-xs">
-            <div class="flex items-center gap-2">
+            <div class="flex items-center gap-2 flex-wrap">
               <span class="font-semibold text-foreground"
                 >GeoData 分流规则库 (geoip.dat & geosite.dat)</span
               >
               <span
+                v-if="isRemoteNode"
+                class="px-1.5 py-0.2 rounded text-[10px] font-mono bg-sky-500/10 border border-sky-500/30 text-sky-300"
+              >
+                远程节点：{{ activeNode?.name || `#${activeNodeId}` }}
+              </span>
+              <span
+                v-else
                 class="px-1.5 py-0.2 rounded text-[10px] font-mono bg-neutral-900 border border-border text-cyan-400"
               >
                 {{ geodataStatus?.platform || 'Xray Core' }}
               </span>
             </div>
-            <p class="text-[11px] text-muted-foreground font-mono">
+            <p v-if="isRemoteNode" class="text-[11px] text-muted-foreground font-mono">
+              按需同步最新 geoip.dat / geosite.dat 到当前远端节点并校验回滚保护
+            </p>
+            <p v-else class="text-[11px] text-muted-foreground font-mono">
               GeoIP:
               {{
                 geodataStatus?.geoipExists
@@ -101,17 +96,70 @@
           variant="secondary"
           size="sm"
           :loading="updatingGeo"
+          :disabled="updatingGeo"
           @click="updateGeoData"
           class="shrink-0"
         >
           <RotateCw class="w-3.5 h-3.5 mr-1.5" :class="{ 'animate-spin': updatingGeo }" />
-          <span>{{ updatingGeo ? '规则库升级中...' : '一键升级规则库' }}</span>
+          <span>{{
+            isRemoteNode
+              ? updatingGeo
+                ? '节点更新中...'
+                : '获取最新 GeoData'
+              : updatingGeo
+                ? '规则库升级中...'
+                : '一键升级规则库'
+          }}</span>
         </Button>
       </div>
 
-      <!-- 实时下载进度条 -->
+      <!-- 远端节点按需更新状态与结果 -->
       <div
-        v-if="updatingGeo || (geoProgress.percentage > 0 && geoProgress.percentage < 100)"
+        v-if="isRemoteNode && updatingGeo"
+        class="p-2.5 bg-neutral-950 rounded-md border border-sky-500/30 text-sky-300 text-[11px] font-mono flex items-center gap-2"
+      >
+        <span class="w-1.5 h-1.5 rounded-full bg-sky-400 animate-ping shrink-0"></span>
+        <span>
+          正在向远端节点「{{ activeNode?.name || `#${activeNodeId}` }}」下发 GeoData
+          更新并等待体积校验与重载结果...
+        </span>
+      </div>
+
+      <div
+        v-else-if="isRemoteNode && remoteGeoResult && remoteGeoResult.nodeId === activeNodeId"
+        class="p-2.5 rounded-md border text-[11px] font-mono space-y-1"
+        :class="
+          remoteGeoResult.error
+            ? 'bg-rose-500/10 border-rose-500/30 text-rose-300'
+            : remoteGeoResult.pending
+              ? 'bg-amber-500/10 border-amber-500/30 text-amber-300'
+              : 'bg-emerald-500/10 border-emerald-500/30 text-emerald-300'
+        "
+      >
+        <div v-if="remoteGeoResult.error" class="break-all">
+          更新失败：{{ remoteGeoResult.error }}
+        </div>
+        <div v-else-if="remoteGeoResult.pending">
+          节点正在后台执行 GeoData 更新（超出本次同步等待窗口），请稍后关注节点同步状态或运行日志。
+        </div>
+        <div v-else class="flex flex-wrap items-center justify-between gap-2">
+          <span>
+            更新完成 · GeoIP {{ (remoteGeoResult.geoipSize / 1048576).toFixed(2) }} MB | GeoSite
+            {{ (remoteGeoResult.geositeSize / 1048576).toFixed(2) }} MB | 耗时
+            {{ (remoteGeoResult.durationMs / 1000).toFixed(1) }} s
+          </span>
+          <span v-if="remoteGeoResult.updatedAt > 0" class="text-emerald-200/80">
+            {{ formatDateTime(new Date(remoteGeoResult.updatedAt * 1000).toISOString()) }}
+          </span>
+        </div>
+      </div>
+
+      <!-- 本机 Master 实时下载进度条 -->
+      <div
+        v-if="
+          !isRemoteNode &&
+          (updatingGeo || (geoProgress.percentage > 0 && geoProgress.percentage < 100))
+        "
         class="p-2.5 bg-neutral-950 rounded-md border border-border space-y-1.5 transition-all"
       >
         <div class="flex items-center justify-between text-xs font-mono">
@@ -1055,7 +1103,9 @@ import Badge from '../components/ui/Badge.vue'
 import Drawer from '../components/ui/Drawer.vue'
 import Modal from '../components/ui/Modal.vue'
 import { toast } from '../utils/toast'
+import { formatDateTime } from '../utils/format'
 import api from '../api'
+import type { RemoteGeoUpdateResult } from '../api/nodes'
 import { useActiveNode } from '../composables/useActiveNode'
 
 export interface RoutingRule {
@@ -1102,7 +1152,7 @@ export interface RuleFormData {
   protocolStr: string
 }
 
-const { activeNodeId, activeNode, isRemoteNode } = useActiveNode()
+const { activeNodeId, activeNode, isRemoteNode, refreshNodesNow } = useActiveNode()
 
 const routingConfig = ref<RoutingConfig>({
   domainStrategy: 'IPIfNonMatch',
@@ -1113,6 +1163,7 @@ const inboundsList = ref<any[]>([])
 const outboundsList = ref<any[]>([])
 const geodataStatus = ref<any>(null)
 const updatingGeo = ref(false)
+const remoteGeoResult = ref<RemoteGeoUpdateResult | null>(null)
 
 const showRuleDrawer = ref(false)
 const isEditingRule = ref(false)
@@ -1169,6 +1220,61 @@ const pollGeoProgress = async () => {
 }
 
 const updateGeoData = async () => {
+  if (isRemoteNode.value) {
+    const targetNodeId = activeNodeId.value
+    const targetNodeName = activeNode.value?.name || `#${targetNodeId}`
+    if (
+      !confirm(
+        `确定向远端节点「${targetNodeName}」按需下发 GeoData 更新吗？节点将校验文件体积并在重载失败时自动回滚。`
+      )
+    ) {
+      return
+    }
+    updatingGeo.value = true
+    remoteGeoResult.value = null
+    try {
+      const res = await api.post<RemoteGeoUpdateResult>(
+        `/geodata/update?nodeId=${targetNodeId}`,
+        undefined,
+        { timeout: 90000 }
+      )
+      if (activeNodeId.value !== targetNodeId) return
+      remoteGeoResult.value = res
+      if (res?.error) {
+        toast.error(`远端 GeoData 更新失败：${res.error}`)
+      } else if (res?.pending) {
+        toast.warning('远端节点正在后台执行 GeoData 更新，请稍后关注节点状态')
+      } else {
+        const ipMb = ((res?.geoipSize || 0) / 1048576).toFixed(2)
+        const siteMb = ((res?.geositeSize || 0) / 1048576).toFixed(2)
+        const durSec = ((res?.durationMs || 0) / 1000).toFixed(1)
+        toast.success(
+          `远端 GeoData 已更新（GeoIP ${ipMb} MB / GeoSite ${siteMb} MB，耗时 ${durSec} s）`
+        )
+      }
+      void refreshNodesNow()
+    } catch (err: any) {
+      if (activeNodeId.value === targetNodeId) {
+        const errMsg = String(err?.message || err || '请求失败')
+        remoteGeoResult.value = {
+          nodeId: targetNodeId,
+          pending: false,
+          geoipSize: 0,
+          geositeSize: 0,
+          durationMs: 0,
+          updatedAt: 0,
+          error: errMsg,
+        }
+        toast.error('远端 GeoData 更新失败：' + errMsg)
+      }
+    } finally {
+      if (activeNodeId.value === targetNodeId) {
+        updatingGeo.value = false
+      }
+    }
+    return
+  }
+
   if (!confirm('确定在线更新 GeoIP / GeoSite 规则库吗？更新完成后将自动重载 Xray 核心。')) return
   updatingGeo.value = true
   geoProgress.value = { isUpdating: true, percentage: 5, message: '正在启动后台下载引擎...' }
@@ -1615,6 +1721,9 @@ const saveAllRouting = async () => {
     await api.post(`/routing?nodeId=${activeNodeId.value}`, routingConfig.value)
     toast.success(isRemoteNode.value ? '远端节点路由分流配置已保存' : '路由分流配置已保存并生效')
     await fetchAllDependencies()
+    if (isRemoteNode.value) {
+      void refreshNodesNow()
+    }
   } catch (err: any) {
     toast.error('保存失败：' + err)
   } finally {
@@ -1641,6 +1750,11 @@ watch(activeNodeId, () => {
   showRuleDrawer.value = false
   showPresetModal.value = false
   showReorderModal.value = false
+  remoteGeoResult.value = null
+  updatingGeo.value = false
+  if (!isRemoteNode.value) {
+    void fetchGeoStatus()
+  }
   fetchAllDependencies()
 })
 

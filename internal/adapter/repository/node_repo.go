@@ -73,12 +73,12 @@ func (r *GORMNodeRepository) Update(ctx context.Context, node *domain.Node) erro
 // UpdateHeartbeat atomically records agent heartbeat metadata, NIC traffic deltas, and daily NIC traffic logs.
 func (r *GORMNodeRepository) UpdateHeartbeat(ctx context.Context, nodeID uint, req *domain.AgentSyncRequest, seenAt time.Time) error {
 	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		isLightweightLogAck := req.LogResult != nil && req.TrafficBatch == nil && req.HostMetrics == nil
+		isLightweightResultAck := (req.LogResult != nil || req.GeoUpdateResult != nil) && req.TrafficBatch == nil && req.HostMetrics == nil
 		updates := map[string]interface{}{
 			"last_seen_at": seenAt,
 			"updated_at":   seenAt,
 		}
-		if !isLightweightLogAck {
+		if !isLightweightResultAck {
 			updates["agent_version"] = req.AgentVersion
 			updates["xray_version"] = req.XrayVersion
 			updates["last_config_hash"] = req.ConfigHash

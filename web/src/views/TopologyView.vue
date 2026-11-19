@@ -3,7 +3,7 @@
     <!-- Header 区域 -->
     <div class="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
       <div>
-        <div class="flex items-center gap-2.5">
+        <div class="flex items-center gap-2.5 flex-wrap">
           <h1 class="text-2xl font-extrabold text-foreground tracking-tight">
             线路与拓扑中心 (Topology)
           </h1>
@@ -13,9 +13,25 @@
             <span class="w-1.5 h-1.5 rounded-full bg-indigo-400 animate-pulse"></span>
             <span>强类型编译器实时拓扑</span>
           </span>
+          <span
+            v-if="isRemoteNode"
+            class="px-2 py-0.5 rounded text-[10px] font-mono bg-sky-500/10 text-sky-300 border border-sky-500/30"
+          >
+            远程节点：{{ activeNode?.name || `#${activeNodeId}` }}
+          </span>
+          <span
+            v-else
+            class="px-2 py-0.5 rounded text-[10px] font-mono bg-muted text-muted-foreground border border-border"
+          >
+            当前节点：本机 Master
+          </span>
         </div>
         <p class="text-xs text-muted-foreground mt-0.5">
-          一体化接入网关、分流通道与落地出口，全协议路由流向可视化与 1 步发布
+          {{
+            isRemoteNode
+              ? '管理当前远端托管节点的接入网关、分流通道与落地出口拓扑'
+              : '一体化接入网关、分流通道与落地出口，全协议路由流向可视化与 1 步发布'
+          }}
         </p>
       </div>
 
@@ -125,23 +141,26 @@
       :outbounds="outbounds"
       :next-route-id="nextRouteId"
       :initial-exit-tag="wizardInitialExitTag"
-      @success="fetchAll"
+      @success="handleWizardSuccess"
     />
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, watch, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { Plus, Zap, Workflow, LayoutGrid } from 'lucide-vue-next'
 import api from '../api'
 import { toast } from '../utils/toast'
+import { useActiveNode } from '../composables/useActiveNode'
 import { useTopologyGraph } from './topology/composables/useTopologyGraph'
 import TopologyCanvas from './topology/components/TopologyCanvas.vue'
 import TopologyPoolsView from './topology/components/TopologyPoolsView.vue'
 import QuickPublishWizardModal from './topology/components/QuickPublishWizardModal.vue'
 
 const router = useRouter()
+const { activeNodeId, activeNode, isRemoteNode, nodesList, loadNodes, refreshNodesNow } =
+  useActiveNode()
 const viewMode = ref<'canvas' | 'pools'>('canvas')
 
 const inbounds = ref<any[]>([])
@@ -231,6 +250,7 @@ const deleteGateway = async (id: number) => {
     await api.delete(`/inbounds/${id}`)
     toast.success('网关已删除')
     await fetchAll()
+    if (isRemoteNode.value) void refreshNodesNow()
   } catch {
     toast.error('删除网关失败')
   }
@@ -247,9 +267,10 @@ const editOutbound = (ob: any) => {
 const deleteOutbound = async (tag: string) => {
   if (!confirm(`确定删除出站 ${tag} 吗？`)) return
   try {
-    await api.delete(`/outbounds/${tag}`)
+    await api.delete(`/outbounds/${encodeURIComponent(tag)}?nodeId=${activeNodeId.value}`)
     toast.success('出站已删除')
     await fetchAll()
+    if (isRemoteNode.value) void refreshNodesNow()
   } catch {
     toast.error('删除出站失败')
   }
@@ -286,6 +307,7 @@ const toggleChannelStatus = async (item: any) => {
       await Promise.all(promises)
       toast.success(newEnabled ? '线路已同步启用' : '线路已同步暂停')
       await fetchAll()
+      if (isRemoteNode.value) void refreshNodesNow()
       return
     }
 
@@ -318,6 +340,7 @@ const toggleChannelStatus = async (item: any) => {
     }
     toast.success('状态已更新')
     await fetchAll()
+    if (isRemoteNode.value) void refreshNodesNow()
   } catch {
     toast.error('更新状态失败')
   }
@@ -360,6 +383,7 @@ const deleteChannel = async (item: any) => {
       await Promise.all(promises)
       toast.success('聚合线路已从所有入口同步删除')
       await fetchAll()
+      if (isRemoteNode.value) void refreshNodesNow()
       return
     }
 
@@ -382,19 +406,25 @@ const deleteChannel = async (item: any) => {
       toast.success('网关及线路已删除')
     }
     await fetchAll()
+    if (isRemoteNode.value) void refreshNodesNow()
   } catch {
     toast.error('删除线路失败')
   }
 }
 
+let fetchSeq = 0
+
 const fetchAll = async () => {
+  const seq = ++fetchSeq
+  const nodeQuery = `?nodeId=${activeNodeId.value}`
   try {
     const [inbRes, obRes, routeRes, uRes]: any = await Promise.all([
-      api.get('/inbounds'),
-      api.get('/outbounds').catch(() => []),
-      api.get('/routing').catch(() => ({ rules: [] })),
+      api.get(`/inbounds${nodeQuery}`),
+      api.get(`/outbounds${nodeQuery}`).catch(() => []),
+      api.get(`/routing${nodeQuery}`).catch(() => ({ rules: [] })),
       api.get('/users').catch(() => []),
     ])
+    if (seq !== fetchSeq) return
 
     inbounds.value = (inbRes || []).map((ib: any) => {
       let srs: any[] = []
@@ -413,7 +443,20 @@ const fetchAll = async () => {
   }
 }
 
+const handleWizardSuccess = async () => {
+  await fetchAll()
+  if (isRemoteNode.value) void refreshNodesNow()
+}
+
+watch(activeNodeId, () => {
+  showWizardModal.value = false
+  fetchAll()
+})
+
 onMounted(() => {
+  if (nodesList.value.length === 0) {
+    void loadNodes()
+  }
   fetchAll()
 })
 </script>

@@ -27,6 +27,7 @@ type Runner struct {
 	metrics      *MetricsCollector
 	quotaStore   *QuotaStore
 	logCollector LogCollector
+	geoUpdater   GeoDataUpdater
 
 	mu            sync.Mutex
 	agentVersion  string
@@ -91,6 +92,14 @@ func (r *Runner) WithQuotaStore(store *QuotaStore) *Runner {
 func (r *Runner) WithLogCollector(c LogCollector) *Runner {
 	r.mu.Lock()
 	r.logCollector = c
+	r.mu.Unlock()
+	return r
+}
+
+// WithGeoDataUpdater attaches an optional GeoDataUpdater for on-demand remote GeoData updates.
+func (r *Runner) WithGeoDataUpdater(u GeoDataUpdater) *Runner {
+	r.mu.Lock()
+	r.geoUpdater = u
 	r.mu.Unlock()
 	return r
 }
@@ -187,14 +196,20 @@ func (r *Runner) SyncOnce(ctx context.Context) error {
 
 	r.syncQuotaStoreOnline(resp)
 
-	reconcileErr := r.reconcileSyncResponse(ctx, resp)
+	applied, reconcileErr := r.reconcileSyncResponse(ctx, resp)
+	if applied {
+		r.sendLightweightAck(ctx, nil, nil)
+	}
 	if resp.LogRequest != nil {
 		r.handleLogRequest(ctx, resp.LogRequest)
+	}
+	if resp.GeoUpdateRequest != nil {
+		r.handleGeoUpdateRequest(ctx, resp.GeoUpdateRequest)
 	}
 	return reconcileErr
 }
 
-func (r *Runner) reconcileSyncResponse(ctx context.Context, resp *SyncResponse) error {
+func (r *Runner) reconcileSyncResponse(ctx context.Context, resp *SyncResponse) (bool, error) {
 	if resp.DesiredState == DesiredStateCircuitBroken {
 		r.mu.Lock()
 		alreadyBroken := r.circuitBroken
@@ -203,7 +218,7 @@ func (r *Runner) reconcileSyncResponse(ctx context.Context, resp *SyncResponse) 
 		if !alreadyBroken {
 			if cbErr := r.cfgMgr.ApplyCircuitBreaker(ctx); cbErr != nil {
 				r.setLastError(cbErr.Error())
-				return cbErr
+				return false, cbErr
 			}
 			r.userSync.ResetBaseline(nil)
 			r.mu.Lock()
@@ -216,13 +231,13 @@ func (r *Runner) reconcileSyncResponse(ctx context.Context, resp *SyncResponse) 
 		} else {
 			r.setLastError("")
 		}
-		return nil
+		return false, nil
 	}
 
 	if !resp.ConfigUnchanged && resp.ConfigJSON != "" {
 		if applyErr := r.cfgMgr.Apply(ctx, resp.ConfigJSON); applyErr != nil {
 			r.setLastError(applyErr.Error())
-			return applyErr
+			return false, applyErr
 		}
 		r.mu.Lock()
 		r.configHash = resp.ConfigHash
@@ -234,14 +249,14 @@ func (r *Runner) reconcileSyncResponse(ctx context.Context, resp *SyncResponse) 
 		}
 		r.mu.Unlock()
 		slog.Info("Applied updated xray config", slog.String("config_hash", resp.ConfigHash))
-		return nil
+		return true, nil
 	}
 
 	if !resp.UsersUnchanged {
 		added, removed, recErr := r.userSync.Reconcile(ctx, resp.Users)
 		if recErr != nil {
 			r.setLastError(recErr.Error())
-			return recErr
+			return false, recErr
 		}
 		r.mu.Lock()
 		r.usersHash = resp.UsersHash
@@ -249,14 +264,14 @@ func (r *Runner) reconcileSyncResponse(ctx context.Context, resp *SyncResponse) 
 		r.lastError = ""
 		r.mu.Unlock()
 		slog.Info("Reconciled xray users via gRPC", slog.Int("added", added), slog.Int("removed", removed))
-		return nil
+		return true, nil
 	}
 
 	r.mu.Lock()
 	r.circuitBroken = false
 	r.lastError = ""
 	r.mu.Unlock()
-	return nil
+	return false, nil
 }
 
 func (r *Runner) handleLogRequest(ctx context.Context, logReq *LogRequest) {
@@ -284,24 +299,55 @@ func (r *Runner) handleLogRequest(ctx context.Context, logReq *LogRequest) {
 		}
 	}
 
+	r.sendLightweightAck(ctx, result, nil)
+}
+
+func (r *Runner) handleGeoUpdateRequest(ctx context.Context, geoReq *GeoUpdateRequest) {
+	if geoReq == nil {
+		return
+	}
+	r.mu.Lock()
+	updater := r.geoUpdater
+	r.mu.Unlock()
+
+	start := time.Now()
+	result := &GeoUpdateResult{
+		RequestID: geoReq.RequestID,
+	}
+
+	if updater == nil {
+		result.Error = "geodata updater not configured"
+	} else {
+		geoipSize, geositeSize, err := updater.Update(ctx)
+		result.GeoIPSize = geoipSize
+		result.GeoSiteSize = geositeSize
+		if err != nil {
+			result.Error = err.Error()
+		}
+	}
+	result.DurationMs = time.Since(start).Milliseconds()
+	result.UpdatedAtUnix = time.Now().Unix()
+
+	r.sendLightweightAck(ctx, nil, result)
+}
+
+func (r *Runner) sendLightweightAck(ctx context.Context, logResult *LogResult, geoResult *GeoUpdateResult) {
 	r.mu.Lock()
 	ackReq := &SyncRequest{
-		ConfigHash:   r.configHash,
-		UsersHash:    r.usersHash,
-		AgentVersion: r.agentVersion,
-		XrayVersion:  r.xrayVersion,
-		HostMetrics:  nil,
-		TrafficBatch: nil,
-		LogResult:    result,
+		ConfigHash:      r.configHash,
+		UsersHash:       r.usersHash,
+		AgentVersion:    r.agentVersion,
+		XrayVersion:     r.xrayVersion,
+		LastError:       r.lastError,
+		HostMetrics:     nil,
+		TrafficBatch:    nil,
+		LogResult:       logResult,
+		GeoUpdateResult: geoResult,
 	}
 	r.mu.Unlock()
 
 	if _, err := r.client.Sync(ctx, ackReq); err != nil {
-		slog.Warn("Failed to send on-demand log result to master",
-			slog.String("request_id", logReq.RequestID),
-			slog.String("service", logReq.Service),
-			slog.String("error", err.Error()),
-		)
+		slog.Warn("Failed to send lightweight ack to master", slog.String("error", err.Error()))
 	}
 }
 

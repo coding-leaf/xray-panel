@@ -486,3 +486,87 @@ func TestNodeRepo_UpdateNodeConfig_WhitelistAndIsolation(t *testing.T) {
 		t.Fatalf("expected ErrNotFound for missing node, got %v", err)
 	}
 }
+
+func TestNodeRepo_UpdateHeartbeat_GeoAckAndConfigAck(t *testing.T) {
+	nodeRepo, _, _, _ := setupNodeTestRepos(t)
+	ctx := context.Background()
+
+	node := &domain.Node{
+		Name:         "Ack Isolation Node",
+		Host:         "127.0.0.1",
+		TokenHash:    "6666666666666666666666666666666666666666666666666666666666666666",
+		Enabled:      true,
+		DesiredState: domain.NodeStateActive,
+	}
+	if err := nodeRepo.Create(ctx, node); err != nil {
+		t.Fatalf("create node failed: %v", err)
+	}
+
+	// Seed baseline metrics and a prior sync error
+	if err := nodeRepo.UpdateHeartbeat(ctx, node.ID, &domain.AgentSyncRequest{
+		ConfigHash:   "cfg-old",
+		UsersHash:    "usr-old",
+		AgentVersion: "1.0.0",
+		XrayVersion:  "25.1.1",
+		LastError:    "previous reload failed",
+		HostMetrics: &domain.AgentHostMetrics{
+			CPUPercent:   42.5,
+			MemPercent:   68.0,
+			NicUpDelta:   2048,
+			NicDownDelta: 4096,
+		},
+	}, time.Now()); err != nil {
+		t.Fatalf("seed UpdateHeartbeat failed: %v", err)
+	}
+
+	// 1. Lightweight GeoUpdateResult ack (TrafficBatch == nil, HostMetrics == nil)
+	// must NOT overwrite existing CPU/RAM/NIC metrics or clear existing LastSyncError/LastConfigHash.
+	if err := nodeRepo.UpdateHeartbeat(ctx, node.ID, &domain.AgentSyncRequest{
+		GeoUpdateResult: &domain.AgentGeoUpdateResult{
+			RequestID:     "geo-1",
+			GeoIPSize:     1024000,
+			GeoSiteSize:   512000,
+			DurationMs:    1200,
+			UpdatedAtUnix: 1732020004,
+		},
+	}, time.Now()); err != nil {
+		t.Fatalf("lightweight GeoUpdateResult UpdateHeartbeat failed: %v", err)
+	}
+	afterGeoAck, err := nodeRepo.GetByID(ctx, node.ID)
+	if err != nil {
+		t.Fatalf("GetByID after geo ack failed: %v", err)
+	}
+	if afterGeoAck.CPUPercent != 42.5 || afterGeoAck.MemPercent != 68.0 || afterGeoAck.NicUpBytes != 2048 || afterGeoAck.NicDownBytes != 4096 {
+		t.Fatalf("lightweight geo ack overwrote host metrics: %+v", afterGeoAck)
+	}
+	if afterGeoAck.LastConfigHash != "cfg-old" || afterGeoAck.LastUsersHash != "usr-old" || afterGeoAck.LastSyncError != "previous reload failed" {
+		t.Fatalf("lightweight geo ack overwrote hashes/error: cfg=%q usr=%q err=%q",
+			afterGeoAck.LastConfigHash, afterGeoAck.LastUsersHash, afterGeoAck.LastSyncError)
+	}
+
+	// 2. Lightweight config-apply ack (LogResult == nil, GeoUpdateResult == nil, HostMetrics == nil, TrafficBatch == nil)
+	// MUST update last_config_hash/last_users_hash and clear old last_sync_error while preserving CPU/RAM/NIC counters.
+	if err := nodeRepo.UpdateHeartbeat(ctx, node.ID, &domain.AgentSyncRequest{
+		ConfigHash:   "cfg-new",
+		UsersHash:    "usr-new",
+		AgentVersion: "1.0.1",
+		XrayVersion:  "25.1.2",
+		LastError:    "",
+	}, time.Now()); err != nil {
+		t.Fatalf("config-apply lightweight ack failed: %v", err)
+	}
+	afterConfigAck, err := nodeRepo.GetByID(ctx, node.ID)
+	if err != nil {
+		t.Fatalf("GetByID after config ack failed: %v", err)
+	}
+	if afterConfigAck.LastConfigHash != "cfg-new" || afterConfigAck.LastUsersHash != "usr-new" {
+		t.Fatalf("config-apply ack did not update hashes: cfg=%q usr=%q",
+			afterConfigAck.LastConfigHash, afterConfigAck.LastUsersHash)
+	}
+	if afterConfigAck.LastSyncError != "" {
+		t.Fatalf("config-apply ack did not clear last_sync_error: got %q", afterConfigAck.LastSyncError)
+	}
+	if afterConfigAck.CPUPercent != 42.5 || afterConfigAck.MemPercent != 68.0 || afterConfigAck.NicUpBytes != 2048 || afterConfigAck.NicDownBytes != 4096 {
+		t.Fatalf("config-apply ack overwrote host metrics: %+v", afterConfigAck)
+	}
+}

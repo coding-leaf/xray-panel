@@ -183,7 +183,7 @@ func main() {
 		Setting:   deliveryHTTP.NewSettingHandler(settingSvc),
 		Log:       deliveryHTTP.NewLogHandler(logSvc, auditLogSvc).WithNodeService(nodeSvc),
 		DNS:       deliveryHTTP.NewDNSHandler(configSvc),
-		GeoData:   deliveryHTTP.NewGeoDataHandler(geoSvc),
+		GeoData:   deliveryHTTP.NewGeoDataHandler(geoSvc).WithNodeService(nodeSvc),
 		Ticket:    deliveryHTTP.NewTicketHandler(ticketSvc),
 		AuditLog:  deliveryHTTP.NewAuditLogHandler(auditLogSvc),
 		Node:      deliveryHTTP.NewNodeHandler(nodeSvc, auditLogSvc),

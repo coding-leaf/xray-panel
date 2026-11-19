@@ -3,6 +3,7 @@ package domain
 import (
 	"errors"
 	"math"
+	"strings"
 	"time"
 )
 
@@ -10,6 +11,10 @@ const (
 	NodeStateActive        = "active"
 	NodeStateDraining      = "draining"
 	NodeStateCircuitBroken = "circuit_broken"
+
+	NodeSyncStatusSynced  = "synced"
+	NodeSyncStatusPending = "pending"
+	NodeSyncStatusError   = "error"
 
 	TrafficCountModeBoth     = "both"
 	TrafficCountModeOutbound = "outbound"
@@ -131,8 +136,10 @@ type Node struct {
 	CreatedAt          time.Time  `json:"createdAt"`
 	UpdatedAt          time.Time  `json:"updatedAt"`
 
-	Online         bool  `gorm:"-" json:"online"`         // 动态判定: LastSeenAt 距今 <= 180s
-	CycleUsedBytes int64 `gorm:"-" json:"cycleUsedBytes"` // 动态计算当前周期已用计费流量
+	Online             bool   `gorm:"-" json:"online"`             // 动态判定: LastSeenAt 距今 <= 180s
+	CycleUsedBytes     int64  `gorm:"-" json:"cycleUsedBytes"`     // 动态计算当前周期已用计费流量
+	ExpectedConfigHash string `gorm:"-" json:"expectedConfigHash"` // Master 期望节点运行的配置哈希
+	ConfigSyncStatus   string `gorm:"-" json:"configSyncStatus"`   // 动态判定: "synced" | "pending" | "error"
 }
 
 // EffectiveTrafficCountMode returns the normalized traffic count mode (defaults to "both").
@@ -199,6 +206,23 @@ func (n *Node) RefreshOnline(now time.Time) {
 // RefreshComputed populates all transient computed fields on Node.
 func (n *Node) RefreshComputed(now time.Time) {
 	n.RefreshOnline(now)
+}
+
+// RefreshSyncStatus updates transient ExpectedConfigHash and ConfigSyncStatus fields.
+func (n *Node) RefreshSyncStatus(expectedConfigHash string) {
+	if n == nil {
+		return
+	}
+	n.ExpectedConfigHash = expectedConfigHash
+	if strings.TrimSpace(n.LastSyncError) != "" {
+		n.ConfigSyncStatus = NodeSyncStatusError
+		return
+	}
+	if n.LastConfigHash != "" && expectedConfigHash != "" && n.LastConfigHash == expectedConfigHash {
+		n.ConfigSyncStatus = NodeSyncStatusSynced
+		return
+	}
+	n.ConfigSyncStatus = NodeSyncStatusPending
 }
 
 // NodeTrafficDaily records daily aggregated Xray and NIC traffic per node for rate/depletion forecasting.
@@ -313,6 +337,21 @@ type AgentLogResult struct {
 	CollectedAtUnix int64    `json:"collectedAtUnix"`
 }
 
+// AgentGeoUpdateRequest represents an on-demand GeoData update instruction pushed to an agent.
+type AgentGeoUpdateRequest struct {
+	RequestID string `json:"requestId"`
+}
+
+// AgentGeoUpdateResult carries the result of an on-demand GeoData update returned by an agent.
+type AgentGeoUpdateResult struct {
+	RequestID     string `json:"requestId"`
+	GeoIPSize     int64  `json:"geoipSize"`
+	GeoSiteSize   int64  `json:"geositeSize"`
+	DurationMs    int64  `json:"durationMs"`
+	Error         string `json:"error,omitempty"`
+	UpdatedAtUnix int64  `json:"updatedAtUnix"`
+}
+
 // StaticInboundClient represents a static relay credential compiled into a remote inbound.
 type StaticInboundClient struct {
 	InboundTag string `json:"inboundTag"`
@@ -324,14 +363,15 @@ type StaticInboundClient struct {
 
 // AgentSyncRequest is the locked POST /api/agent/sync request contract.
 type AgentSyncRequest struct {
-	ConfigHash   string             `json:"configHash"`
-	UsersHash    string             `json:"usersHash"`
-	AgentVersion string             `json:"agentVersion"`
-	XrayVersion  string             `json:"xrayVersion"`
-	LastError    string             `json:"lastError"`
-	HostMetrics  *AgentHostMetrics  `json:"hostMetrics,omitempty"`
-	TrafficBatch *AgentTrafficBatch `json:"trafficBatch,omitempty"`
-	LogResult    *AgentLogResult    `json:"logResult,omitempty"`
+	ConfigHash      string                `json:"configHash"`
+	UsersHash       string                `json:"usersHash"`
+	AgentVersion    string                `json:"agentVersion"`
+	XrayVersion     string                `json:"xrayVersion"`
+	LastError       string                `json:"lastError"`
+	HostMetrics     *AgentHostMetrics     `json:"hostMetrics,omitempty"`
+	TrafficBatch    *AgentTrafficBatch    `json:"trafficBatch,omitempty"`
+	LogResult       *AgentLogResult       `json:"logResult,omitempty"`
+	GeoUpdateResult *AgentGeoUpdateResult `json:"geoUpdateResult,omitempty"`
 }
 
 // AgentSyncUser represents an authorized active user credential for a node inbound.
@@ -364,6 +404,7 @@ type AgentSyncResponse struct {
 	UsersUnchanged  bool              `json:"usersUnchanged"`
 	ConfigJSON      string            `json:"configJson,omitempty"`
 	Users           []AgentSyncUser   `json:"users,omitempty"`
-	QuotaPolicy     *AgentQuotaPolicy `json:"quotaPolicy,omitempty"`
-	LogRequest      *AgentLogRequest  `json:"logRequest,omitempty"`
+	QuotaPolicy      *AgentQuotaPolicy      `json:"quotaPolicy,omitempty"`
+	LogRequest       *AgentLogRequest       `json:"logRequest,omitempty"`
+	GeoUpdateRequest *AgentGeoUpdateRequest `json:"geoUpdateRequest,omitempty"`
 }

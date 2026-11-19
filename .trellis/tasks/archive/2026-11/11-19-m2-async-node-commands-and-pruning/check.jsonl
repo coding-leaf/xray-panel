@@ -1,0 +1,8 @@
+{"file": ".trellis/spec/backend/index.md", "reason": "Backend quality checklist"}
+{"file": ".trellis/spec/backend/database-guidelines.md", "reason": "Verify transactional cascade delete and batch pruning"}
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "Verify zero goroutine leak, race safety, and multi-node invariants"}
+{"file": ".trellis/spec/frontend/index.md", "reason": "Frontend quality checklist"}
+{"file": ".trellis/spec/frontend/quality-guidelines.md", "reason": "Verify typecheck, lint, format:check, and build"}
+{"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "Verify Master/Agent/Web NodeCommand contract parity"}
+{"file": ".trellis/spec/guides/review-3pass-guide.md", "reason": "3-pass review discipline"}
+{"file": ".trellis/tasks/11-19-m2-async-node-commands-and-pruning/research/m2-code-map.md", "reason": "Verify all M2 caveats and test migrations are addressed"}

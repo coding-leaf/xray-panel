@@ -1,0 +1,11 @@
+{"file": ".trellis/spec/backend/index.md", "reason": "Backend architecture and pre-dev checklist"}
+{"file": ".trellis/spec/backend/directory-structure.md", "reason": "Backend domain/service/adapter/delivery boundaries"}
+{"file": ".trellis/spec/backend/database-guidelines.md", "reason": "SQLite transaction and cascade deletion conventions"}
+{"file": ".trellis/spec/backend/error-handling.md", "reason": "Error mapping and non-swallowed errors"}
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "Concurrency safety, goroutine lifecycle, and multi-node invariants"}
+{"file": ".trellis/spec/frontend/index.md", "reason": "Frontend pre-dev checklist"}
+{"file": ".trellis/spec/frontend/api-and-dataflow.md", "reason": "Frontend API typing, polling, and mock conventions"}
+{"file": ".trellis/spec/frontend/components-and-routing.md", "reason": "Vue timer cleanup and reactive node watch patterns"}
+{"file": ".trellis/spec/frontend/quality-guidelines.md", "reason": "Frontend typecheck, lint, format, and build gates"}
+{"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "Cross-layer JSON contract alignment across Master/Agent/Web"}
+{"file": ".trellis/tasks/11-19-m2-async-node-commands-and-pruning/research/m2-code-map.md", "reason": "Exact M2 code map, signatures, and existing test caveats"}

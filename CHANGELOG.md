@@ -4,6 +4,16 @@
 
 ---
 
+## v2.7.1 (2026-11) - 修复 Xray 26.11+ 下 Clash/Mihomo REALITY ML-KEM 握手超时与订阅模板卫生
+
+- **Clash / Mihomo REALITY 混合后量子握手修复 (`internal/protocol`)**：
+  - 在 `AttachClashTLS` 中为所有 REALITY 节点注入 `reality-opts.support-x25519mlkem768: true`，修复 Xray `26.9.8+` / `26.11.9` 强制校验 `X25519MLKEM768` 而 Mihomo 默认将其剥离导致 Clash Verge 订阅全节点 `Timeout` 的问题（兼容旧版 Mihomo，且不改动标准 `vless://` Base64 URI）。
+- **Clash 订阅模板卫生改进 (`internal/sub`)**：
+  - `AUTO`（`url-test`）测速组自动排除 `127.0.0.1:10000` 虚拟信息节点（公告 / 剩余流量 / 到期时间仅保留在 `PROXIES` `select` 组展示，无真实节点时安全回落 `DIRECT`）；
+  - 仅输出 `mixed-port`，移除重复的 `port` 与 `socks-port` 声明，避免原生 Mihomo CLI 启动端口冲突。
+
+---
+
 ## v2.7.0 (2026-11) - 多节点托管控制面、异步指令通道、节点运维工作台与全栈稳定性加固
 
 - **多节点控制面与轻量 `xray-agent` 架构 (`internal/agent`, `cmd/agent`, `internal/service`)**：

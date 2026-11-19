@@ -16,7 +16,7 @@ import (
 )
 
 // Version can be overridden at build time via -ldflags "-X 'main.Version=...'".
-var Version = "v2.7.0"
+var Version = "v2.7.1"
 
 func envOrDefault(key, fallback string) string {
 	if v := strings.TrimSpace(os.Getenv(key)); v != "" {

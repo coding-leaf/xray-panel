@@ -841,3 +841,25 @@ Delivered global top-bar node switcher (zero-Pinia), per-node Outbound/Routing/D
 ### Status
 
 [OK] **Completed**
+
+
+## Session 37: Node Sync Status Badges, Multi-Node Topology & Remote GeoData
+<!-- trellis-session: v=2 fp=17071ee3d3b0d299 -->
+
+**Date**: 2026-11-19
+**Task**: Node Sync Status Badges, Multi-Node Topology & Remote GeoData
+**Branch**: `master`
+
+### Summary
+
+Added real-time synced/pending/error config sync status badges with 1-RTT agent lightweight ack, fixed TopologyView multi-node activeNodeId isolation and managed-node badges on local view, and implemented on-demand remote GeoData updater with >=100KB guard and rollback.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `b77f0de` | feat(node): add config sync status badges with immediate ack, fix multi-node topology, and add remote GeoData update |
+
+### Status
+
+[OK] **Completed**

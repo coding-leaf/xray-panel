@@ -8,7 +8,7 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 40
+- **Total Sessions**: 41
 - **Last Active**: 2026-11-20
 <!-- @@@/auto:current-status -->
 
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~931 | Active |
+| `journal-1.md` | ~953 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 41 | 2026-11-20 | 修复 Clash/Mihomo 订阅 REALITY ML-KEM 握手超时与模板卫生 | `7c2e9fe` | `master` |
 | 40 | 2026-11-20 | M3 与 2026-11-19 审查总任务收官：前端交互收敛、Portal 单源化与后端 KISS 精简 | `2a613eb` | `master` |
 | 39 | 2026-11-19 | M2: 统一异步 NodeCommand 通道与流量表清理收口 | `6e0ed5c` | `master` |
 | 38 | 2026-11-19 | M1: 核心稳定性止血修复、拓扑一键发布剔除与快速去重 | `459c8ab` | `master` |

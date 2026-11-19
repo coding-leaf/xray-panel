@@ -929,3 +929,25 @@ Added real-time synced/pending/error config sync status badges with 1-RTT agent 
 ### Status
 
 [OK] **Completed**
+
+
+## Session 41: 修复 Clash/Mihomo 订阅 REALITY ML-KEM 握手超时与模板卫生
+<!-- trellis-session: v=2 fp=e02cb01031a2371e -->
+
+**Date**: 2026-11-20
+**Task**: 修复 Clash/Mihomo 订阅 REALITY ML-KEM 握手超时与模板卫生
+**Branch**: `master`
+
+### Summary
+
+定位并修复 v2.7.0 在 Xray 26.11.9 下 Clash/Mihomo 全 REALITY 节点 Timeout 根因：在 AttachClashTLS 注入 reality-opts.support-x25519mlkem768=true，将虚拟信息节点从 AUTO 测速组排除（PROXIES 保留），移除重复 port/socks-port 仅保留 mixed-port；补全 Fail-Repro First 单元测试并部署至 vps-jp 实机验证恢复连通，沉淀至 backend/quality-guidelines 第 9 节。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `7c2e9fe` | fix(sub): enable reality support-x25519mlkem768 for Clash Mihomo and sanitize AUTO/mixed-port |
+
+### Status
+
+[OK] **Completed**

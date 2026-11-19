@@ -106,8 +106,12 @@ func TestConfigManager_XrayTestFailureDoesNotOverwrite(t *testing.T) {
 		t.Fatalf("seed old config: %v", err)
 	}
 
+	var testedPath string
 	runner := &fakeCommandRunner{
 		fn: func(ctx context.Context, name string, args ...string) ([]byte, error) {
+			if len(args) >= 4 && args[0] == "run" && args[1] == "-test" && args[2] == "-c" {
+				testedPath = args[3]
+			}
 			return []byte("invalid inbound config"), errors.New("exit status 23")
 		},
 	}
@@ -124,13 +128,16 @@ func TestConfigManager_XrayTestFailureDoesNotOverwrite(t *testing.T) {
 	if err == nil {
 		t.Fatalf("expected Apply to fail on xray run -test")
 	}
+	if filepath.Ext(testedPath) != ".json" {
+		t.Fatalf("expected temp config path passed to xray -test to end with .json, got %q", testedPath)
+	}
 
 	got, _ := os.ReadFile(cfgPath)
 	if string(got) != `{"old":true}` {
 		t.Fatalf("expected original config preserved, got %s", string(got))
 	}
-	if _, statErr := os.Stat(cfgPath + ".tmp"); !errors.Is(statErr, os.ErrNotExist) {
-		t.Fatalf("expected .tmp cleaned up, stat err: %v", statErr)
+	if _, statErr := os.Stat(testedPath); !errors.Is(statErr, os.ErrNotExist) {
+		t.Fatalf("expected temp config cleaned up, stat err: %v", statErr)
 	}
 	if prober.calls != 0 {
 		t.Fatalf("expected prober not called on test failure")

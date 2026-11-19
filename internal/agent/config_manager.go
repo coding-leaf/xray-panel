@@ -97,8 +97,8 @@ func (m *ConfigManager) Apply(ctx context.Context, configJSON string) error {
 		return fmt.Errorf("create xray config dir: %w", err)
 	}
 
-	tmpPath := m.cfg.ConfigPath + ".tmp"
-	if err := writeFileAtomicSync(tmpPath, []byte(configJSON), 0o600); err != nil {
+	tmpPath := tempConfigPath(m.cfg.ConfigPath)
+	if err := writeFileAtomicSync(tmpPath, []byte(configJSON), 0o644); err != nil {
 		return fmt.Errorf("write temp config: %w", err)
 	}
 
@@ -223,13 +223,23 @@ func (m *ConfigManager) rollbackLocked(ctx context.Context, bakPath string) erro
 	if err != nil {
 		return fmt.Errorf("read backup %s: %w", bakPath, err)
 	}
-	if err := writeFileAtomicSync(m.cfg.ConfigPath, bakData, 0o600); err != nil {
+	if err := writeFileAtomicSync(m.cfg.ConfigPath, bakData, 0o644); err != nil {
 		return fmt.Errorf("restore backup to %s: %w", m.cfg.ConfigPath, err)
 	}
 	if err := m.reloadService(rbCtx); err != nil {
 		return fmt.Errorf("reload after restore: %w", err)
 	}
 	return nil
+}
+
+// tempConfigPath derives a sibling temporary path that preserves the .json extension
+// so `xray run -test -c <path>` recognizes the JSON format reliably.
+func tempConfigPath(configPath string) string {
+	ext := filepath.Ext(configPath)
+	if strings.EqualFold(ext, ".json") {
+		return strings.TrimSuffix(configPath, ext) + ".tmp" + ext
+	}
+	return configPath + ".tmp.json"
 }
 
 func writeFileAtomicSync(path string, data []byte, perm os.FileMode) error {
@@ -245,7 +255,10 @@ func writeFileAtomicSync(path string, data []byte, perm os.FileMode) error {
 		_ = f.Close()
 		return err
 	}
-	return f.Close()
+	if err := f.Close(); err != nil {
+		return err
+	}
+	return os.Chmod(path, perm)
 }
 
 func buildSilenceConfigJSON(grpcAddr string) (string, error) {

@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -75,19 +76,12 @@ func (c *XrayCompiler) getRegistry() *ProtocolRegistry {
 	return DefaultProtocolRegistry()
 }
 
-// Compile 将系统业务数据编译为合法的 Xray 官方根配置对象
-func (c *XrayCompiler) Compile(
-	inbounds []domain.Inbound,
-	outbounds []domain.Outbound,
-	routing *domain.RoutingConfig,
-	dns *domain.DNSConfig,
-	users []domain.User,
-) (*XrayConfigFile, error) {
-	cfg := &XrayConfigFile{
+func newBaseXrayConfig(logLevel string) *XrayConfigFile {
+	return &XrayConfigFile{
 		Log: &XrayLogConfig{
 			Access:   "/var/log/xray/access.log",
 			Error:    "/var/log/xray/error.log",
-			LogLevel: c.GetLogLevel(),
+			LogLevel: logLevel,
 		},
 		API: &XrayAPIConfig{
 			Tag:      "api",
@@ -111,6 +105,33 @@ func (c *XrayCompiler) Compile(
 		Inbounds:  make([]XrayInbound, 0),
 		Outbounds: make([]XrayOutbound, 0),
 	}
+}
+
+func appendAPIInbound(cfg *XrayConfigFile, apiPort int) {
+	if apiPort <= 0 {
+		apiPort = 8080
+	}
+	apiInboundSettings, _ := json.Marshal(map[string]interface{}{
+		"address": "127.0.0.1",
+	})
+	cfg.Inbounds = append(cfg.Inbounds, XrayInbound{
+		Tag:      "api",
+		Listen:   "127.0.0.1",
+		Port:     apiPort,
+		Protocol: "dokodemo-door",
+		Settings: apiInboundSettings,
+	})
+}
+
+// Compile 将系统业务数据编译为合法的 Xray 官方根配置对象
+func (c *XrayCompiler) Compile(
+	inbounds []domain.Inbound,
+	outbounds []domain.Outbound,
+	routing *domain.RoutingConfig,
+	dns *domain.DNSConfig,
+	users []domain.User,
+) (*XrayConfigFile, error) {
+	cfg := newBaseXrayConfig(c.GetLogLevel())
 
 	// 1. 编译 DNS
 	if dns != nil {
@@ -137,9 +158,9 @@ func (c *XrayCompiler) Compile(
 		}
 	}
 
-	// 2. 编译 Inbounds & 注入用户 Clients
+	// 2. 编译本机 Inbounds (NodeID == 0) & 注入用户 Clients
 	for _, inb := range inbounds {
-		if !inb.Enabled || inb.Tag == "api" {
+		if !inb.Enabled || inb.Tag == "api" || inb.NodeID != 0 {
 			continue
 		}
 		compiledInbound, err := c.compileInbound(&inb, users)
@@ -150,20 +171,11 @@ func (c *XrayCompiler) Compile(
 	}
 
 	// 注入默认 API Inbound (用于 gRPC 本地通信，动态端口或默认 8080)
-	apiInboundSettings, _ := json.Marshal(map[string]interface{}{
-		"address": "127.0.0.1",
-	})
 	apiPort := 8080
 	if c != nil && c.grpcPort > 0 {
 		apiPort = c.grpcPort
 	}
-	cfg.Inbounds = append(cfg.Inbounds, XrayInbound{
-		Tag:      "api",
-		Listen:   "127.0.0.1",
-		Port:     apiPort,
-		Protocol: "dokodemo-door",
-		Settings: apiInboundSettings,
-	})
+	appendAPIInbound(cfg, apiPort)
 
 	// 3. 编译 Outbounds
 	hasDirect := false
@@ -291,6 +303,102 @@ func (c *XrayCompiler) CompileToJSON(
 		return nil, err
 	}
 	return json.MarshalIndent(cfg, "", "    ")
+}
+
+func sortRemoteInputs(inbounds []domain.Inbound, users []domain.User) ([]domain.Inbound, []domain.User) {
+	sortedInbounds := make([]domain.Inbound, len(inbounds))
+	copy(sortedInbounds, inbounds)
+	sort.Slice(sortedInbounds, func(i, j int) bool {
+		if sortedInbounds[i].SortOrder != sortedInbounds[j].SortOrder {
+			return sortedInbounds[i].SortOrder < sortedInbounds[j].SortOrder
+		}
+		if sortedInbounds[i].ID != sortedInbounds[j].ID {
+			return sortedInbounds[i].ID < sortedInbounds[j].ID
+		}
+		return sortedInbounds[i].Tag < sortedInbounds[j].Tag
+	})
+
+	sortedUsers := make([]domain.User, len(users))
+	copy(sortedUsers, users)
+	sort.Slice(sortedUsers, func(i, j int) bool {
+		return sortedUsers[i].Email < sortedUsers[j].Email
+	})
+	return sortedInbounds, sortedUsers
+}
+
+// CompileRemoteNode 为远端直连节点编译独立的 Xray 配置（直连 freedom 出站 + 本地 127.0.0.1:8080 API 入站 + 节点启用入站）。
+func (c *XrayCompiler) CompileRemoteNode(inbounds []domain.Inbound, users []domain.User) (*XrayConfigFile, error) {
+	sortedInbounds, sortedUsers := sortRemoteInputs(inbounds, users)
+	cfg := newBaseXrayConfig(c.GetLogLevel())
+
+	for _, inb := range sortedInbounds {
+		if !inb.Enabled || inb.Tag == "api" {
+			continue
+		}
+		compiledInbound, err := c.compileInbound(&inb, sortedUsers)
+		if err != nil {
+			return nil, fmt.Errorf("compile remote inbound %s failed: %w", inb.Tag, err)
+		}
+		cfg.Inbounds = append(cfg.Inbounds, *compiledInbound)
+	}
+
+	appendAPIInbound(cfg, 8080)
+
+	cfg.Outbounds = append(cfg.Outbounds,
+		XrayOutbound{Tag: "direct", Protocol: "freedom"},
+		XrayOutbound{Tag: "block", Protocol: "blackhole"},
+	)
+
+	cfg.Routing = &XrayRoutingConfig{
+		DomainStrategy: "IPIfNonMatch",
+		Rules: []XrayRoutingRule{
+			{
+				Type:        "field",
+				InboundTag:  []string{"api"},
+				OutboundTag: "api",
+			},
+		},
+	}
+
+	return cfg, nil
+}
+
+// CompileRemoteNodeToJSON 编译远端直连节点配置并序列化为格式化 JSON。
+func (c *XrayCompiler) CompileRemoteNodeToJSON(inbounds []domain.Inbound, users []domain.User) ([]byte, error) {
+	cfg, err := c.CompileRemoteNode(inbounds, users)
+	if err != nil {
+		return nil, err
+	}
+	return json.MarshalIndent(cfg, "", "    ")
+}
+
+// BuildRemoteNodeUsers 为远端节点的动态用户入站生成按 (inboundTag, email) 排序的活跃授权用户清单。
+func (c *XrayCompiler) BuildRemoteNodeUsers(inbounds []domain.Inbound, users []domain.User) ([]domain.AgentSyncUser, error) {
+	sortedInbounds, sortedUsers := sortRemoteInputs(inbounds, users)
+	result := make([]domain.AgentSyncUser, 0)
+
+	for _, inb := range sortedInbounds {
+		if !inb.Enabled || inb.Tag == "api" || !domain.SupportsDynamicUser(inb.Protocol) {
+			continue
+		}
+		proto := strings.ToLower(strings.TrimSpace(inb.Protocol))
+		accessor := NewInboundStreamAccessorFromInbound(&inb)
+		for _, u := range filterActiveUsersForInbound(&inb, sortedUsers) {
+			flow := ""
+			if proto == "vless" {
+				flow = resolveVLESSClientFlow(&inb, accessor, u.Flow)
+			}
+			result = append(result, domain.AgentSyncUser{
+				InboundTag: inb.Tag,
+				Protocol:   proto,
+				Email:      u.Email,
+				UUID:       u.UUID,
+				Flow:       flow,
+			})
+		}
+	}
+
+	return result, nil
 }
 
 func (c *XrayCompiler) compileInbound(inb *domain.Inbound, users []domain.User) (*XrayInbound, error) {

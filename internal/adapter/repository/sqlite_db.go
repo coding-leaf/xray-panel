@@ -42,6 +42,8 @@ func InitSQLite(dbPath string) (*gorm.DB, error) {
 	err = db.AutoMigrate(
 		&domain.User{},
 		&domain.Inbound{},
+		&domain.Node{},
+		&domain.NodeTrafficBatch{},
 		&domain.TrafficLog{},
 		&domain.ConfigSnapshot{},
 		&domain.Setting{},

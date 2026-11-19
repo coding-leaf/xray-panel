@@ -42,6 +42,8 @@ type ConfigService struct {
 	userRepo     domain.UserRepository
 	snapshotRepo domain.ConfigSnapshotRepository
 	compiler     ConfigCompiler
+	nodeRepo     domain.NodeRepository
+	nodeCacheInv NodeCacheInvalidator
 }
 
 func NewConfigService(
@@ -63,6 +65,34 @@ func NewConfigService(
 		userRepo:     userRepo,
 		snapshotRepo: snapshotRepo,
 		compiler:     c,
+	}
+}
+
+// WithNodeCacheInvalidator 链式注入节点同步缓存失效器
+func (s *ConfigService) WithNodeCacheInvalidator(inv NodeCacheInvalidator) *ConfigService {
+	s.nodeCacheInv = inv
+	return s
+}
+
+// WithNodeRepo 链式注入 NodeRepository，用于校验远端入站归属节点是否存在
+func (s *ConfigService) WithNodeRepo(repo domain.NodeRepository) *ConfigService {
+	s.nodeRepo = repo
+	return s
+}
+
+func filterLocalInbounds(inbounds []domain.Inbound) []domain.Inbound {
+	local := make([]domain.Inbound, 0, len(inbounds))
+	for _, ib := range inbounds {
+		if ib.NodeID == 0 {
+			local = append(local, ib)
+		}
+	}
+	return local
+}
+
+func (s *ConfigService) invalidateNodeCache(nodeID uint) {
+	if s.nodeCacheInv != nil && nodeID != 0 {
+		s.nodeCacheInv.InvalidateNode(nodeID)
 	}
 }
 
@@ -207,14 +237,14 @@ func (s *ConfigService) SaveConfigQuietly(ctx context.Context, remark string) er
 }
 
 func (s *ConfigService) saveConfigQuietlyLocked(ctx context.Context, remark string) error {
-	// 1. 读取 Inbounds（仅查询 1 次，直接复用于路由兜底对账）
+	// 1. 读取本机 Inbounds (NodeID == 0)（仅查询 1 次，直接复用于路由兜底对账）
 	var inbounds []domain.Inbound
 	if s.inboundRepo != nil {
-		var err error
-		inbounds, err = s.inboundRepo.ListAll(ctx)
+		allInbounds, err := s.inboundRepo.ListAll(ctx)
 		if err != nil {
 			return fmt.Errorf("read inbounds failed, abort saving to protect config: %w", err)
 		}
+		inbounds = filterLocalInbounds(allInbounds)
 	}
 
 	// 2-4. 单次读盘 + 单次 JSONC 清洗反序列化，同时提取 Outbounds / Routing / DNS 与原始快照字节
@@ -507,7 +537,7 @@ func (s *ConfigService) ListInbounds(ctx context.Context) ([]domain.Inbound, err
 
 	needCoreStatus := false
 	for _, ib := range list {
-		if ib.Enabled && ib.Port > 0 && isPureUDPInbound(ib) {
+		if ib.NodeID == 0 && ib.Enabled && ib.Port > 0 && isPureUDPInbound(ib) {
 			needCoreStatus = true
 			break
 		}
@@ -521,6 +551,11 @@ func (s *ConfigService) ListInbounds(ctx context.Context) ([]domain.Inbound, err
 	var wg sync.WaitGroup
 	for i := range list {
 		ib := &list[i]
+		if ib.NodeID != 0 {
+			ib.LatencyMs = 0
+			ib.IsAlive = false
+			continue
+		}
 		if !ib.Enabled || ib.Port <= 0 {
 			ib.LatencyMs = 0
 			ib.IsAlive = false
@@ -631,6 +666,11 @@ func (s *ConfigService) CreateInbound(ctx context.Context, inbound *domain.Inbou
 	if inbound.Tag == "" {
 		return fmt.Errorf("%w: tag is required", domain.ErrInvalidInput)
 	}
+	if inbound.NodeID != 0 && s.nodeRepo != nil {
+		if _, err := s.nodeRepo.GetByID(ctx, inbound.NodeID); err != nil {
+			return fmt.Errorf("target node %d lookup failed: %w", inbound.NodeID, err)
+		}
+	}
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -639,18 +679,47 @@ func (s *ConfigService) CreateInbound(ctx context.Context, inbound *domain.Inbou
 		return err
 	}
 
+	if inbound.NodeID != 0 {
+		s.invalidateNodeCache(inbound.NodeID)
+		return nil
+	}
 	return s.recompileAndApplyLocked(ctx, fmt.Sprintf("创建入站节点 %s", inbound.Tag))
 }
 
 func (s *ConfigService) UpdateInbound(ctx context.Context, inbound *domain.Inbound) error {
+	if inbound.NodeID != 0 && s.nodeRepo != nil {
+		if _, err := s.nodeRepo.GetByID(ctx, inbound.NodeID); err != nil {
+			return fmt.Errorf("target node %d lookup failed: %w", inbound.NodeID, err)
+		}
+	}
+
 	s.mu.Lock()
 	defer s.mu.Unlock()
+
+	var prevNodeID uint
+	hasPrev := false
+	if inbound.ID > 0 {
+		if existing, err := s.inboundRepo.GetByID(ctx, inbound.ID); err == nil && existing != nil {
+			prevNodeID = existing.NodeID
+			hasPrev = true
+		}
+	}
 
 	if err := s.inboundRepo.Update(ctx, inbound); err != nil {
 		return err
 	}
 
-	return s.recompileAndApplyLocked(ctx, fmt.Sprintf("更新入站节点 %s", inbound.Tag))
+	if hasPrev && prevNodeID != 0 {
+		s.invalidateNodeCache(prevNodeID)
+	}
+	if inbound.NodeID != 0 {
+		s.invalidateNodeCache(inbound.NodeID)
+	}
+
+	if inbound.NodeID == 0 || (hasPrev && prevNodeID == 0) {
+		return s.recompileAndApplyLocked(ctx, fmt.Sprintf("更新入站节点 %s", inbound.Tag))
+	}
+	return nil
 }
 
 func (s *ConfigService) DeleteInbound(ctx context.Context, id uint) error {
@@ -665,6 +734,10 @@ func (s *ConfigService) DeleteInbound(ctx context.Context, id uint) error {
 		return err
 	}
 
+	if inbound.NodeID != 0 {
+		s.invalidateNodeCache(inbound.NodeID)
+		return nil
+	}
 	return s.recompileAndApplyLocked(ctx, fmt.Sprintf("删除入站节点 %s", inbound.Tag))
 }
 
@@ -767,13 +840,15 @@ func (s *ConfigService) normalizeRoutingConfig(
 	}
 	cfg.Rules = cleanRules
 
-	// 确保所有启用的 SubRoutes 在 routing.Rules 中均有显式规则（若无则默认追加至尾部）
+	// 确保所有启用的本机 SubRoutes 在 routing.Rules 中均有显式规则（若无则默认追加至尾部）
 	if !hasInbounds && s.inboundRepo != nil {
-		var err error
-		inbounds, err = s.inboundRepo.ListAll(ctx)
+		allInbounds, err := s.inboundRepo.ListAll(ctx)
 		if err != nil {
 			return nil, fmt.Errorf("read inbounds for routing failed: %w", err)
 		}
+		inbounds = filterLocalInbounds(allInbounds)
+	} else if hasInbounds {
+		inbounds = filterLocalInbounds(inbounds)
 	}
 	if s.inboundRepo != nil || hasInbounds {
 		s.ensureSubRouteRules(&cfg, inbounds)
@@ -905,14 +980,14 @@ func (s *ConfigService) DeleteOutbound(ctx context.Context, tag string) error {
 }
 
 func (s *ConfigService) saveOutboundsListAndRecompileLocked(ctx context.Context, outbounds []domain.Outbound, remark string) error {
-	// 读取当前 Inbounds, Routing, DNS, Users
+	// 读取当前本机 Inbounds, Routing, DNS, Users
 	var inbounds []domain.Inbound
 	if s.inboundRepo != nil {
-		var err error
-		inbounds, err = s.inboundRepo.ListAll(ctx)
+		allInbounds, err := s.inboundRepo.ListAll(ctx)
 		if err != nil {
 			return fmt.Errorf("read inbounds failed, abort saving to protect config: %w", err)
 		}
+		inbounds = filterLocalInbounds(allInbounds)
 	}
 	var (
 		routing *domain.RoutingConfig
@@ -978,11 +1053,11 @@ func (s *ConfigService) SaveRoutingConfig(ctx context.Context, cfg *domain.Routi
 func (s *ConfigService) saveRoutingConfigLocked(ctx context.Context, cfg *domain.RoutingConfig) error {
 	var inbounds []domain.Inbound
 	if s.inboundRepo != nil {
-		var err error
-		inbounds, err = s.inboundRepo.ListAll(ctx)
+		allInbounds, err := s.inboundRepo.ListAll(ctx)
 		if err != nil {
 			return fmt.Errorf("read inbounds failed, abort saving to protect config: %w", err)
 		}
+		inbounds = filterLocalInbounds(allInbounds)
 	}
 	// 确保入站分流线路有默认规则兜底（若完全无匹配则放尾部）
 	s.ensureSubRouteRules(cfg, inbounds)
@@ -1156,11 +1231,11 @@ func (s *ConfigService) SaveDNSConfig(ctx context.Context, cfg *domain.DNSConfig
 func (s *ConfigService) saveDNSConfigLocked(ctx context.Context, cfg *domain.DNSConfig) error {
 	var inbounds []domain.Inbound
 	if s.inboundRepo != nil {
-		var err error
-		inbounds, err = s.inboundRepo.ListAll(ctx)
+		allInbounds, err := s.inboundRepo.ListAll(ctx)
 		if err != nil {
 			return fmt.Errorf("read inbounds failed, abort saving to protect config: %w", err)
 		}
+		inbounds = filterLocalInbounds(allInbounds)
 	}
 	var (
 		outbounds []domain.Outbound

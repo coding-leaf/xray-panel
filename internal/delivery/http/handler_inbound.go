@@ -1,6 +1,7 @@
 package http
 
 import (
+	"errors"
 	"fmt"
 	"net/http"
 	"strconv"
@@ -33,6 +34,20 @@ func (h *InboundHandler) List(c *gin.Context) {
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
+	}
+	if nodeIDStr := c.Query("nodeId"); nodeIDStr != "" {
+		nodeID, err := strconv.Atoi(nodeIDStr)
+		if err != nil || nodeID < 0 {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid nodeId"})
+			return
+		}
+		filtered := make([]domain.Inbound, 0)
+		for _, ib := range inbounds {
+			if ib.NodeID == uint(nodeID) {
+				filtered = append(filtered, ib)
+			}
+		}
+		inbounds = filtered
 	}
 	c.JSON(http.StatusOK, inbounds)
 }
@@ -74,6 +89,14 @@ func (h *InboundHandler) Update(c *gin.Context) {
 	}
 
 	if err := h.configSvc.UpdateInbound(c.Request.Context(), &in); err != nil {
+		if errors.Is(err, domain.ErrNotFound) {
+			c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
+			return
+		}
+		if errors.Is(err, domain.ErrInvalidInput) {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}

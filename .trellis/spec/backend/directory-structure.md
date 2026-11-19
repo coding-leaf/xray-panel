@@ -23,7 +23,13 @@
 
 4. **`internal/delivery/http` & `cron` (接入交付)**
    - HTTP Handler 负责反序列化、入参校验（Validator）并调用 Service；
-   - 统一错误返回格式，禁止在 Handler 中直写复杂业务运算。
+   - 统一错误返回格式，禁止在 Handler 中直写复杂业务运算；
+   - Agent 节点控制面路由（`/api/agent/*`）必须独立使用节点级 Bearer Token 中间件（按 SHA-256 校验，仅注入当前 `node_id`），严禁与管理员 `JWTAuth` 边界混用。
+
+5. **`cmd/agent` & `internal/agent` (独立极瘦节点代理)**
+   - 独立编译为低内存节点端二进制（`go build ./cmd/agent`），驱动官方原版 Xray 二进制并主动 HTTPS 短轮询 Master；
+   - **依赖隔离红线**：`go list -deps ./cmd/agent` **严禁**引入 `gin`、`gorm`、`glebarez/sqlite`、`telegram` 或任何 `web/dist` 前端嵌入；
+   - **单机兼容与幂等红线**：`Inbound.NodeID == 0` 固定代表 Master 本机（Local Node），本机编译/巡检必须过滤 `NodeID == 0`；远端流量上报必须通过本地 spool + `(node_id, batch_id)` 保证跨网重试严格幂等。
 
 ---
 

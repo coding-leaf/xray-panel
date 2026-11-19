@@ -25,6 +25,9 @@ type Handlers struct {
 	GeoData   *GeoDataHandler
 	Ticket    *TicketHandler
 	AuditLog  *AuditLogHandler
+	Node      *NodeHandler
+	Agent     *AgentHandler
+	AgentAuth gin.HandlerFunc
 }
 
 func SetupRouter(handlers *Handlers, jwtSecret string, staticFS fs.FS) *gin.Engine {
@@ -77,6 +80,15 @@ func SetupRouter(handlers *Handlers, jwtSecret string, staticFS fs.FS) *gin.Engi
 			portalIPLimiter := middleware.NewRateLimiter("20-M")
 			portalGlobalLimiter := middleware.NewGlobalRateLimiter("120-M", "global_portal_claim")
 			api.POST("/portal/claim", portalGlobalLimiter, portalIPLimiter, handlers.Ticket.ClaimTicket)
+		}
+
+		// 远端节点 Agent 独立鉴权同步路由 (严禁绕过或混用管理员 JWT 边界)
+		if handlers.Agent != nil && handlers.AgentAuth != nil {
+			agentGroup := api.Group("/agent")
+			agentGroup.Use(handlers.AgentAuth)
+			{
+				agentGroup.POST("/sync", handlers.Agent.Sync)
+			}
 		}
 
 		// 管理受保护接口 (JWT 鉴权)
@@ -167,6 +179,20 @@ func SetupRouter(handlers *Handlers, jwtSecret string, staticFS fs.FS) *gin.Engi
 			authGroup.GET("/settings", handlers.Setting.GetSettings)
 			authGroup.POST("/settings", handlers.Setting.SaveSettings)
 			authGroup.POST("/settings/test-telegram", handlers.Setting.TestTelegram)
+
+			// 远端直连节点管理
+			if handlers.Node != nil {
+				adminNodes := authGroup.Group("/admin/nodes")
+				{
+					adminNodes.GET("", handlers.Node.List)
+					adminNodes.GET("/:id", handlers.Node.Get)
+					adminNodes.POST("", handlers.Node.Create)
+					adminNodes.PUT("/:id", handlers.Node.Update)
+					adminNodes.DELETE("/:id", handlers.Node.Delete)
+					adminNodes.POST("/:id/rotate-token", handlers.Node.RotateToken)
+					adminNodes.GET("/:id/install-script", handlers.Node.InstallScript)
+				}
+			}
 		}
 	}
 

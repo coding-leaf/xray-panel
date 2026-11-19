@@ -8,6 +8,7 @@ import (
 
 type Inbound struct {
 	ID             uint      `gorm:"primaryKey;autoIncrement" json:"id"`
+	NodeID         uint      `gorm:"column:node_id;index;default:0" json:"nodeId"`
 	Tag            string    `gorm:"type:varchar(64);uniqueIndex;not null" json:"tag"`
 	Port           int       `gorm:"not null" json:"port"`
 	Listen         string    `gorm:"type:varchar(64);default:'0.0.0.0'" json:"listen"`

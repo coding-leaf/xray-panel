@@ -53,6 +53,12 @@ func (r *GORMInboundRepository) ListAll(ctx context.Context) ([]domain.Inbound, 
 	return inbounds, err
 }
 
+func (r *GORMInboundRepository) FindByNodeID(ctx context.Context, nodeID uint) ([]domain.Inbound, error) {
+	var inbounds []domain.Inbound
+	err := r.db.WithContext(ctx).Where("node_id = ?", nodeID).Order("sort_order ASC, id ASC").Find(&inbounds).Error
+	return inbounds, err
+}
+
 func (r *GORMInboundRepository) AddTraffic(ctx context.Context, tag string, upBytes, downBytes int64) error {
 	return r.db.WithContext(ctx).Model(&domain.Inbound{}).
 		Where("tag = ?", tag).

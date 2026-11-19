@@ -68,6 +68,7 @@ func main() {
 	adminRepo := repository.NewAdminRepository(db)
 	ticketRepo := repository.NewTicketRepository(db)
 	auditLogRepo := repository.NewGormAuditLogRepository(db)
+	nodeRepo := repository.NewNodeRepository(db)
 
 	// 3. 初始化适配器 Adapters
 	grpcClient := xray.NewGRPCClient(cfg.XrayGRPCAddr)
@@ -124,7 +125,10 @@ func main() {
 		compiler.SetLogLevel(savedLogLevel)
 	}
 
-	configSvc := service.NewConfigService(configMgr, supervisor, inboundRepo, userRepo, snapshotRepo, compiler)
+	nodeSvc := service.NewNodeService(nodeRepo, nodeRepo, inboundRepo, userRepo, compiler)
+	configSvc := service.NewConfigService(configMgr, supervisor, inboundRepo, userRepo, snapshotRepo, compiler).
+		WithNodeCacheInvalidator(nodeSvc).
+		WithNodeRepo(nodeRepo)
 	if err := configSvc.SyncFromFile(bgCtx); err != nil {
 		slog.Error("failed to sync config from file on startup, proceeding with database config", slog.Any("error", err))
 	}
@@ -145,7 +149,8 @@ func main() {
 	}
 
 	userSvc := service.NewUserService(userRepo, inboundRepo, trafficLogRepo, xrayManager, configSvc).
-		WithTicketRepo(ticketRepo)
+		WithTicketRepo(ticketRepo).
+		WithNodeCacheInvalidator(nodeSvc)
 	botHandler := telegram.NewBotHandler(botAdapter, userRepo, inboundRepo, hostMonitor, xrayManager, userSvc, cfg.PublicURL)
 	subSvc := service.NewSubService(userRepo, inboundRepo, settingRepo)
 	monitorSvc := service.NewMonitorService(hostMonitor, xrayManager, userRepo, inboundRepo)
@@ -177,6 +182,9 @@ func main() {
 		GeoData:   deliveryHTTP.NewGeoDataHandler(geoSvc),
 		Ticket:    deliveryHTTP.NewTicketHandler(ticketSvc),
 		AuditLog:  deliveryHTTP.NewAuditLogHandler(auditLogSvc),
+		Node:      deliveryHTTP.NewNodeHandler(nodeSvc, auditLogSvc),
+		Agent:     deliveryHTTP.NewAgentHandler(nodeSvc),
+		AgentAuth: deliveryHTTP.AgentAuth(nodeSvc),
 	}
 
 	staticFS := getStaticFS()

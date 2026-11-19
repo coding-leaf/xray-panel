@@ -48,6 +48,7 @@ type UserService struct {
 	ticketRepo     domain.TicketRepository
 	xrayManager    XrayUserManager
 	configSvc      ConfigFileSynchronizer
+	nodeCacheInv   NodeCacheInvalidator
 }
 
 func NewUserService(
@@ -70,6 +71,18 @@ func NewUserService(
 func (s *UserService) WithTicketRepo(repo domain.TicketRepository) *UserService {
 	s.ticketRepo = repo
 	return s
+}
+
+// WithNodeCacheInvalidator 链式注入节点同步缓存失效器
+func (s *UserService) WithNodeCacheInvalidator(inv NodeCacheInvalidator) *UserService {
+	s.nodeCacheInv = inv
+	return s
+}
+
+func (s *UserService) invalidateNodeCache() {
+	if s.nodeCacheInv != nil {
+		s.nodeCacheInv.InvalidateAll()
+	}
 }
 
 func isXrayIgnorableRemoveError(err error) bool {
@@ -286,6 +299,7 @@ func (s *UserService) CreateUser(ctx context.Context, dto CreateUserDTO) (*domai
 		}
 	}
 
+	s.invalidateNodeCache()
 	return user, nil
 }
 
@@ -496,6 +510,7 @@ func (s *UserService) updateUser(ctx context.Context, id uint, dto domain.Update
 		domain.RemoveUserRuntimeSpeed(oldSnapshot.Email)
 	}
 
+	s.invalidateNodeCache()
 	return &updatedUser, nil
 }
 
@@ -519,6 +534,7 @@ func (s *UserService) DeleteUser(ctx context.Context, id uint) error {
 	// 4. 清理内存运行时速率追踪器与关联孤儿数据，杜绝幽灵对象与脏历史记录
 	domain.RemoveUserRuntimeSpeed(oldSnapshot.Email)
 	s.cleanupUserOrphans(ctx, oldSnapshot)
+	s.invalidateNodeCache()
 
 	return nil
 }
@@ -649,6 +665,7 @@ func (s *UserService) ResetTraffic(ctx context.Context, id uint) error {
 			return fmt.Errorf("sync user to config file on reset traffic failed: %w", err)
 		}
 	}
+	s.invalidateNodeCache()
 	return nil
 }
 
@@ -749,6 +766,7 @@ func (s *UserService) ResetSubToken(ctx context.Context, id uint) (*domain.User,
 		}
 	}
 
+	s.invalidateNodeCache()
 	return user, nil
 }
 
@@ -791,10 +809,13 @@ func (s *UserService) BatchRenew(ctx context.Context, ids []uint, addDays int) e
 		}
 		updatedCount++
 	}
-	if updatedCount > 0 && s.configSvc != nil {
-		if err := s.configSvc.SaveConfigQuietly(ctx, fmt.Sprintf("批量延期 %d 位用户同步配置", updatedCount)); err != nil {
-			errs = append(errs, fmt.Errorf("save config quietly after batch renew failed: %w", err))
+	if updatedCount > 0 {
+		if s.configSvc != nil {
+			if err := s.configSvc.SaveConfigQuietly(ctx, fmt.Sprintf("批量延期 %d 位用户同步配置", updatedCount)); err != nil {
+				errs = append(errs, fmt.Errorf("save config quietly after batch renew failed: %w", err))
+			}
 		}
+		s.invalidateNodeCache()
 	}
 	return errors.Join(errs...)
 }
@@ -802,12 +823,14 @@ func (s *UserService) BatchRenew(ctx context.Context, ids []uint, addDays int) e
 func (s *UserService) BatchResetTraffic(ctx context.Context, ids []uint) error {
 	var errs []error
 	activeChanged := 0
+	resetCount := 0
 	for _, id := range ids {
 		user, err := s.resetTrafficNoSave(ctx, id)
 		if err != nil {
 			errs = append(errs, fmt.Errorf("reset traffic user %d failed: %w", id, err))
 			continue
 		}
+		resetCount++
 		if user.IsActive() {
 			activeChanged++
 		}
@@ -816,6 +839,9 @@ func (s *UserService) BatchResetTraffic(ctx context.Context, ids []uint) error {
 		if err := s.configSvc.SaveConfigQuietly(ctx, fmt.Sprintf("批量重置 %d 位用户流量同步配置", activeChanged)); err != nil {
 			errs = append(errs, fmt.Errorf("save config quietly after batch reset traffic failed: %w", err))
 		}
+	}
+	if resetCount > 0 {
+		s.invalidateNodeCache()
 	}
 	return errors.Join(errs...)
 }
@@ -849,10 +875,13 @@ func (s *UserService) BatchSetStatus(ctx context.Context, ids []uint, enabled bo
 		}
 		updatedCount++
 	}
-	if updatedCount > 0 && s.configSvc != nil {
-		if err := s.configSvc.SaveConfigQuietly(ctx, fmt.Sprintf("批量更新 %d 位用户状态同步配置", updatedCount)); err != nil {
-			errs = append(errs, fmt.Errorf("save config quietly after batch status failed: %w", err))
+	if updatedCount > 0 {
+		if s.configSvc != nil {
+			if err := s.configSvc.SaveConfigQuietly(ctx, fmt.Sprintf("批量更新 %d 位用户状态同步配置", updatedCount)); err != nil {
+				errs = append(errs, fmt.Errorf("save config quietly after batch status failed: %w", err))
+			}
 		}
+		s.invalidateNodeCache()
 	}
 	return errors.Join(errs...)
 }
@@ -887,6 +916,7 @@ func (s *UserService) BatchDelete(ctx context.Context, ids []uint) error {
 			domain.RemoveUserRuntimeSpeed(snap.Email)
 			s.cleanupUserOrphans(ctx, snap)
 		}
+		s.invalidateNodeCache()
 	}
 
 	return errors.Join(errs...)
@@ -942,10 +972,13 @@ func (s *UserService) CheckAndResetMonthlyTraffic(ctx context.Context) error {
 			}
 		}
 	}
-	if anyActiveReset && s.configSvc != nil {
-		if err := s.configSvc.SaveConfigQuietly(ctx, "月度流量重置配置静默同步"); err != nil {
-			errs = append(errs, fmt.Errorf("save config quietly failed: %w", err))
+	if anyActiveReset {
+		if s.configSvc != nil {
+			if err := s.configSvc.SaveConfigQuietly(ctx, "月度流量重置配置静默同步"); err != nil {
+				errs = append(errs, fmt.Errorf("save config quietly failed: %w", err))
+			}
 		}
+		s.invalidateNodeCache()
 	}
 	return errors.Join(errs...)
 }

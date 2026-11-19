@@ -1,6 +1,9 @@
 package domain
 
-import "context"
+import (
+	"context"
+	"time"
+)
 
 // UserRepository 定义用户持久化接口
 type UserRepository interface {
@@ -104,4 +107,22 @@ type AuditLogRepository interface {
 	List(ctx context.Context, offset, limit int, action, operator, keyword string) ([]AuditLog, int64, error)
 	Prune(ctx context.Context, maxKeep int) error
 	Clear(ctx context.Context) error
+}
+
+// NodeRepository 定义远端节点持久化接口
+type NodeRepository interface {
+	Create(ctx context.Context, node *Node) error
+	Update(ctx context.Context, node *Node) error
+	UpdateHeartbeat(ctx context.Context, nodeID uint, req *AgentSyncRequest, seenAt time.Time) error
+	Delete(ctx context.Context, id uint) error
+	GetByID(ctx context.Context, id uint) (*Node, error)
+	GetByTokenHash(ctx context.Context, tokenHash string) (*Node, error)
+	ListAll(ctx context.Context) ([]Node, error)
+	CountInbounds(ctx context.Context, nodeID uint) (int64, error)
+}
+
+// NodeTrafficBatchRepository 定义节点心跳幂等流量批处理仓储接口
+type NodeTrafficBatchRepository interface {
+	ApplyNodeTrafficBatch(ctx context.Context, nodeID uint, batch *AgentTrafficBatch, date string) (applied bool, affectedUsers []User, err error)
+	PruneBatchesBefore(ctx context.Context, before time.Time) error
 }

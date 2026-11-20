@@ -708,6 +708,44 @@ if [ "$NODE_TOKEN" = "<YOUR_NODE_TOKEN>" ]; then
   exit 1
 fi
 
+ARCH_RAW="$(uname -m)"
+case "$ARCH_RAW" in
+  x86_64|amd64) ARCH="amd64" ;;
+  aarch64|arm64) ARCH="arm64" ;;
+  *)
+    echo "Error: unsupported CPU architecture: ${ARCH_RAW} (supported: amd64, arm64)" >&2
+    exit 1
+    ;;
+esac
+
+if ! command -v xray >/dev/null 2>&1 && [ ! -x /usr/local/bin/xray ]; then
+  echo "[WARN] xray binary not found in PATH or /usr/local/bin/xray. Please install Xray-core before expecting proxy traffic." >&2
+fi
+
+AGENT_BIN_URL="${AGENT_BIN_URL:-https://github.com/coding-leaf/xray-panel/releases/latest/download/xray-agent-linux-${ARCH}}"
+TMP_BIN="$(mktemp /tmp/xray-agent.XXXXXX)"
+trap 'rm -f "$TMP_BIN"' EXIT
+
+echo "Downloading xray-agent (${ARCH}) from ${AGENT_BIN_URL} ..."
+if command -v curl >/dev/null 2>&1; then
+  curl -fsSL --retry 3 --connect-timeout 15 "$AGENT_BIN_URL" -o "$TMP_BIN"
+elif command -v wget >/dev/null 2>&1; then
+  wget -qO "$TMP_BIN" "$AGENT_BIN_URL"
+else
+  echo "Error: neither curl nor wget is installed." >&2
+  exit 1
+fi
+
+if [ ! -s "$TMP_BIN" ]; then
+  echo "Error: downloaded xray-agent binary is empty." >&2
+  exit 1
+fi
+
+if systemctl is-active --quiet xray-agent 2>/dev/null; then
+  systemctl stop xray-agent
+fi
+install -m 0755 "$TMP_BIN" /usr/local/bin/xray-agent
+
 install -d -m 0750 /etc/xray-agent /var/lib/xray-agent
 (
   umask 077

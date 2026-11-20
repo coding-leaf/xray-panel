@@ -98,9 +98,50 @@ jobs:
           name: binary-${{ matrix.output }}
           path: dist/${{ matrix.output }}
 
+  build-agent-binaries:
+    name: Build Agent Binary (linux/${{ matrix.arch }})
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - arch: amd64
+            output: xray-agent-linux-amd64
+          - arch: arm64
+            output: xray-agent-linux-arm64
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: 'stable'
+          cache: true
+
+      - name: Build Agent Binary
+        env:
+          GOOS: linux
+          GOARCH: ${{ matrix.arch }}
+          CGO_ENABLED: 0
+        run: |
+          mkdir -p dist
+          TAG_VERSION="${{ github.ref_name }}"
+          if [ -z "$TAG_VERSION" ] || [ "$TAG_VERSION" = "master" ] || [ "$TAG_VERSION" = "main" ]; then
+            TAG_VERSION="v2.7.1"
+          fi
+          go build -trimpath -ldflags="-s -w -X 'main.Version=${TAG_VERSION}'" \
+                   -o dist/${{ matrix.output }} ./cmd/agent
+
+      - name: Upload Agent Binary Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: binary-${{ matrix.output }}
+          path: dist/${{ matrix.output }}
+
   publish-release:
     name: Publish GitHub Release
-    needs: build-binaries
+    needs: [build-binaries, build-agent-binaries]
     runs-on: ubuntu-latest
     if: startsWith(github.ref, 'refs/tags/v')
     steps:

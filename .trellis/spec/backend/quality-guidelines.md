@@ -279,7 +279,7 @@ _, err = handlerCli.AlterInbound(...)
 - **远端直连订阅端口回退**：
   - `SubService.prepareInboundForNode` 中，若 `!ibCopy.IsLocal() && ibCopy.ExternalPort <= 0`，必须回落至 `ibCopy.Port`（仅本机入站沿用主控 `public_port` 兜底）。
 - **Agent 安装脚本与计费公式单源**：
-  - `RenderInstallScript` 必须将 `MASTER_URL` 与 `AGENT_TOKEN` 写入 `0600` 权限的 `/etc/xray-agent/agent.env` 并通过 systemd `EnvironmentFile=` 注入，严禁在 `ExecStart` 命令行明文传递 `--token`；默认心跳间隔在安装脚本、`cmd/agent/main.go`、`internal/agent/runner.go` 与 Master 间统一为 `60s`。
+  - `RenderInstallScript` 必须将 `MASTER_URL` 与 `AGENT_TOKEN` 写入 `0600` 权限的 `/etc/xray-agent/agent.env` 并通过 systemd `EnvironmentFile=` 注入，严禁在 `ExecStart` 命令行明文传递 `--token`；默认心跳间隔在安装脚本、`cmd/agent/main.go`、`internal/agent/runner.go` 与 Master 间统一为 `60s`；安装脚本同时负责自动检测架构（`amd64`/`arm64`）、缺失 `xray` 提示以及默认从 GitHub Release 拉取 `/usr/local/bin/xray-agent`（支持 `AGENT_BIN_URL` 覆盖），`.github/workflows/release.yml` 必须同步构建发布 `xray-agent-linux-amd64` 与 `xray-agent-linux-arm64`。
   - `internal/agent/quota_store.go` 必须直接复用 `domain.CalcTrafficByMode` 与 `domain.ReachedQuotaThreshold`（`domain` 零外部依赖，`cmd/agent` 严禁引入 `gin`/`gorm`/`sqlite`/`telegram`）。
 
 ### 4. Validation & Error Matrix

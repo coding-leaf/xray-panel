@@ -1237,6 +1237,15 @@ func TestNodeService_RenderInstallScript_EnvFileAndInterval(t *testing.T) {
 	}
 
 	for _, mustHave := range []string{
+		"uname -m",
+		"x86_64|amd64",
+		"aarch64|arm64",
+		"xray binary not found",
+		"AGENT_BIN_URL",
+		"https://github.com/coding-leaf/xray-panel/releases/latest/download/xray-agent-linux-${ARCH}",
+		"curl -fsSL",
+		"wget -qO",
+		`install -m 0755 "$TMP_BIN" /usr/local/bin/xray-agent`,
 		"/etc/xray-agent/agent.env",
 		"0600",
 		"EnvironmentFile=/etc/xray-agent/agent.env",

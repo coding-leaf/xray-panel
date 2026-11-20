@@ -4,6 +4,15 @@
 
 ---
 
+## v2.7.2 (2026-11) - Agent 安装脚本自动拉取与 Release 多架构二进制发布
+
+- **GitHub Release 补齐 `xray-agent` 产物 (`.github/workflows/release.yml`)**：
+  - Release 流水线新增 `xray-agent-linux-amd64` 与 `xray-agent-linux-arm64` 纯 Go 构建任务，自动纳入 `checksums-sha256.txt` 与 GitHub Release 资产列表。
+- **Agent 部署脚本自动拉取与预检 (`internal/service`)**：
+  - `RenderInstallScript` 新增 `uname -m` 架构自动识别（`amd64`/`arm64`）、缺失 `xray` 核心时的清晰告警提示、以及默认从 GitHub Release（支持环境变量 `AGENT_BIN_URL` 自定义覆盖）通过 `curl`/`wget` 自动下载并原子安装至 `/usr/local/bin/xray-agent`（`0755`），保留 `0600` `/etc/xray-agent/agent.env` + `EnvironmentFile=` 与 `60s` 间隔安全规范。
+
+---
+
 ## v2.7.1 (2026-11) - 修复 Xray 26.11+ 下 Clash/Mihomo REALITY ML-KEM 握手超时与订阅模板卫生
 
 - **Clash / Mihomo REALITY 混合后量子握手修复 (`internal/protocol`)**：

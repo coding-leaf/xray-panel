@@ -951,3 +951,25 @@ Added real-time synced/pending/error config sync status badges with 1-RTT agent 
 ### Status
 
 [OK] **Completed**
+
+
+## Session 42: Agent 安装脚本自动拉取 GitHub Release 二进制
+<!-- trellis-session: v=2 fp=203a8b4e859544ac -->
+
+**Date**: 2026-11-20
+**Task**: Agent 安装脚本自动拉取 GitHub Release 二进制
+**Branch**: `master`
+
+### Summary
+
+在 .github/workflows/release.yml 补齐 xray-agent-linux-amd64/arm64 构建与 Release 发布；升级 NodeService.RenderInstallScript 自动识别架构、检测 xray 缺失告警、默认从 GitHub Release 拉取并原子安装 /usr/local/bin/xray-agent（支持 AGENT_BIN_URL 覆盖）且保留 0600 agent.env 与 60s 间隔；更新单测与 backend/quality-guidelines 第 12 节，全量测试、-race、go vet 与双架构编译通过。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `6fdc25b` | feat(agent): auto-download xray-agent from GitHub Release in install script and publish agent binaries |
+
+### Status
+
+[OK] **Completed**

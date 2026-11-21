@@ -26,6 +26,7 @@ type Inbound struct {
 	UpBytes        int64     `gorm:"default:0" json:"upBytes"`
 	DownBytes      int64     `gorm:"default:0" json:"downBytes"`
 	Enabled        bool      `gorm:"default:true" json:"enabled"`
+	SubExposed     *bool     `gorm:"column:sub_exposed;default:true" json:"subExposed"`
 	CreatedAt      time.Time `json:"createdAt"`
 	UpdatedAt      time.Time `json:"updatedAt"`
 
@@ -37,6 +38,11 @@ type Inbound struct {
 // IsLocal 判断该入站是否归属主控本机节点 (NodeID == 0)
 func (i Inbound) IsLocal() bool {
 	return i.NodeID == 0
+}
+
+// IsSubExposed 判断该入站是否对外暴露于用户订阅与单节点分享 (nil 默认为 true)
+func (i Inbound) IsSubExposed() bool {
+	return i.SubExposed == nil || *i.SubExposed
 }
 
 // SubRoute 定义入站下的分流订阅线路

@@ -343,21 +343,93 @@
 
       <!-- 命名模板与 HTTP 响应元信息 -->
       <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
-        <div>
-          <label class="block text-muted-foreground font-medium mb-1"
-            >节点命名模板 (Node Name Template)</label
-          >
+        <div class="sm:col-span-2 p-3 rounded-md bg-neutral-950 border border-border/80 space-y-3">
+          <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+            <div>
+              <label for="sub-node-name-template-input" class="block text-foreground font-medium"
+                >节点命名模板 (Node Name Template)</label
+              >
+              <p class="text-[10px] text-muted-foreground mt-0.5">
+                默认
+                <code>{remark}</code>
+                为所见即所得，直接输出入站或分流线路的「订阅显示名称」；变量为空时自动清理空括号与多余分隔符
+              </p>
+            </div>
+
+            <!-- 常用预设模板 -->
+            <div class="flex items-center gap-1.5 flex-wrap shrink-0">
+              <span class="text-[10px] text-muted-foreground font-mono">预设：</span>
+              <button
+                v-for="preset in NAME_TEMPLATE_PRESETS"
+                :key="preset.template"
+                type="button"
+                @click="applyNameTemplatePreset(preset.template)"
+                class="px-2 py-1 rounded border text-[10px] font-mono transition-colors cursor-pointer"
+                :class="
+                  (settings.sub_node_name_template || '{remark}') === preset.template
+                    ? 'bg-emerald-500/15 border-emerald-500/40 text-emerald-300'
+                    : 'bg-neutral-900 border-border text-muted-foreground hover:text-foreground hover:border-neutral-600'
+                "
+                :title="preset.template"
+              >
+                {{ preset.label }}
+              </button>
+            </div>
+          </div>
+
           <input
+            id="sub-node-name-template-input"
+            ref="templateInputRef"
             v-model="settings.sub_node_name_template"
             type="text"
             placeholder="{remark}"
-            class="w-full bg-neutral-950 border border-border rounded-md px-2.5 py-1.5 text-foreground font-mono focus:outline-none focus:ring-1 focus:ring-ring"
+            class="w-full bg-neutral-900 border border-border rounded-md px-2.5 py-1.5 text-foreground font-mono focus:outline-none focus:ring-1 focus:ring-ring"
           />
-          <p class="text-[10px] text-muted-foreground mt-1">
-            支持变量：<code>{remark}</code> (线路备注), <code>{tag}</code> (入站 Tag),
-            <code>{protocol}</code> (协议大写), <code>{port}</code>, <code>{index}</code>。例如：
-            <code>{remark} [{protocol}]</code>
-          </p>
+
+          <!-- 可点击插入变量芯片 -->
+          <div class="space-y-1.5">
+            <div class="text-[10px] text-muted-foreground font-mono">
+              点击变量芯片插入模板（<code>{remark}</code> = 订阅显示名称（入站或分流线路名））：
+            </div>
+            <div class="flex flex-wrap gap-1.5">
+              <button
+                v-for="chip in NAME_TEMPLATE_VARS"
+                :key="chip.token"
+                type="button"
+                @click="insertTemplateVar(chip.token)"
+                class="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-neutral-900 hover:bg-neutral-800 border border-border hover:border-neutral-600 text-[10px] font-mono transition-colors cursor-pointer"
+                :title="chip.desc"
+              >
+                <span class="text-cyan-400">{{ chip.token }}</span>
+                <span class="text-muted-foreground">{{ chip.label }}</span>
+              </button>
+            </div>
+          </div>
+
+          <!-- 实时渲染预览 -->
+          <div class="p-2.5 rounded-md bg-card border border-border/80 space-y-1.5 font-mono">
+            <div class="text-[10px] text-muted-foreground">
+              实时渲染预览（含空值自动清理效果）：
+            </div>
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-2 text-[11px]">
+              <div
+                class="flex items-center justify-between gap-2 px-2.5 py-1.5 rounded bg-neutral-950 border border-border/60"
+              >
+                <span class="text-[10px] text-muted-foreground shrink-0">本机 Master (无地区)</span>
+                <span class="text-foreground font-medium truncate">{{
+                  templatePreview.master
+                }}</span>
+              </div>
+              <div
+                class="flex items-center justify-between gap-2 px-2.5 py-1.5 rounded bg-neutral-950 border border-border/60"
+              >
+                <span class="text-[10px] text-muted-foreground shrink-0">托管节点 (HK)</span>
+                <span class="text-emerald-300 font-medium truncate">{{
+                  templatePreview.remote
+                }}</span>
+              </div>
+            </div>
+          </div>
         </div>
 
         <div>
@@ -719,7 +791,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted } from 'vue'
+import { ref, computed, nextTick, onMounted, onUnmounted } from 'vue'
 import {
   Send,
   Globe,
@@ -764,6 +836,127 @@ const settings = ref<any>({
 })
 
 const saving = ref(false)
+const templateInputRef = ref<HTMLInputElement | null>(null)
+
+const NAME_TEMPLATE_VARS = [
+  { token: '{remark}', label: '订阅显示名称', desc: '订阅显示名称（入站或分流线路名）' },
+  { token: '{region}', label: '节点地区', desc: '托管节点地区标签（Master 为空）' },
+  { token: '{node}', label: '节点标识', desc: '托管节点标识 Name（Master 为空）' },
+  { token: '{route}', label: '分流线路名', desc: 'VLESS 分流线路名称（单入站为空）' },
+  { token: '{outbound}', label: '目标出站', desc: '分流线路目标出站 Tag' },
+  { token: '{tag}', label: '入站 Tag', desc: '入站标识 Tag' },
+  { token: '{protocol}', label: '协议', desc: '协议大写（VLESS/VMESS/TROJAN/SS）' },
+  { token: '{port}', label: '端口', desc: '外部连接端口' },
+  { token: '{index}', label: '序号', desc: '节点导出序号' },
+]
+
+const NAME_TEMPLATE_PRESETS = [
+  { label: '所见即所得', template: '{remark}' },
+  { label: '地区前缀', template: '[{region}] {remark}' },
+  { label: '地区+协议', template: '{region} · {remark} ({protocol})' },
+]
+
+const applyNameTemplatePreset = (tpl: string) => {
+  settings.value.sub_node_name_template = tpl
+}
+
+const insertTemplateVar = (token: string) => {
+  const input = templateInputRef.value
+  const current = String(settings.value.sub_node_name_template || '')
+  if (
+    !input ||
+    typeof input.selectionStart !== 'number' ||
+    typeof input.selectionEnd !== 'number'
+  ) {
+    settings.value.sub_node_name_template = current ? `${current} ${token}` : token
+    return
+  }
+  const start = input.selectionStart
+  const end = input.selectionEnd
+  const next = current.slice(0, start) + token + current.slice(end)
+  settings.value.sub_node_name_template = next
+  void nextTick(() => {
+    input.focus()
+    const pos = start + token.length
+    input.setSelectionRange(pos, pos)
+  })
+}
+
+const renderNameTemplateSample = (
+  tplRaw: string,
+  vars: {
+    remark: string
+    tag: string
+    protocol: string
+    port: string
+    index: string
+    region: string
+    node: string
+    route: string
+    outbound: string
+  }
+): string => {
+  const tpl = (tplRaw || '').trim()
+  if (!tpl || tpl === '{remark}') {
+    return vars.remark || vars.tag
+  }
+  let out = tpl
+    .replaceAll('{remark}', vars.remark)
+    .replaceAll('{tag}', vars.tag)
+    .replaceAll('{protocol}', vars.protocol)
+    .replaceAll('{port}', vars.port)
+    .replaceAll('{index}', vars.index)
+    .replaceAll('{region}', vars.region)
+    .replaceAll('{node}', vars.node)
+    .replaceAll('{route}', vars.route)
+    .replaceAll('{outbound}', vars.outbound)
+
+  let prev = ''
+  while (out !== prev) {
+    prev = out
+    out = out
+      .replace(/\[\s*\]/g, '')
+      .replace(/\(\s*\)/g, '')
+      .replace(/【\s*】/g, '')
+      .replace(/\s+/g, ' ')
+      .trim()
+  }
+  out = out
+    .replace(/^[-\s|·/]+/, '')
+    .replace(/[-\s|·/]+$/, '')
+    .replace(/\s([-|·/])(?:\s+\1)+(?=\s|$)/g, ' $1')
+    .trim()
+  return out || vars.remark || vars.tag
+}
+
+const templatePreview = computed(() => {
+  const tpl = settings.value.sub_node_name_template || '{remark}'
+  return {
+    master: renderNameTemplateSample(tpl, {
+      remark: '🇯🇵 日本东京原生',
+      tag: 'vless-reality',
+      protocol: 'VLESS',
+      port: '443',
+      index: '1',
+      region: '',
+      node: '',
+      route: '🇯🇵 日本东京原生',
+      outbound: 'direct',
+    }),
+    remote: renderNameTemplateSample(tpl, {
+      remark: '香港高速 01',
+      tag: 'hk-vless',
+      protocol: 'VLESS',
+      port: '8443',
+      index: '2',
+      region: 'HK',
+      node: 'hk-edge-01',
+      route: '',
+      outbound: '',
+    }),
+  }
+})
+
 const testingTG = ref(false)
 const oldPassword = ref('')
 const newPassword = ref('')

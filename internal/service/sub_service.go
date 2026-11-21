@@ -2,10 +2,8 @@ package service
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"log/slog"
-	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -46,39 +44,17 @@ func (s *SubService) resolveActiveNodeMap(ctx context.Context) (map[uint]domain.
 	}
 	active := make(map[uint]domain.Node, len(nodes))
 	for _, n := range nodes {
-		if n.Enabled && n.DesiredState == domain.NodeStateActive {
+		if n.Enabled && n.DesiredState == domain.NodeStateActive && n.IsDirectSubEnabled() {
 			active[n.ID] = n
 		}
 	}
 	return active, nil
 }
 
-func formatNodePrefix(node domain.Node) string {
-	label := strings.TrimSpace(node.Region)
-	if label == "" {
-		label = strings.TrimSpace(node.Name)
-	}
-	if label == "" {
-		return ""
-	}
-	return fmt.Sprintf("[%s]", label)
-}
-
-func applyNodePrefix(name, prefix string) string {
-	trimmed := strings.TrimSpace(name)
-	if prefix == "" {
-		return trimmed
-	}
-	if trimmed == "" {
-		return prefix
-	}
-	if strings.Contains(trimmed, prefix) {
-		return trimmed
-	}
-	return prefix + " " + trimmed
-}
-
 func prepareInboundForNode(ib domain.Inbound, activeNodes map[uint]domain.Node) (domain.Inbound, domain.Node, bool) {
+	if !ib.IsSubExposed() {
+		return domain.Inbound{}, domain.Node{}, false
+	}
 	if ib.IsLocal() {
 		return ib, domain.Node{}, true
 	}
@@ -92,32 +68,6 @@ func prepareInboundForNode(ib domain.Inbound, activeNodes map[uint]domain.Node) 
 	}
 	if !ibCopy.IsLocal() && ibCopy.ExternalPort <= 0 {
 		ibCopy.ExternalPort = ibCopy.Port
-	}
-	prefix := formatNodePrefix(node)
-	baseName := strings.TrimSpace(ibCopy.Remark)
-	if baseName == "" {
-		baseName = strings.TrimSpace(ibCopy.Tag)
-	}
-	ibCopy.Remark = applyNodePrefix(baseName, prefix)
-
-	if prefix != "" {
-		if subRoutes := ibCopy.GetSubRoutes(); len(subRoutes) > 0 {
-			changed := false
-			for i := range subRoutes {
-				if strings.TrimSpace(subRoutes[i].Name) != "" {
-					subRoutes[i].Name = applyNodePrefix(subRoutes[i].Name, prefix)
-					changed = true
-				}
-			}
-			if changed {
-				raw, err := json.Marshal(subRoutes)
-				if err != nil {
-					slog.Warn("Failed to marshal prefixed subRoutes", slog.Uint64("inbound_id", uint64(ibCopy.ID)), slog.String("error", err.Error()))
-				} else {
-					ibCopy.SubRoutesJson = string(raw)
-				}
-			}
-		}
 	}
 	return ibCopy, node, true
 }
@@ -210,6 +160,48 @@ func computeRemainingBytes(user *domain.User) int64 {
 	return remaining
 }
 
+func (s *SubService) buildUserNodeConfigs(
+	ctx context.Context,
+	user *domain.User,
+	tagFilter string,
+	hostDomain string,
+	settings map[string]string,
+	routeFilter ...uint16,
+) ([]*protocol.NodeConfig, error) {
+	var inbounds []domain.Inbound
+	if s.inboundRepo != nil {
+		var err error
+		inbounds, err = s.inboundRepo.ListAll(ctx)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	activeNodes, err := s.resolveActiveNodeMap(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	filteredInbounds := make([]domain.Inbound, 0, len(inbounds))
+	for _, rawIn := range inbounds {
+		if prepared, _, ok := prepareInboundForNode(rawIn, activeNodes); ok {
+			filteredInbounds = append(filteredInbounds, prepared)
+		}
+	}
+
+	defaultPort, defaultFP := parsePortAndFingerprint(settings)
+
+	nodes := protocol.InboundsToNodeConfigsWithNodes(filteredInbounds, user, hostDomain, defaultPort, tagFilter, defaultFP, activeNodes, routeFilter...)
+
+	// 应用节点命名模板 (仅作用于真实节点)
+	if tmpl := settings["sub_node_name_template"]; tmpl != "" {
+		protocol.ApplyNodeNameTemplate(nodes, tmpl)
+	}
+	protocol.DeduplicateNodeNames(nodes)
+
+	return nodes, nil
+}
+
 func (s *SubService) resolveSubscriptionNodesWithSettings(ctx context.Context, token string, tagFilter string, reqHost string, settings map[string]string, routeFilter ...uint16) (*domain.User, []*protocol.NodeConfig, error) {
 	if token == "" {
 		return nil, nil, domain.ErrSubscriptionToken
@@ -227,27 +219,6 @@ func (s *SubService) resolveSubscriptionNodesWithSettings(ctx context.Context, t
 		return nil, nil, fmt.Errorf("%w: 用户已过期或流量已超额", domain.ErrQuotaExceeded)
 	}
 
-	// 获取所有节点
-	var inbounds []domain.Inbound
-	if s.inboundRepo != nil {
-		inbounds, err = s.inboundRepo.ListAll(ctx)
-		if err != nil {
-			return nil, nil, err
-		}
-	}
-
-	activeNodes, err := s.resolveActiveNodeMap(ctx)
-	if err != nil {
-		return nil, nil, err
-	}
-
-	filteredInbounds := make([]domain.Inbound, 0, len(inbounds))
-	for _, rawIn := range inbounds {
-		if prepared, _, ok := prepareInboundForNode(rawIn, activeNodes); ok {
-			filteredInbounds = append(filteredInbounds, prepared)
-		}
-	}
-
 	hostDomain := settings["sub_domain"]
 	if hostDomain == "" {
 		hostDomain = settings["public_url"]
@@ -256,13 +227,9 @@ func (s *SubService) resolveSubscriptionNodesWithSettings(ctx context.Context, t
 		hostDomain = reqHost
 	}
 
-	defaultPort, defaultFP := parsePortAndFingerprint(settings)
-
-	nodes := protocol.InboundsToNodeConfigsWithDefaultFP(filteredInbounds, user, hostDomain, defaultPort, tagFilter, defaultFP, routeFilter...)
-
-	// 应用节点命名模板 (仅作用于真实节点)
-	if tmpl := settings["sub_node_name_template"]; tmpl != "" {
-		protocol.ApplyNodeNameTemplate(nodes, tmpl)
+	nodes, err := s.buildUserNodeConfigs(ctx, user, tagFilter, hostDomain, settings, routeFilter...)
+	if err != nil {
+		return nil, nil, err
 	}
 
 	// 全量聚合订阅顶部虚拟信息节点注入 (流量、到期时间、公告)
@@ -393,104 +360,39 @@ func (s *SubService) GetUserShareInfo(ctx context.Context, userID uint, baseURL 
 		return nil, err
 	}
 
-	var inbounds []domain.Inbound
-	if s.inboundRepo != nil {
-		inbounds, err = s.inboundRepo.ListAll(ctx)
-		if err != nil {
-			return nil, err
-		}
-	}
-
-	activeNodes, err := s.resolveActiveNodeMap(ctx)
-	if err != nil {
-		return nil, err
-	}
-
 	settings := s.loadSettingsMap(ctx)
 	hostDomain := settings["sub_domain"]
 	if hostDomain == "" && baseURL != "" {
 		hostDomain = baseURL
 	}
 
-	defaultPort, defaultFP := parsePortAndFingerprint(settings)
+	nodes, err := s.buildUserNodeConfigs(ctx, user, "", hostDomain, settings)
+	if err != nil {
+		return nil, err
+	}
 
 	resp := &domain.UserShareResponse{
 		UserID:    user.ID,
 		Email:     user.Email,
 		SubToken:  user.SubToken,
 		AllSubURL: fmt.Sprintf("%s/sub/%s", baseURL, user.SubToken),
-		Nodes:     make([]domain.NodeShareInfo, 0),
+		Nodes:     make([]domain.NodeShareInfo, 0, len(nodes)),
 	}
 
-	sort.SliceStable(inbounds, func(i, j int) bool {
-		if inbounds[i].SortOrder != inbounds[j].SortOrder {
-			return inbounds[i].SortOrder < inbounds[j].SortOrder
+	for _, node := range nodes {
+		tag := node.GetParam("tag")
+		link, _ := protocol.FormatLink(node)
+		singleSub := fmt.Sprintf("%s/sub/%s?tag=%s", baseURL, user.SubToken, tag)
+		if node.GetParam("has_sub_route") == "1" {
+			singleSub = fmt.Sprintf("%s/sub/%s?tag=%s&route=%s", baseURL, user.SubToken, tag, node.GetParam("route_id", "0"))
 		}
-		return inbounds[i].ID < inbounds[j].ID
-	})
-
-	for _, rawIn := range inbounds {
-		if !rawIn.Enabled || !user.HasInbound(rawIn.Tag) || strings.EqualFold(rawIn.Protocol, "dokodemo-door") {
-			continue
-		}
-		in, node, ok := prepareInboundForNode(rawIn, activeNodes)
-		if !ok {
-			continue
-		}
-		isVless := in.Protocol == "" || strings.EqualFold(in.Protocol, "vless")
-		subRoutes := in.GetSubRoutes()
-		if len(subRoutes) == 0 || !isVless {
-			link := protocol.BuildShareLinkWithDefaultFP(&in, user, hostDomain, defaultPort, defaultFP)
-			remark := in.Remark
-			if remark == "" {
-				remark = in.Tag
-			}
-			resp.Nodes = append(resp.Nodes, domain.NodeShareInfo{
-				Tag:       in.Tag,
-				Protocol:  in.Protocol,
-				Remark:    remark,
-				ShareLink: link,
-				SingleSub: fmt.Sprintf("%s/sub/%s?tag=%s", baseURL, user.SubToken, in.Tag),
-			})
-			continue
-		}
-
-		sort.SliceStable(subRoutes, func(i, j int) bool {
-			return subRoutes[i].SortOrder < subRoutes[j].SortOrder
+		resp.Nodes = append(resp.Nodes, domain.NodeShareInfo{
+			Tag:       tag,
+			Protocol:  node.Protocol,
+			Remark:    node.Name,
+			ShareLink: link,
+			SingleSub: singleSub,
 		})
-
-		baseName := in.Remark
-		if baseName == "" {
-			baseName = in.Tag
-		}
-		nodePrefix := ""
-		if in.NodeID > 0 {
-			nodePrefix = formatNodePrefix(node)
-		}
-
-		for _, sr := range subRoutes {
-			if !sr.Enabled {
-				continue
-			}
-			if !sr.CanAccess(user.Email) {
-				continue
-			}
-			tempIn := in
-			if sr.Name != "" {
-				tempIn.Remark = applyNodePrefix(sr.Name, nodePrefix)
-			} else {
-				tempIn.Remark = fmt.Sprintf("%s - 线路 #%d", baseName, sr.RouteID)
-			}
-			tempIn.RouteID = sr.RouteID
-			link := protocol.BuildShareLinkWithDefaultFP(&tempIn, user, hostDomain, defaultPort, defaultFP)
-			resp.Nodes = append(resp.Nodes, domain.NodeShareInfo{
-				Tag:       in.Tag,
-				Protocol:  in.Protocol,
-				Remark:    tempIn.Remark,
-				ShareLink: link,
-				SingleSub: fmt.Sprintf("%s/sub/%s?tag=%s&route=%d", baseURL, user.SubToken, in.Tag, sr.RouteID),
-			})
-		}
 	}
 
 	return resp, nil

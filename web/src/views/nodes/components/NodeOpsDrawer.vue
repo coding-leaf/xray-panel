@@ -50,6 +50,12 @@
               </Badge>
             </div>
             <div class="flex items-center gap-1.5 flex-wrap">
+              <Badge
+                :variant="node.directSubEnabled === false ? 'warning' : 'success'"
+                class="text-[10px]"
+              >
+                {{ node.directSubEnabled === false ? '仅中转落地' : '直连开放' }}
+              </Badge>
               <Badge :variant="getDesiredStateBadge(node.desiredState).variant" class="text-[10px]">
                 {{ getDesiredStateBadge(node.desiredState).label }}
               </Badge>

@@ -69,16 +69,21 @@ func (f *Hysteria2Formatter) FormatLink(node *NodeConfig) (string, error) {
 
 	// 动态扩展参数透出 (非保留控制键安全加入 query)
 	reservedKeys := map[string]bool{
-		"sni": true, "alpn": true, "insecure": true, "allowInsecure": true,
+		"sni": true, "alpn": true, "insecure": true, "allowinsecure": true,
 		"obfs": true, "obfs-password": true, "obfs_password": true,
-		"pinSHA256": true, "mport": true, "ports": true,
+		"pinsha256": true, "mport": true, "ports": true,
+		"type": true, "security": true,
+		"tag": true, "remark": true, "inbound_remark": true,
+		"route_name": true, "outbound_tag": true,
+		"node_name": true, "node_region": true,
+		"route_id": true, "has_sub_route": true,
 	}
 	for k, val := range node.Params {
 		kClean := strings.TrimSpace(k)
 		if kClean == "" || val == "" {
 			continue
 		}
-		if !reservedKeys[kClean] && v.Get(kClean) == "" {
+		if !reservedKeys[strings.ToLower(kClean)] && v.Get(kClean) == "" {
 			v.Set(kClean, val)
 		}
 	}

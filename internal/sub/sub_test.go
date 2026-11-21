@@ -437,3 +437,60 @@ func TestExportSubscription_ClashCustomParameters(t *testing.T) {
 	}
 }
 
+func TestExportSubscription_DuplicateNamesDisambiguatedInClashAndSingBox(t *testing.T) {
+	nodes := []*protocol.NodeConfig{
+		{
+			Name:     "同地区直连",
+			Protocol: "vless",
+			Address:  "198.51.100.1",
+			Port:     443,
+			UUID:     "11111111-1111-4111-8111-111111111111",
+			Params:   map[string]string{"type": "tcp", "security": "none"},
+		},
+		{
+			Name:     "同地区直连",
+			Protocol: "vless",
+			Address:  "198.51.100.2",
+			Port:     443,
+			UUID:     "22222222-2222-4222-8222-222222222222",
+			Params:   map[string]string{"type": "tcp", "security": "none"},
+		},
+	}
+
+	clashOut, err := sub.ExportSubscription(nodes, "clash")
+	if err != nil {
+		t.Fatalf("ExportSubscription clash failed: %v", err)
+	}
+	var clashParsed struct {
+		Proxies []map[string]interface{} `yaml:"proxies"`
+	}
+	if err := yaml.Unmarshal([]byte(clashOut), &clashParsed); err != nil {
+		t.Fatalf("unmarshal clash yaml failed: %v", err)
+	}
+	if len(clashParsed.Proxies) != 2 || clashParsed.Proxies[0]["name"] != "同地区直连" || clashParsed.Proxies[1]["name"] != "同地区直连 #2" {
+		t.Fatalf("expected deduplicated clash proxy names, got: %+v", clashParsed.Proxies)
+	}
+
+	sbOut, err := sub.ExportSubscription(nodes, "sing-box")
+	if err != nil {
+		t.Fatalf("ExportSubscription sing-box failed: %v", err)
+	}
+	var sbParsed struct {
+		Outbounds []map[string]interface{} `json:"outbounds"`
+	}
+	if err := json.Unmarshal([]byte(sbOut), &sbParsed); err != nil {
+		t.Fatalf("unmarshal sing-box json failed: %v", err)
+	}
+	seenTags := map[string]bool{}
+	for _, ob := range sbParsed.Outbounds {
+		tag, _ := ob["tag"].(string)
+		if seenTags[tag] {
+			t.Fatalf("duplicate sing-box outbound tag %q in: %s", tag, sbOut)
+		}
+		seenTags[tag] = true
+	}
+	if !seenTags["同地区直连"] || !seenTags["同地区直连 #2"] {
+		t.Fatalf("expected disambiguated tags in sing-box outbounds, got tags=%v", seenTags)
+	}
+}
+

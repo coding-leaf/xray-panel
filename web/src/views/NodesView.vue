@@ -6,7 +6,7 @@
     >
       <div>
         <div class="flex items-center gap-2">
-          <h1 class="text-lg font-semibold text-foreground tracking-tight">远端直连节点 (Nodes)</h1>
+          <h1 class="text-lg font-semibold text-foreground tracking-tight">托管节点 (Nodes)</h1>
           <Badge variant="outline" class="text-[10px]"> {{ filteredNodes.length }} 个节点 </Badge>
           <Badge
             v-if="summary.errorCount > 0"
@@ -18,7 +18,7 @@
           </Badge>
         </div>
         <p class="text-xs text-muted-foreground mt-0.5">
-          管理分布式 Xray Agent 直连节点、一次性认证 Token 与多机直连订阅状态
+          管理分布式 Xray Agent 托管节点、一次性认证 Token 与节点订阅暴露策略
         </p>
       </div>
 
@@ -72,7 +72,7 @@
 
       <div class="rounded-lg border border-border bg-card p-3.5 space-y-1">
         <div class="flex items-center justify-between text-[11px] font-mono text-muted-foreground">
-          <span>累计直连流量</span>
+          <span>累计节点流量</span>
           <ArrowUpDown class="w-3.5 h-3.5 text-neutral-400" />
         </div>
         <div class="text-xl font-semibold font-mono text-foreground">
@@ -175,6 +175,12 @@
                 <span class="font-mono font-semibold text-foreground text-xs">{{ node.name }}</span>
                 <Badge v-if="node.region" variant="outline" class="text-[10px]">
                   {{ node.region }}
+                </Badge>
+                <Badge
+                  :variant="node.directSubEnabled === false ? 'warning' : 'success'"
+                  class="text-[10px]"
+                >
+                  {{ node.directSubEnabled === false ? '仅中转落地' : '直连开放' }}
                 </Badge>
                 <Badge v-if="!node.enabled" variant="secondary" class="text-[10px]"> 已停用 </Badge>
               </div>
@@ -372,7 +378,7 @@
               <div class="flex flex-col items-center justify-center gap-2">
                 <Server class="w-8 h-8 text-neutral-600 mb-1" />
                 <p class="text-xs font-medium text-neutral-300">
-                  {{ nodes.length ? '没有匹配的节点记录' : '暂未注册远端直连节点' }}
+                  {{ nodes.length ? '没有匹配的节点记录' : '暂未注册托管节点' }}
                 </p>
                 <p class="text-[11px] text-muted-foreground">
                   {{
@@ -404,6 +410,12 @@
               }}</span>
               <Badge v-if="node.region" variant="outline" class="text-[10px]">
                 {{ node.region }}
+              </Badge>
+              <Badge
+                :variant="node.directSubEnabled === false ? 'warning' : 'success'"
+                class="text-[10px]"
+              >
+                {{ node.directSubEnabled === false ? '仅中转落地' : '直连开放' }}
               </Badge>
               <Badge v-if="!node.enabled" variant="secondary" class="text-[10px]"> 已停用 </Badge>
             </div>
@@ -556,7 +568,7 @@
       >
         <Server class="w-8 h-8 text-neutral-600 mx-auto mb-1.5" />
         <p class="text-xs font-medium text-neutral-300">
-          {{ nodes.length ? '没有匹配的节点记录' : '暂未注册远端直连节点' }}
+          {{ nodes.length ? '没有匹配的节点记录' : '暂未注册托管节点' }}
         </p>
         <p class="text-[11px] text-muted-foreground mt-0.5">
           {{ nodes.length ? '可尝试调整筛选条件' : '点击右上角「新增节点」开始部署' }}

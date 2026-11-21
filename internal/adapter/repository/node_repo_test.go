@@ -618,3 +618,81 @@ func TestNodeRepo_Delete_CascadesTrafficTablesAndReturnsErrNotFound(t *testing.T
 		t.Fatalf("expected ErrNotFound deleting missing node, got %v", err)
 	}
 }
+
+func TestNodeRepo_DirectSubEnabledRoundTrip(t *testing.T) {
+	nodeRepo, _, _, _ := setupNodeTestRepos(t)
+	ctx := context.Background()
+
+	falseVal := false
+	trueVal := true
+
+	// 1. Explicit false must persist as false despite gorm default:true
+	relayOnly := &domain.Node{
+		Name:             "GCP Relay Exit",
+		Host:             "127.0.0.1",
+		Region:           "SG",
+		TokenHash:        "8888888888888888888888888888888888888888888888888888888888888881",
+		Enabled:          true,
+		DirectSubEnabled: &falseVal,
+		DesiredState:     domain.NodeStateActive,
+	}
+	if err := nodeRepo.Create(ctx, relayOnly); err != nil {
+		t.Fatalf("create relay-only node failed: %v", err)
+	}
+	got, err := nodeRepo.GetByID(ctx, relayOnly.ID)
+	if err != nil {
+		t.Fatalf("GetByID failed: %v", err)
+	}
+	if got.DirectSubEnabled == nil || *got.DirectSubEnabled || got.IsDirectSubEnabled() {
+		t.Fatalf("expected DirectSubEnabled=false persisted, got ptr=%v val=%v", got.DirectSubEnabled, got.IsDirectSubEnabled())
+	}
+
+	// 2. Update with nil DirectSubEnabled preserves existing false
+	got.DirectSubEnabled = nil
+	got.Name = "GCP Relay Exit Renamed"
+	if err := nodeRepo.Update(ctx, got); err != nil {
+		t.Fatalf("Update with nil DirectSubEnabled failed: %v", err)
+	}
+	afterNilUpdate, err := nodeRepo.GetByID(ctx, relayOnly.ID)
+	if err != nil {
+		t.Fatalf("GetByID failed: %v", err)
+	}
+	if afterNilUpdate.IsDirectSubEnabled() {
+		t.Fatalf("expected DirectSubEnabled to remain false when nil passed to Update")
+	}
+
+	// 3. Explicit toggle true -> false
+	afterNilUpdate.DirectSubEnabled = &trueVal
+	if err := nodeRepo.Update(ctx, afterNilUpdate); err != nil {
+		t.Fatalf("Update to true failed: %v", err)
+	}
+	afterTrue, _ := nodeRepo.GetByID(ctx, relayOnly.ID)
+	if !afterTrue.IsDirectSubEnabled() {
+		t.Fatalf("expected DirectSubEnabled=true after explicit update")
+	}
+
+	afterTrue.DirectSubEnabled = &falseVal
+	if err := nodeRepo.Update(ctx, afterTrue); err != nil {
+		t.Fatalf("Update back to false failed: %v", err)
+	}
+	afterFalse, _ := nodeRepo.GetByID(ctx, relayOnly.ID)
+	if afterFalse.IsDirectSubEnabled() {
+		t.Fatalf("expected DirectSubEnabled=false after explicit update back to false")
+	}
+
+	// 4. Omitted DirectSubEnabled defaults to true in DB
+	defaultNode := &domain.Node{
+		Name:         "Default Direct Node",
+		Host:         "127.0.0.1",
+		TokenHash:    "8888888888888888888888888888888888888888888888888888888888888882",
+		Enabled:      true,
+		DesiredState: domain.NodeStateActive,
+	}
+	if err := nodeRepo.Create(ctx, defaultNode); err != nil {
+		t.Fatalf("create default node failed: %v", err)
+	}
+	gotDef, _ := nodeRepo.GetByID(ctx, defaultNode.ID)
+	if !gotDef.IsDirectSubEnabled() {
+		t.Fatalf("expected omitted DirectSubEnabled to default to true")
+	}
+}

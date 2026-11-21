@@ -112,6 +112,7 @@ type Node struct {
 	TokenHash          string     `gorm:"type:varchar(64);uniqueIndex;not null" json:"-"`
 	TokenPrefix        string     `gorm:"type:varchar(16);default:''" json:"tokenPrefix"`
 	Enabled            bool       `gorm:"default:true" json:"enabled"`
+	DirectSubEnabled   *bool      `gorm:"column:direct_sub_enabled;default:true" json:"directSubEnabled"`
 	DesiredState       string     `gorm:"type:varchar(32);default:'active'" json:"desiredState"`
 	AutoStateReason    string     `gorm:"type:varchar(64);default:''" json:"autoStateReason"`
 	LastSeenAt         *time.Time `json:"lastSeenAt"`
@@ -149,6 +150,11 @@ type Node struct {
 	CycleUsedBytes     int64  `gorm:"-" json:"cycleUsedBytes"`     // 动态计算当前周期已用计费流量
 	ExpectedConfigHash string `gorm:"-" json:"expectedConfigHash"` // Master 期望节点运行的配置哈希
 	ConfigSyncStatus   string `gorm:"-" json:"configSyncStatus"`   // 动态判定: "synced" | "pending" | "error"
+}
+
+// IsDirectSubEnabled reports whether direct user subscriptions are allowed on this node (defaults to true when nil).
+func (n Node) IsDirectSubEnabled() bool {
+	return n.DirectSubEnabled == nil || *n.DirectSubEnabled
 }
 
 // EffectiveTrafficCountMode returns the normalized traffic count mode (defaults to "both").
@@ -203,6 +209,10 @@ func (n *Node) CalcCycleUsedBytes() int64 {
 func (n *Node) RefreshOnline(now time.Time) {
 	if n == nil {
 		return
+	}
+	if n.DirectSubEnabled == nil {
+		v := true
+		n.DirectSubEnabled = &v
 	}
 	n.CycleUsedBytes = n.CalcCycleUsedBytes()
 	if n.LastSeenAt == nil {
@@ -260,6 +270,7 @@ type CreateNodeDTO struct {
 	Host              string   `json:"host" binding:"required"`
 	Region            string   `json:"region"`
 	Enabled           *bool    `json:"enabled"`
+	DirectSubEnabled  *bool    `json:"directSubEnabled"`
 	DesiredState      string   `json:"desiredState"`
 	Remark            string   `json:"remark"`
 	TrafficLimitBytes *int64   `json:"trafficLimitBytes"`
@@ -283,6 +294,7 @@ type UpdateNodeDTO struct {
 	Host              *string  `json:"host"`
 	Region            *string  `json:"region"`
 	Enabled           *bool    `json:"enabled"`
+	DirectSubEnabled  *bool    `json:"directSubEnabled"`
 	DesiredState      *string  `json:"desiredState"`
 	Remark            *string  `json:"remark"`
 	TrafficLimitBytes *int64   `json:"trafficLimitBytes"`

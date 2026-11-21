@@ -5,8 +5,10 @@ import (
 	"fmt"
 	"net"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
+	"unicode"
 
 	"panel/internal/domain"
 	"panel/internal/pkg/crypto"
@@ -191,14 +193,19 @@ func InboundToNodeConfigWithDefaultFP(inbound *domain.Inbound, user *domain.User
 		return nil
 	}
 
-	remark := inbound.Remark
+	remark := strings.TrimSpace(inbound.Remark)
 	if remark == "" {
-		remark = inbound.Tag
+		remark = strings.TrimSpace(inbound.Tag)
 	}
 
 	node := NewNodeConfig(remark, inbound.Protocol, targetHost, targetPort, effectiveUUID)
 	node.SetParam("tag", inbound.Tag)
-	node.SetParam("remark", inbound.Remark)
+	node.SetParam("remark", remark)
+	node.SetParam("inbound_remark", strings.TrimSpace(inbound.Remark))
+	node.SetParam("route_name", "")
+	node.SetParam("outbound_tag", "")
+	node.SetParam("node_name", "")
+	node.SetParam("node_region", "")
 	node.SetParam("type", network)
 	node.SetParam("security", security)
 
@@ -401,6 +408,11 @@ func InboundsToNodeConfigs(inbounds []domain.Inbound, user *domain.User, hostDom
 
 // InboundsToNodeConfigsWithDefaultFP 无状态转换一组 Inbound 和 User 为 []*NodeConfig，显式传入默认指纹以避免全局状态竞态
 func InboundsToNodeConfigsWithDefaultFP(inbounds []domain.Inbound, user *domain.User, hostDomain string, defaultPort int, tagFilter string, defaultFP string, routeFilter ...uint16) []*NodeConfig {
+	return InboundsToNodeConfigsWithNodes(inbounds, user, hostDomain, defaultPort, tagFilter, defaultFP, nil, routeFilter...)
+}
+
+// InboundsToNodeConfigsWithNodes 无状态转换一组 Inbound 和 User 为 []*NodeConfig，支持注入节点元数据 (node_name/node_region)
+func InboundsToNodeConfigsWithNodes(inbounds []domain.Inbound, user *domain.User, hostDomain string, defaultPort int, tagFilter string, defaultFP string, nodeMap map[uint]domain.Node, routeFilter ...uint16) []*NodeConfig {
 	var targetRoute uint16
 	if len(routeFilter) > 0 {
 		targetRoute = routeFilter[0]
@@ -424,6 +436,15 @@ func InboundsToNodeConfigsWithDefaultFP(inbounds []domain.Inbound, user *domain.
 			continue
 		}
 
+		nodeName := ""
+		nodeRegion := ""
+		if !in.IsLocal() && nodeMap != nil {
+			if managedNode, ok := nodeMap[in.NodeID]; ok {
+				nodeName = strings.TrimSpace(managedNode.Name)
+				nodeRegion = strings.TrimSpace(managedNode.Region)
+			}
+		}
+
 		isVless := in.Protocol == "" || strings.EqualFold(in.Protocol, "vless")
 		subRoutes := in.GetSubRoutes()
 
@@ -433,6 +454,8 @@ func InboundsToNodeConfigsWithDefaultFP(inbounds []domain.Inbound, user *domain.
 				continue
 			}
 			if node := InboundToNodeConfigWithDefaultFP(&in, user, hostDomain, defaultPort, defaultFP); node != nil {
+				node.SetParam("node_name", nodeName)
+				node.SetParam("node_region", nodeRegion)
 				nodes = append(nodes, node)
 			}
 			continue
@@ -443,9 +466,9 @@ func InboundsToNodeConfigsWithDefaultFP(inbounds []domain.Inbound, user *domain.
 			return subRoutes[i].SortOrder < subRoutes[j].SortOrder
 		})
 
-		baseName := in.Remark
+		baseName := strings.TrimSpace(in.Remark)
 		if baseName == "" {
-			baseName = in.Tag
+			baseName = strings.TrimSpace(in.Tag)
 		}
 
 		for _, sr := range subRoutes {
@@ -459,16 +482,21 @@ func InboundsToNodeConfigsWithDefaultFP(inbounds []domain.Inbound, user *domain.
 				continue
 			}
 			tempInbound := in
-			if sr.Name != "" {
-				tempInbound.Remark = sr.Name
-			} else {
-				tempInbound.Remark = fmt.Sprintf("%s - 线路 #%d", baseName, sr.RouteID)
+			effectiveRemark := strings.TrimSpace(sr.Name)
+			if effectiveRemark == "" {
+				effectiveRemark = fmt.Sprintf("%s - 线路 #%d", baseName, sr.RouteID)
 			}
+			tempInbound.Remark = effectiveRemark
 			tempInbound.RouteID = sr.RouteID
 			if node := InboundToNodeConfigWithDefaultFP(&tempInbound, user, hostDomain, defaultPort, defaultFP); node != nil {
-				if sr.Name != "" {
-					node.SetParam("remark", sr.Name)
-				}
+				node.SetParam("remark", effectiveRemark)
+				node.SetParam("inbound_remark", strings.TrimSpace(in.Remark))
+				node.SetParam("route_name", strings.TrimSpace(sr.Name))
+				node.SetParam("outbound_tag", strings.TrimSpace(sr.OutboundTag))
+				node.SetParam("node_name", nodeName)
+				node.SetParam("node_region", nodeRegion)
+				node.SetParam("has_sub_route", "1")
+				node.SetParam("route_id", strconv.Itoa(int(sr.RouteID)))
 				nodes = append(nodes, node)
 			}
 		}
@@ -476,11 +504,71 @@ func InboundsToNodeConfigsWithDefaultFP(inbounds []domain.Inbound, user *domain.
 	return nodes
 }
 
+func stripEmptyBrackets(s string) string {
+	runes := []rune(s)
+	for {
+		changed := false
+		out := make([]rune, 0, len(runes))
+		i := 0
+		for i < len(runes) {
+			var closeCh rune
+			switch runes[i] {
+			case '[':
+				closeCh = ']'
+			case '(':
+				closeCh = ')'
+			case '【':
+				closeCh = '】'
+			}
+			if closeCh != 0 {
+				j := i + 1
+				for j < len(runes) && unicode.IsSpace(runes[j]) {
+					j++
+				}
+				if j < len(runes) && runes[j] == closeCh {
+					i = j + 1
+					changed = true
+					continue
+				}
+			}
+			out = append(out, runes[i])
+			i++
+		}
+		runes = out
+		if !changed {
+			break
+		}
+	}
+	return string(runes)
+}
+
+func trimEdgeSeparators(s string) string {
+	for {
+		trimmed := strings.TrimSpace(s)
+		trimmed = strings.Trim(trimmed, "-|·/")
+		trimmed = strings.TrimSpace(trimmed)
+		if trimmed == s {
+			return trimmed
+		}
+		s = trimmed
+	}
+}
+
+func normalizeRenderedNodeName(raw, fallback string) string {
+	cleaned := stripEmptyBrackets(raw)
+	cleaned = strings.Join(strings.Fields(cleaned), " ")
+	cleaned = trimEdgeSeparators(cleaned)
+	if cleaned == "" {
+		return fallback
+	}
+	return cleaned
+}
+
 // RenderNodeName 根据模板渲染单个节点名称
-// 支持占位符: {remark}, {tag}, {protocol}, {port}, {index}
+// 支持占位符: {remark}, {tag}, {protocol}, {port}, {index}, {region}, {node}, {route}, {outbound}
 func RenderNodeName(template string, node *NodeConfig, index int) string {
-	if template == "" {
-		template = "{remark}"
+	if node == nil {
+		return ""
 	}
 	remark := node.GetParam("remark", node.Name)
 	tag := node.GetParam("tag")
@@ -490,22 +578,46 @@ func RenderNodeName(template string, node *NodeConfig, index int) string {
 	if tag == "" {
 		tag = remark
 	}
+
+	trimmedTmpl := strings.TrimSpace(template)
+	if trimmedTmpl == "" || trimmedTmpl == "{remark}" {
+		if node.Name != "" {
+			return node.Name
+		}
+		return remark
+	}
+
 	protoUpper := strings.ToUpper(node.Protocol)
 	portStr := fmt.Sprintf("%d", node.Port)
 	indexStr := fmt.Sprintf("%d", index)
+	region := strings.TrimSpace(node.GetParam("node_region"))
+	nodeName := strings.TrimSpace(node.GetParam("node_name"))
+	routeName := strings.TrimSpace(node.GetParam("route_name"))
+	outboundTag := strings.TrimSpace(node.GetParam("outbound_tag"))
 
-	res := template
-	res = strings.ReplaceAll(res, "{remark}", remark)
-	res = strings.ReplaceAll(res, "{tag}", tag)
-	res = strings.ReplaceAll(res, "{protocol}", protoUpper)
-	res = strings.ReplaceAll(res, "{port}", portStr)
-	res = strings.ReplaceAll(res, "{index}", indexStr)
-	return res
+	replacer := strings.NewReplacer(
+		"{remark}", remark,
+		"{tag}", tag,
+		"{protocol}", protoUpper,
+		"{port}", portStr,
+		"{index}", indexStr,
+		"{region}", region,
+		"{node}", nodeName,
+		"{route}", routeName,
+		"{outbound}", outboundTag,
+	)
+	res := replacer.Replace(template)
+	fallback := node.Name
+	if fallback == "" {
+		fallback = remark
+	}
+	return normalizeRenderedNodeName(res, fallback)
 }
 
 // ApplyNodeNameTemplate 批量将模板应用到节点列表名称
 func ApplyNodeNameTemplate(nodes []*NodeConfig, template string) {
-	if template == "" || template == "{remark}" {
+	trimmed := strings.TrimSpace(template)
+	if trimmed == "" || trimmed == "{remark}" {
 		return
 	}
 	for i, node := range nodes {
@@ -513,6 +625,38 @@ func ApplyNodeNameTemplate(nodes []*NodeConfig, template string) {
 			continue
 		}
 		node.Name = RenderNodeName(template, node, i+1)
+	}
+}
+
+// DeduplicateNodeNames 仅在节点列表出现重复名称时为后续同名节点追加 " #2"、" #3" 后缀，无重名时保持原样
+func DeduplicateNodeNames(nodes []*NodeConfig) {
+	if len(nodes) < 2 {
+		return
+	}
+	used := make(map[string]bool, len(nodes))
+	for _, n := range nodes {
+		if n != nil && n.Name != "" {
+			used[n.Name] = true
+		}
+	}
+	seen := make(map[string]int, len(nodes))
+	for _, n := range nodes {
+		if n == nil || n.Name == "" {
+			continue
+		}
+		base := n.Name
+		seen[base]++
+		if seen[base] == 1 {
+			continue
+		}
+		suffix := seen[base]
+		candidate := fmt.Sprintf("%s #%d", base, suffix)
+		for used[candidate] {
+			suffix++
+			candidate = fmt.Sprintf("%s #%d", base, suffix)
+		}
+		used[candidate] = true
+		n.Name = candidate
 	}
 }
 

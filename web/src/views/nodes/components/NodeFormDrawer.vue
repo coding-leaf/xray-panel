@@ -2,11 +2,11 @@
   <Drawer
     :model-value="modelValue"
     @update:model-value="emit('update:modelValue', $event)"
-    :title="isEditing ? `编辑节点：${form.name || initialData?.name || ''}` : '新增远端直连节点'"
+    :title="isEditing ? `编辑节点：${form.name || initialData?.name || ''}` : '新增托管节点'"
     :description="
       isEditing
-        ? '更新节点公网接入点、地区前缀与调度状态'
-        : '注册远端直连节点后将生成一次性 Agent Token 与部署脚本'
+        ? '更新托管节点接入点、地区标签、订阅暴露策略与调度状态'
+        : '注册托管节点后将生成一次性 Agent Token 与部署脚本'
     "
     width="w-full sm:max-w-lg"
   >
@@ -14,9 +14,9 @@
       <SectionCard title="① 节点标识与接入点">
         <div class="space-y-3">
           <FormField
-            label="节点名称 (Name)"
+            label="节点标识 (仅后台管理)"
             required
-            hint="用于后台识别与订阅默认前缀（如 jp-tokyo-01）"
+            hint="用于后台识别与节点切换器展示（如 jp-tokyo-01），默认不会拼入用户订阅名"
           >
             <template #default="{ id, describedBy }">
               <Input
@@ -33,7 +33,7 @@
           <FormField
             label="公网 Host / IP"
             required
-            hint="客户端直连地址（当绑定入站未单独指定 ExternalHost 时生效）"
+            hint="节点公网接入地址（供直连或 Master 中转出站连接，当绑定入站未单独指定 ExternalHost 时生效）"
           >
             <template #default="{ id, describedBy }">
               <Input
@@ -49,7 +49,7 @@
 
           <FormField
             label="地区标签 (Region)"
-            hint="可选，订阅导出时将自动附加 [<Region>] 标识前缀"
+            hint="可选，供后台筛选或在命名模板中通过 {region} 引用（默认不强拼入订阅名）"
           >
             <template #default="{ id, describedBy }">
               <Input
@@ -64,8 +64,40 @@
         </div>
       </SectionCard>
 
-      <SectionCard title="② 调度状态与备注">
+      <SectionCard title="② 订阅暴露与调度状态">
         <div class="space-y-3">
+          <label
+            class="flex items-start justify-between gap-3 p-3 rounded-md border cursor-pointer transition-colors"
+            :class="
+              form.directSubEnabled
+                ? 'border-emerald-500/35 bg-emerald-500/5 hover:border-emerald-500/50'
+                : 'border-amber-500/35 bg-amber-500/5 hover:border-amber-500/50'
+            "
+          >
+            <div class="space-y-1">
+              <div class="flex items-center gap-2 flex-wrap">
+                <span class="text-xs font-semibold text-foreground">
+                  对外直连订阅 (directSubEnabled)
+                </span>
+                <Badge :variant="form.directSubEnabled ? 'success' : 'warning'" class="text-[10px]">
+                  {{ form.directSubEnabled ? '直连开放' : '仅中转落地' }}
+                </Badge>
+              </div>
+              <p class="text-[10px] text-muted-foreground leading-relaxed font-mono">
+                {{
+                  form.directSubEnabled
+                    ? '开启：允许此节点下公开订阅的入站进入用户订阅与单节点分享。'
+                    : '关闭：整机锁死为「仅中转落地」，绝不进入任何用户订阅、单节点分享或默认全选（不影响 Master 中转转发、Agent 心跳与流量熔断）。'
+                }}
+              </p>
+            </div>
+            <input
+              type="checkbox"
+              v-model="form.directSubEnabled"
+              class="rounded bg-neutral-900 border-border text-neutral-200 mt-0.5 shrink-0"
+            />
+          </label>
+
           <FormField label="期望调度状态 (Desired State)" :hint="selectedStateDescription">
             <template #default="{ id, describedBy }">
               <select
@@ -260,6 +292,7 @@ import SectionCard from '../../../components/ui/SectionCard.vue'
 import FormField from '../../../components/ui/FormField.vue'
 import Input from '../../../components/ui/Input.vue'
 import Button from '../../../components/ui/Button.vue'
+import Badge from '../../../components/ui/Badge.vue'
 import { createNode, updateNode, type CreateNodeResult, type NodeItem } from '../../../api/nodes'
 import { toast } from '../../../utils/toast'
 import {
@@ -307,6 +340,7 @@ const initForm = () => {
       host: props.initialData.host || '',
       region: props.initialData.region || '',
       enabled: props.initialData.enabled !== false,
+      directSubEnabled: props.initialData.directSubEnabled !== false,
       desiredState: props.initialData.desiredState || 'active',
       trafficLimitGB: limitBytes > 0 ? Number((limitBytes / BYTES_PER_GB).toFixed(2)) : 0,
       billingResetDay: props.initialData.billingResetDay ?? 0,
@@ -401,6 +435,7 @@ const submitForm = async () => {
         host,
         region: form.value.region.trim(),
         enabled: form.value.enabled,
+        directSubEnabled: form.value.directSubEnabled,
         desiredState: form.value.desiredState,
         remark: form.value.remark.trim(),
         ...quotaPayload,
@@ -414,6 +449,7 @@ const submitForm = async () => {
         host,
         region: form.value.region.trim(),
         enabled: form.value.enabled,
+        directSubEnabled: form.value.directSubEnabled,
         desiredState: form.value.desiredState,
         remark: form.value.remark.trim(),
         ...quotaPayload,

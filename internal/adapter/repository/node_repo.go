@@ -36,27 +36,31 @@ func (r *GORMNodeRepository) Create(ctx context.Context, node *domain.Node) erro
 
 // Update persists admin metadata, token credentials, and quota policy without overwriting heartbeat or cycle traffic counters.
 func (r *GORMNodeRepository) Update(ctx context.Context, node *domain.Node) error {
+	updates := map[string]interface{}{
+		"name":                node.Name,
+		"host":                node.Host,
+		"region":              node.Region,
+		"token_hash":          node.TokenHash,
+		"token_prefix":        node.TokenPrefix,
+		"enabled":             node.Enabled,
+		"desired_state":       node.DesiredState,
+		"auto_state_reason":   node.AutoStateReason,
+		"remark":              node.Remark,
+		"traffic_limit_bytes": node.TrafficLimitBytes,
+		"billing_reset_day":   node.BillingResetDay,
+		"traffic_count_mode":  node.TrafficCountMode,
+		"traffic_multiplier":  node.TrafficMultiplier,
+		"warn_threshold_pct":  node.WarnThresholdPct,
+		"drain_threshold_pct": node.DrainThresholdPct,
+		"break_threshold_pct": node.BreakThresholdPct,
+		"updated_at":          node.UpdatedAt,
+	}
+	if node.DirectSubEnabled != nil {
+		updates["direct_sub_enabled"] = *node.DirectSubEnabled
+	}
 	res := r.db.WithContext(ctx).Model(&domain.Node{}).
 		Where("id = ?", node.ID).
-		Updates(map[string]interface{}{
-			"name":                node.Name,
-			"host":                node.Host,
-			"region":              node.Region,
-			"token_hash":          node.TokenHash,
-			"token_prefix":        node.TokenPrefix,
-			"enabled":             node.Enabled,
-			"desired_state":       node.DesiredState,
-			"auto_state_reason":   node.AutoStateReason,
-			"remark":              node.Remark,
-			"traffic_limit_bytes": node.TrafficLimitBytes,
-			"billing_reset_day":   node.BillingResetDay,
-			"traffic_count_mode":  node.TrafficCountMode,
-			"traffic_multiplier":  node.TrafficMultiplier,
-			"warn_threshold_pct":  node.WarnThresholdPct,
-			"drain_threshold_pct": node.DrainThresholdPct,
-			"break_threshold_pct": node.BreakThresholdPct,
-			"updated_at":          node.UpdatedAt,
-		})
+		Updates(updates)
 	if res.Error != nil {
 		return res.Error
 	}

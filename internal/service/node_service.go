@@ -350,6 +350,10 @@ func (s *NodeService) CreateNode(ctx context.Context, dto domain.CreateNodeDTO) 
 	if dto.Enabled != nil {
 		enabled = *dto.Enabled
 	}
+	directSubEnabled := true
+	if dto.DirectSubEnabled != nil {
+		directSubEnabled = *dto.DirectSubEnabled
+	}
 
 	var limitBytes int64
 	if dto.TrafficLimitBytes != nil {
@@ -393,6 +397,7 @@ func (s *NodeService) CreateNode(ctx context.Context, dto domain.CreateNodeDTO) 
 		TokenHash:         hash,
 		TokenPrefix:       prefix,
 		Enabled:           enabled,
+		DirectSubEnabled:  &directSubEnabled,
 		DesiredState:      desiredState,
 		Remark:            strings.TrimSpace(dto.Remark),
 		TrafficLimitBytes: limitBytes,
@@ -452,6 +457,13 @@ func (s *NodeService) UpdateNode(ctx context.Context, id uint, dto domain.Update
 	}
 	if dto.Enabled != nil {
 		node.Enabled = *dto.Enabled
+	}
+	if dto.DirectSubEnabled != nil {
+		v := *dto.DirectSubEnabled
+		node.DirectSubEnabled = &v
+	} else if node.DirectSubEnabled == nil {
+		v := true
+		node.DirectSubEnabled = &v
 	}
 	if dto.DesiredState != nil {
 		state := strings.TrimSpace(*dto.DesiredState)

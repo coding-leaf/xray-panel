@@ -188,14 +188,14 @@ func TestSubService_NodeSortingAndTopInfoNodes(t *testing.T) {
 		// Line 1: Route A1 (Inbound A sortOrder=10, Route sortOrder=1)
 		// Line 2: Route A2 (Inbound A sortOrder=10, Route sortOrder=2)
 		// Line 3: Node B   (Inbound B sortOrder=20)
-		if !strings.Contains(lines[0], "Route+A1") && !strings.Contains(lines[0], "Route A1") {
-			t.Errorf("expected line 1 to be Route A1, got %s", lines[0])
+		if !strings.HasSuffix(lines[0], "#Route%20A1") {
+			t.Errorf("expected line 1 to end with #Route%%20A1, got %s", lines[0])
 		}
-		if !strings.Contains(lines[1], "Route+A2") && !strings.Contains(lines[1], "Route A2") {
-			t.Errorf("expected line 2 to be Route A2, got %s", lines[1])
+		if !strings.HasSuffix(lines[1], "#Route%20A2") {
+			t.Errorf("expected line 2 to end with #Route%%20A2, got %s", lines[1])
 		}
-		if !strings.Contains(lines[2], "Node+B") && !strings.Contains(lines[2], "Node B") {
-			t.Errorf("expected line 3 to be Node B, got %s", lines[2])
+		if !strings.HasSuffix(lines[2], "#Node%20B") {
+			t.Errorf("expected line 3 to end with #Node%%20B, got %s", lines[2])
 		}
 	})
 
@@ -955,14 +955,14 @@ func TestSubService_MultiNodeAggregationAndShareInfo(t *testing.T) {
 		t.Fatalf("expected 3 active nodes (master + jp + sg), got %d:\n%s", len(lines), output)
 	}
 
-	if !strings.Contains(lines[0], "@master.example.com:443") || !strings.Contains(lines[0], "#Master%20Node") {
+	if !strings.Contains(lines[0], "@master.example.com:443") || !strings.HasSuffix(lines[0], "#Master%20Node") {
 		t.Errorf("unexpected master line: %s", lines[0])
 	}
-	if !strings.Contains(lines[1], "@jp1.example.com:443") || !strings.Contains(lines[1], "#%5BJP%5D%20Tokyo%20Direct") {
-		t.Errorf("unexpected jp direct line (expected Node.Host fallback + [JP] prefix): %s", lines[1])
+	if !strings.Contains(lines[1], "@jp1.example.com:443") || !strings.HasSuffix(lines[1], "#Tokyo%20Direct") {
+		t.Errorf("unexpected jp direct line (expected Node.Host fallback + WYSIWYG remark without forced [JP] prefix): %s", lines[1])
 	}
-	if !strings.Contains(lines[2], "@override.example.com:443") || strings.Contains(lines[2], "%5BSG-Edge%5D%20%5BSG-Edge%5D") {
-		t.Errorf("unexpected sg direct line (expected ExternalHost priority + no duplicate prefix): %s", lines[2])
+	if !strings.Contains(lines[2], "@override.example.com:443") || !strings.HasSuffix(lines[2], "#%5BSG-Edge%5D%20Custom%20SG") {
+		t.Errorf("unexpected sg direct line (expected ExternalHost priority + literal remark): %s", lines[2])
 	}
 
 	shareResp, err := svc.GetUserShareInfo(context.Background(), user.ID, "https://panel.example.com")
@@ -975,7 +975,7 @@ func TestSubService_MultiNodeAggregationAndShareInfo(t *testing.T) {
 	if shareResp.Nodes[0].Remark != "Master Node" {
 		t.Errorf("expected master remark 'Master Node', got %q", shareResp.Nodes[0].Remark)
 	}
-	if shareResp.Nodes[1].Remark != "[JP] Tokyo Direct" || !strings.Contains(shareResp.Nodes[1].ShareLink, "@jp1.example.com:443") {
+	if shareResp.Nodes[1].Remark != "Tokyo Direct" || !strings.Contains(shareResp.Nodes[1].ShareLink, "@jp1.example.com:443") {
 		t.Errorf("unexpected jp share node: %+v", shareResp.Nodes[1])
 	}
 	if shareResp.Nodes[2].Remark != "[SG-Edge] Custom SG" || !strings.Contains(shareResp.Nodes[2].ShareLink, "@override.example.com:443") {
@@ -983,7 +983,7 @@ func TestSubService_MultiNodeAggregationAndShareInfo(t *testing.T) {
 	}
 }
 
-func TestSubService_RemoteNodeSubRoutesPrefix(t *testing.T) {
+func TestSubService_RemoteNodeSubRoutesNamingAndCustomTemplate(t *testing.T) {
 	user := &domain.User{
 		ID:          1,
 		Email:       "subroute@example.com",
@@ -1027,43 +1027,85 @@ func TestSubService_RemoteNodeSubRoutesPrefix(t *testing.T) {
 		{ID: 10, Name: "JP-1", Host: "jp1.example.com", Region: "JP", Enabled: true, DesiredState: domain.NodeStateActive},
 		{ID: 11, Name: "SG-1", Host: "sg1.example.com", Region: "SG", Enabled: true, DesiredState: domain.NodeStateActive},
 	}
-	settingRepo := &mockSubSettingRepo{
-		settings: map[string]string{
-			"sub_show_info_nodes": "false",
-		},
-	}
 
-	svc := NewSubService(&mockSubUserRepo{user: user}, &mockSubInboundRepo{inbounds: inbounds}, settingRepo).
-		WithNodeRepo(&mockSubNodeRepo{nodes: nodes})
+	t.Run("default WYSIWYG naming omits forced prefix and deduplicates colliding route names", func(t *testing.T) {
+		settingRepo := &mockSubSettingRepo{
+			settings: map[string]string{
+				"sub_show_info_nodes": "false",
+			},
+		}
+		svc := NewSubService(&mockSubUserRepo{user: user}, &mockSubInboundRepo{inbounds: inbounds}, settingRepo).
+			WithNodeRepo(&mockSubNodeRepo{nodes: nodes})
 
-	_, rawOut, err := svc.ExportUserSubscription(context.Background(), user.SubToken, "", "127.0.0.1:8080", "raw")
-	if err != nil {
-		t.Fatalf("ExportUserSubscription failed: %v", err)
-	}
-	lines := strings.Split(strings.TrimSpace(rawOut), "\n")
-	if len(lines) != 3 {
-		t.Fatalf("expected 3 subroute lines, got %d:\n%s", len(lines), rawOut)
-	}
-	if !strings.Contains(lines[0], "#%5BJP%5D%20") {
-		t.Errorf("expected JP prefix on named SubRoute in ExportUserSubscription, got: %s", lines[0])
-	}
-	if !strings.Contains(lines[1], "#%5BJP%5D%20Tokyo%20VLESS") {
-		t.Errorf("expected JP prefix on unnamed SubRoute in ExportUserSubscription, got: %s", lines[1])
-	}
-	if !strings.Contains(lines[2], "#%5BSG%5D%20") {
-		t.Errorf("expected SG prefix on named SubRoute in ExportUserSubscription, got: %s", lines[2])
-	}
+		_, rawOut, err := svc.ExportUserSubscription(context.Background(), user.SubToken, "", "127.0.0.1:8080", "raw")
+		if err != nil {
+			t.Fatalf("ExportUserSubscription failed: %v", err)
+		}
+		lines := strings.Split(strings.TrimSpace(rawOut), "\n")
+		if len(lines) != 3 {
+			t.Fatalf("expected 3 subroute lines, got %d:\n%s", len(lines), rawOut)
+		}
+		if !strings.HasSuffix(lines[0], "#"+protocol.EscapeRemark("日本原生直连")) {
+			t.Errorf("expected WYSIWYG route 1 name without prefix, got: %s", lines[0])
+		}
+		if !strings.HasSuffix(lines[1], "#"+protocol.EscapeRemark("Tokyo VLESS - 线路 #2")) {
+			t.Errorf("expected WYSIWYG unnamed route fallback without prefix, got: %s", lines[1])
+		}
+		if !strings.HasSuffix(lines[2], "#"+protocol.EscapeRemark("日本原生直连 #2")) {
+			t.Errorf("expected deduplicated duplicate name '日本原生直连 #2', got: %s", lines[2])
+		}
 
-	shareResp, err := svc.GetUserShareInfo(context.Background(), user.ID, "https://panel.example.com")
-	if err != nil {
-		t.Fatalf("GetUserShareInfo failed: %v", err)
-	}
-	if len(shareResp.Nodes) != 3 {
-		t.Fatalf("expected 3 share nodes, got %d", len(shareResp.Nodes))
-	}
-	if shareResp.Nodes[0].Remark != "[JP] 日本原生直连" || shareResp.Nodes[2].Remark != "[SG] 日本原生直连" {
-		t.Errorf("expected distinct prefixed SubRoute remarks, got: %+v", shareResp.Nodes)
-	}
+		shareResp, err := svc.GetUserShareInfo(context.Background(), user.ID, "https://panel.example.com")
+		if err != nil {
+			t.Fatalf("GetUserShareInfo failed: %v", err)
+		}
+		if len(shareResp.Nodes) != 3 {
+			t.Fatalf("expected 3 share nodes, got %d", len(shareResp.Nodes))
+		}
+		if shareResp.Nodes[0].Remark != "日本原生直连" || shareResp.Nodes[1].Remark != "Tokyo VLESS - 线路 #2" || shareResp.Nodes[2].Remark != "日本原生直连 #2" {
+			t.Errorf("expected GetUserShareInfo remarks to match ExportUserSubscription, got: %+v", shareResp.Nodes)
+		}
+	})
+
+	t.Run("custom template [{region}] {remark} applies consistently to subscription and GetUserShareInfo", func(t *testing.T) {
+		settingRepo := &mockSubSettingRepo{
+			settings: map[string]string{
+				"sub_show_info_nodes":    "false",
+				"sub_node_name_template": "[{region}] {remark}",
+			},
+		}
+		svc := NewSubService(&mockSubUserRepo{user: user}, &mockSubInboundRepo{inbounds: inbounds}, settingRepo).
+			WithNodeRepo(&mockSubNodeRepo{nodes: nodes})
+
+		_, rawOut, err := svc.ExportUserSubscription(context.Background(), user.SubToken, "", "127.0.0.1:8080", "raw")
+		if err != nil {
+			t.Fatalf("ExportUserSubscription failed: %v", err)
+		}
+		lines := strings.Split(strings.TrimSpace(rawOut), "\n")
+		if len(lines) != 3 {
+			t.Fatalf("expected 3 subroute lines, got %d:\n%s", len(lines), rawOut)
+		}
+		if !strings.HasSuffix(lines[0], "#"+protocol.EscapeRemark("[JP] 日本原生直连")) {
+			t.Errorf("expected '[JP] 日本原生直连', got: %s", lines[0])
+		}
+		if !strings.HasSuffix(lines[1], "#"+protocol.EscapeRemark("[JP] Tokyo VLESS - 线路 #2")) {
+			t.Errorf("expected '[JP] Tokyo VLESS - 线路 #2', got: %s", lines[1])
+		}
+		if !strings.HasSuffix(lines[2], "#"+protocol.EscapeRemark("[SG] 日本原生直连")) {
+			t.Errorf("expected '[SG] 日本原生直连', got: %s", lines[2])
+		}
+
+		shareResp, err := svc.GetUserShareInfo(context.Background(), user.ID, "https://panel.example.com")
+		if err != nil {
+			t.Fatalf("GetUserShareInfo failed: %v", err)
+		}
+		if len(shareResp.Nodes) != 3 {
+			t.Fatalf("expected 3 share nodes, got %d", len(shareResp.Nodes))
+		}
+		if shareResp.Nodes[0].Remark != "[JP] 日本原生直连" || shareResp.Nodes[1].Remark != "[JP] Tokyo VLESS - 线路 #2" || shareResp.Nodes[2].Remark != "[SG] 日本原生直连" {
+			t.Errorf("expected GetUserShareInfo to apply template identically, got: %+v", shareResp.Nodes)
+		}
+	})
 }
 
 func TestSubService_RemoteInboundExternalPortFallback(t *testing.T) {

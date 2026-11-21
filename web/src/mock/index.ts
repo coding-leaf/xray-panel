@@ -151,7 +151,13 @@ export async function handleMockRequest(url: string, method: string, data?: any)
 
   if (cleanUrl.endsWith('/inbounds') && method === 'POST') {
     const newId = state.inbounds.reduce((max, i) => Math.max(max, i.id || 0), 0) + 1
-    const newInbound = { ...data, id: newId, isAlive: true, latencyMs: 15 }
+    const newInbound = {
+      ...data,
+      subExposed: data?.subExposed !== false,
+      id: newId,
+      isAlive: true,
+      latencyMs: 15,
+    }
     state.inbounds.push(newInbound)
     saveMockState(state)
     return delay(newInbound)
@@ -475,7 +481,23 @@ export async function handleMockRequest(url: string, method: string, data?: any)
     const userInboundTags = (user?.inboundTags || user?.inboundTag || '')
       .split(',')
       .map((s: string) => s.trim())
-    const assignedInbounds = state.inbounds.filter((inb) => userInboundTags.includes(inb.tag))
+    const assignedInbounds = state.inbounds.filter((inb) => {
+      if (!userInboundTags.includes(inb.tag)) return false
+      if (inb.enabled === false || inb.subExposed === false) return false
+      const nid = Number(inb.nodeId || 0)
+      if (nid > 0) {
+        const node = (state.nodes || []).find((n: any) => n.id === nid)
+        if (
+          !node ||
+          node.enabled === false ||
+          node.desiredState !== 'active' ||
+          node.directSubEnabled === false
+        ) {
+          return false
+        }
+      }
+      return true
+    })
 
     for (const inb of assignedInbounds) {
       const proto = (inb.protocol || 'vless').toLowerCase()
@@ -514,20 +536,22 @@ export async function handleMockRequest(url: string, method: string, data?: any)
           })
           for (const sr of enabledSubRoutes) {
             const routeUuid = applyRouteIdToUuid(user?.uuid || 'uuid', sr.routeId)
-            const remark = sr.name || sr.remark || `${inb.tag}-${sr.routeId}`
+            const remark = sr.name || sr.remark || inb.remark || `${inb.tag}-${sr.routeId}`
             links.push(
               `vless://${routeUuid}@${extHost}:${port}?security=reality&sni=www.example.com&fp=chrome&pbk=FMdWD0uS9lrXUAoMmTP5e2LLD-mk8vO8JTZmAE9vdww&sid=0123456789abcdef&type=${network}${flowParam}#${encodeURIComponent(remark)}`
             )
           }
         } else {
+          const displayName = inb.remark || inb.tag
           links.push(
-            `vless://${user?.uuid || 'uuid'}@${extHost}:${port}?security=reality&sni=www.example.com&fp=chrome&pbk=FMdWD0uS9lrXUAoMmTP5e2LLD-mk8vO8JTZmAE9vdww&sid=0123456789abcdef&type=${network}${flowParam}#${encodeURIComponent(inb.tag)}`
+            `vless://${user?.uuid || 'uuid'}@${extHost}:${port}?security=reality&sni=www.example.com&fp=chrome&pbk=FMdWD0uS9lrXUAoMmTP5e2LLD-mk8vO8JTZmAE9vdww&sid=0123456789abcdef&type=${network}${flowParam}#${encodeURIComponent(displayName)}`
           )
         }
       } else if (proto === 'vmess') {
+        const displayName = inb.remark || `${inb.tag} (VMess WS)`
         const vmessObj = {
           v: '2',
-          ps: `${inb.tag} (VMess WS)`,
+          ps: displayName,
           add: extHost,
           port: port,
           id: user?.uuid || 'uuid',
@@ -540,12 +564,14 @@ export async function handleMockRequest(url: string, method: string, data?: any)
         }
         links.push(`vmess://${safeBtoa(JSON.stringify(vmessObj))}`)
       } else if (proto === 'trojan') {
+        const displayName = inb.remark || inb.tag
         links.push(
-          `trojan://${user?.uuid || 'password'}@${extHost}:${port}?security=reality&sni=gateway.icloud.com&fp=chrome&pbk=FMdWD0uS9lrXUAoMmTP5e2LLD-mk8vO8JTZmAE9vdww&sid=0123456789abcdef&type=tcp#${encodeURIComponent(inb.tag)}`
+          `trojan://${user?.uuid || 'password'}@${extHost}:${port}?security=reality&sni=gateway.icloud.com&fp=chrome&pbk=FMdWD0uS9lrXUAoMmTP5e2LLD-mk8vO8JTZmAE9vdww&sid=0123456789abcdef&type=tcp#${encodeURIComponent(displayName)}`
         )
       } else if (proto === 'shadowsocks' || proto === 'ss') {
+        const displayName = inb.remark || inb.tag
         const ssAuth = safeBtoa(`2022-blake3-aes-128-gcm:${user?.uuid || 'password'}`)
-        links.push(`ss://${ssAuth}@${extHost}:${port}#${encodeURIComponent(inb.tag)}`)
+        links.push(`ss://${ssAuth}@${extHost}:${port}#${encodeURIComponent(displayName)}`)
       }
     }
 
@@ -1234,6 +1260,7 @@ export async function handleMockRequest(url: string, method: string, data?: any)
       region: String(data?.region || '').trim(),
       tokenPrefix,
       enabled: data?.enabled !== false,
+      directSubEnabled: data?.directSubEnabled !== false,
       desiredState: data?.desiredState || 'active',
       lastSeenAt: null,
       agentVersion: '',

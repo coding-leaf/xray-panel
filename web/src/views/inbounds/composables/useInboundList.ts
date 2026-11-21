@@ -268,13 +268,14 @@ export function useInboundList() {
       if (!searchQuery.value) return true
       const q = searchQuery.value.toLowerCase().trim()
       const tagMatch = ib.tag?.toLowerCase().includes(q)
+      const remarkMatch = ib.remark?.toLowerCase().includes(q)
       const portMatch = String(ib.port).includes(q) || String(ib.externalPort || '').includes(q)
       const protoMatch = ib.protocol?.toLowerCase().includes(q)
       const hostMatch = ib.externalHost?.toLowerCase().includes(q)
       const nodeNameMatch = ib.nodeId
         ? (nodeMap.value[ib.nodeId]?.name || '').toLowerCase().includes(q)
         : false
-      return tagMatch || portMatch || protoMatch || hostMatch || nodeNameMatch
+      return tagMatch || remarkMatch || portMatch || protoMatch || hostMatch || nodeNameMatch
     })
   })
 

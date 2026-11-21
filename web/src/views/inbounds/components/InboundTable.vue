@@ -10,7 +10,7 @@
             <th
               class="h-9 px-3.5 text-left align-middle font-mono text-[11px] font-medium text-muted-foreground uppercase tracking-wider"
             >
-              节点标识 (Tag)
+              订阅显示名称 / Tag
             </th>
             <th
               class="h-9 px-3.5 text-left align-middle font-mono text-[11px] font-medium text-muted-foreground uppercase tracking-wider"
@@ -57,10 +57,10 @@
             class="border-b border-border/30 transition-colors hover:bg-muted/30 cursor-pointer"
             :class="{ 'bg-muted/20': selectedInbound?.id === inb.id }"
           >
-            <!-- 1. Tag & Remarks -->
+            <!-- 1. Display Name, Tag & Exposure -->
             <td class="p-3.5 align-middle">
               <div class="flex items-center gap-1.5 flex-wrap">
-                <span class="font-mono font-semibold text-foreground text-xs">{{ inb.tag }}</span>
+                <span class="font-semibold text-foreground text-xs">{{ getDisplayName(inb) }}</span>
                 <span
                   v-if="
                     inb.routeId && inb.routeId > 0 && (!inb.subRoutes || inb.subRoutes.length === 0)
@@ -79,11 +79,27 @@
                 <Badge v-else variant="secondary" class="text-[10px]">
                   {{ getNodeBadgeLabel(inb.nodeId) }}
                 </Badge>
+                <Badge v-if="inb.subExposed === false" variant="secondary" class="text-[10px]">
+                  仅内部中转
+                </Badge>
+                <Badge
+                  v-else-if="!isNodeDirectSubDisabled(inb)"
+                  variant="success"
+                  class="text-[10px]"
+                >
+                  公开订阅
+                </Badge>
+                <Badge v-if="isNodeDirectSubDisabled(inb)" variant="warning" class="text-[10px]">
+                  节点仅中转
+                </Badge>
               </div>
               <div
-                class="text-[11px] text-muted-foreground mt-0.5 font-mono truncate max-w-[200px]"
+                class="text-[11px] text-muted-foreground mt-0.5 font-mono truncate max-w-[260px]"
               >
-                {{ inb.listen || '0.0.0.0' }}:{{ inb.port }}
+                <span v-if="inb.remark?.trim() && inb.remark.trim() !== inb.tag">
+                  {{ inb.tag }} ·
+                </span>
+                <span>{{ inb.listen || '0.0.0.0' }}:{{ inb.port }}</span>
               </div>
             </td>
 
@@ -262,12 +278,18 @@
             : 'border-border hover:border-border/80',
         ]"
       >
-        <!-- Card Top Bar: Tag + RouteID + Protocol + Flow + Alive Status -->
+        <!-- Card Top Bar: Display Name + Tag + Exposure + Protocol + Flow + Alive Status -->
         <div class="flex items-center justify-between gap-2 pb-2 border-b border-border/50">
-          <div class="flex items-center gap-1.5 min-w-0">
-            <span class="font-mono font-semibold text-foreground text-xs truncate">{{
-              inb.tag
+          <div class="flex items-center gap-1.5 flex-wrap min-w-0">
+            <span class="font-semibold text-foreground text-xs truncate">{{
+              getDisplayName(inb)
             }}</span>
+            <span
+              v-if="inb.remark?.trim() && inb.remark.trim() !== inb.tag"
+              class="text-[10px] font-mono text-muted-foreground truncate"
+            >
+              ({{ inb.tag }})
+            </span>
             <span
               v-if="
                 inb.routeId && inb.routeId > 0 && (!inb.subRoutes || inb.subRoutes.length === 0)
@@ -288,6 +310,23 @@
             </Badge>
             <Badge v-else variant="secondary" class="shrink-0 text-[10px]">
               {{ getNodeBadgeLabel(inb.nodeId) }}
+            </Badge>
+            <Badge v-if="inb.subExposed === false" variant="secondary" class="shrink-0 text-[10px]">
+              仅内部中转
+            </Badge>
+            <Badge
+              v-else-if="!isNodeDirectSubDisabled(inb)"
+              variant="success"
+              class="shrink-0 text-[10px]"
+            >
+              公开订阅
+            </Badge>
+            <Badge
+              v-if="isNodeDirectSubDisabled(inb)"
+              variant="warning"
+              class="shrink-0 text-[10px]"
+            >
+              节点仅中转
             </Badge>
             <span
               v-if="inb.protocol === 'vless' && getNodeFlow(inb) !== 'none'"
@@ -473,6 +512,16 @@ const emit = defineEmits<{
   (e: 'delete', id: number): void
   (e: 'logs', inb: InboundItem): void
 }>()
+
+const getDisplayName = (inb: InboundItem) => {
+  return inb.remark?.trim() || inb.tag
+}
+
+const isNodeDirectSubDisabled = (inb: InboundItem) => {
+  const nid = Number(inb.nodeId || 0)
+  if (nid <= 0) return false
+  return props.nodeMap?.[nid]?.directSubEnabled === false
+}
 
 const getNodeBadgeLabel = (nodeId?: number) => {
   if (!nodeId || nodeId <= 0) return '本机'

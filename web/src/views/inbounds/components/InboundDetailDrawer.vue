@@ -13,7 +13,10 @@
           <span class="font-mono font-semibold text-foreground text-xs uppercase tracking-wider"
             >节点概览 (Overview)</span
           >
-          <div class="flex items-center gap-1.5">
+          <div class="flex items-center gap-1.5 flex-wrap">
+            <Badge :variant="inbound.subExposed === false ? 'secondary' : 'success'">
+              {{ inbound.subExposed === false ? '仅内部中转' : '公开订阅' }}
+            </Badge>
             <Badge :variant="inbound.isAlive ? 'success' : 'destructive'" :dot="true">
               {{ inbound.isAlive ? `运行正常 (${inbound.latencyMs || 1}ms)` : '端口未响应' }}
             </Badge>
@@ -24,6 +27,12 @@
         </div>
 
         <div class="grid grid-cols-2 sm:grid-cols-3 gap-3 font-mono">
+          <div>
+            <span class="block text-[10px] text-muted-foreground">订阅显示名称</span>
+            <span class="text-foreground font-sans font-semibold">{{
+              inbound.remark?.trim() || inbound.tag
+            }}</span>
+          </div>
           <div>
             <span class="block text-[10px] text-muted-foreground">Tag 标识</span>
             <span class="text-foreground font-semibold">{{ inbound.tag }}</span>

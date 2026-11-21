@@ -8,6 +8,7 @@ export interface NodeFormData {
   host: string
   region: string
   enabled: boolean
+  directSubEnabled: boolean
   desiredState: NodeDesiredState
   trafficLimitGB: number
   billingResetDay: number
@@ -78,6 +79,7 @@ export function getDefaultNodeFormData(): NodeFormData {
     host: '',
     region: '',
     enabled: true,
+    directSubEnabled: true,
     desiredState: 'active',
     trafficLimitGB: 0,
     billingResetDay: 0,

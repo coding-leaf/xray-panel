@@ -45,6 +45,7 @@ export interface InboundItem {
   upBytes?: number
   downBytes?: number
   enabled?: boolean
+  subExposed?: boolean
   createdAt?: string
   updatedAt?: string
   latencyMs?: number
@@ -64,6 +65,7 @@ export interface InboundFormData {
   sortOrder: number
   subRoutes: SubRouteItem[]
   boundUserEmail: string
+  subExposed: boolean
   protocol: string
   vlessFlow: string
   network: string
@@ -146,9 +148,13 @@ export interface InboundPayload {
   streamSettings: string
   sniffingJson: string
   enabled: boolean
+  subExposed: boolean
 }
 
-export function getDefaultInboundFormData(usersList: any[] = []): InboundFormData {
+export function getDefaultInboundFormData(
+  usersList: any[] = [],
+  defaultSubExposed = true
+): InboundFormData {
   return {
     id: 0,
     nodeId: 0,
@@ -160,23 +166,14 @@ export function getDefaultInboundFormData(usersList: any[] = []): InboundFormDat
     externalHost: '',
     routeId: 0,
     sortOrder: 0,
-    subRoutes: [
-      {
-        id: '1',
-        name: '🇯🇵 日本原生直连',
-        routeId: 1,
-        sortOrder: 0,
-        outboundTag: 'direct',
-        enabled: true,
-        allowedUsers: [],
-      },
-    ],
+    subRoutes: [],
     boundUserEmail: '',
+    subExposed: defaultSubExposed,
     protocol: 'vless',
     vlessFlow: 'xtls-rprx-vision',
     network: 'tcp',
     security: 'reality',
-    selectedUserEmails: usersList.map((u) => u.email),
+    selectedUserEmails: defaultSubExposed ? usersList.map((u) => u.email) : [],
     xhttpPath: '/' + Math.random().toString(36).substring(2, 12),
     xhttpMode: 'auto',
     wsPath: '/ws',
@@ -253,6 +250,7 @@ export function sanitizeInboundPayload(raw: InboundFormData): InboundFormData {
     routeId: raw.routeId || 0,
     sortOrder: Number(raw.sortOrder || 0),
     boundUserEmail: (raw.boundUserEmail || '').trim(),
+    subExposed: raw.subExposed !== false,
     protocol: raw.protocol || 'vless',
     network: raw.network || 'tcp',
     security: raw.security || 'none',
@@ -789,5 +787,6 @@ export function buildInboundPayload(raw: InboundFormData, usersList: any[] = [])
     streamSettings: buildStreamSettingsJSON(clean),
     sniffingJson: buildSniffingJSON(clean),
     enabled: true,
+    subExposed: clean.subExposed,
   }
 }

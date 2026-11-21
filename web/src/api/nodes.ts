@@ -11,6 +11,7 @@ export interface NodeItem {
   region: string
   tokenPrefix: string
   enabled: boolean
+  directSubEnabled?: boolean
   desiredState: NodeDesiredState
   lastSeenAt: string | null
   agentVersion: string
@@ -51,6 +52,7 @@ export interface CreateNodePayload {
   host: string
   region?: string
   enabled?: boolean
+  directSubEnabled?: boolean
   desiredState?: NodeDesiredState
   trafficLimitBytes?: number
   billingResetDay?: number
@@ -71,6 +73,7 @@ export interface UpdateNodePayload {
   host?: string
   region?: string
   enabled?: boolean
+  directSubEnabled?: boolean
   desiredState?: NodeDesiredState
   trafficLimitBytes?: number
   billingResetDay?: number

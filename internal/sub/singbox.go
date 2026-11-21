@@ -16,6 +16,13 @@ type SingBoxConfig struct {
 func ExportSingBox(nodes []*protocol.NodeConfig) (string, error) {
 	outbounds := make([]map[string]interface{}, 0, len(nodes)+5)
 	nodeTags := make([]string, 0, len(nodes))
+	usedTags := map[string]bool{
+		"select":  true,
+		"auto":    true,
+		"direct":  true,
+		"block":   true,
+		"dns-out": true,
+	}
 
 	for idx, node := range nodes {
 		if node == nil {
@@ -25,12 +32,22 @@ func ExportSingBox(nodes []*protocol.NodeConfig) (string, error) {
 		if tag == "" {
 			tag = fmt.Sprintf("Node-%d", idx+1)
 		}
+		if usedTags[tag] {
+			suffix := 2
+			candidate := fmt.Sprintf("%s #%d", tag, suffix)
+			for usedTags[candidate] {
+				suffix++
+				candidate = fmt.Sprintf("%s #%d", tag, suffix)
+			}
+			tag = candidate
+		}
 
 		outbound, err := protocol.ToSingBox(node)
 		if err != nil {
 			return "", fmt.Errorf("failed to convert node %s to sing-box outbound: %w", tag, err)
 		}
 		if outbound != nil {
+			usedTags[tag] = true
 			outbound["tag"] = tag
 			outbounds = append(outbounds, outbound)
 			nodeTags = append(nodeTags, tag)

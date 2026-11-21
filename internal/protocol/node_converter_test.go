@@ -867,5 +867,127 @@ func TestNodeConverter_StatelessDefaultFingerprint(t *testing.T) {
 	}
 }
 
+func TestNodeConverter_ExtendedNamingMetadataTemplateAndDeduplication(t *testing.T) {
+	user := &domain.User{
+		Email:       "naming@example.com",
+		UUID:        "7117295b-4362-4260-a133-b969344dfcd5",
+		InboundTags: "master-in,jp-in",
+		Enabled:     true,
+	}
+
+	subRoutesBytes, _ := json.Marshal([]domain.SubRoute{
+		{ID: "r1", Name: "新加坡专线", RouteID: 2, OutboundTag: "to-sg", Enabled: true},
+	})
+
+	inbounds := []domain.Inbound{
+		{
+			ID:             1,
+			NodeID:         0,
+			Tag:            "master-in",
+			Remark:         "主控入口",
+			Protocol:       "vless",
+			Port:           443,
+			ExternalHost:   "master.example.com",
+			SubRoutesJson:  string(subRoutesBytes),
+			StreamSettings: `{"network":"tcp","security":"none"}`,
+			Enabled:        true,
+		},
+		{
+			ID:             2,
+			NodeID:         10,
+			Tag:            "jp-in",
+			Remark:         "日本直连",
+			Protocol:       "vless",
+			Port:           8443,
+			ExternalHost:   "jp.example.com",
+			StreamSettings: `{"network":"tcp","security":"none"}`,
+			Enabled:        true,
+		},
+	}
+
+	nodeMap := map[uint]domain.Node{
+		10: {ID: 10, Name: "jp-tokyo-01", Region: "JP", Host: "jp.example.com"},
+	}
+
+	nodes := protocol.InboundsToNodeConfigsWithNodes(inbounds, user, "master.example.com", 443, "", "chrome", nodeMap)
+	if len(nodes) != 2 {
+		t.Fatalf("expected 2 nodes, got %d", len(nodes))
+	}
+
+	// Verify structured metadata params
+	if nodes[0].GetParam("inbound_remark") != "主控入口" ||
+		nodes[0].GetParam("route_name") != "新加坡专线" ||
+		nodes[0].GetParam("outbound_tag") != "to-sg" ||
+		nodes[0].GetParam("node_name") != "" ||
+		nodes[0].GetParam("node_region") != "" {
+		t.Fatalf("unexpected master subroute params: %+v", nodes[0].Params)
+	}
+	if nodes[1].GetParam("inbound_remark") != "日本直连" ||
+		nodes[1].GetParam("route_name") != "" ||
+		nodes[1].GetParam("outbound_tag") != "" ||
+		nodes[1].GetParam("node_name") != "jp-tokyo-01" ||
+		nodes[1].GetParam("node_region") != "JP" {
+		t.Fatalf("unexpected remote node params: %+v", nodes[1].Params)
+	}
+
+	// Verify metadata params do NOT leak into URI query strings
+	link, err := protocol.FormatLink(nodes[1])
+	if err != nil {
+		t.Fatalf("FormatLink failed: %v", err)
+	}
+	u, err := url.Parse(link)
+	if err != nil {
+		t.Fatalf("url.Parse failed: %v", err)
+	}
+	for _, forbidden := range []string{"tag", "remark", "inbound_remark", "route_name", "outbound_tag", "node_name", "node_region", "has_sub_route", "route_id"} {
+		if u.Query().Has(forbidden) {
+			t.Errorf("internal metadata key %q leaked into URI query: %s", forbidden, link)
+		}
+	}
+
+	// Verify template placeholders and empty-value normalization
+	if got := protocol.RenderNodeName("[{region}] {remark}", nodes[0], 1); got != "新加坡专线" {
+		t.Errorf("expected empty region brackets stripped -> '新加坡专线', got %q", got)
+	}
+	if got := protocol.RenderNodeName("[{region}] {remark}", nodes[1], 2); got != "[JP] 日本直连" {
+		t.Errorf("expected '[JP] 日本直连', got %q", got)
+	}
+	if got := protocol.RenderNodeName("({region}) {remark} | {route} · {outbound}", nodes[1], 2); got != "(JP) 日本直连" {
+		t.Errorf("expected trailing separators stripped -> '(JP) 日本直连', got %q", got)
+	}
+	if got := protocol.RenderNodeName("({region}) {remark} | {node} · ", nodes[0], 1); got != "新加坡专线" {
+		t.Errorf("expected empty parens and trailing separators stripped -> '新加坡专线', got %q", got)
+	}
+	if got := protocol.RenderNodeName("【{region}】 {node} - {outbound} / {route}", nodes[0], 1); got != "to-sg / 新加坡专线" {
+		t.Errorf("expected 'to-sg / 新加坡专线', got %q", got)
+	}
+	// All placeholders empty -> fallback to original node.Name
+	if got := protocol.RenderNodeName("[{region}] {node}", nodes[0], 1); got != "新加坡专线" {
+		t.Errorf("expected empty template result to fall back to '新加坡专线', got %q", got)
+	}
+	// Default template "{remark}" preserves WYSIWYG without mangling leading/trailing chars
+	rawNode := protocol.NewNodeConfig("- Literal Name -", "vless", "127.0.0.1", 443, "uuid")
+	rawNode.SetParam("remark", "- Literal Name -")
+	if got := protocol.RenderNodeName("{remark}", rawNode, 1); got != "- Literal Name -" {
+		t.Errorf("expected default {remark} to preserve literal name, got %q", got)
+	}
+
+	// Verify DeduplicateNodeNames
+	dupNodes := []*protocol.NodeConfig{
+		{Name: "香港"},
+		{Name: "香港"},
+		{Name: "香港 #2"},
+		{Name: "日本"},
+		{Name: "香港"},
+	}
+	protocol.DeduplicateNodeNames(dupNodes)
+	want := []string{"香港", "香港 #3", "香港 #2", "日本", "香港 #4"}
+	for i, w := range want {
+		if dupNodes[i].Name != w {
+			t.Errorf("dupNodes[%d].Name = %q, want %q", i, dupNodes[i].Name, w)
+		}
+	}
+}
+
 
 

@@ -27,7 +27,7 @@
             v-else-if="isRemoteNode"
             class="px-2 py-0.5 rounded text-[10px] font-mono bg-sky-500/10 text-sky-300 border border-sky-500/30"
           >
-            远程节点：{{ activeNode?.name || `#${activeNodeId}` }}
+            托管节点：{{ activeNode?.name || `#${activeNodeId}` }}
           </span>
         </div>
         <p class="text-xs text-muted-foreground mt-0.5">
@@ -63,7 +63,7 @@
           <input
             v-model="searchQuery"
             type="text"
-            placeholder="搜索节点 Tag / 端口 / 协议 / 域名..."
+            placeholder="搜索订阅名称 / Tag / 端口 / 协议 / 域名..."
             class="w-full bg-neutral-950 border border-border text-foreground text-xs rounded-md pl-8 pr-3 h-8 placeholder:text-muted-foreground font-mono focus:outline-none focus:ring-1 focus:ring-ring"
           />
         </div>

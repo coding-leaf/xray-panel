@@ -465,6 +465,7 @@ func (s *ConfigService) syncFromRawJSONLocked(ctx context.Context, rawJSON []byt
 					return fmt.Errorf("update inbound %q failed: %w", tag, err)
 				}
 			} else {
+				newSubExposed := true
 				newIn := &domain.Inbound{
 					Tag:            tag,
 					Port:           port,
@@ -475,6 +476,7 @@ func (s *ConfigService) syncFromRawJSONLocked(ctx context.Context, rawJSON []byt
 					SniffingJSON:   string(sniffingBytes),
 					Remark:         tag,
 					Enabled:        true,
+					SubExposed:     &newSubExposed,
 					CreatedAt:      time.Now(),
 					UpdatedAt:      time.Now(),
 				}
@@ -616,6 +618,10 @@ func (s *ConfigService) ListInbounds(ctx context.Context) ([]domain.Inbound, err
 	var wg sync.WaitGroup
 	for i := range list {
 		ib := &list[i]
+		if ib.SubExposed == nil {
+			v := true
+			ib.SubExposed = &v
+		}
 		if ib.NodeID != 0 {
 			ib.LatencyMs = 0
 			ib.IsAlive = false
@@ -731,6 +737,10 @@ func (s *ConfigService) CreateInbound(ctx context.Context, inbound *domain.Inbou
 	if inbound.Tag == "" {
 		return fmt.Errorf("%w: tag is required", domain.ErrInvalidInput)
 	}
+	if inbound.SubExposed == nil {
+		v := true
+		inbound.SubExposed = &v
+	}
 	if inbound.NodeID != 0 && s.nodeRepo != nil {
 		if _, err := s.nodeRepo.GetByID(ctx, inbound.NodeID); err != nil {
 			return fmt.Errorf("target node %d lookup failed: %w", inbound.NodeID, err)
@@ -763,11 +773,20 @@ func (s *ConfigService) UpdateInbound(ctx context.Context, inbound *domain.Inbou
 
 	var prevNodeID uint
 	hasPrev := false
+	var existing *domain.Inbound
 	if inbound.ID > 0 {
-		if existing, err := s.inboundRepo.GetByID(ctx, inbound.ID); err == nil && existing != nil {
-			prevNodeID = existing.NodeID
+		if ex, err := s.inboundRepo.GetByID(ctx, inbound.ID); err == nil && ex != nil {
+			existing = ex
+			prevNodeID = ex.NodeID
 			hasPrev = true
 		}
+	}
+	if inbound.SubExposed == nil {
+		v := true
+		if existing != nil && existing.SubExposed != nil {
+			v = *existing.SubExposed
+		}
+		inbound.SubExposed = &v
 	}
 
 	if err := s.inboundRepo.Update(ctx, inbound); err != nil {

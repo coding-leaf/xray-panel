@@ -177,3 +177,62 @@ func TestInboundRepository_AddTraffic(t *testing.T) {
 		t.Errorf("expected UpBytes=150, DownBytes=280, got up=%d down=%d", fresh.UpBytes, fresh.DownBytes)
 	}
 }
+
+func TestInboundRepository_SubExposedRoundTrip(t *testing.T) {
+	db := setupTestDB(t)
+	repo := NewInboundRepository(db)
+	ctx := context.Background()
+
+	falseVal := false
+	trueVal := true
+
+	// 1. Explicit false must persist despite gorm default:true
+	internalInb := &domain.Inbound{
+		NodeID:     1,
+		Tag:        "gcp-internal-relay",
+		Port:       20001,
+		Protocol:   "vless",
+		Enabled:    true,
+		SubExposed: &falseVal,
+	}
+	if err := repo.Create(ctx, internalInb); err != nil {
+		t.Fatalf("create inbound failed: %v", err)
+	}
+	got, err := repo.GetByID(ctx, internalInb.ID)
+	if err != nil {
+		t.Fatalf("GetByID failed: %v", err)
+	}
+	if got.SubExposed == nil || *got.SubExposed || got.IsSubExposed() {
+		t.Fatalf("expected SubExposed=false persisted, got ptr=%v val=%v", got.SubExposed, got.IsSubExposed())
+	}
+
+	// 2. Update with nil SubExposed preserves existing false
+	got.SubExposed = nil
+	got.Remark = "Still Internal"
+	if err := repo.Update(ctx, got); err != nil {
+		t.Fatalf("Update with nil SubExposed failed: %v", err)
+	}
+	afterNil, _ := repo.GetByID(ctx, internalInb.ID)
+	if afterNil.IsSubExposed() {
+		t.Fatalf("expected SubExposed to remain false when nil passed to Update")
+	}
+
+	// 3. Explicit toggle true -> false
+	afterNil.SubExposed = &trueVal
+	if err := repo.Update(ctx, afterNil); err != nil {
+		t.Fatalf("Update to true failed: %v", err)
+	}
+	afterTrue, _ := repo.GetByID(ctx, internalInb.ID)
+	if !afterTrue.IsSubExposed() {
+		t.Fatalf("expected SubExposed=true after update")
+	}
+
+	afterTrue.SubExposed = &falseVal
+	if err := repo.Update(ctx, afterTrue); err != nil {
+		t.Fatalf("Update to false failed: %v", err)
+	}
+	afterFalse, _ := repo.GetByID(ctx, internalInb.ID)
+	if afterFalse.IsSubExposed() {
+		t.Fatalf("expected SubExposed=false after update")
+	}
+}

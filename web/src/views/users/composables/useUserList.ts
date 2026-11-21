@@ -1,6 +1,7 @@
 import { ref, computed } from 'vue'
 import api from '../../../api'
 import { batchDeleteUsers as batchDeleteUsersApi } from '../../../api/users'
+import { useActiveNode } from '../../../composables/useActiveNode'
 import { toast } from '../../../utils/toast'
 import type { UserItem } from '../types'
 import { UserSubscriptionService } from '../services/subscription'
@@ -8,6 +9,7 @@ import { UserSubscriptionService } from '../services/subscription'
 export type StatusFilterType = 'all' | 'online' | 'enabled' | 'disabled' | 'expired' | 'overquota'
 
 export function useUserList() {
+  const { loadNodes } = useActiveNode()
   const users = ref<UserItem[]>([])
   const availableInbounds = ref<any[]>([])
   const selectedUserIds = ref<number[]>([])
@@ -125,7 +127,11 @@ export function useUserList() {
   const fetchAll = async () => {
     loading.value = true
     try {
-      const [uRes, inbRes]: any = await Promise.all([api.get('/users'), api.get('/inbounds')])
+      const [uRes, inbRes]: any = await Promise.all([
+        api.get('/users'),
+        api.get('/inbounds'),
+        loadNodes(),
+      ])
       users.value = uRes || []
       availableInbounds.value = inbRes || []
     } catch (err) {

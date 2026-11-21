@@ -22,7 +22,11 @@ func (r *GORMInboundRepository) Create(ctx context.Context, inbound *domain.Inbo
 }
 
 func (r *GORMInboundRepository) Update(ctx context.Context, inbound *domain.Inbound) error {
-	return r.db.WithContext(ctx).Model(inbound).Omit("up_bytes", "down_bytes").Save(inbound).Error
+	omitCols := []string{"up_bytes", "down_bytes"}
+	if inbound.SubExposed == nil {
+		omitCols = append(omitCols, "sub_exposed")
+	}
+	return r.db.WithContext(ctx).Model(inbound).Omit(omitCols...).Save(inbound).Error
 }
 
 func (r *GORMInboundRepository) Delete(ctx context.Context, id uint) error {

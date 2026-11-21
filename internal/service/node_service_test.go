@@ -15,6 +15,7 @@ import (
 	"panel/internal/adapter/repository"
 	"panel/internal/adapter/xray"
 	"panel/internal/domain"
+	"panel/internal/protocol"
 	"panel/internal/service"
 )
 
@@ -1444,5 +1445,241 @@ func TestNodeService_HandleAgentSync_DiskConfigHashDelivery(t *testing.T) {
 	}
 	if respLegacyAgent.ConfigJSON != "" {
 		t.Fatalf("expected empty ConfigJSON for legacy agent omitting DiskConfigHash, got len=%d", len(respLegacyAgent.ConfigJSON))
+	}
+}
+
+func TestNodeService_DualLayerSubExposure_SQLiteAndRelayIsolation(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "dual_layer_exposure.db")
+	db, err := repository.InitSQLite(dbPath)
+	if err != nil {
+		t.Fatalf("InitSQLite failed: %v", err)
+	}
+	if sqlDB, err := db.DB(); err == nil {
+		t.Cleanup(func() { _ = sqlDB.Close() })
+	}
+
+	nodeRepo := repository.NewNodeRepository(db)
+	userRepo := repository.NewUserRepository(db)
+	inboundRepo := repository.NewInboundRepository(db)
+	trafficLogRepo := repository.NewGormTrafficLogRepository(db)
+	snapshotRepo := repository.NewGormConfigSnapshotRepository(db)
+	settingRepo := repository.NewSettingRepository(db)
+
+	compiler := xray.NewXrayCompiler(8080)
+	nodeSvc := service.NewNodeService(nodeRepo, inboundRepo, userRepo, compiler)
+	configPath := filepath.Join(t.TempDir(), "xray_config.json")
+	configMgr := xray.NewConfigManager(configPath, "")
+	configSvc := service.NewConfigService(configMgr, nil, inboundRepo, userRepo, snapshotRepo, compiler).
+		WithNodeCacheInvalidator(nodeSvc)
+	userSvc := service.NewUserService(userRepo, inboundRepo, trafficLogRepo, nil, configSvc).
+		WithNodeCacheInvalidator(nodeSvc)
+	subSvc := service.NewSubService(userRepo, inboundRepo, settingRepo).WithNodeRepo(nodeRepo)
+
+	ctx := context.Background()
+	if err := settingRepo.Set(ctx, "sub_show_info_nodes", "false"); err != nil {
+		t.Fatalf("Set sub_show_info_nodes failed: %v", err)
+	}
+	if err := settingRepo.Set(ctx, "sub_domain", "master.example.com"); err != nil {
+		t.Fatalf("Set sub_domain failed: %v", err)
+	}
+
+	// 1. Create a relay-only remote node (DirectSubEnabled = &false) + a direct remote node (DirectSubEnabled = nil -> &true)
+	falseVal := false
+	relayNode, err := nodeSvc.CreateNode(ctx, domain.CreateNodeDTO{
+		Name:             "gcp-relay-exit",
+		Host:             "127.0.0.10",
+		Region:           "SG",
+		DirectSubEnabled: &falseVal,
+	})
+	if err != nil {
+		t.Fatalf("CreateNode relayNode failed: %v", err)
+	}
+	if relayNode.DirectSubEnabled == nil || *relayNode.DirectSubEnabled || relayNode.IsDirectSubEnabled() {
+		t.Fatalf("expected relayNode DirectSubEnabled=false, got ptr=%v", relayNode.DirectSubEnabled)
+	}
+
+	directNode, err := nodeSvc.CreateNode(ctx, domain.CreateNodeDTO{
+		Name:   "jp-direct-01",
+		Host:   "127.0.0.11",
+		Region: "JP",
+	})
+	if err != nil {
+		t.Fatalf("CreateNode directNode failed: %v", err)
+	}
+	if directNode.DirectSubEnabled == nil || !*directNode.DirectSubEnabled {
+		t.Fatalf("expected directNode DirectSubEnabled=true by default, got ptr=%v", directNode.DirectSubEnabled)
+	}
+
+	// Inject Master local outbound pointing to relayNode (127.0.0.10:20443) so extractStaticRelayClients activates
+	nodeSvc.WithLocalOutboundsProvider(func(context.Context) ([]domain.Outbound, error) {
+		return []domain.Outbound{
+			{
+				Tag:          "to-gcp-sg",
+				Protocol:     "vless",
+				SettingsJSON: `{"vnext":[{"address":"127.0.0.10","port":20443,"users":[{"id":"99999999-9999-4999-8999-999999999999","flow":""}]}]}`,
+			},
+		}, nil
+	})
+
+	// 2. Create inbounds:
+	// - master-public: NodeID=0, SubExposed=true (default)
+	// - master-internal: NodeID=0, SubExposed=&false
+	// - gcp-relay-in: NodeID=relayNode.ID, SubExposed=true (blocked by node DirectSubEnabled=false)
+	// - jp-hidden-in: NodeID=directNode.ID, SubExposed=&false (blocked by inbound SubExposed=false)
+	// - jp-public-in: NodeID=directNode.ID, SubExposed=true
+	inboundsToCreate := []*domain.Inbound{
+		{
+			NodeID:         0,
+			Tag:            "master-public",
+			Remark:         "主控入口",
+			Port:           443,
+			Protocol:       "vless",
+			Enabled:        true,
+			StreamSettings: `{"network":"tcp","security":"none"}`,
+		},
+		{
+			NodeID:         0,
+			Tag:            "master-internal",
+			Remark:         "主控内部",
+			Port:           1443,
+			Protocol:       "vless",
+			Enabled:        true,
+			SubExposed:     &falseVal,
+			StreamSettings: `{"network":"tcp","security":"none"}`,
+		},
+		{
+			NodeID:         relayNode.ID,
+			Tag:            "gcp-relay-in",
+			Remark:         "GCP落地",
+			Port:           20443,
+			Protocol:       "vless",
+			Enabled:        true,
+			StreamSettings: `{"network":"tcp","security":"none"}`,
+		},
+		{
+			NodeID:         directNode.ID,
+			Tag:            "jp-hidden-in",
+			Remark:         "日本隐藏",
+			Port:           21443,
+			Protocol:       "vless",
+			Enabled:        true,
+			SubExposed:     &falseVal,
+			StreamSettings: `{"network":"tcp","security":"none"}`,
+		},
+		{
+			NodeID:         directNode.ID,
+			Tag:            "jp-public-in",
+			Remark:         "日本直连",
+			Port:           22443,
+			Protocol:       "vless",
+			Enabled:        true,
+			StreamSettings: `{"network":"tcp","security":"none"}`,
+		},
+	}
+	for _, ib := range inboundsToCreate {
+		if err := configSvc.CreateInbound(ctx, ib); err != nil {
+			t.Fatalf("CreateInbound %s failed: %v", ib.Tag, err)
+		}
+	}
+
+	// Verify SQLite round-trip via ListInbounds & GetNode
+	listedNodes, err := nodeSvc.ListNodes(ctx)
+	if err != nil {
+		t.Fatalf("ListNodes failed: %v", err)
+	}
+	for _, n := range listedNodes {
+		if n.ID == relayNode.ID && (n.DirectSubEnabled == nil || *n.DirectSubEnabled) {
+			t.Fatalf("SQLite round-trip lost relayNode DirectSubEnabled=false: %+v", n)
+		}
+		if n.ID == directNode.ID && (n.DirectSubEnabled == nil || !*n.DirectSubEnabled) {
+			t.Fatalf("SQLite round-trip lost directNode DirectSubEnabled=true: %+v", n)
+		}
+	}
+	listedInbounds, err := configSvc.ListInbounds(ctx)
+	if err != nil {
+		t.Fatalf("ListInbounds failed: %v", err)
+	}
+	for _, ib := range listedInbounds {
+		if (ib.Tag == "master-internal" || ib.Tag == "jp-hidden-in") && (ib.SubExposed == nil || *ib.SubExposed) {
+			t.Fatalf("SQLite round-trip lost SubExposed=false for %s", ib.Tag)
+		}
+	}
+
+	// 3. Create user authorized on ALL tags (simulating legacy/accidental authorization)
+	user, err := userSvc.CreateUser(ctx, service.CreateUserDTO{
+		Email:       "sub-isolation@example.com",
+		InboundTags: []string{"master-public", "master-internal", "gcp-relay-in", "jp-hidden-in", "jp-public-in"},
+	})
+	if err != nil {
+		t.Fatalf("CreateUser failed: %v", err)
+	}
+
+	// 4. Verify /sub formats (raw, clash, sing-box) ONLY expose master-public & jp-public-in
+	for _, format := range []string{"raw", "clash", "sing-box"} {
+		_, exported, err := subSvc.ExportUserSubscription(ctx, user.SubToken, "", "master.example.com", format)
+		if err != nil {
+			t.Fatalf("ExportUserSubscription(%s) failed: %v", format, err)
+		}
+		if !strings.Contains(exported, "主控入口") && !strings.Contains(exported, protocol.EscapeRemark("主控入口")) {
+			t.Errorf("format %s missing master-public: %s", format, exported)
+		}
+		if !strings.Contains(exported, "日本直连") && !strings.Contains(exported, protocol.EscapeRemark("日本直连")) {
+			t.Errorf("format %s missing jp-public-in: %s", format, exported)
+		}
+		for _, forbidden := range []string{"主控内部", protocol.EscapeRemark("主控内部"), "GCP落地", protocol.EscapeRemark("GCP落地"), "日本隐藏", protocol.EscapeRemark("日本隐藏")} {
+			if strings.Contains(exported, forbidden) {
+				t.Errorf("format %s leaked hidden/relay inbound %q: %s", format, forbidden, exported)
+			}
+		}
+	}
+
+	// 5. Verify GetUserShareInfo ONLY exposes master-public & jp-public-in
+	shareResp, err := subSvc.GetUserShareInfo(ctx, user.ID, "https://master.example.com")
+	if err != nil {
+		t.Fatalf("GetUserShareInfo failed: %v", err)
+	}
+	if len(shareResp.Nodes) != 2 {
+		t.Fatalf("expected exactly 2 share nodes, got %d: %+v", len(shareResp.Nodes), shareResp.Nodes)
+	}
+	if shareResp.Nodes[0].Tag != "master-public" || shareResp.Nodes[1].Tag != "jp-public-in" {
+		t.Fatalf("unexpected share nodes: %+v", shareResp.Nodes)
+	}
+
+	// 6. Verify relayNode (DirectSubEnabled=false) STILL compiles its inbound and receives extractStaticRelayClients!
+	syncResp, err := nodeSvc.HandleAgentSync(ctx, relayNode.ID, &domain.AgentSyncRequest{
+		DiskConfigHash: "missing",
+	})
+	if err != nil {
+		t.Fatalf("HandleAgentSync for relayNode failed: %v", err)
+	}
+	if !strings.Contains(syncResp.ConfigJSON, `"tag": "gcp-relay-in"`) {
+		t.Fatalf("expected relayNode compiled ConfigJSON to contain gcp-relay-in, got:\n%s", syncResp.ConfigJSON)
+	}
+	if !strings.Contains(syncResp.ConfigJSON, "relay-auto:to-gcp-sg@internal") {
+		t.Fatalf("expected relayNode compiled ConfigJSON to contain static relay client relay-auto:to-gcp-sg@internal, got:\n%s", syncResp.ConfigJSON)
+	}
+
+	// Also verify directNode's SubExposed=false inbound is STILL compiled for Xray listening
+	directSyncResp, err := nodeSvc.HandleAgentSync(ctx, directNode.ID, &domain.AgentSyncRequest{
+		DiskConfigHash: "missing",
+	})
+	if err != nil {
+		t.Fatalf("HandleAgentSync for directNode failed: %v", err)
+	}
+	if !strings.Contains(directSyncResp.ConfigJSON, `"tag": "jp-hidden-in"`) {
+		t.Fatalf("expected directNode compiled ConfigJSON to still listen on SubExposed=false inbound jp-hidden-in")
+	}
+
+	// 7. Verify UpdateNode toggling DirectSubEnabled false -> true restores exposure
+	trueVal := true
+	if _, err := nodeSvc.UpdateNode(ctx, relayNode.ID, domain.UpdateNodeDTO{DirectSubEnabled: &trueVal}); err != nil {
+		t.Fatalf("UpdateNode DirectSubEnabled=true failed: %v", err)
+	}
+	shareAfterToggle, err := subSvc.GetUserShareInfo(ctx, user.ID, "https://master.example.com")
+	if err != nil {
+		t.Fatalf("GetUserShareInfo after toggle failed: %v", err)
+	}
+	if len(shareAfterToggle.Nodes) != 3 {
+		t.Fatalf("expected 3 share nodes after enabling DirectSubEnabled on relayNode, got %d: %+v", len(shareAfterToggle.Nodes), shareAfterToggle.Nodes)
 	}
 }

@@ -153,7 +153,7 @@
 
         <div class="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-44 overflow-y-auto p-1">
           <label
-            v-for="inb in availableInbounds"
+            v-for="inb in subscribableInbounds"
             :key="inb.id"
             class="flex items-center gap-2 p-2.5 rounded-md border border-border bg-neutral-950 hover:bg-muted/40 cursor-pointer transition-colors"
             :class="{ 'border-neutral-500 bg-muted/30': form.selectedTags.includes(inb.tag) }"
@@ -164,14 +164,36 @@
               v-model="form.selectedTags"
               class="rounded bg-neutral-900 border-border text-foreground focus:ring-0 cursor-pointer"
             />
-            <div class="min-w-0 font-mono">
-              <div class="text-xs font-semibold text-foreground truncate">{{ inb.tag }}</div>
-              <div class="text-[10px] text-muted-foreground uppercase">
-                {{ inb.protocol }} :{{ inb.port }}
+            <div class="min-w-0 flex-1 font-mono">
+              <div class="flex items-center gap-1.5 min-w-0">
+                <span class="text-xs font-semibold text-foreground truncate">{{
+                  inb.remark?.trim() || inb.tag
+                }}</span>
+                <span
+                  v-if="Number(inb.nodeId || 0) > 0"
+                  class="text-[10px] px-1 py-0.2 rounded bg-cyan-500/10 text-cyan-300 border border-cyan-500/30 shrink-0"
+                >
+                  {{ nodeMap[Number(inb.nodeId)]?.name || `#${inb.nodeId}` }}
+                </span>
+              </div>
+              <div class="text-[10px] text-muted-foreground uppercase truncate">
+                {{ inb.tag }} · {{ inb.protocol }} :{{ inb.port }}
               </div>
             </div>
           </label>
+          <div
+            v-if="!subscribableInbounds.length"
+            class="col-span-full text-center py-3 text-muted-foreground text-[11px] font-mono"
+          >
+            暂无可对外订阅的多用户入站（仅内部中转入站已自动隐藏）
+          </div>
         </div>
+        <p
+          v-if="hiddenInternalCount > 0"
+          class="text-[10px] text-muted-foreground font-mono mt-1.5"
+        >
+          已自动过滤 {{ hiddenInternalCount }} 个仅内部中转入站（不会下发至用户订阅）
+        </p>
       </SectionCard>
 
       <!-- 3. Quota & Lifecycle Policy -->
@@ -382,6 +404,8 @@
 import { ref, computed, watch } from 'vue'
 import { Wand2 } from 'lucide-vue-next'
 import api from '../../../api'
+import type { NodeItem } from '../../../api/nodes'
+import { useActiveNode } from '../../../composables/useActiveNode'
 import { toast } from '../../../utils/toast'
 import { formatDate } from '../../../utils/format'
 import { UserSubscriptionService } from '../services/subscription'
@@ -486,9 +510,35 @@ const addDaysToDateInput = (days: number) => {
   expireDateInput.value = formatDatetimeLocal(target)
 }
 
+const { nodesList, loadNodes } = useActiveNode()
+
+const nodeMap = computed<Record<number, NodeItem>>(() => {
+  const map: Record<number, NodeItem> = {}
+  for (const n of nodesList.value) {
+    map[n.id] = n
+  }
+  return map
+})
+
 const MULTI_USER_PROTOCOLS = ['vless', 'vmess', 'trojan', 'shadowsocks', 'shadowsocks-2022']
 const isMultiUserInbound = (inb: any) =>
   MULTI_USER_PROTOCOLS.includes((inb?.protocol || '').toLowerCase())
+
+const isSubscribableInbound = (inb: any): boolean => {
+  if (!isMultiUserInbound(inb)) return false
+  if (inb?.subExposed === false) return false
+  const nid = Number(inb?.nodeId || 0)
+  if (nid > 0 && nodeMap.value[nid]?.directSubEnabled === false) return false
+  return true
+}
+
+const subscribableInbounds = computed(() => props.availableInbounds.filter(isSubscribableInbound))
+
+const hiddenInternalCount = computed(
+  () =>
+    props.availableInbounds.filter((inb) => isMultiUserInbound(inb) && !isSubscribableInbound(inb))
+      .length
+)
 
 const generateUUID = () => {
   if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
@@ -531,13 +581,16 @@ const resetForm = () => {
     expireMode.value = hasExpire ? 'date' : 'never'
     expireDateInput.value = hasExpire ? formatDatetimeLocal(u.expireTime) : ''
 
+    const subscribableTags = new Set(subscribableInbounds.value.map((i) => i.tag))
+    const rawTags = UserSubscriptionService.getNodeTags(u, props.availableInbounds)
+
     form.value = {
       id: u.id,
       email: u.email,
       uuid: u.uuid || '',
       subToken: u.subToken || '',
       remark: u.remark || '',
-      selectedTags: UserSubscriptionService.getNodeTags(u, props.availableInbounds),
+      selectedTags: rawTags.filter((t) => subscribableTags.has(t)),
       flow: u.flow || '',
       totalGB:
         u.totalBytes > 0 ? Math.max(0.01, parseFloat((u.totalBytes / 1073741824).toFixed(2))) : 0,
@@ -557,7 +610,7 @@ const resetForm = () => {
       uuid: '',
       subToken: '',
       remark: '',
-      selectedTags: props.availableInbounds.filter(isMultiUserInbound).map((i) => i.tag),
+      selectedTags: subscribableInbounds.value.map((i) => i.tag),
       flow: '',
       totalGB: 0,
       expireTime: undefined,
@@ -574,24 +627,28 @@ watch(
   () => props.modelValue,
   (open) => {
     if (open) {
+      if (nodesList.value.length === 0) {
+        void loadNodes().then(() => {
+          const allowed = new Set(subscribableInbounds.value.map((i) => i.tag))
+          form.value.selectedTags = form.value.selectedTags.filter((t) => allowed.has(t))
+        })
+      }
       resetForm()
     }
   },
   { immediate: true }
 )
 
-const multiUserInbounds = computed(() => props.availableInbounds.filter(isMultiUserInbound))
-
 const isAllInboundsSelected = computed(() => {
-  if (!multiUserInbounds.value.length) return false
-  return multiUserInbounds.value.every((i) => form.value.selectedTags.includes(i.tag))
+  if (!subscribableInbounds.value.length) return false
+  return subscribableInbounds.value.every((i) => form.value.selectedTags.includes(i.tag))
 })
 
 const toggleSelectAllInbounds = () => {
   if (isAllInboundsSelected.value) {
     form.value.selectedTags = []
   } else {
-    form.value.selectedTags = multiUserInbounds.value.map((i) => i.tag)
+    form.value.selectedTags = subscribableInbounds.value.map((i) => i.tag)
   }
 }
 

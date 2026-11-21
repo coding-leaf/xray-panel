@@ -14,11 +14,11 @@
       <!-- 1. 基础网络与端口设置 -->
       <SectionCard title="① 基础网络与端口设置">
         <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
-          <FormField label="节点标识 (Tag)" required>
+          <FormField label="入站标识 (Tag)" required>
             <Input v-model="form.tag" type="text" required placeholder="vless-reality" />
           </FormField>
 
-          <FormField label="节点备注 (Remark)" hint="订阅时展示的节点名称">
+          <FormField label="订阅显示名称 (Remark)" hint="客户端看到的节点名，留空回退 Tag">
             <Input v-model="form.remark" type="text" placeholder="例如：🇭🇰 香港 01 BGP" />
           </FormField>
 
@@ -30,27 +30,10 @@
             <Input v-model.number="form.port" type="number" required placeholder="443" />
           </FormField>
 
-          <FormField label="外部公网端口 (External Port)" hint="前置 Nginx 反代或映射端口">
-            <Input v-model.number="form.externalPort" type="number" placeholder="443 (默认443)" />
-          </FormField>
-
-          <FormField label="显示排序权重 (Sort Order)" hint="数值越小越靠前 (默认 0)">
-            <Input v-model.number="form.sortOrder" type="number" placeholder="0" />
-          </FormField>
-
-          <div class="sm:col-span-2">
-            <FormField label="外部域名/IP (External Host)" hint="客户端订阅下发的主机地址">
-              <Input
-                v-model="form.externalHost"
-                type="text"
-                placeholder="留空则继承归属节点 Host 或全局域名"
-              />
-            </FormField>
-          </div>
-
-          <FormField label="归属节点 (Node)" hint="选择本机 Master 或已注册远端直连节点">
+          <FormField label="归属节点 (Node)" hint="选择本机 Master 或已注册托管节点">
             <select
               v-model.number="form.nodeId"
+              @change="onNodeIdChange"
               class="w-full bg-neutral-950 border border-border rounded-md px-3 h-9 text-foreground font-mono focus:outline-none focus:ring-1 focus:ring-ring"
             >
               <option :value="0">0 — 本机 Master (默认)</option>
@@ -59,11 +42,85 @@
               </option>
             </select>
           </FormField>
+
+          <FormField
+            v-if="form.subExposed"
+            label="显示排序权重 (Sort Order)"
+            hint="数值越小越靠前 (默认 0)"
+          >
+            <Input v-model.number="form.sortOrder" type="number" placeholder="0" />
+          </FormField>
+
+          <FormField
+            v-if="form.subExposed"
+            label="外部公网端口 (External Port)"
+            hint="前置 Nginx 反代或映射端口"
+          >
+            <Input v-model.number="form.externalPort" type="number" placeholder="443 (默认443)" />
+          </FormField>
+
+          <div v-if="form.subExposed" class="sm:col-span-2">
+            <FormField label="外部域名/IP (External Host)" hint="客户端订阅下发的主机地址">
+              <Input
+                v-model="form.externalHost"
+                type="text"
+                placeholder="留空则继承归属节点 Host 或全局域名"
+              />
+            </FormField>
+          </div>
+        </div>
+
+        <!-- 对外提供订阅开关 (subExposed) -->
+        <div class="pt-2 space-y-2">
+          <label
+            class="flex items-start justify-between gap-3 p-3 rounded-md border cursor-pointer transition-colors"
+            :class="
+              form.subExposed
+                ? 'border-emerald-500/35 bg-emerald-500/5 hover:border-emerald-500/50'
+                : 'border-amber-500/35 bg-amber-500/5 hover:border-amber-500/50'
+            "
+          >
+            <div class="space-y-1">
+              <div class="flex items-center gap-2 flex-wrap">
+                <span class="text-xs font-semibold text-foreground">
+                  对外提供订阅 (subExposed)
+                </span>
+                <Badge :variant="form.subExposed ? 'success' : 'secondary'" class="text-[10px]">
+                  {{ form.subExposed ? '公开订阅' : '仅内部中转' }}
+                </Badge>
+              </div>
+              <p class="text-[10px] text-muted-foreground leading-relaxed font-mono">
+                {{
+                  form.subExposed
+                    ? '开启：授权用户可通过聚合订阅与单节点分享连接此入站。'
+                    : '关闭：仅作内部中转落地或本地监听，已收起外网订阅/分流/用户授权项，保存时不向任何用户下发。'
+                }}
+              </p>
+            </div>
+            <input
+              type="checkbox"
+              v-model="form.subExposed"
+              @change="onSubExposedChange"
+              class="rounded bg-neutral-900 border-border text-neutral-200 mt-0.5 shrink-0"
+            />
+          </label>
+
+          <div
+            v-if="isSelectedNodeDirectDisabled"
+            class="p-2.5 rounded-md bg-amber-500/10 border border-amber-500/25 text-amber-300 text-[11px] flex items-start gap-2"
+          >
+            <AlertTriangle class="w-3.5 h-3.5 text-amber-400 shrink-0 mt-0.5" />
+            <span>所属节点已锁死为仅中转落地，不对外提供直连订阅</span>
+          </div>
         </div>
 
         <!-- Non-443 Port Alert -->
         <div
-          v-if="(form.externalPort || form.port) !== 443 && form.security === 'reality'"
+          v-if="
+            form.subExposed &&
+            (form.externalPort || form.port) !== 443 &&
+            form.security === 'reality'
+          "
           class="p-2.5 rounded-md bg-amber-500/10 border border-amber-500/20 text-amber-300 text-[11px] flex items-start gap-2"
         >
           <AlertTriangle class="w-3.5 h-3.5 text-amber-400 shrink-0 mt-0.5" />
@@ -740,14 +797,15 @@
       </SectionCard>
 
       <!-- 5. 分流订阅线路 (Sub-Routes) -->
-      <SectionCard v-if="form.protocol === 'vless'">
+      <SectionCard v-if="form.subExposed && form.protocol === 'vless'">
         <template #header>
           <div>
             <span>⑤ 分流订阅线路 (Sub-Routes)</span>
             <p
               class="text-[10px] text-muted-foreground mt-0.5 normal-case tracking-normal font-normal"
             >
-              所有线路共用该入站的单端口与 REALITY 密钥，订阅导出多个节点
+              所有线路共用该入站的单端口与 REALITY
+              密钥；添加分流线路后将按各线路的订阅显示名称导出，替代上方单一入站名称
             </p>
           </div>
         </template>
@@ -801,15 +859,15 @@
                 />
               </div>
 
-              <!-- 线路名称 -->
+              <!-- 订阅显示名称（分流线路） -->
               <div class="flex-1 min-w-[120px]">
                 <label class="block text-[10px] text-muted-foreground mb-1 truncate"
-                  >线路名称</label
+                  >订阅显示名称（分流线路）</label
                 >
                 <input
                   v-model="sr.name"
                   type="text"
-                  placeholder="如 🇯🇵 日本原生直连"
+                  placeholder="如 🇯🇵 日本原生 / 新加坡中转"
                   class="w-full bg-neutral-900 border border-border rounded px-2.5 h-8 text-foreground text-xs focus:outline-none focus:ring-1 focus:ring-ring"
                 />
               </div>
@@ -1055,7 +1113,9 @@
 
       <!-- 6. 关联授权用户 -->
       <SectionCard
-        v-if="['vless', 'vmess', 'trojan', 'shadowsocks'].includes(form.protocol)"
+        v-if="
+          form.subExposed && ['vless', 'vmess', 'trojan', 'shadowsocks'].includes(form.protocol)
+        "
         title="⑥ 关联授权用户 (双向绑定)"
       >
         <template #actions>
@@ -1115,6 +1175,7 @@ import { ref, computed, watch, nextTick, onMounted, onUnmounted } from 'vue'
 import { AlertTriangle, Key, Plus, Search, ChevronDown, Check, Trash2 } from 'lucide-vue-next'
 import Drawer from '../../../components/ui/Drawer.vue'
 import Button from '../../../components/ui/Button.vue'
+import Badge from '../../../components/ui/Badge.vue'
 import Input from '../../../components/ui/Input.vue'
 import FormField from '../../../components/ui/FormField.vue'
 import SectionCard from '../../../components/ui/SectionCard.vue'
@@ -1151,6 +1212,32 @@ const emit = defineEmits<{
 
 const saving = ref(false)
 const form = ref<InboundFormData>(getDefaultInboundFormData([]))
+
+const selectedNode = computed<NodeItem | null>(() => {
+  const nid = Number(form.value.nodeId || 0)
+  if (nid <= 0) return null
+  return (props.nodesList || []).find((n) => n.id === nid) || null
+})
+
+const isSelectedNodeDirectDisabled = computed<boolean>(() => {
+  return Boolean(selectedNode.value && selectedNode.value.directSubEnabled === false)
+})
+
+const onNodeIdChange = () => {
+  if (props.isEditing) return
+  const nextSubExposed = !isSelectedNodeDirectDisabled.value
+  form.value.subExposed = nextSubExposed
+  form.value.selectedUserEmails = nextSubExposed ? props.usersList.map((u) => u.email) : []
+}
+
+const onSubExposedChange = () => {
+  if (props.isEditing) return
+  if (!form.value.subExposed) {
+    form.value.selectedUserEmails = []
+  } else if (form.value.selectedUserEmails.length === 0) {
+    form.value.selectedUserEmails = props.usersList.map((u) => u.email)
+  }
+}
 
 const activeSubRoutePopoverIndex = ref<number | null>(null)
 const subRouteUserSearch = ref('')
@@ -1359,6 +1446,7 @@ const initFormData = () => {
     form.value.routeId = inb.routeId || 0
     form.value.sortOrder = inb.sortOrder || 0
     form.value.boundUserEmail = inb.boundUserEmail || ''
+    form.value.subExposed = inb.subExposed !== false
     form.value.protocol = inb.protocol
 
     let srs: SubRouteItem[] = []
@@ -1595,8 +1683,13 @@ const initFormData = () => {
       ? sniff.ipsExcluded.join(', ')
       : ''
   } else {
-    form.value = getDefaultInboundFormData(props.usersList)
-    form.value.nodeId = props.defaultNodeId !== undefined ? props.defaultNodeId : activeNodeId.value
+    const targetNodeId =
+      props.defaultNodeId !== undefined ? props.defaultNodeId : activeNodeId.value
+    const targetNode =
+      targetNodeId > 0 ? (props.nodesList || []).find((n) => n.id === targetNodeId) || null : null
+    const defaultSubExposed = targetNode ? targetNode.directSubEnabled !== false : true
+    form.value = getDefaultInboundFormData(props.usersList, defaultSubExposed)
+    form.value.nodeId = targetNodeId
     generateRealityKey()
   }
 }
@@ -1642,8 +1735,11 @@ const saveInbound = async () => {
       await api.post('/inbounds', payload)
     }
 
-    // 同步更新用户的 InboundTags 关系
-    if (['vless', 'vmess', 'trojan', 'shadowsocks'].includes(form.value.protocol)) {
+    // 同步更新用户的 InboundTags 关系（仅对外公开订阅的入站允许自动授权用户）
+    if (
+      form.value.subExposed &&
+      ['vless', 'vmess', 'trojan', 'shadowsocks'].includes(form.value.protocol)
+    ) {
       for (const u of props.usersList) {
         const currentTags = (u.inboundTags || u.inboundTag || '')
           .split(',')

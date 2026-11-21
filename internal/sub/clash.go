@@ -55,6 +55,7 @@ func ExportClashWithParams(nodes []*protocol.NodeConfig, params ClashParams) (st
 	proxies := make([]map[string]interface{}, 0, len(nodes))
 	allProxyNames := make([]string, 0, len(nodes))
 	realProxyNames := make([]string, 0, len(nodes))
+	usedNames := make(map[string]bool, len(nodes))
 
 	for idx, node := range nodes {
 		if node == nil {
@@ -63,6 +64,15 @@ func ExportClashWithParams(nodes []*protocol.NodeConfig, params ClashParams) (st
 		name := node.Name
 		if name == "" {
 			name = fmt.Sprintf("Node-%d", idx+1)
+		}
+		if usedNames[name] {
+			suffix := 2
+			candidate := fmt.Sprintf("%s #%d", name, suffix)
+			for usedNames[candidate] {
+				suffix++
+				candidate = fmt.Sprintf("%s #%d", name, suffix)
+			}
+			name = candidate
 		}
 
 		if isClashUnsupportedNode(node) {
@@ -76,6 +86,7 @@ func ExportClashWithParams(nodes []*protocol.NodeConfig, params ClashParams) (st
 			continue
 		}
 		if proxyMap != nil {
+			usedNames[name] = true
 			proxyMap["name"] = name
 			proxies = append(proxies, proxyMap)
 			allProxyNames = append(allProxyNames, name)

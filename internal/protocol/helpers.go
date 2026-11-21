@@ -143,10 +143,14 @@ func BuildNodeQueryParams(node *NodeConfig, extraReserved ...string) url.Values 
 
 	reservedKeys := map[string]bool{
 		"type": true, "security": true, "sni": true, "alpn": true,
-		"fp": true, "allowInsecure": true, "insecure": true,
+		"fp": true, "allowinsecure": true, "insecure": true,
 		"flow": true, "path": true, "mode": true, "host": true,
-		"extra": true, "serviceName": true, "pbk": true, "sid": true,
+		"extra": true, "servicename": true, "pbk": true, "sid": true,
 		"spx": true, "encryption": true,
+		"tag": true, "remark": true, "inbound_remark": true,
+		"route_name": true, "outbound_tag": true,
+		"node_name": true, "node_region": true,
+		"route_id": true, "has_sub_route": true,
 	}
 	for _, k := range extraReserved {
 		reservedKeys[strings.ToLower(strings.TrimSpace(k))] = true

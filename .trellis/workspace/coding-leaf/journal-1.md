@@ -973,3 +973,25 @@ Added real-time synced/pending/error config sync status badges with 1-RTT agent 
 ### Status
 
 [OK] **Completed**
+
+
+## Session 43: Fix xray-agent gRPC user hot-update drift and establish Master SSOT
+<!-- trellis-session: v=2 fp=d1c9a88ba96c75ea -->
+
+**Date**: 2026-11-21
+**Task**: Fix xray-agent gRPC user hot-update drift and establish Master SSOT
+**Branch**: `master`
+
+### Summary
+
+Established Master compiled snapshot as single authoritative source of truth via DiskConfigHash/FullConfigHash, added zero-reload ConfigManager.Persist and SyncStateStore, extended Xray gRPC with GetInboundUsers/GetSysStats for cross-platform runtime drift self-healing, fixed UserSyncer AddUser handler-not-found swallowing, updated backend specs, and verified all Go/race/build gates.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `c1e9715` | fix(agent): enforce Master SSOT disk persistence and Xray gRPC runtime self-healing |
+
+### Status
+
+[OK] **Completed**

@@ -4,6 +4,17 @@
 
 ---
 
+## v2.7.5 (2026-11) - 节点安装弹窗单行一键命令体验升级与 heredoc 防冲突加固
+
+- **首次用户单行一键安装体验 (`web/src/views/nodes/components/NodeTokenModal.vue`)**：
+  - 节点凭据弹窗首屏默认主推单行可粘贴执行的 `curl -fsSL ... | sudo MASTER_URL='...' AGENT_TOKEN='...' bash` 安装命令（自动进行 Shell 单引号安全转义，随 `Master URL` 与一次性 Token 实时更新），底部主按钮改为一键复制单行命令；
+  - 原 70 行完整 systemd 脚本收进默认折叠的「查看完整 systemd 脚本（高级 / 审计）」区域，彻底消除 Windows SSH 终端粘贴多行截断、`exit 1` 踢断会话及嵌套 `EOF` 冲突。
+- **脚本防坑与占位符拦截 (`deploy/install-agent.sh`, `internal/service`)**：
+  - `deploy/install-agent.sh` 新增对 `<YOUR_NODE_TOKEN>` 占位符的显式拦截，避免误写 `/etc/xray-agent/agent.env`；
+  - `RenderInstallScript` 与 `deploy/install-agent.sh` 统一将内部 heredoc 分隔符替换为 `XRAY_AGENT_ENV_EOF` / `XRAY_AGENT_SERVICE_EOF`，同步更新 `README.md` 与单测防回归。
+
+---
+
 ## v2.7.4 (2026-11) - Agent 独立安装脚本、非 root 执行加固与双模式部署文档完善
 
 - **Master 内置安装模板与前端防坑加固 (`internal/service`, `web/`)**：

@@ -4,6 +4,17 @@
 
 ---
 
+## v2.7.4 (2026-11) - Agent 独立安装脚本、非 root 执行加固与双模式部署文档完善
+
+- **Master 内置安装模板与前端防坑加固 (`internal/service`, `web/`)**：
+  - `NodeService.RenderInstallScript` 新增 root 权限前置校验（非 root 执行时明确报错提示使用 `sudo bash`），并保持纯净的 GitHub Releases（`AGENT_BIN_URL`）拉取与 `0600` `/etc/xray-agent/agent.env` 安全契约；
+  - `NodeTokenModal.vue` 优化 `Master URL` 公网有效 HTTPS 入口提示，并在脚本展示区补充 GCP 等非 root 宿主机使用 `sudo bash install-agent.sh` 执行说明。
+- **独立 Agent 部署脚本与双模式文档补全 (`deploy/install-agent.sh`, `README.md`)**：
+  - 新增 `deploy/install-agent.sh`（UTF-8 纯 LF），支持 root 校验、`amd64`/`arm64` 自动识别、GitHub Releases 拉取原子安装以及升级时幂等保留既有 `/etc/xray-agent/agent.env` 凭据；
+  - 完善 `README.md`，补齐 Master `panel` 二进制前置构建说明，新增「多节点 Agent 部署（`xray-agent`）」章节（Master 一键脚本、独立脚本、云主机零 Agent 入站端口说明、全部启动参数表与排障命令）及 `xray-agent` 编译命令。
+
+---
+
 ## v2.7.3 (2026-11) - 远端 Agent 唯一权威配置源、零断流落盘与运行态自愈
 
 - **Master 唯一权威配置源与按需落盘下发 (`internal/domain`, `internal/service`, `internal/agent`)**：

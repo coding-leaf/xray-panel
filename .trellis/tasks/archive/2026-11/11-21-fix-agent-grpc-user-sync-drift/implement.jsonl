@@ -1,0 +1,7 @@
+{"file": ".trellis/tasks/11-21-fix-agent-grpc-user-sync-drift/research/codebase-audit.md", "reason": "Full verified codebase audit, file:line anchors, root causes, static client invariants, and compatibility analysis"}
+{"file": ".trellis/spec/backend/directory-structure.md", "reason": "Backend layering rules and cmd/agent + internal/agent zero-gin/gorm/sqlite dependency isolation"}
+{"file": ".trellis/spec/backend/error-handling.md", "reason": "Error wrapping rules, no silent swallowing, and ignorable Xray gRPC error classification"}
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "Concurrency/race safety, KISS constraints, VLESS flow invariants, and Multi-Node Agent Sync invariants"}
+{"file": ".trellis/spec/backend/logging-guidelines.md", "reason": "slog structured English logging conventions and secret non-leakage rules"}
+{"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "Cross-layer contract alignment across Master HTTP sync, disk config.json, and Xray gRPC runtime"}
+{"file": ".trellis/spec/guides/code-reuse-thinking-guide.md", "reason": "Reuse ConfigManager atomic write/test helpers and Master XrayCompiler as SSOT without duplicating JSON patching"}

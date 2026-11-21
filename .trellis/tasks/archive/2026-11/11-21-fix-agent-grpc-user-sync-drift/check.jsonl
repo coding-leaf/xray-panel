@@ -1,0 +1,6 @@
+{"file": ".trellis/tasks/11-21-fix-agent-grpc-user-sync-drift/research/codebase-audit.md", "reason": "Verify all root causes (D1-D4), static client preservation, and rolling-upgrade compatibility against audit"}
+{"file": ".trellis/spec/backend/directory-structure.md", "reason": "Verify cmd/agent and internal/agent maintain strict dependency isolation"}
+{"file": ".trellis/spec/backend/error-handling.md", "reason": "Verify AddUser vs RemoveUser Xray error handling and zero swallowed errors"}
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "Verify race safety, KISS compliance, VLESS flow handling, and Multi-Node Agent Sync contracts"}
+{"file": ".trellis/spec/backend/logging-guidelines.md", "reason": "Verify structured slog logs contain no secrets/UUIDs/keys"}
+{"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "Verify Master <-> Agent protocol compatibility and disk/runtime convergence invariants"}

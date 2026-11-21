@@ -1,0 +1,12 @@
+{"file": ".trellis/tasks/11-21-node-config-consolidation/research/node-config-audit.md", "reason": "Verified codebase audit of naming pipeline, remote exposure leakage, relay pairing, and UI scatter"}
+{"file": ".trellis/spec/backend/index.md", "reason": "Backend Clean Architecture layering and version contracts"}
+{"file": ".trellis/spec/backend/database-guidelines.md", "reason": "SQLite WAL and GORM AutoMigrate backward-compatible schema evolution"}
+{"file": ".trellis/spec/backend/directory-structure.md", "reason": "Domain/service/protocol/sub boundary ownership"}
+{"file": ".trellis/spec/backend/error-handling.md", "reason": "Explicit error propagation and domain error mapping"}
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "KISS discipline, concurrency safety, and unit test standards"}
+{"file": ".trellis/spec/frontend/index.md", "reason": "Vue 3 flat architecture without Pinia and Vite embed contract"}
+{"file": ".trellis/spec/frontend/api-and-dataflow.md", "reason": "Axios API DTOs and web/src/mock synchronization"}
+{"file": ".trellis/spec/frontend/components-and-routing.md", "reason": "Vue SFC conventions, UI primitives, and nodeScoped routing"}
+{"file": ".trellis/spec/frontend/quality-guidelines.md", "reason": "Frontend typecheck, lint, and build quality gates"}
+{"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "DB -> Domain -> Service -> Protocol -> HTTP -> Vue cross-layer field consistency"}
+{"file": ".trellis/spec/guides/code-reuse-thinking-guide.md", "reason": "Unify ExportUserSubscription and GetUserShareInfo naming/filtering logic"}

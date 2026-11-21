@@ -1,0 +1,6 @@
+{"file": ".trellis/tasks/11-21-node-config-consolidation/research/node-config-audit.md", "reason": "Cross-check all identified naming bugs, exposure leaks, and UI terminology inconsistencies are resolved"}
+{"file": ".trellis/spec/backend/database-guidelines.md", "reason": "Verify *bool GORM AutoMigrate and false round-trip persistence"}
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "Verify backend unit tests, vet, build, and KISS simplicity"}
+{"file": ".trellis/spec/frontend/quality-guidelines.md", "reason": "Verify typecheck, lint, build, and mock parity"}
+{"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "Verify JSON keys directSubEnabled/subExposed and placeholder templates match across Go and Vue"}
+{"file": ".trellis/spec/guides/review-3pass-guide.md", "reason": "3-Pass quality verification before sign-off"}

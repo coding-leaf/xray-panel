@@ -36,6 +36,31 @@ func (a *XrayGRPCAdapter) Probe(ctx context.Context) error {
 	return err
 }
 
+// GetSysUptime queries Xray process uptime in seconds via StatsService.GetSysStats.
+func (a *XrayGRPCAdapter) GetSysUptime(ctx context.Context) (uint32, error) {
+	return a.client.GetSysUptime(ctx)
+}
+
+// GetInboundUsers queries live dynamic and static users currently registered on inboundTag.
+func (a *XrayGRPCAdapter) GetInboundUsers(ctx context.Context, inboundTag string) ([]RemoteUser, error) {
+	runtimeUsers, err := a.client.GetInboundUsers(ctx, inboundTag)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]RemoteUser, 0, len(runtimeUsers))
+	for _, ru := range runtimeUsers {
+		out = append(out, RemoteUser{
+			InboundTag: ru.InboundTag,
+			Protocol:   ru.Protocol,
+			Email:      ru.Email,
+			UUID:       ru.UUID,
+			Flow:       ru.Flow,
+			Method:     ru.Method,
+		})
+	}
+	return out, nil
+}
+
 // AddUser adds a user credential to the target Xray inbound via gRPC.
 func (a *XrayGRPCAdapter) AddUser(ctx context.Context, user RemoteUser) error {
 	streamSettings := ""

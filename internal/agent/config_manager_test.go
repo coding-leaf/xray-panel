@@ -298,3 +298,74 @@ func TestConfigManager_ReloadAndProbe(t *testing.T) {
 		}
 	})
 }
+
+func TestConfigManager_Persist_HashAndInspect(t *testing.T) {
+	dir := t.TempDir()
+	cfgPath := filepath.Join(dir, "config.json")
+
+	runner := &fakeCommandRunner{}
+	prober := &fakeHealthProber{}
+	mgr, err := NewConfigManager(ConfigManagerConfig{
+		XrayBin:    "xray",
+		ConfigPath: cfgPath,
+	}, runner, prober)
+	if err != nil {
+		t.Fatalf("NewConfigManager: %v", err)
+	}
+
+	// Missing config.json -> HashCurrentConfig returns "missing".
+	h, err := mgr.HashCurrentConfig()
+	if err != nil || h != "missing" {
+		t.Fatalf("expected hash='missing' err=nil, got hash=%q err=%v", h, err)
+	}
+
+	// Persist valid config -> runs xray -test, writes config.json, 0 systemctl reloads, 0 probes.
+	cfgV1 := `{"inbounds":[{"tag":"api","protocol":"dokodemo-door"},{"tag":"vless-1","protocol":"vless","settings":{"clients":[{"id":"u1","email":"alice@example.com"},{"id":"r1","email":"relay-auto:to-us@internal"}]}},{"tag":"trojan-1","protocol":"trojan","settings":{"clients":[{"password":"p1","email":"trojan-1@trojan.local"}]}}]}`
+	if err := mgr.Persist(context.Background(), cfgV1); err != nil {
+		t.Fatalf("Persist v1 failed: %v", err)
+	}
+
+	for _, c := range runner.calls {
+		if c.name == "systemctl" {
+			t.Fatalf("Persist must NOT invoke systemctl reload, got call: %+v", c)
+		}
+	}
+	if prober.calls != 0 {
+		t.Fatalf("Persist must NOT call prober, got %d", prober.calls)
+	}
+	got, _ := os.ReadFile(cfgPath)
+	if string(got) != cfgV1 {
+		t.Fatalf("unexpected persisted config: %s", string(got))
+	}
+
+	h1, err := mgr.HashCurrentConfig()
+	if err != nil || h1 == "" || h1 == "missing" {
+		t.Fatalf("unexpected hash after Persist: %q err=%v", h1, err)
+	}
+
+	inbounds, err := mgr.InspectConfigInbounds()
+	if err != nil {
+		t.Fatalf("InspectConfigInbounds failed: %v", err)
+	}
+	if len(inbounds) != 3 {
+		t.Fatalf("expected 3 inbounds, got %+v", inbounds)
+	}
+	if len(inbounds[1].StaticEmails) != 1 || inbounds[1].StaticEmails[0] != "relay-auto:to-us@internal" {
+		t.Fatalf("expected relay static email in vless-1, got %+v", inbounds[1])
+	}
+	if len(inbounds[2].StaticEmails) != 1 || inbounds[2].StaticEmails[0] != "trojan-1@trojan.local" {
+		t.Fatalf("expected trojan static email in trojan-1, got %+v", inbounds[2])
+	}
+
+	// If xray -test fails during Persist, original config.json must stay untouched.
+	runner.fn = func(ctx context.Context, name string, args ...string) ([]byte, error) {
+		return []byte("bad config"), errors.New("exit status 23")
+	}
+	if err := mgr.Persist(context.Background(), `{"broken":true}`); err == nil {
+		t.Fatalf("expected Persist to fail when xray -test fails")
+	}
+	gotAfterFail, _ := os.ReadFile(cfgPath)
+	if string(gotAfterFail) != cfgV1 {
+		t.Fatalf("expected config.json preserved on Persist failure, got %s", string(gotAfterFail))
+	}
+}

@@ -70,6 +70,8 @@
    - 原生应用层代理与端口转发协议（`socks`、`http`、`dokodemo-door`）在 Xray-core 中**未实现** `UserManager`，调用 `AlterInbound` 必返回 `rpc error: code = Unknown desc = app/proxyman/command: proxy is not a UserManager`；
    - 在 `XrayManager.AddUser` / `RemoveUser` 入口必须先通过 `domain.SupportsDynamicUser(inbound.Protocol)` 检查，对不支持动态用户管理的协议直接静默短路返回 `nil`；同时在 `isXrayIgnorableRemoveError` / `isXrayIgnorableAddUserError` 中将 `not a usermanager` 与 `does not support dynamic account operations` 纳入良性可忽略范畴，严禁因此触发用户保存回滚；
    - 当用户的唯一身份标识（`Email` 或 `UUID`）发生修改时，`UserService.UpdateUser` 必须先以旧快照 `oldSnapshot.Email` 调用 `RemoveUser` 精确卸载旧凭据，再注入新凭据，并同步更新所有入站 `SubRoute.AllowedUsers` 白名单中的邮箱引用。
+10. **Agent `UserSyncer` 增删错误边界严禁混用**：
+   - `internal/agent/user_sync.go` 必须将 `isIgnorableAddUserError` 与 `isIgnorableRemoveUserError` 严格分离：`RemoveUser` 可幂等忽略 `not found` / `handler not found`，但 `AddUser` **严禁忽略** `handler not found` / `failed to get handler` / `not found`（仅允许幂等忽略 `already exists` 与非 `UserManager` 协议错误），遇到缺失 handler 必须返回 `ErrInboundHandlerMissing` 触发结构恢复，绝不可将失败用户写入 `applied` 或推进 `usersHash`。
 
 ---
 

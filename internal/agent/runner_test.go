@@ -2,6 +2,8 @@ package agent
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -1011,5 +1013,613 @@ func TestRunner_OnDemandGeoDataUpdate_NonBlockingFallbackAndCancel(t *testing.T)
 		}
 	case <-time.After(2 * time.Second):
 		t.Fatal("Run did not exit cleanly after ctx cancel (possible goroutine leak)")
+	}
+}
+
+func TestRunner_FailRepro_HotUpdatePersistsDiskConfig(t *testing.T) {
+	cfgV1 := `{"inbounds":[{"tag":"vless-1","protocol":"vless","settings":{"clients":[{"id":"u1","email":"alice@example.com"}]}}]}`
+	cfgV2 := `{"inbounds":[{"tag":"vless-1","protocol":"vless","settings":{"clients":[{"id":"u1","email":"alice@example.com"},{"id":"u2","email":"bob@example.com"}]}}]}`
+
+	var mu sync.Mutex
+	step := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var req SyncRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+		if req.HostMetrics == nil && req.TrafficBatch == nil {
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(SyncResponse{
+				OK:              true,
+				DesiredState:    DesiredStateActive,
+				SyncIntervalSec: 60,
+				ConfigHash:      "cfg-v1",
+				UsersHash:       req.UsersHash,
+				ConfigUnchanged: true,
+				UsersUnchanged:  true,
+			})
+			return
+		}
+
+		mu.Lock()
+		step++
+		curStep := step
+		mu.Unlock()
+
+		w.Header().Set("Content-Type", "application/json")
+		switch curStep {
+		case 1:
+			_ = json.NewEncoder(w).Encode(SyncResponse{
+				OK:              true,
+				DesiredState:    DesiredStateActive,
+				SyncIntervalSec: 60,
+				ConfigHash:      "cfg-v1",
+				UsersHash:       "usr-v1",
+				ConfigUnchanged: false,
+				UsersUnchanged:  false,
+				ConfigJSON:      cfgV1,
+				Users:           []RemoteUser{{InboundTag: "vless-1", Protocol: "vless", Email: "alice@example.com", UUID: "u1"}},
+			})
+		default:
+			_ = json.NewEncoder(w).Encode(SyncResponse{
+				OK:              true,
+				DesiredState:    DesiredStateActive,
+				SyncIntervalSec: 60,
+				ConfigHash:      "cfg-v1",
+				UsersHash:       "usr-v2",
+				ConfigUnchanged: true,
+				UsersUnchanged:  false,
+				ConfigJSON:      cfgV2,
+				Users: []RemoteUser{
+					{InboundTag: "vless-1", Protocol: "vless", Email: "alice@example.com", UUID: "u1"},
+					{InboundTag: "vless-1", Protocol: "vless", Email: "bob@example.com", UUID: "u2"},
+				},
+			})
+		}
+	}))
+	defer srv.Close()
+
+	dir := t.TempDir()
+	cfgPath := filepath.Join(dir, "config.json")
+	client, _ := NewClient(srv.URL, "tok", srv.Client())
+	spool, _ := NewSpool(filepath.Join(dir, "spool"))
+	cmdRunner := &fakeCommandRunner{}
+	cfgMgr, _ := NewConfigManager(ConfigManagerConfig{
+		ConfigPath:    cfgPath,
+		ProbeTimeout:  200 * time.Millisecond,
+		ProbeInterval: 10 * time.Millisecond,
+	}, cmdRunner, &fakeHealthProber{})
+	userCtrl := &fakeUserController{}
+	userSync, _ := NewUserSyncer(userCtrl)
+
+	runner, err := NewRunner(RunnerConfig{AgentVersion: "0.1.0"}, client, spool, cfgMgr, userSync, nil, NewMetricsCollector())
+	if err != nil {
+		t.Fatalf("NewRunner: %v", err)
+	}
+
+	if err := runner.SyncOnce(context.Background()); err != nil {
+		t.Fatalf("step 1 SyncOnce failed: %v", err)
+	}
+	if err := runner.SyncOnce(context.Background()); err != nil {
+		t.Fatalf("step 2 SyncOnce failed: %v", err)
+	}
+
+	reloadCount := 0
+	for _, c := range cmdRunner.calls {
+		if c.name == "systemctl" {
+			reloadCount++
+		}
+	}
+	if reloadCount != 1 {
+		t.Fatalf("expected exactly 1 reload (zero reloads on user-only update), got %d", reloadCount)
+	}
+
+	diskBytes, err := os.ReadFile(cfgPath)
+	if err != nil {
+		t.Fatalf("read disk config.json: %v", err)
+	}
+	if string(diskBytes) != cfgV2 {
+		t.Fatalf("disk config.json did not persist hot-updated users; got %s, want %s", string(diskBytes), cfgV2)
+	}
+}
+
+type statefulRuntimeCtrl struct {
+	mu           sync.Mutex
+	uptime       uint32
+	usersByTag   map[string]map[string]RemoteUser
+	missingTags  map[string]bool
+	addCalls     int
+	removeCalls  int
+}
+
+func newStatefulRuntimeCtrl() *statefulRuntimeCtrl {
+	return &statefulRuntimeCtrl{
+		uptime:      100,
+		usersByTag:  make(map[string]map[string]RemoteUser),
+		missingTags: make(map[string]bool),
+	}
+}
+
+func (s *statefulRuntimeCtrl) GetSysUptime(_ context.Context) (uint32, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.uptime, nil
+}
+
+func (s *statefulRuntimeCtrl) GetInboundUsers(_ context.Context, inboundTag string) ([]RemoteUser, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.missingTags[inboundTag] {
+		return nil, errors.New("rpc error: code = Unknown desc = app/proxyman/command: handler not found: " + inboundTag)
+	}
+	m := s.usersByTag[inboundTag]
+	out := make([]RemoteUser, 0, len(m))
+	for _, u := range m {
+		out = append(out, u)
+	}
+	return out, nil
+}
+
+func (s *statefulRuntimeCtrl) AddUser(_ context.Context, user RemoteUser) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.missingTags[user.InboundTag] {
+		return errors.New("rpc error: code = Unknown desc = app/proxyman/command: handler not found: " + user.InboundTag)
+	}
+	if s.usersByTag[user.InboundTag] == nil {
+		s.usersByTag[user.InboundTag] = make(map[string]RemoteUser)
+	}
+	s.usersByTag[user.InboundTag][user.Email] = user
+	s.addCalls++
+	return nil
+}
+
+func (s *statefulRuntimeCtrl) RemoveUser(_ context.Context, inboundTag, email string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.usersByTag[inboundTag] != nil {
+		delete(s.usersByTag[inboundTag], email)
+	}
+	s.removeCalls++
+	return nil
+}
+
+func (s *statefulRuntimeCtrl) seedFromDiskConfig(cfgJSON string) {
+	var doc struct {
+		Inbounds []struct {
+			Tag      string `json:"tag"`
+			Protocol string `json:"protocol"`
+			Settings struct {
+				Clients []struct {
+					ID       string `json:"id"`
+					Password string `json:"password"`
+					Flow     string `json:"flow"`
+					Email    string `json:"email"`
+				} `json:"clients"`
+			} `json:"settings"`
+		} `json:"inbounds"`
+	}
+	if err := json.Unmarshal([]byte(cfgJSON), &doc); err != nil {
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.usersByTag = make(map[string]map[string]RemoteUser)
+	for _, ib := range doc.Inbounds {
+		if ib.Tag == "" || ib.Tag == "api" {
+			continue
+		}
+		m := make(map[string]RemoteUser)
+		for _, cl := range ib.Settings.Clients {
+			uid := cl.ID
+			if uid == "" {
+				uid = cl.Password
+			}
+			m[cl.Email] = RemoteUser{
+				InboundTag: ib.Tag,
+				Protocol:   ib.Protocol,
+				Email:      cl.Email,
+				UUID:       uid,
+				Flow:       cl.Flow,
+			}
+		}
+		s.usersByTag[ib.Tag] = m
+	}
+}
+
+func sha256HexForTest(s string) string {
+	sum := sha256.Sum256([]byte(s))
+	return hex.EncodeToString(sum[:])
+}
+
+func TestRunner_XrayRestartSelfHealing_And_AgentRestartZeroReload(t *testing.T) {
+	cfgV1 := `{"inbounds":[{"tag":"api","protocol":"dokodemo-door"},{"tag":"vless-1","protocol":"vless","settings":{"clients":[{"id":"u1","email":"alice@example.com"},{"id":"relay-1","email":"relay-auto:to-us@internal"}]}}]}`
+	cfgV2 := `{"inbounds":[{"tag":"api","protocol":"dokodemo-door"},{"tag":"vless-1","protocol":"vless","settings":{"clients":[{"id":"u1","email":"alice@example.com"},{"id":"u2","email":"bob@example.com"},{"id":"relay-1","email":"relay-auto:to-us@internal"}]}}]}`
+
+	var masterMu sync.Mutex
+	curConfigHash := "cfg-v1"
+	curUsersHash := "usr-v1"
+	curConfigJSON := cfgV1
+	curFullHash := sha256HexForTest(cfgV1)
+	curUsers := []RemoteUser{
+		{InboundTag: "vless-1", Protocol: "vless", Email: "alice@example.com", UUID: "u1"},
+	}
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var req SyncRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+		masterMu.Lock()
+		defer masterMu.Unlock()
+
+		configUnchanged := req.ConfigHash != "" && req.ConfigHash == curConfigHash
+		usersUnchanged := req.UsersHash != "" && req.UsersHash == curUsersHash
+		diskStale := req.DiskConfigHash != "" && req.DiskConfigHash != curFullHash
+
+		resp := SyncResponse{
+			OK:              true,
+			DesiredState:    DesiredStateActive,
+			SyncIntervalSec: 60,
+			ConfigHash:      curConfigHash,
+			UsersHash:       curUsersHash,
+			ConfigUnchanged: configUnchanged,
+			UsersUnchanged:  usersUnchanged,
+		}
+		if !configUnchanged || diskStale {
+			resp.ConfigJSON = curConfigJSON
+		}
+		if !usersUnchanged {
+			resp.Users = curUsers
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(resp)
+	}))
+	defer srv.Close()
+
+	dir := t.TempDir()
+	cfgPath := filepath.Join(dir, "config.json")
+	spoolDir := filepath.Join(dir, "spool")
+
+	ctrl := newStatefulRuntimeCtrl()
+	cmdRunner := &fakeCommandRunner{
+		fn: func(ctx context.Context, name string, args ...string) ([]byte, error) {
+			if name == "systemctl" {
+				raw, err := os.ReadFile(cfgPath)
+				if err == nil {
+					ctrl.seedFromDiskConfig(string(raw))
+				}
+			}
+			return []byte("ok"), nil
+		},
+	}
+
+	client, _ := NewClient(srv.URL, "tok", srv.Client())
+	spool, _ := NewSpool(spoolDir)
+	cfgMgr, _ := NewConfigManager(ConfigManagerConfig{
+		ConfigPath:    cfgPath,
+		ProbeTimeout:  200 * time.Millisecond,
+		ProbeInterval: 10 * time.Millisecond,
+	}, cmdRunner, &fakeHealthProber{})
+	userSync, _ := NewUserSyncer(ctrl)
+
+	runner, err := NewRunner(RunnerConfig{AgentVersion: "1.0.0"}, client, spool, cfgMgr, userSync, nil, NewMetricsCollector())
+	if err != nil {
+		t.Fatalf("NewRunner: %v", err)
+	}
+
+	// 1. Initial sync -> Apply (reload #1).
+	if err := runner.SyncOnce(context.Background()); err != nil {
+		t.Fatalf("step 1 SyncOnce: %v", err)
+	}
+
+	// 2. User added on Master -> ConfigUnchanged=true, Persist writes cfgV2 (0 reloads!), gRPC adds bob.
+	masterMu.Lock()
+	curUsersHash = "usr-v2"
+	curConfigJSON = cfgV2
+	curFullHash = sha256HexForTest(cfgV2)
+	curUsers = []RemoteUser{
+		{InboundTag: "vless-1", Protocol: "vless", Email: "alice@example.com", UUID: "u1"},
+		{InboundTag: "vless-1", Protocol: "vless", Email: "bob@example.com", UUID: "u2"},
+	}
+	masterMu.Unlock()
+
+	if err := runner.SyncOnce(context.Background()); err != nil {
+		t.Fatalf("step 2 SyncOnce: %v", err)
+	}
+
+	// 3. Simulate external Xray restart that wipes bob (loaded stale runtime) + injects a zombie + drops uptime!
+	ctrl.mu.Lock()
+	ctrl.uptime = 2 // dropped from 100 -> 2
+	delete(ctrl.usersByTag["vless-1"], "bob@example.com")
+	ctrl.usersByTag["vless-1"]["zombie@example.com"] = RemoteUser{
+		InboundTag: "vless-1", Protocol: "vless", Email: "zombie@example.com", UUID: "uz",
+	}
+	ctrl.mu.Unlock()
+
+	// Also tamper disk config.json back to cfgV1 to test simultaneous disk + runtime healing!
+	if err := os.WriteFile(cfgPath, []byte(cfgV1), 0o644); err != nil {
+		t.Fatalf("tamper disk config: %v", err)
+	}
+
+	if err := runner.SyncOnce(context.Background()); err != nil {
+		t.Fatalf("step 3 self-heal SyncOnce: %v", err)
+	}
+
+	// Verify disk healed to cfgV2 AND runtime healed (bob restored, zombie removed, relay-auto preserved).
+	diskAfterHeal, _ := os.ReadFile(cfgPath)
+	if string(diskAfterHeal) != cfgV2 {
+		t.Fatalf("expected disk healed to cfgV2, got %s", string(diskAfterHeal))
+	}
+	ctrl.mu.Lock()
+	_, hasAlice := ctrl.usersByTag["vless-1"]["alice@example.com"]
+	_, hasBob := ctrl.usersByTag["vless-1"]["bob@example.com"]
+	_, hasZombie := ctrl.usersByTag["vless-1"]["zombie@example.com"]
+	_, hasRelay := ctrl.usersByTag["vless-1"]["relay-auto:to-us@internal"]
+	ctrl.mu.Unlock()
+	if !hasAlice || !hasBob || hasZombie || !hasRelay {
+		t.Fatalf("unexpected runtime users after self-heal: alice=%v bob=%v zombie=%v relay=%v", hasAlice, hasBob, hasZombie, hasRelay)
+	}
+
+	// 4. Simulate xray-agent process restart (brand-new UserSyncer and Runner on same spoolDir & cfgPath).
+	userSync2, _ := NewUserSyncer(ctrl)
+	runner2, err := NewRunner(RunnerConfig{AgentVersion: "1.0.0"}, client, spool, cfgMgr, userSync2, nil, NewMetricsCollector())
+	if err != nil {
+		t.Fatalf("NewRunner #2: %v", err)
+	}
+	if err := runner2.SyncOnce(context.Background()); err != nil {
+		t.Fatalf("runner2 SyncOnce: %v", err)
+	}
+
+	reloadCount := 0
+	for _, c := range cmdRunner.calls {
+		if c.name == "systemctl" {
+			reloadCount++
+		}
+	}
+	if reloadCount != 1 {
+		t.Fatalf("expected exactly 1 systemctl reload total across initial Apply, hot-update, self-heal, and agent restart; got %d", reloadCount)
+	}
+}
+
+func TestRunner_PersistTestFailure_DoesNotAdvanceUsersHash(t *testing.T) {
+	cfgV1 := `{"inbounds":[{"tag":"vless-1","protocol":"vless"}]}`
+	cfgV2 := `{"inbounds":[{"tag":"vless-1","protocol":"vless","bad":true}]}`
+
+	var mu sync.Mutex
+	var reqs []SyncRequest
+	step := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var req SyncRequest
+		_ = json.NewDecoder(r.Body).Decode(&req)
+		mu.Lock()
+		reqs = append(reqs, req)
+		if req.HostMetrics == nil && req.TrafficBatch == nil {
+			mu.Unlock()
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(SyncResponse{OK: true, DesiredState: DesiredStateActive, ConfigHash: "cfg-v1", UsersHash: req.UsersHash, ConfigUnchanged: true, UsersUnchanged: true})
+			return
+		}
+		step++
+		s := step
+		mu.Unlock()
+
+		w.Header().Set("Content-Type", "application/json")
+		if s == 1 {
+			_ = json.NewEncoder(w).Encode(SyncResponse{
+				OK: true, DesiredState: DesiredStateActive,
+				ConfigHash: "cfg-v1", UsersHash: "usr-v1",
+				ConfigJSON: cfgV1,
+			})
+			return
+		}
+		_ = json.NewEncoder(w).Encode(SyncResponse{
+			OK: true, DesiredState: DesiredStateActive,
+			ConfigHash: "cfg-v1", UsersHash: "usr-v2",
+			ConfigUnchanged: true, UsersUnchanged: false,
+			ConfigJSON: cfgV2,
+			Users:      []RemoteUser{{InboundTag: "vless-1", Protocol: "vless", Email: "bob@example.com", UUID: "u2"}},
+		})
+	}))
+	defer srv.Close()
+
+	dir := t.TempDir()
+	cfgPath := filepath.Join(dir, "config.json")
+	failTest := false
+	cmdRunner := &fakeCommandRunner{
+		fn: func(ctx context.Context, name string, args ...string) ([]byte, error) {
+			if failTest && name == "xray" && len(args) >= 2 && args[1] == "-test" {
+				return []byte("invalid json"), errors.New("exit status 23")
+			}
+			return []byte("ok"), nil
+		},
+	}
+
+	client, _ := NewClient(srv.URL, "tok", srv.Client())
+	spool, _ := NewSpool(filepath.Join(dir, "spool"))
+	cfgMgr, _ := NewConfigManager(ConfigManagerConfig{ConfigPath: cfgPath}, cmdRunner, &fakeHealthProber{})
+	userSync, _ := NewUserSyncer(&fakeUserController{})
+	runner, _ := NewRunner(RunnerConfig{}, client, spool, cfgMgr, userSync, nil, NewMetricsCollector())
+
+	if err := runner.SyncOnce(context.Background()); err != nil {
+		t.Fatalf("step 1 SyncOnce: %v", err)
+	}
+
+	failTest = true
+	if err := runner.SyncOnce(context.Background()); err == nil {
+		t.Fatalf("expected step 2 SyncOnce to fail when xray -test fails during Persist")
+	}
+
+	// Verify disk config stayed cfgV1 and next SyncOnce still reports old usersHash ("usr-v1") + non-empty lastError.
+	gotDisk, _ := os.ReadFile(cfgPath)
+	if string(gotDisk) != cfgV1 {
+		t.Fatalf("expected cfgV1 preserved on disk, got %s", string(gotDisk))
+	}
+
+	failTest = false
+	if err := runner.SyncOnce(context.Background()); err != nil {
+		t.Fatalf("step 3 SyncOnce after test recovery: %v", err)
+	}
+
+	mu.Lock()
+	defer mu.Unlock()
+	lastBeforeRecovery := reqs[len(reqs)-2]
+	if lastBeforeRecovery.UsersHash != "usr-v1" {
+		t.Fatalf("expected usersHash to remain usr-v1 after Persist failure, got %q", lastBeforeRecovery.UsersHash)
+	}
+	if lastBeforeRecovery.LastError == "" {
+		t.Fatalf("expected non-empty LastError after Persist failure")
+	}
+}
+
+func TestRunner_MissingHandler_TriggersReloadAndRecovers(t *testing.T) {
+	cfgV1 := `{"inbounds":[{"tag":"api","protocol":"dokodemo-door"},{"tag":"vless-1","protocol":"vless","settings":{"clients":[{"id":"u1","email":"alice@example.com"}]}}]}`
+	cfgV2 := `{"inbounds":[{"tag":"api","protocol":"dokodemo-door"},{"tag":"vless-1","protocol":"vless","settings":{"clients":[{"id":"u1","email":"alice@example.com"},{"id":"u2","email":"bob@example.com"}]}}]}`
+
+	ctrl := newStatefulRuntimeCtrl()
+	dir := t.TempDir()
+	cfgPath := filepath.Join(dir, "config.json")
+
+	cmdRunner := &fakeCommandRunner{
+		fn: func(ctx context.Context, name string, args ...string) ([]byte, error) {
+			if name == "systemctl" {
+				ctrl.mu.Lock()
+				ctrl.missingTags = make(map[string]bool)
+				ctrl.mu.Unlock()
+				if raw, err := os.ReadFile(cfgPath); err == nil {
+					ctrl.seedFromDiskConfig(string(raw))
+				}
+			}
+			return []byte("ok"), nil
+		},
+	}
+
+	step := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var req SyncRequest
+		_ = json.NewDecoder(r.Body).Decode(&req)
+		if req.HostMetrics == nil && req.TrafficBatch == nil {
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(SyncResponse{OK: true, DesiredState: DesiredStateActive, ConfigHash: "cfg-v1", UsersHash: req.UsersHash, ConfigUnchanged: true, UsersUnchanged: true})
+			return
+		}
+		step++
+		w.Header().Set("Content-Type", "application/json")
+		if step == 1 {
+			_ = json.NewEncoder(w).Encode(SyncResponse{
+				OK: true, DesiredState: DesiredStateActive,
+				ConfigHash: "cfg-v1", UsersHash: "usr-v1",
+				ConfigJSON: cfgV1,
+				Users:      []RemoteUser{{InboundTag: "vless-1", Protocol: "vless", Email: "alice@example.com", UUID: "u1"}},
+			})
+			return
+		}
+		_ = json.NewEncoder(w).Encode(SyncResponse{
+			OK: true, DesiredState: DesiredStateActive,
+			ConfigHash: "cfg-v1", UsersHash: "usr-v2",
+			ConfigUnchanged: true, UsersUnchanged: false,
+			ConfigJSON: cfgV2,
+			Users: []RemoteUser{
+				{InboundTag: "vless-1", Protocol: "vless", Email: "alice@example.com", UUID: "u1"},
+				{InboundTag: "vless-1", Protocol: "vless", Email: "bob@example.com", UUID: "u2"},
+			},
+		})
+	}))
+	defer srv.Close()
+
+	client, _ := NewClient(srv.URL, "tok", srv.Client())
+	spool, _ := NewSpool(filepath.Join(dir, "spool"))
+	cfgMgr, _ := NewConfigManager(ConfigManagerConfig{ConfigPath: cfgPath, ProbeTimeout: 200 * time.Millisecond, ProbeInterval: 10 * time.Millisecond}, cmdRunner, &fakeHealthProber{})
+	userSync, _ := NewUserSyncer(ctrl)
+	runner, _ := NewRunner(RunnerConfig{}, client, spool, cfgMgr, userSync, nil, NewMetricsCollector())
+
+	if err := runner.SyncOnce(context.Background()); err != nil {
+		t.Fatalf("step 1 SyncOnce: %v", err)
+	}
+
+	// Simulate Xray missing inbound handler vless-1 (e.g. Xray booted on partial/silence config).
+	ctrl.mu.Lock()
+	ctrl.missingTags["vless-1"] = true
+	ctrl.mu.Unlock()
+
+	if err := runner.SyncOnce(context.Background()); err != nil {
+		t.Fatalf("expected SyncOnce to recover from missing handler via ReloadAndProbe, got: %v", err)
+	}
+
+	reloadCount := 0
+	for _, c := range cmdRunner.calls {
+		if c.name == "systemctl" {
+			reloadCount++
+		}
+	}
+	if reloadCount != 2 {
+		t.Fatalf("expected 2 reloads (initial Apply + missing-handler ReloadAndProbe), got %d", reloadCount)
+	}
+	ctrl.mu.Lock()
+	_, hasBob := ctrl.usersByTag["vless-1"]["bob@example.com"]
+	ctrl.mu.Unlock()
+	if !hasBob {
+		t.Fatalf("expected bob@example.com present after missing-handler recovery")
+	}
+}
+
+func TestRunner_ZeroUsers_RestartPreservesEmptyDesiredUsers(t *testing.T) {
+	cfgEmpty := `{"inbounds":[{"tag":"api","protocol":"dokodemo-door"},{"tag":"vless-1","protocol":"vless","settings":{"clients":[]}}]}`
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var req SyncRequest
+		_ = json.NewDecoder(r.Body).Decode(&req)
+		unchanged := req.ConfigHash == "cfg-v1" && req.UsersHash == "usr-empty"
+		w.Header().Set("Content-Type", "application/json")
+		resp := SyncResponse{
+			OK:              true,
+			DesiredState:    DesiredStateActive,
+			ConfigHash:      "cfg-v1",
+			UsersHash:       "usr-empty",
+			ConfigUnchanged: req.ConfigHash == "cfg-v1",
+			UsersUnchanged:  req.UsersHash == "usr-empty",
+		}
+		if !unchanged {
+			resp.ConfigJSON = cfgEmpty
+		}
+		_ = json.NewEncoder(w).Encode(resp)
+	}))
+	defer srv.Close()
+
+	dir := t.TempDir()
+	cfgPath := filepath.Join(dir, "config.json")
+	spoolDir := filepath.Join(dir, "spool")
+	ctrl := newStatefulRuntimeCtrl()
+	cmdRunner := &fakeCommandRunner{}
+	client, _ := NewClient(srv.URL, "tok", srv.Client())
+	spool, _ := NewSpool(spoolDir)
+	cfgMgr, _ := NewConfigManager(ConfigManagerConfig{ConfigPath: cfgPath}, cmdRunner, &fakeHealthProber{})
+
+	userSync1, _ := NewUserSyncer(ctrl)
+	runner1, _ := NewRunner(RunnerConfig{}, client, spool, cfgMgr, userSync1, nil, NewMetricsCollector())
+	if err := runner1.SyncOnce(context.Background()); err != nil {
+		t.Fatalf("runner1 SyncOnce: %v", err)
+	}
+
+	// Simulate Xray somehow having a stray zombie user on restart, while Agent also restarts.
+	ctrl.mu.Lock()
+	ctrl.usersByTag["vless-1"] = map[string]RemoteUser{
+		"zombie@example.com": {InboundTag: "vless-1", Protocol: "vless", Email: "zombie@example.com", UUID: "uz"},
+	}
+	ctrl.mu.Unlock()
+
+	userSync2, _ := NewUserSyncer(ctrl)
+	runner2, _ := NewRunner(RunnerConfig{}, client, spool, cfgMgr, userSync2, nil, NewMetricsCollector())
+	if err := runner2.SyncOnce(context.Background()); err != nil {
+		t.Fatalf("runner2 SyncOnce: %v", err)
+	}
+
+	ctrl.mu.Lock()
+	remaining := len(ctrl.usersByTag["vless-1"])
+	ctrl.mu.Unlock()
+	if remaining != 0 {
+		t.Fatalf("expected 0-user desired state to purge zombie after agent restart, got %d remaining", remaining)
 	}
 }

@@ -3,6 +3,8 @@ package http_test
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -13,6 +15,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -28,6 +31,7 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+	protobuf "google.golang.org/protobuf/proto"
 )
 
 type spyResponseWriter struct {
@@ -187,6 +191,7 @@ func TestMasterAgent_E2E_Integration(t *testing.T) {
 		Sub:       deliveryHTTP.NewSubHandler(nil),
 		User:      deliveryHTTP.NewUserHandler(userSvc, nil, auditSvc),
 		Inbound:   deliveryHTTP.NewInboundHandler(configSvc, auditSvc),
+		Outbound:  deliveryHTTP.NewOutboundHandler(configSvc, auditSvc),
 		Node:      deliveryHTTP.NewNodeHandler(nodeSvc, auditSvc),
 		Agent:     deliveryHTTP.NewAgentHandler(nodeSvc),
 		AgentAuth: deliveryHTTP.AgentAuth(nodeSvc),
@@ -1912,5 +1917,434 @@ func TestAgentE2E_NonNilXrayManager_LocalAndRemoteInboundCoexistence(t *testing.
 		if tag != "local-vless" {
 			t.Fatalf("local Xray gRPC must NEVER be called for remote tag %q (all calls: %v)", tag, fakeXray.calledTags)
 		}
+	}
+}
+
+type callbackAgentCommandRunner struct {
+	fn func(ctx context.Context, name string, args ...string) ([]byte, error)
+}
+
+func (c *callbackAgentCommandRunner) Run(ctx context.Context, name string, args ...string) ([]byte, error) {
+	if c.fn != nil {
+		return c.fn(ctx, name, args...)
+	}
+	return []byte("ok"), nil
+}
+
+type liveXrayGRPCSimulator struct {
+	proto.UnimplementedHandlerServiceServer
+	proto.UnimplementedStatsServiceServer
+
+	mu         sync.Mutex
+	uptime     atomic.Uint32
+	usersByTag map[string]map[string]*proto.User
+}
+
+func newLiveXrayGRPCSimulator() *liveXrayGRPCSimulator {
+	sim := &liveXrayGRPCSimulator{
+		usersByTag: make(map[string]map[string]*proto.User),
+	}
+	sim.uptime.Store(100)
+	return sim
+}
+
+func (s *liveXrayGRPCSimulator) reloadFromDisk(cfgPath string) {
+	raw, err := os.ReadFile(cfgPath)
+	if err != nil {
+		return
+	}
+	var doc struct {
+		Inbounds []struct {
+			Tag      string `json:"tag"`
+			Protocol string `json:"protocol"`
+			Settings struct {
+				Method  string `json:"method"`
+				Clients []struct {
+					ID       string `json:"id"`
+					Password string `json:"password"`
+					Flow     string `json:"flow"`
+					Email    string `json:"email"`
+				} `json:"clients"`
+			} `json:"settings"`
+		} `json:"inbounds"`
+	}
+	if err := json.Unmarshal(raw, &doc); err != nil {
+		return
+	}
+
+	next := make(map[string]map[string]*proto.User)
+	for _, ib := range doc.Inbounds {
+		if ib.Tag == "" || ib.Tag == "api" {
+			continue
+		}
+		m := make(map[string]*proto.User)
+		for _, cl := range ib.Settings.Clients {
+			uid := cl.ID
+			if uid == "" {
+				uid = cl.Password
+			}
+			domInb := &domain.Inbound{
+				Tag:      ib.Tag,
+				Protocol: ib.Protocol,
+			}
+			if cl.Flow != "" {
+				domInb.StreamSettings = `{"network":"tcp","security":"tls"}`
+			}
+			if ib.Settings.Method != "" {
+				domInb.SettingsJSON = fmt.Sprintf(`{"method":%q}`, ib.Settings.Method)
+			}
+			accMsg, accErr := xray.BuildAccountMessage(domInb, &domain.User{
+				Email: cl.Email,
+				UUID:  uid,
+				Flow:  cl.Flow,
+			})
+			if accErr != nil {
+				continue
+			}
+			m[cl.Email] = &proto.User{
+				Level:   0,
+				Email:   cl.Email,
+				Account: accMsg,
+			}
+		}
+		next[ib.Tag] = m
+	}
+
+	s.mu.Lock()
+	s.usersByTag = next
+	s.mu.Unlock()
+}
+
+func (s *liveXrayGRPCSimulator) AlterInbound(_ context.Context, req *proto.AlterInboundRequest) (*proto.AlterInboundResponse, error) {
+	inst, err := req.GetOperation().GetInstance()
+	if err != nil {
+		return nil, status.Errorf(codes.InvalidArgument, "decode op: %v", err)
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	tagUsers, ok := s.usersByTag[req.GetTag()]
+	if !ok {
+		return nil, status.Errorf(codes.Unknown, "app/proxyman/command: handler not found: %s", req.GetTag())
+	}
+
+	switch op := inst.(type) {
+	case *proto.AddUserOperation:
+		u := op.GetUser()
+		if _, exists := tagUsers[u.GetEmail()]; exists {
+			return nil, status.Errorf(codes.Unknown, "User %s already exists.", u.GetEmail())
+		}
+		tagUsers[u.GetEmail()] = protobuf.Clone(u).(*proto.User)
+	case *proto.RemoveUserOperation:
+		if _, exists := tagUsers[op.GetEmail()]; !exists {
+			return nil, status.Errorf(codes.Unknown, "User %s not found.", op.GetEmail())
+		}
+		delete(tagUsers, op.GetEmail())
+	default:
+		return nil, status.Errorf(codes.InvalidArgument, "unsupported op %T", inst)
+	}
+	return &proto.AlterInboundResponse{}, nil
+}
+
+func (s *liveXrayGRPCSimulator) GetInboundUsers(_ context.Context, req *proto.GetInboundUserRequest) (*proto.GetInboundUserResponse, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	tagUsers, ok := s.usersByTag[req.GetTag()]
+	if !ok {
+		return nil, status.Errorf(codes.Unknown, "app/proxyman/command: handler not found: %s", req.GetTag())
+	}
+	out := make([]*proto.User, 0, len(tagUsers))
+	for _, u := range tagUsers {
+		out = append(out, protobuf.Clone(u).(*proto.User))
+	}
+	return &proto.GetInboundUserResponse{Users: out}, nil
+}
+
+func (s *liveXrayGRPCSimulator) QueryStats(_ context.Context, _ *proto.QueryStatsRequest) (*proto.QueryStatsResponse, error) {
+	return &proto.QueryStatsResponse{}, nil
+}
+
+func (s *liveXrayGRPCSimulator) GetSysStats(_ context.Context, _ *proto.SysStatsRequest) (*proto.SysStatsResponse, error) {
+	return &proto.SysStatsResponse{Uptime: s.uptime.Load()}, nil
+}
+
+func (s *liveXrayGRPCSimulator) liveEmails(tag string) map[string]bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	out := make(map[string]bool)
+	for email := range s.usersByTag[tag] {
+		out[email] = true
+	}
+	return out
+}
+
+func TestMasterAgent_E2E_DiskPersistAndRuntimeSelfHeal(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "e2e_ssot.db")
+	db, err := repository.InitSQLite(dbPath)
+	if err != nil {
+		t.Fatalf("InitSQLite failed: %v", err)
+	}
+	if sqlDB, err := db.DB(); err == nil {
+		t.Cleanup(func() { _ = sqlDB.Close() })
+	}
+
+	nodeRepo := repository.NewNodeRepository(db)
+	userRepo := repository.NewUserRepository(db)
+	inboundRepo := repository.NewInboundRepository(db)
+	trafficLogRepo := repository.NewGormTrafficLogRepository(db)
+	snapshotRepo := repository.NewGormConfigSnapshotRepository(db)
+	auditLogRepo := repository.NewGormAuditLogRepository(db)
+
+	compiler := xray.NewXrayCompiler(8080)
+	masterConfigMgr := xray.NewConfigManager(filepath.Join(t.TempDir(), "master_xray.json"), "")
+
+	nodeSvc := service.NewNodeService(nodeRepo, inboundRepo, userRepo, compiler)
+	configSvc := service.NewConfigService(masterConfigMgr, nil, inboundRepo, userRepo, snapshotRepo, compiler).
+		WithNodeCacheInvalidator(nodeSvc).
+		WithNodeRepo(nodeRepo)
+	nodeSvc.WithLocalOutboundsProvider(func(ctx context.Context) ([]domain.Outbound, error) {
+		return configSvc.ListOutbounds(ctx)
+	})
+	userSvc := service.NewUserService(userRepo, inboundRepo, trafficLogRepo, nil, configSvc).
+		WithNodeCacheInvalidator(nodeSvc)
+	auditSvc := service.NewAuditLogService(auditLogRepo)
+
+	jwtSecret := "e2e-ssot-jwt-secret"
+	adminJWT, err := middleware.GenerateToken("admin", jwtSecret, time.Hour)
+	if err != nil {
+		t.Fatalf("GenerateToken failed: %v", err)
+	}
+
+	handlers := &deliveryHTTP.Handlers{
+		Sub:       deliveryHTTP.NewSubHandler(nil),
+		User:      deliveryHTTP.NewUserHandler(userSvc, nil, auditSvc),
+		Inbound:   deliveryHTTP.NewInboundHandler(configSvc, auditSvc),
+		Outbound:  deliveryHTTP.NewOutboundHandler(configSvc, auditSvc),
+		Node:      deliveryHTTP.NewNodeHandler(nodeSvc, auditSvc),
+		Agent:     deliveryHTTP.NewAgentHandler(nodeSvc),
+		AgentAuth: deliveryHTTP.AgentAuth(nodeSvc),
+	}
+	router := deliveryHTTP.SetupRouter(handlers, jwtSecret, nil)
+	srv := httptest.NewServer(router)
+	defer srv.Close()
+
+	adminCall := func(method, path string, payload interface{}) (int, []byte) {
+		t.Helper()
+		var body bytes.Buffer
+		if payload != nil {
+			_ = json.NewEncoder(&body).Encode(payload)
+		}
+		req, _ := http.NewRequest(method, srv.URL+path, &body)
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Authorization", "Bearer "+adminJWT)
+		resp, err := srv.Client().Do(req)
+		if err != nil {
+			t.Fatalf("admin http %s %s failed: %v", method, path, err)
+		}
+		defer resp.Body.Close()
+		var out bytes.Buffer
+		_, _ = out.ReadFrom(resp.Body)
+		return resp.StatusCode, out.Bytes()
+	}
+
+	// Provision node + local relay outbound + remote VLESS & Trojan (with fixed password) inbounds + alice.
+	code, rawNode := adminCall(http.MethodPost, "/api/admin/nodes", map[string]interface{}{
+		"name": "SSOT Node", "host": "127.0.0.1", "region": "US",
+	})
+	if code != http.StatusCreated {
+		t.Fatalf("create node failed (%d): %s", code, string(rawNode))
+	}
+	var created domain.CreateNodeResponse
+	_ = json.Unmarshal(rawNode, &created)
+
+	relayUUID := "99999999-8888-7777-6666-555555555555"
+	if code, raw := adminCall(http.MethodPost, "/api/outbounds?nodeId=0", map[string]interface{}{
+		"tag":          "to-us-edge",
+		"protocol":     "vless",
+		"settingsJson": fmt.Sprintf(`{"vnext":[{"address":"127.0.0.1","port":14443,"users":[{"id":%q,"encryption":"none"}]}]}`, relayUUID),
+	}); code != http.StatusOK {
+		t.Fatalf("save local relay outbound expected 200, got %d: %s", code, string(raw))
+	}
+	if code, raw := adminCall(http.MethodPost, "/api/inbounds", map[string]interface{}{
+		"nodeId":   created.ID,
+		"tag":      "edge-vless",
+		"port":     14443,
+		"protocol": "vless",
+		"enabled":  true,
+	}); code != http.StatusCreated {
+		t.Fatalf("create edge-vless failed (%d): %s", code, string(raw))
+	}
+	if code, raw := adminCall(http.MethodPost, "/api/inbounds", map[string]interface{}{
+		"nodeId":       created.ID,
+		"tag":          "edge-trojan",
+		"port":         14444,
+		"protocol":     "trojan",
+		"settingsJson": `{"password":"fixed-trojan-password"}`,
+		"enabled":      true,
+	}); code != http.StatusCreated {
+		t.Fatalf("create edge-trojan failed (%d): %s", code, string(raw))
+	}
+	if code, raw := adminCall(http.MethodPost, "/api/users", map[string]interface{}{
+		"email":       "alice@example.com",
+		"inboundTags": []string{"edge-vless", "edge-trojan"},
+	}); code != http.StatusCreated {
+		t.Fatalf("create alice failed (%d): %s", code, string(raw))
+	}
+
+	// Start real loopback gRPC server wired to XrayGRPCAdapter.
+	lis, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listen tcp failed: %v", err)
+	}
+	grpcSrv := grpc.NewServer()
+	sim := newLiveXrayGRPCSimulator()
+	proto.RegisterHandlerServiceServer(grpcSrv, sim)
+	proto.RegisterStatsServiceServer(grpcSrv, sim)
+	go func() { _ = grpcSrv.Serve(lis) }()
+	defer grpcSrv.Stop()
+
+	grpcClient := xray.NewGRPCClient(lis.Addr().String())
+	defer func() { _ = grpcClient.Close() }()
+	grpcAdapter, err := agent.NewXrayGRPCAdapter(grpcClient)
+	if err != nil {
+		t.Fatalf("NewXrayGRPCAdapter: %v", err)
+	}
+
+	agentDir := t.TempDir()
+	agentCfgPath := filepath.Join(agentDir, "config.json")
+	spoolDir := filepath.Join(agentDir, "spool")
+
+	var reloadCalls atomic.Int32
+	cmdRunner := &callbackAgentCommandRunner{
+		fn: func(ctx context.Context, name string, args ...string) ([]byte, error) {
+			if name == "systemctl" {
+				reloadCalls.Add(1)
+				sim.reloadFromDisk(agentCfgPath)
+			}
+			return []byte("ok"), nil
+		},
+	}
+
+	agentClient, _ := agent.NewClient(srv.URL, created.Token, srv.Client())
+	spool, _ := agent.NewSpool(spoolDir)
+	cfgMgr, _ := agent.NewConfigManager(agent.ConfigManagerConfig{
+		ConfigPath:    agentCfgPath,
+		ProbeTimeout:  300 * time.Millisecond,
+		ProbeInterval: 10 * time.Millisecond,
+	}, cmdRunner, grpcAdapter)
+	userSync, _ := agent.NewUserSyncer(grpcAdapter)
+	runner, _ := agent.NewRunner(agent.RunnerConfig{AgentVersion: "2.0.0"}, agentClient, spool, cfgMgr, userSync, grpcAdapter, agent.NewMetricsCollector())
+
+	ctx := context.Background()
+
+	// 1. Initial sync -> Apply (reload=1).
+	if err := runner.SyncOnce(ctx); err != nil {
+		t.Fatalf("initial SyncOnce failed: %v", err)
+	}
+	if reloadCalls.Load() != 1 {
+		t.Fatalf("expected 1 reload on initial Apply, got %d", reloadCalls.Load())
+	}
+
+	// 2. Add bob@example.com on Master -> ConfigUnchanged=true -> Persist updates disk config.json (0 reloads!) + gRPC adds bob.
+	code, rawBob := adminCall(http.MethodPost, "/api/users", map[string]interface{}{
+		"email":       "bob@example.com",
+		"inboundTags": []string{"edge-vless", "edge-trojan"},
+	})
+	if code != http.StatusCreated {
+		t.Fatalf("create bob failed (%d): %s", code, string(rawBob))
+	}
+	var bobUser domain.User
+	_ = json.Unmarshal(rawBob, &bobUser)
+
+	if err := runner.SyncOnce(ctx); err != nil {
+		t.Fatalf("bob add SyncOnce failed: %v", err)
+	}
+	if reloadCalls.Load() != 1 {
+		t.Fatalf("expected 0 extra reloads on user add, got %d", reloadCalls.Load())
+	}
+	diskCfgAfterBob, err := os.ReadFile(agentCfgPath)
+	if err != nil {
+		t.Fatalf("read disk config after bob: %v", err)
+	}
+	if !strings.Contains(string(diskCfgAfterBob), "bob@example.com") {
+		t.Fatalf("disk config.json must persist bob@example.com without Xray reload")
+	}
+	sumExpected := sha256.Sum256(diskCfgAfterBob)
+	expectedFullHash := hex.EncodeToString(sumExpected[:])
+
+	// 3. Simulate external Xray restart (boots from stale config lacking bob, drops uptime) AND tamper disk config.
+	staleDisk := strings.ReplaceAll(string(diskCfgAfterBob), "bob@example.com", "stale-placeholder@example.com")
+	if err := os.WriteFile(agentCfgPath, []byte(staleDisk), 0o644); err != nil {
+		t.Fatalf("write stale disk config: %v", err)
+	}
+	sim.reloadFromDisk(agentCfgPath)
+	sim.uptime.Store(1) // dropped from 100 -> 1
+
+	// Single SyncOnce must heal BOTH disk config.json (0 reloads!) AND Xray runtime via gRPC,
+	// while preserving relay-auto:to-us-edge@internal and edge-trojan@trojan.local!
+	if err := runner.SyncOnce(ctx); err != nil {
+		t.Fatalf("self-heal SyncOnce failed: %v", err)
+	}
+	if reloadCalls.Load() != 1 {
+		t.Fatalf("expected 0 reloads during disk+runtime self-heal, got %d", reloadCalls.Load())
+	}
+	healedDisk, _ := os.ReadFile(agentCfgPath)
+	sumHealed := sha256.Sum256(healedDisk)
+	healedHash := hex.EncodeToString(sumHealed[:])
+	if !strings.Contains(string(healedDisk), "bob@example.com") || strings.Contains(string(healedDisk), "stale-placeholder@example.com") {
+		t.Fatalf("disk config.json was not healed: %s", string(healedDisk))
+	}
+	vlessEmails := sim.liveEmails("edge-vless")
+	trojanEmails := sim.liveEmails("edge-trojan")
+	if !vlessEmails["alice@example.com"] || !vlessEmails["bob@example.com"] || !vlessEmails["relay-auto:to-us-edge@internal"] || vlessEmails["stale-placeholder@example.com"] {
+		t.Fatalf("unexpected edge-vless runtime emails after self-heal: %+v", vlessEmails)
+	}
+	if !trojanEmails["alice@example.com"] || !trojanEmails["bob@example.com"] || !trojanEmails["edge-trojan@trojan.local"] {
+		t.Fatalf("unexpected edge-trojan runtime emails after self-heal: %+v", trojanEmails)
+	}
+
+	// 4. Simulate xray-agent process restart (brand-new Runner sharing spoolDir + config.json) -> 0 reloads!
+	userSync2, _ := agent.NewUserSyncer(grpcAdapter)
+	runner2, err := agent.NewRunner(agent.RunnerConfig{AgentVersion: "2.0.0"}, agentClient, spool, cfgMgr, userSync2, grpcAdapter, agent.NewMetricsCollector())
+	if err != nil {
+		t.Fatalf("NewRunner #2: %v", err)
+	}
+	if err := runner2.SyncOnce(ctx); err != nil {
+		t.Fatalf("runner2 SyncOnce failed: %v", err)
+	}
+	if reloadCalls.Load() != 1 {
+		t.Fatalf("expected 0 reloads on healthy xray-agent restart, got %d", reloadCalls.Load())
+	}
+
+	// 5. Simulate geodata_update ReloadAndProbe + concurrent user delete -> bob is deleted cleanly and alice+static clients survive!
+	if code, _ := adminCall(http.MethodDelete, fmt.Sprintf("/api/users/%d", bobUser.ID), nil); code != http.StatusOK {
+		t.Fatalf("delete bob expected 200, got %d", code)
+	}
+	var wg sync.WaitGroup
+	wg.Add(2)
+	go func() {
+		defer wg.Done()
+		_ = cfgMgr.ReloadAndProbe(ctx)
+	}()
+	go func() {
+		defer wg.Done()
+		_ = runner2.SyncOnce(ctx)
+	}()
+	wg.Wait()
+
+	// Run one steady-state convergence sync after concurrent reload+sync to ensure deterministic final convergence.
+	if err := runner2.SyncOnce(ctx); err != nil {
+		t.Fatalf("post-concurrency SyncOnce failed: %v", err)
+	}
+
+	finalDisk, _ := os.ReadFile(agentCfgPath)
+	if strings.Contains(string(finalDisk), "bob@example.com") || !strings.Contains(string(finalDisk), "alice@example.com") {
+		t.Fatalf("expected bob removed and alice kept in final disk config, got %s", string(finalDisk))
+	}
+	finalVless := sim.liveEmails("edge-vless")
+	if finalVless["bob@example.com"] || !finalVless["alice@example.com"] || !finalVless["relay-auto:to-us-edge@internal"] {
+		t.Fatalf("unexpected final runtime edge-vless emails: %+v", finalVless)
+	}
+	if healedHash != expectedFullHash {
+		t.Fatalf("healed disk sha256 %q != expected Master FullConfigHash %q", healedHash, expectedFullHash)
 	}
 }

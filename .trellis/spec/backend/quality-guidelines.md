@@ -401,3 +401,76 @@ return &RemoteNodeLogsResponse{NodeID: nodeID, Service: svc, Pending: true, Comm
 - **Cloudflare Pages 静态 Portal 单源化**：
   - 静态提取门户 HTML 的唯一权威源文件为 `deploy/cloudflare-pages/portal/index.html`（严禁维护逐字节重复的 `portal.html` / `standalone-portal.html` 副本）；
   - `deploy/cloudflare-pages/_worker.js` 将 `/portal`、`/portal/`、`/portal.html`、`/portal/index.html` 统一改写至 `/portal/`（保留 query string）后转交 `env.ASSETS.fetch`，并由 `deploy/gateway.test.js` 持续回归验证。
+
+---
+
+## 15. 远端 Agent 唯一权威配置源、零断流落盘与运行态自愈契约 (Agent SSOT & Runtime Self-Healing Invariants)
+
+### 1. Scope / Trigger
+- **Trigger**: 任何修改 Master↔Agent 同步协议（`domain.AgentSyncRequest`、`agent.SyncRequest`、`NodeService.HandleAgentSync` / `getOrBuildSnapshot`）、Agent 磁盘配置与本地状态持久化（`agent.ConfigManager`、`agent.SyncStateStore`）、Xray gRPC 观测原语（`internal/adapter/xray/proto/{proxyman,stats}.proto`、`grpc_client.go`）或 `agent.UserSyncer` / `agent.Runner` 收敛逻辑的路径。
+
+### 2. Signatures
+- `domain.AgentSyncRequest.DiskConfigHash string` / `agent.SyncRequest.DiskConfigHash string` (`json:"diskConfigHash,omitempty"`)
+- `(*ConfigManager).Persist(ctx context.Context, configJSON string) error` (`internal/agent/config_manager.go`)
+- `(*ConfigManager).HashCurrentConfig() (string, error)` & `InspectConfigInbounds() ([]ConfigInboundMeta, error)` (`internal/agent/config_manager.go`)
+- `(*SyncStateStore).Load() (SyncState, bool, error)` & `Save(state SyncState) error` (`internal/agent/sync_state.go`)
+- `(*xray.GRPCClient).GetInboundUsers(ctx context.Context, inboundTag string) ([]RuntimeInboundUser, error)` & `GetSysUptime(ctx context.Context) (uint32, error)` (`internal/adapter/xray/grpc_client.go`)
+- `(*UserSyncer).ReconcileWithRuntime(ctx context.Context, desired []RemoteUser, dynamicTags []string, staticEmails map[string]struct{}) (added int, removed int, err error)` & `ErrInboundHandlerMissing` (`internal/agent/user_sync.go`)
+
+### 3. Contracts
+- **唯一权威配置源（SSOT）**：Master SQLite DB 经 `XrayCompiler` 编译的 `cachedNodeSnapshot`（`ConfigJSON` + `FullConfigHash` + `ConfigHash` + `Users` + `UsersHash`）是全集群唯一权威配置源。**严禁** Agent 本地拼接或 Patch `config.json`（会破坏 SSOT 并误删 `relay-auto:<tag>@internal` 与 `<tag>@trojan.local` 静态客户端）。
+- **两级指纹分离与双向滚动兼容**：
+  - `ConfigHash = sha256(structuralBytes)` 仍唯一控制 `ConfigUnchanged`（是否需要 reload/restart Xray）与 `Node.RefreshSyncStatus`；
+  - `FullConfigHash = sha256(fullConfigBytes)` 与 `req.DiskConfigHash`（Agent 实测磁盘 `config.json` 的 SHA-256，文件缺失上报 `"missing"`）比对：仅当 `!configUnchanged || (req.DiskConfigHash != "" && req.DiskConfigHash != snap.FullConfigHash)` 时 Master 下发 `resp.ConfigJSON`。旧 Agent 省略 `diskConfigHash` 时线协议 100% 保持原样；新 Agent 对接旧 Master（`ConfigJSON == ""`）仍完成 gRPC 热更新与运行态自愈。
+- **零断流落盘顺序**：`ConfigUnchanged == true && resp.ConfigJSON != ""` 时，必须先在 `ConfigManager.mu` 保护下执行 `Persist`（临时文件 -> `xray run -test` -> `.bak` -> 原子 `Rename`，**绝不调用 `reloadService`**），成功后再执行 gRPC 运行态收敛；任何一步失败均不得推进 `usersHash` 与 `sync_state.json`。
+- **上游 Xray-core gRPC 线协议精确对齐**：
+  - `HandlerService.GetInboundUsers`：`/xray.app.proxyman.command.HandlerService/GetInboundUsers`，`GetInboundUserRequest{tag=1, email=2}` -> `GetInboundUserResponse{users=1}`；
+  - `StatsService.GetSysStats`：`/xray.app.stats.command.StatsService/GetSysStats`，`SysStatsRequest{}` -> `SysStatsResponse{..., Uptime=10}`。
+- **静态客户端保护与运行态自愈**：`ReconcileWithRuntime` 必须跳过 `relay-auto:*@internal`、`*@trojan.local` 及磁盘权威配置中的静态客户端（含 `len(desired) == 0` 场景）；遇到 `ErrInboundHandlerMissing` 触发 `ReloadAndProbe` / 结构恢复；遇到 `codes.Unimplemented` 优雅降级为 `GetSysStats` `Uptime` 下降检测 + `ResetBaseline(nil)` 补齐。
+- **Agent 健康重启零断流**：启动时从 `{spoolDir}/sync_state.json` 恢复状态（与 `QuotaStore.LocalCircuitBroken` 对齐），仅当实测磁盘 SHA-256 匹配 `FullConfigHash` 时复用哈希，避免重启 `xray-agent` 触发无意义 Xray reload。
+
+### 4. Validation & Error Matrix
+- `xray run -test` 失败 -> `ConfigManager.Persist` 返回错误且原 `config.json` 完好，`usersHash` 不推进；
+- `UserSyncer.AddUser` 遇到 `handler not found` / `failed to get handler` -> **严禁忽略**，返回 `ErrInboundHandlerMissing` 触发 `Runner` 重载/结构恢复；
+- `GetInboundUsers` 返回 `codes.Unimplemented` -> 回退至 `GetSysStats` + 内存基线 `Reconcile`；
+- `Runner.mu` 锁安全 -> 禁止在持锁期间发起 HTTP/gRPC/磁盘阻塞调用。
+
+### 5. Good / Base / Bad Cases
+- **Good**: 仅增删改用户时，磁盘 `config.json` 无重启原子更新至 `FullConfigHash`，Xray reload 次数为 0；Xray 外部重启或磁盘被篡改后 1 个心跳周期内自动收敛且静态客户端完好；`xray-agent` 重启且磁盘/运行态一致时 0 次 Xray reload。
+- **Base**: 旧 Agent（无 `diskConfigHash`）与新 Master、新 Agent 与旧 Master（`ConfigJSON == ""`）均平滑兼容。
+- **Bad**: 在 Agent 端手写 JSON Patch 改 `settings.clients`；或在 `AddUser` 中忽略 `handler not found` 将失败用户误标入 `applied`；或未验证上游 `.proto` 字段编号直接手猜 `SysStatsResponse.Uptime`。
+
+### 6. Tests Required
+- `TestGRPCClient_GetInboundUsersAndSysUptime_LoopbackRoundtrip` (`internal/adapter/xray/grpc_client_test.go`)
+- `TestNodeService_HandleAgentSync_DiskConfigHashDelivery` (`internal/service/node_service_test.go`)
+- `TestConfigManager_Persist_AtomicWithoutReload` (`internal/agent/config_manager_test.go`)
+- `TestUserSyncer_AddUser_HandlerNotFoundNotIgnored` & runtime drift / static-client protection tests (`internal/agent/user_sync_test.go`)
+- `TestRunner_FailRepro_HotUpdatePersistsDiskConfig` & restart/drift/agent-restart tests (`internal/agent/runner_test.go`)
+- `TestMasterAgent_E2E_DiskPersistAndRuntimeSelfHeal` (`internal/delivery/http/agent_e2e_test.go`)
+
+### 7. Wrong vs Correct
+#### Wrong
+```go
+// 错误 1：仅通过 gRPC 热更新内存，不落盘 Master 权威 ConfigJSON，Xray 重启即丢用户
+if !resp.UsersUnchanged {
+    r.userSync.Reconcile(ctx, resp.Users)
+    r.usersHash = resp.UsersHash
+}
+
+// 错误 2：AddUser 复用 RemoveUser 的忽略列表，静默吞掉 handler not found
+if err := s.client.AddUser(ctx, u); err != nil && !isIgnorableXrayError(err) { ... }
+```
+#### Correct
+```go
+// 正确 1：先校验无重启原子落盘 Master 权威 ConfigJSON，再实测 Xray 运行态收敛
+if resp.ConfigJSON != "" {
+    if err := r.cfgMgr.Persist(ctx, resp.ConfigJSON); err != nil { return false, err }
+}
+added, removed, err := r.userSync.ReconcileWithRuntime(ctx, targetUsers, dynamicTags, staticEmails)
+
+// 正确 2：拆分 AddUser / RemoveUser 容错判定，AddUser 绝不忽略 handler not found
+if err := s.client.AddUser(ctx, u); err != nil && !isIgnorableAddUserError(err) {
+    if isHandlerNotFoundError(err) { return ..., fmt.Errorf("%w: %v", ErrInboundHandlerMissing, err) }
+    ...
+}
+```

@@ -1332,3 +1332,109 @@ func TestNodeService_WriteEndpoints_PopulateSyncStatus(t *testing.T) {
 		t.Fatalf("ResetNodeCycleTraffic missing sync status: hash=%q status=%q", reset.ExpectedConfigHash, reset.ConfigSyncStatus)
 	}
 }
+
+func TestNodeService_HandleAgentSync_DiskConfigHashDelivery(t *testing.T) {
+	nodeSvc, configSvc, userSvc, _, _, _ := setupNodeServiceTestEnv(t)
+	ctx := context.Background()
+
+	node, err := nodeSvc.CreateNode(ctx, domain.CreateNodeDTO{
+		Name: "DiskHash Node",
+		Host: "127.0.0.1",
+	})
+	if err != nil {
+		t.Fatalf("CreateNode failed: %v", err)
+	}
+	if err := configSvc.CreateInbound(ctx, &domain.Inbound{
+		NodeID:   node.ID,
+		Tag:      "edge-vless",
+		Protocol: "vless",
+		Port:     443,
+		Listen:   "0.0.0.0",
+		Enabled:  true,
+	}); err != nil {
+		t.Fatalf("CreateInbound failed: %v", err)
+	}
+	if _, err := userSvc.CreateUser(ctx, service.CreateUserDTO{
+		Email:       "alice@example.com",
+		InboundTags: []string{"edge-vless"},
+	}); err != nil {
+		t.Fatalf("CreateUser alice failed: %v", err)
+	}
+
+	// 1. Initial sync returns full ConfigJSON.
+	resp1, err := nodeSvc.HandleAgentSync(ctx, node.ID, &domain.AgentSyncRequest{})
+	if err != nil {
+		t.Fatalf("initial HandleAgentSync failed: %v", err)
+	}
+	if resp1.ConfigJSON == "" {
+		t.Fatalf("expected non-empty ConfigJSON on initial sync")
+	}
+	sum1 := sha256.Sum256([]byte(resp1.ConfigJSON))
+	diskHash1 := hex.EncodeToString(sum1[:])
+
+	// 2. Matching ConfigHash, UsersHash, and DiskConfigHash -> short-circuit omits ConfigJSON.
+	resp2, err := nodeSvc.HandleAgentSync(ctx, node.ID, &domain.AgentSyncRequest{
+		ConfigHash:     resp1.ConfigHash,
+		UsersHash:      resp1.UsersHash,
+		DiskConfigHash: diskHash1,
+	})
+	if err != nil {
+		t.Fatalf("steady HandleAgentSync failed: %v", err)
+	}
+	if !resp2.ConfigUnchanged || !resp2.UsersUnchanged || resp2.ConfigJSON != "" {
+		t.Fatalf("expected steady short-circuit without ConfigJSON, got unchanged=%v/%v configLen=%d", resp2.ConfigUnchanged, resp2.UsersUnchanged, len(resp2.ConfigJSON))
+	}
+
+	// 3. Disk tampering/drift even when ConfigHash and UsersHash match -> ConfigUnchanged=true, ConfigJSON delivered!
+	respDrift, err := nodeSvc.HandleAgentSync(ctx, node.ID, &domain.AgentSyncRequest{
+		ConfigHash:     resp1.ConfigHash,
+		UsersHash:      resp1.UsersHash,
+		DiskConfigHash: "tampered-disk-hash",
+	})
+	if err != nil {
+		t.Fatalf("drift HandleAgentSync failed: %v", err)
+	}
+	if !respDrift.ConfigUnchanged || !respDrift.UsersUnchanged {
+		t.Fatalf("expected ConfigUnchanged=true UsersUnchanged=true on disk-only drift, got %v/%v", respDrift.ConfigUnchanged, respDrift.UsersUnchanged)
+	}
+	if respDrift.ConfigJSON != resp1.ConfigJSON {
+		t.Fatalf("expected Master to deliver authoritative ConfigJSON when DiskConfigHash mismatches")
+	}
+
+	// 4. User mutation: new Agent with old DiskConfigHash gets ConfigUnchanged=true, UsersUnchanged=false, AND updated ConfigJSON.
+	if _, err := userSvc.CreateUser(ctx, service.CreateUserDTO{
+		Email:       "bob@example.com",
+		InboundTags: []string{"edge-vless"},
+	}); err != nil {
+		t.Fatalf("CreateUser bob failed: %v", err)
+	}
+	respUserNewAgent, err := nodeSvc.HandleAgentSync(ctx, node.ID, &domain.AgentSyncRequest{
+		ConfigHash:     resp1.ConfigHash,
+		UsersHash:      resp1.UsersHash,
+		DiskConfigHash: diskHash1,
+	})
+	if err != nil {
+		t.Fatalf("user mutation new-agent sync failed: %v", err)
+	}
+	if !respUserNewAgent.ConfigUnchanged || respUserNewAgent.UsersUnchanged {
+		t.Fatalf("expected ConfigUnchanged=true UsersUnchanged=false, got %v/%v", respUserNewAgent.ConfigUnchanged, respUserNewAgent.UsersUnchanged)
+	}
+	if respUserNewAgent.ConfigJSON == "" || !strings.Contains(respUserNewAgent.ConfigJSON, "bob@example.com") {
+		t.Fatalf("expected updated ConfigJSON containing bob@example.com for new agent, got %q", respUserNewAgent.ConfigJSON)
+	}
+
+	// 5. Legacy Agent compatibility: omits DiskConfigHash ("") -> Master omits ConfigJSON when ConfigUnchanged=true.
+	respLegacyAgent, err := nodeSvc.HandleAgentSync(ctx, node.ID, &domain.AgentSyncRequest{
+		ConfigHash: resp1.ConfigHash,
+		UsersHash:  resp1.UsersHash,
+	})
+	if err != nil {
+		t.Fatalf("user mutation legacy-agent sync failed: %v", err)
+	}
+	if !respLegacyAgent.ConfigUnchanged || respLegacyAgent.UsersUnchanged {
+		t.Fatalf("expected ConfigUnchanged=true UsersUnchanged=false for legacy agent, got %v/%v", respLegacyAgent.ConfigUnchanged, respLegacyAgent.UsersUnchanged)
+	}
+	if respLegacyAgent.ConfigJSON != "" {
+		t.Fatalf("expected empty ConfigJSON for legacy agent omitting DiskConfigHash, got len=%d", len(respLegacyAgent.ConfigJSON))
+	}
+}

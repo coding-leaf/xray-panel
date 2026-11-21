@@ -2,6 +2,7 @@ package xray
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"sync"
@@ -220,5 +221,132 @@ func (c *GRPCClient) QueryTrafficStats(ctx context.Context, reset bool) ([]domai
 		})
 	}
 	return results, nil
+}
+
+// RuntimeInboundUser represents a live user decoded from Xray HandlerService.GetInboundUsers.
+type RuntimeInboundUser struct {
+	InboundTag string
+	Email      string
+	Protocol   string // "vless" | "vmess" | "trojan" | "shadowsocks" | "shadowsocks-2022"
+	UUID       string // VLESS/VMess id, Trojan/SS password, SS2022 key
+	Flow       string // VLESS flow
+	Method     string // Shadowsocks cipher (lowercase, e.g. "aes-256-gcm"); empty for SS2022
+}
+
+// DecodeAccountMessage decodes an Xray TypedMessage account payload into normalized fields.
+func DecodeAccountMessage(account *proto.TypedMessage) (RuntimeInboundUser, error) {
+	if account == nil {
+		return RuntimeInboundUser{}, errors.New("account typed message is nil")
+	}
+	inst, err := account.GetInstance()
+	if err != nil {
+		return RuntimeInboundUser{}, err
+	}
+	switch acc := inst.(type) {
+	case *proto.VLESSAccount:
+		return RuntimeInboundUser{
+			Protocol: "vless",
+			UUID:     acc.GetId(),
+			Flow:     acc.GetFlow(),
+		}, nil
+	case *proto.VMessAccount:
+		return RuntimeInboundUser{
+			Protocol: "vmess",
+			UUID:     acc.GetId(),
+		}, nil
+	case *proto.TrojanAccount:
+		return RuntimeInboundUser{
+			Protocol: "trojan",
+			UUID:     acc.GetPassword(),
+		}, nil
+	case *proto.ShadowsocksAccount:
+		return RuntimeInboundUser{
+			Protocol: "shadowsocks",
+			UUID:     acc.GetPassword(),
+			Method:   cipherTypeToMethod(acc.GetCipherType()),
+		}, nil
+	case *proto.Shadowsocks2022Account:
+		return RuntimeInboundUser{
+			Protocol: "shadowsocks-2022",
+			UUID:     acc.GetKey(),
+		}, nil
+	default:
+		return RuntimeInboundUser{}, fmt.Errorf("unexpected account message type %T", inst)
+	}
+}
+
+func cipherTypeToMethod(ct proto.CipherType) string {
+	switch ct {
+	case proto.CipherType_AES_128_GCM:
+		return "aes-128-gcm"
+	case proto.CipherType_AES_256_GCM:
+		return "aes-256-gcm"
+	case proto.CipherType_CHACHA20_POLY1305:
+		return "chacha20-poly1305"
+	case proto.CipherType_XCHACHA20_POLY1305:
+		return "xchacha20-poly1305"
+	case proto.CipherType_NONE:
+		return "none"
+	default:
+		return ""
+	}
+}
+
+// GetInboundUsers queries live users registered on the specified Xray inbound tag.
+func (c *GRPCClient) GetInboundUsers(ctx context.Context, inboundTag string) ([]RuntimeInboundUser, error) {
+	handlerCli, _, err := c.getClients(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	rpcCtx, cancel := ensureRPCTimeout(ctx)
+	defer cancel()
+
+	resp, err := handlerCli.GetInboundUsers(rpcCtx, &proto.GetInboundUserRequest{
+		Tag: inboundTag,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("xray get inbound users for %s failed: %w", inboundTag, err)
+	}
+
+	users := make([]RuntimeInboundUser, 0, len(resp.GetUsers()))
+	for _, u := range resp.GetUsers() {
+		if u == nil || u.GetEmail() == "" {
+			continue
+		}
+		item := RuntimeInboundUser{
+			InboundTag: inboundTag,
+			Email:      u.GetEmail(),
+		}
+		if u.GetAccount() != nil {
+			decoded, decErr := DecodeAccountMessage(u.GetAccount())
+			if decErr != nil {
+				return nil, fmt.Errorf("decode runtime user %s in %s failed: %w", u.GetEmail(), inboundTag, decErr)
+			}
+			item.Protocol = decoded.Protocol
+			item.UUID = decoded.UUID
+			item.Flow = decoded.Flow
+			item.Method = decoded.Method
+		}
+		users = append(users, item)
+	}
+	return users, nil
+}
+
+// GetSysUptime queries Xray StatsService.GetSysStats and returns process uptime in seconds.
+func (c *GRPCClient) GetSysUptime(ctx context.Context) (uint32, error) {
+	_, statsCli, err := c.getClients(ctx)
+	if err != nil {
+		return 0, err
+	}
+
+	rpcCtx, cancel := ensureRPCTimeout(ctx)
+	defer cancel()
+
+	resp, err := statsCli.GetSysStats(rpcCtx, &proto.SysStatsRequest{})
+	if err != nil {
+		return 0, fmt.Errorf("xray get sys stats failed: %w", err)
+	}
+	return resp.GetUptime(), nil
 }
 

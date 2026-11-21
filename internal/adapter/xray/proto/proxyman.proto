@@ -21,6 +21,16 @@ message AlterInboundRequest {
 
 message AlterInboundResponse {}
 
+message GetInboundUserRequest {
+  string tag = 1;
+  string email = 2;
+}
+
+message GetInboundUserResponse {
+  repeated xray.panel.protocol.User users = 1;
+}
+
 service HandlerService {
   rpc AlterInbound(AlterInboundRequest) returns (AlterInboundResponse);
+  rpc GetInboundUsers(GetInboundUserRequest) returns (GetInboundUserResponse);
 }

@@ -17,6 +17,7 @@ const (
 type SyncRequest struct {
 	ConfigHash     string          `json:"configHash"`
 	UsersHash      string          `json:"usersHash"`
+	DiskConfigHash string          `json:"diskConfigHash,omitempty"`
 	AgentVersion   string          `json:"agentVersion"`
 	XrayVersion    string          `json:"xrayVersion"`
 	LastError      string          `json:"lastError"`

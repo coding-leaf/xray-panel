@@ -19,7 +19,8 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	StatsService_QueryStats_FullMethodName = "/xray.app.stats.command.StatsService/QueryStats"
+	StatsService_QueryStats_FullMethodName  = "/xray.app.stats.command.StatsService/QueryStats"
+	StatsService_GetSysStats_FullMethodName = "/xray.app.stats.command.StatsService/GetSysStats"
 )
 
 // StatsServiceClient is the client API for StatsService service.
@@ -27,6 +28,7 @@ const (
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 type StatsServiceClient interface {
 	QueryStats(ctx context.Context, in *QueryStatsRequest, opts ...grpc.CallOption) (*QueryStatsResponse, error)
+	GetSysStats(ctx context.Context, in *SysStatsRequest, opts ...grpc.CallOption) (*SysStatsResponse, error)
 }
 
 type statsServiceClient struct {
@@ -47,11 +49,22 @@ func (c *statsServiceClient) QueryStats(ctx context.Context, in *QueryStatsReque
 	return out, nil
 }
 
+func (c *statsServiceClient) GetSysStats(ctx context.Context, in *SysStatsRequest, opts ...grpc.CallOption) (*SysStatsResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(SysStatsResponse)
+	err := c.cc.Invoke(ctx, StatsService_GetSysStats_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // StatsServiceServer is the server API for StatsService service.
 // All implementations must embed UnimplementedStatsServiceServer
 // for forward compatibility.
 type StatsServiceServer interface {
 	QueryStats(context.Context, *QueryStatsRequest) (*QueryStatsResponse, error)
+	GetSysStats(context.Context, *SysStatsRequest) (*SysStatsResponse, error)
 	mustEmbedUnimplementedStatsServiceServer()
 }
 
@@ -64,6 +77,9 @@ type UnimplementedStatsServiceServer struct{}
 
 func (UnimplementedStatsServiceServer) QueryStats(context.Context, *QueryStatsRequest) (*QueryStatsResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method QueryStats not implemented")
+}
+func (UnimplementedStatsServiceServer) GetSysStats(context.Context, *SysStatsRequest) (*SysStatsResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method GetSysStats not implemented")
 }
 func (UnimplementedStatsServiceServer) mustEmbedUnimplementedStatsServiceServer() {}
 func (UnimplementedStatsServiceServer) testEmbeddedByValue()                      {}
@@ -104,6 +120,24 @@ func _StatsService_QueryStats_Handler(srv interface{}, ctx context.Context, dec 
 	return interceptor(ctx, in, info, handler)
 }
 
+func _StatsService_GetSysStats_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(SysStatsRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(StatsServiceServer).GetSysStats(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: StatsService_GetSysStats_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(StatsServiceServer).GetSysStats(ctx, req.(*SysStatsRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // StatsService_ServiceDesc is the grpc.ServiceDesc for StatsService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -114,6 +148,10 @@ var StatsService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "QueryStats",
 			Handler:    _StatsService_QueryStats_Handler,
+		},
+		{
+			MethodName: "GetSysStats",
+			Handler:    _StatsService_GetSysStats_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

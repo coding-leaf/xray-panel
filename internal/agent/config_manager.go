@@ -2,6 +2,8 @@ package agent
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -93,37 +95,9 @@ func (m *ConfigManager) Apply(ctx context.Context, configJSON string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	if err := os.MkdirAll(filepath.Dir(m.cfg.ConfigPath), 0o755); err != nil {
-		return fmt.Errorf("create xray config dir: %w", err)
-	}
-
-	tmpPath := tempConfigPath(m.cfg.ConfigPath)
-	if err := writeFileAtomicSync(tmpPath, []byte(configJSON), 0o644); err != nil {
-		return fmt.Errorf("write temp config: %w", err)
-	}
-
-	out, err := m.runner.Run(ctx, m.cfg.XrayBin, "run", "-test", "-c", tmpPath)
+	bakPath, hasBackup, err := m.validateAndWriteLocked(ctx, configJSON)
 	if err != nil {
-		_ = os.Remove(tmpPath)
-		return fmt.Errorf("xray config test failed: %w (%s)", err, strings.TrimSpace(string(out)))
-	}
-
-	bakPath := m.cfg.ConfigPath + ".bak"
-	hasBackup := false
-	if existing, readErr := os.ReadFile(m.cfg.ConfigPath); readErr == nil {
-		if writeErr := writeFileAtomicSync(bakPath, existing, 0o600); writeErr != nil {
-			_ = os.Remove(tmpPath)
-			return fmt.Errorf("backup existing config: %w", writeErr)
-		}
-		hasBackup = true
-	} else if !errors.Is(readErr, os.ErrNotExist) {
-		_ = os.Remove(tmpPath)
-		return fmt.Errorf("read existing config for backup: %w", readErr)
-	}
-
-	if err := os.Rename(tmpPath, m.cfg.ConfigPath); err != nil {
-		_ = os.Remove(tmpPath)
-		return fmt.Errorf("replace config file: %w", err)
+		return err
 	}
 
 	if err := m.reloadService(ctx); err != nil {
@@ -143,6 +117,131 @@ func (m *ConfigManager) Apply(ctx context.Context, configJSON string) error {
 	}
 
 	return nil
+}
+
+// Persist validates configJSON with `xray run -test`, backs up the existing config,
+// and atomically replaces ConfigPath on disk without reloading or restarting Xray.
+func (m *ConfigManager) Persist(ctx context.Context, configJSON string) error {
+	if strings.TrimSpace(configJSON) == "" {
+		return errors.New("config json is empty")
+	}
+
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	_, _, err := m.validateAndWriteLocked(ctx, configJSON)
+	return err
+}
+
+func (m *ConfigManager) validateAndWriteLocked(ctx context.Context, configJSON string) (string, bool, error) {
+	if err := os.MkdirAll(filepath.Dir(m.cfg.ConfigPath), 0o755); err != nil {
+		return "", false, fmt.Errorf("create xray config dir: %w", err)
+	}
+
+	tmpPath := tempConfigPath(m.cfg.ConfigPath)
+	if err := writeFileAtomicSync(tmpPath, []byte(configJSON), 0o644); err != nil {
+		return "", false, fmt.Errorf("write temp config: %w", err)
+	}
+
+	out, err := m.runner.Run(ctx, m.cfg.XrayBin, "run", "-test", "-c", tmpPath)
+	if err != nil {
+		_ = os.Remove(tmpPath)
+		return "", false, fmt.Errorf("xray config test failed: %w (%s)", err, strings.TrimSpace(string(out)))
+	}
+
+	bakPath := m.cfg.ConfigPath + ".bak"
+	hasBackup := false
+	if existing, readErr := os.ReadFile(m.cfg.ConfigPath); readErr == nil {
+		if writeErr := writeFileAtomicSync(bakPath, existing, 0o600); writeErr != nil {
+			_ = os.Remove(tmpPath)
+			return "", false, fmt.Errorf("backup existing config: %w", writeErr)
+		}
+		hasBackup = true
+	} else if !errors.Is(readErr, os.ErrNotExist) {
+		_ = os.Remove(tmpPath)
+		return "", false, fmt.Errorf("read existing config for backup: %w", readErr)
+	}
+
+	if err := os.Rename(tmpPath, m.cfg.ConfigPath); err != nil {
+		_ = os.Remove(tmpPath)
+		return "", false, fmt.Errorf("replace config file: %w", err)
+	}
+
+	return bakPath, hasBackup, nil
+}
+
+// HashCurrentConfig returns the lowercase SHA-256 hex digest of ConfigPath, or "missing" if it does not exist.
+func (m *ConfigManager) HashCurrentConfig() (string, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	data, err := os.ReadFile(m.cfg.ConfigPath)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return "missing", nil
+		}
+		return "", fmt.Errorf("read current xray config: %w", err)
+	}
+	sum := sha256.Sum256(data)
+	return hex.EncodeToString(sum[:]), nil
+}
+
+// ConfigInboundMeta describes an inbound parsed read-only from the current on-disk Xray config.json.
+type ConfigInboundMeta struct {
+	Tag          string
+	Protocol     string
+	StaticEmails []string
+}
+
+// InspectConfigInbounds reads ConfigPath and extracts inbound tags, protocols, and built-in static client emails.
+func (m *ConfigManager) InspectConfigInbounds() ([]ConfigInboundMeta, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	data, err := os.ReadFile(m.cfg.ConfigPath)
+	if err != nil {
+		return nil, fmt.Errorf("read xray config for inspection: %w", err)
+	}
+
+	var doc struct {
+		Inbounds []struct {
+			Tag      string `json:"tag"`
+			Protocol string `json:"protocol"`
+			Settings struct {
+				Clients []struct {
+					Email string `json:"email"`
+				} `json:"clients"`
+			} `json:"settings"`
+		} `json:"inbounds"`
+	}
+	if err := json.Unmarshal(data, &doc); err != nil {
+		return nil, fmt.Errorf("parse xray config for inspection: %w", err)
+	}
+
+	out := make([]ConfigInboundMeta, 0, len(doc.Inbounds))
+	for _, inb := range doc.Inbounds {
+		tag := strings.TrimSpace(inb.Tag)
+		if tag == "" {
+			continue
+		}
+		meta := ConfigInboundMeta{
+			Tag:      tag,
+			Protocol: strings.ToLower(strings.TrimSpace(inb.Protocol)),
+		}
+		for _, cl := range inb.Settings.Clients {
+			email := strings.TrimSpace(cl.Email)
+			if isBuiltinStaticClientEmail(email) {
+				meta.StaticEmails = append(meta.StaticEmails, email)
+			}
+		}
+		out = append(out, meta)
+	}
+	return out, nil
+}
+
+func isBuiltinStaticClientEmail(email string) bool {
+	return (strings.HasPrefix(email, "relay-auto:") && strings.HasSuffix(email, "@internal")) ||
+		strings.HasSuffix(email, "@trojan.local")
 }
 
 // ApplyCircuitBreaker replaces the active config with a minimal silence config containing

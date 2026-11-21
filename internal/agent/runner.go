@@ -2,11 +2,16 @@ package agent
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"log/slog"
+	"os"
 	"strings"
 	"sync"
 	"time"
+
+	"panel/internal/domain"
 )
 
 const (
@@ -30,17 +35,23 @@ type Runner struct {
 	traffic      TrafficCollector
 	metrics      *MetricsCollector
 	quotaStore   *QuotaStore
+	syncState    *SyncStateStore
+	uptimeProv   SysUptimeProvider
 	logCollector LogCollector
 	geoUpdater   GeoDataUpdater
 
-	mu            sync.Mutex
-	agentVersion  string
-	xrayVersion   string
-	interval      time.Duration
-	configHash    string
-	usersHash     string
-	lastError     string
-	circuitBroken bool
+	mu              sync.Mutex
+	agentVersion    string
+	xrayVersion     string
+	interval        time.Duration
+	configHash      string
+	usersHash       string
+	fullConfigHash  string
+	desiredUsers    []RemoteUser
+	hasDesiredUsers bool
+	lastXrayUptime  uint32
+	lastError       string
+	circuitBroken   bool
 
 	cmdMu          sync.Mutex
 	inFlightByID   map[string]bool
@@ -78,24 +89,61 @@ func NewRunner(
 	if interval <= 0 {
 		interval = defaultSyncInterval
 	}
-	return &Runner{
+
+	var syncState *SyncStateStore
+	if spool.dir != "" {
+		if st, stErr := NewSyncStateStore(spool.dir); stErr == nil {
+			syncState = st
+		}
+	}
+
+	var uptimeProv SysUptimeProvider
+	if up, ok := traffic.(SysUptimeProvider); ok {
+		uptimeProv = up
+	} else if up, ok := userSync.ctrl.(SysUptimeProvider); ok {
+		uptimeProv = up
+	}
+
+	r := &Runner{
 		client:         client,
 		spool:          spool,
 		cfgMgr:         cfgMgr,
 		userSync:       userSync,
 		traffic:        traffic,
 		metrics:        metrics,
+		syncState:      syncState,
+		uptimeProv:     uptimeProv,
 		agentVersion:   cfg.AgentVersion,
 		interval:       interval,
 		inFlightByID:   make(map[string]bool),
 		inFlightByType: make(map[string]bool),
-	}, nil
+	}
+	r.restoreStartupState()
+	return r, nil
 }
 
 // WithQuotaStore attaches an optional local QuotaStore for autonomous offline circuit breaking.
 func (r *Runner) WithQuotaStore(store *QuotaStore) *Runner {
 	r.mu.Lock()
 	r.quotaStore = store
+	r.mu.Unlock()
+	r.restoreStartupState()
+	return r
+}
+
+// WithSyncStateStore attaches an explicit SyncStateStore for persistent restart-safe state recovery.
+func (r *Runner) WithSyncStateStore(store *SyncStateStore) *Runner {
+	r.mu.Lock()
+	r.syncState = store
+	r.mu.Unlock()
+	r.restoreStartupState()
+	return r
+}
+
+// WithUptimeProvider attaches an explicit SysUptimeProvider for Xray restart detection.
+func (r *Runner) WithUptimeProvider(prov SysUptimeProvider) *Runner {
+	r.mu.Lock()
+	r.uptimeProv = prov
 	r.mu.Unlock()
 	return r
 }
@@ -180,12 +228,32 @@ func (r *Runner) SyncOnce(ctx context.Context) error {
 	sentResults := r.snapshotPendingResults()
 
 	r.mu.Lock()
-	if r.xrayVersion == "" {
-		r.xrayVersion = r.cfgMgr.DetectXrayVersion(ctx)
+	broken := r.circuitBroken
+	needXrayVer := r.xrayVersion == ""
+	r.mu.Unlock()
+
+	var detectedVer string
+	if needXrayVer {
+		detectedVer = r.cfgMgr.DetectXrayVersion(ctx)
+	}
+
+	diskConfigHash := ""
+	if !broken {
+		if h, hashErr := r.cfgMgr.HashCurrentConfig(); hashErr != nil {
+			slog.Warn("Failed to hash current xray config", slog.String("error", hashErr.Error()))
+		} else {
+			diskConfigHash = h
+		}
+	}
+
+	r.mu.Lock()
+	if r.xrayVersion == "" && detectedVer != "" {
+		r.xrayVersion = detectedVer
 	}
 	req := &SyncRequest{
 		ConfigHash:     r.configHash,
 		UsersHash:      r.usersHash,
+		DiskConfigHash: diskConfigHash,
 		AgentVersion:   r.agentVersion,
 		XrayVersion:    r.xrayVersion,
 		LastError:      r.lastError,
@@ -246,8 +314,14 @@ func (r *Runner) reconcileSyncResponse(ctx context.Context, resp *SyncResponse) 
 			r.circuitBroken = true
 			r.configHash = ""
 			r.usersHash = ""
+			r.fullConfigHash = ""
+			r.desiredUsers = nil
+			r.hasDesiredUsers = false
+			r.lastXrayUptime = 0
 			r.lastError = ""
+			st := r.snapshotSyncStateLocked()
 			r.mu.Unlock()
+			r.saveSyncState(st)
 			slog.Warn("Applied circuit-breaker silence config")
 		} else {
 			r.setLastError("")
@@ -260,38 +334,172 @@ func (r *Runner) reconcileSyncResponse(ctx context.Context, resp *SyncResponse) 
 			r.setLastError(applyErr.Error())
 			return false, applyErr
 		}
+		newFullHash := sha256HexString(resp.ConfigJSON)
+		uptime, uptimeOK := r.queryUptime(ctx)
+
+		var baselineUsers []RemoteUser
+		hasBaseline := false
+
 		r.mu.Lock()
 		r.configHash = resp.ConfigHash
+		r.fullConfigHash = newFullHash
 		r.circuitBroken = false
 		r.lastError = ""
-		if !resp.UsersUnchanged {
-			r.userSync.ResetBaseline(resp.Users)
-			r.usersHash = resp.UsersHash
+		if uptimeOK {
+			r.lastXrayUptime = uptime
 		}
+		if !resp.UsersUnchanged {
+			r.usersHash = resp.UsersHash
+			r.desiredUsers = cloneRemoteUsers(resp.Users)
+			r.hasDesiredUsers = true
+			baselineUsers = cloneRemoteUsers(resp.Users)
+			hasBaseline = true
+		} else if r.hasDesiredUsers {
+			baselineUsers = cloneRemoteUsers(r.desiredUsers)
+			hasBaseline = true
+		}
+		st := r.snapshotSyncStateLocked()
 		r.mu.Unlock()
+
+		if hasBaseline {
+			r.userSync.ResetBaseline(baselineUsers)
+		}
+		r.saveSyncState(st)
 		slog.Info("Applied updated xray config", slog.String("config_hash", resp.ConfigHash))
 		return true, nil
 	}
 
+	// ConfigUnchanged == true: persist authoritative disk config (if delivered) without reload,
+	// detect Xray restarts/drift, and converge runtime via gRPC.
+	persisted := false
+	newFullHash := ""
+	if resp.ConfigJSON != "" {
+		if persistErr := r.cfgMgr.Persist(ctx, resp.ConfigJSON); persistErr != nil {
+			r.setLastError(persistErr.Error())
+			return false, persistErr
+		}
+		newFullHash = sha256HexString(resp.ConfigJSON)
+		persisted = true
+	} else if !resp.UsersUnchanged {
+		slog.Info("Master omitted configJson on user update; keeping existing disk config")
+	}
+
+	uptime, uptimeOK := r.queryUptime(ctx)
+
+	r.mu.Lock()
+	restarted := false
+	if uptimeOK {
+		if r.lastXrayUptime > 0 && uptime < r.lastXrayUptime {
+			restarted = true
+			slog.Warn("Detected xray process restart via uptime drop",
+				slog.Uint64("prev_uptime", uint64(r.lastXrayUptime)),
+				slog.Uint64("curr_uptime", uint64(uptime)),
+			)
+		}
+		r.lastXrayUptime = uptime
+	}
+	if persisted {
+		r.fullConfigHash = newFullHash
+	}
+	curFullHash := r.fullConfigHash
+	hasDesired := r.hasDesiredUsers
+	cachedDesired := cloneRemoteUsers(r.desiredUsers)
+	r.mu.Unlock()
+
+	var targetUsers []RemoteUser
+	shouldReconcile := false
 	if !resp.UsersUnchanged {
-		added, removed, recErr := r.userSync.Reconcile(ctx, resp.Users)
+		targetUsers = resp.Users
+		shouldReconcile = true
+	} else if hasDesired {
+		targetUsers = cachedDesired
+		shouldReconcile = true
+	} else if restarted {
+		slog.Warn("Xray restarted without cached desired users; resetting usersHash to re-fetch from master")
+		r.mu.Lock()
+		r.usersHash = ""
+		st := r.snapshotSyncStateLocked()
+		r.mu.Unlock()
+		r.saveSyncState(st)
+	}
+
+	added, removed := 0, 0
+	reloaded := false
+	if shouldReconcile {
+		dynamicTags, staticEmails := r.extractInboundInspection()
+		if _, supportsInspect := r.userSync.ctrl.(RuntimeUserInspector); !supportsInspect && restarted {
+			r.userSync.ResetBaseline(nil)
+		}
+
+		var recErr error
+		added, removed, recErr = r.userSync.ReconcileWithRuntime(ctx, targetUsers, dynamicTags, staticEmails)
+		if recErr != nil && errors.Is(recErr, ErrInboundHandlerMissing) {
+			diskHash, hashErr := r.cfgMgr.HashCurrentConfig()
+			if hashErr == nil && diskHash != "" && diskHash != "missing" && curFullHash != "" && diskHash == curFullHash {
+				slog.Warn("Xray inbound handler missing; reloading authoritative disk config")
+				if reloadErr := r.cfgMgr.ReloadAndProbe(ctx); reloadErr != nil {
+					slog.Warn("ReloadAndProbe failed during missing-handler recovery", slog.String("error", reloadErr.Error()))
+				} else {
+					reloaded = true
+					if newUp, ok := r.queryUptime(ctx); ok {
+						r.mu.Lock()
+						r.lastXrayUptime = newUp
+						r.mu.Unlock()
+					}
+					dynamicTags, staticEmails = r.extractInboundInspection()
+					if _, supportsInspect := r.userSync.ctrl.(RuntimeUserInspector); !supportsInspect {
+						r.userSync.ResetBaseline(nil)
+					}
+					added, removed, recErr = r.userSync.ReconcileWithRuntime(ctx, targetUsers, dynamicTags, staticEmails)
+				}
+			}
+		}
 		if recErr != nil {
-			r.setLastError(recErr.Error())
+			if errors.Is(recErr, ErrInboundHandlerMissing) {
+				r.mu.Lock()
+				r.configHash = ""
+				r.usersHash = ""
+				r.fullConfigHash = ""
+				r.lastError = recErr.Error()
+				st := r.snapshotSyncStateLocked()
+				r.mu.Unlock()
+				r.saveSyncState(st)
+				return false, recErr
+			}
+			// Persist already succeeded (if resp.ConfigJSON != ""), so keep fullConfigHash updated on disk
+			// while leaving usersHash unadvanced for retry on next tick.
+			r.mu.Lock()
+			r.lastError = recErr.Error()
+			st := r.snapshotSyncStateLocked()
+			r.mu.Unlock()
+			if persisted {
+				r.saveSyncState(st)
+			}
 			return false, recErr
 		}
-		r.mu.Lock()
-		r.usersHash = resp.UsersHash
-		r.circuitBroken = false
-		r.lastError = ""
-		r.mu.Unlock()
-		slog.Info("Reconciled xray users via gRPC", slog.Int("added", added), slog.Int("removed", removed))
-		return true, nil
 	}
 
 	r.mu.Lock()
 	r.circuitBroken = false
 	r.lastError = ""
+	if !resp.UsersUnchanged {
+		r.usersHash = resp.UsersHash
+		r.desiredUsers = cloneRemoteUsers(resp.Users)
+		r.hasDesiredUsers = true
+	}
+	st := r.snapshotSyncStateLocked()
 	r.mu.Unlock()
+	r.saveSyncState(st)
+
+	if !resp.UsersUnchanged || persisted || added > 0 || removed > 0 || reloaded {
+		slog.Info("Reconciled xray users via gRPC",
+			slog.Int("added", added),
+			slog.Int("removed", removed),
+			slog.Bool("persisted", persisted),
+			slog.Bool("reloaded", reloaded),
+		)
+		return true, nil
+	}
 	return false, nil
 }
 
@@ -521,13 +729,14 @@ func (r *Runner) ackPendingResults(acked []CommandResult) {
 func (r *Runner) sendConfigAck(ctx context.Context) {
 	r.mu.Lock()
 	ackReq := &SyncRequest{
-		ConfigHash:   r.configHash,
-		UsersHash:    r.usersHash,
-		AgentVersion: r.agentVersion,
-		XrayVersion:  r.xrayVersion,
-		LastError:    r.lastError,
-		HostMetrics:  nil,
-		TrafficBatch: nil,
+		ConfigHash:     r.configHash,
+		UsersHash:      r.usersHash,
+		DiskConfigHash: r.fullConfigHash,
+		AgentVersion:   r.agentVersion,
+		XrayVersion:    r.xrayVersion,
+		LastError:      r.lastError,
+		HostMetrics:    nil,
+		TrafficBatch:   nil,
 	}
 	r.mu.Unlock()
 
@@ -600,12 +809,160 @@ func (r *Runner) handleOfflineQuota(ctx context.Context, hostMetrics HostMetrics
 		r.circuitBroken = true
 		r.configHash = ""
 		r.usersHash = ""
+		r.fullConfigHash = ""
+		r.desiredUsers = nil
+		r.hasDesiredUsers = false
+		r.lastXrayUptime = 0
+		st := r.snapshotSyncStateLocked()
 		r.mu.Unlock()
+		r.saveSyncState(st)
 		if markErr := qs.MarkBroken(); markErr != nil {
 			slog.Warn("Failed to persist local circuit-broken state", slog.String("error", markErr.Error()))
 		}
 		slog.Warn("Applied autonomous offline circuit-breaker silence config")
 	}
+}
+
+func (r *Runner) restoreStartupState() {
+	r.mu.Lock()
+	qs := r.quotaStore
+	ss := r.syncState
+	r.mu.Unlock()
+
+	if qs != nil && qs.State().LocalCircuitBroken {
+		r.mu.Lock()
+		r.circuitBroken = true
+		r.configHash = ""
+		r.usersHash = ""
+		r.fullConfigHash = ""
+		r.desiredUsers = nil
+		r.hasDesiredUsers = false
+		r.lastXrayUptime = 0
+		r.mu.Unlock()
+		r.userSync.ResetBaseline(nil)
+		return
+	}
+
+	if ss == nil {
+		return
+	}
+	st, ok, err := ss.Load()
+	if err != nil {
+		slog.Warn("Failed to load persisted sync state", slog.String("error", err.Error()))
+		return
+	}
+	if !ok {
+		return
+	}
+	if st.CircuitBroken {
+		r.mu.Lock()
+		r.circuitBroken = true
+		r.configHash = ""
+		r.usersHash = ""
+		r.fullConfigHash = ""
+		r.desiredUsers = nil
+		r.hasDesiredUsers = false
+		r.lastXrayUptime = 0
+		r.mu.Unlock()
+		r.userSync.ResetBaseline(nil)
+		return
+	}
+	if st.FullConfigHash == "" || st.ConfigHash == "" {
+		return
+	}
+
+	diskHash, hashErr := r.cfgMgr.HashCurrentConfig()
+	if hashErr != nil || diskHash != st.FullConfigHash {
+		return
+	}
+
+	r.mu.Lock()
+	r.configHash = st.ConfigHash
+	r.usersHash = st.UsersHash
+	r.fullConfigHash = st.FullConfigHash
+	r.desiredUsers = cloneRemoteUsers(st.DesiredUsers)
+	r.hasDesiredUsers = st.HasDesiredUsers || st.UsersHash != ""
+	r.circuitBroken = false
+	r.mu.Unlock()
+
+	r.userSync.ResetBaseline(st.DesiredUsers)
+	slog.Info("Restored agent sync state from disk",
+		slog.String("config_hash", st.ConfigHash),
+		slog.String("users_hash", st.UsersHash),
+	)
+}
+
+func (r *Runner) snapshotSyncStateLocked() SyncState {
+	return SyncState{
+		ConfigHash:      r.configHash,
+		UsersHash:       r.usersHash,
+		FullConfigHash:  r.fullConfigHash,
+		DesiredUsers:    cloneRemoteUsers(r.desiredUsers),
+		HasDesiredUsers: r.hasDesiredUsers,
+		CircuitBroken:   r.circuitBroken,
+	}
+}
+
+func (r *Runner) saveSyncState(st SyncState) {
+	r.mu.Lock()
+	ss := r.syncState
+	r.mu.Unlock()
+	if ss == nil {
+		return
+	}
+	if err := ss.Save(st); err != nil {
+		slog.Warn("Failed to persist sync state", slog.String("error", err.Error()))
+	}
+}
+
+func (r *Runner) queryUptime(ctx context.Context) (uint32, bool) {
+	r.mu.Lock()
+	prov := r.uptimeProv
+	r.mu.Unlock()
+	if prov == nil {
+		return 0, false
+	}
+	uptime, err := prov.GetSysUptime(ctx)
+	if err != nil {
+		slog.Warn("Failed to query xray sys uptime", slog.String("error", err.Error()))
+		return 0, false
+	}
+	return uptime, true
+}
+
+func (r *Runner) extractInboundInspection() ([]string, map[string]struct{}) {
+	metas, err := r.cfgMgr.InspectConfigInbounds()
+	if err != nil {
+		if !errors.Is(err, os.ErrNotExist) {
+			slog.Warn("Failed to inspect on-disk xray config inbounds", slog.String("error", err.Error()))
+		}
+		return nil, nil
+	}
+	var dynamicTags []string
+	staticEmails := make(map[string]struct{})
+	for _, meta := range metas {
+		if meta.Tag != "" && meta.Tag != "api" && domain.SupportsDynamicUser(meta.Protocol) {
+			dynamicTags = append(dynamicTags, meta.Tag)
+		}
+		for _, em := range meta.StaticEmails {
+			staticEmails[em] = struct{}{}
+		}
+	}
+	return dynamicTags, staticEmails
+}
+
+func sha256HexString(s string) string {
+	sum := sha256.Sum256([]byte(s))
+	return hex.EncodeToString(sum[:])
+}
+
+func cloneRemoteUsers(users []RemoteUser) []RemoteUser {
+	if users == nil {
+		return nil
+	}
+	out := make([]RemoteUser, len(users))
+	copy(out, users)
+	return out
 }
 
 func sumTrafficBatch(batch *TrafficBatch) (up, down int64) {

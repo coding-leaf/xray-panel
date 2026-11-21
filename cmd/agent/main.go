@@ -70,6 +70,12 @@ func main() {
 		os.Exit(1)
 	}
 
+	syncStateStore, err := agent.NewSyncStateStore(*spoolDir)
+	if err != nil {
+		slog.Error("Failed to initialize sync state store", slog.String("error", err.Error()))
+		os.Exit(1)
+	}
+
 	grpcClient := xray.NewGRPCClient(*xrayGRPC)
 	defer func() {
 		if closeErr := grpcClient.Close(); closeErr != nil {
@@ -125,6 +131,7 @@ func main() {
 		os.Exit(1)
 	}
 	runner.WithQuotaStore(quotaStore).
+		WithSyncStateStore(syncStateStore).
 		WithLogCollector(agent.NewJournalctlLogCollector(agent.OSCommandRunner{})).
 		WithGeoDataUpdater(geoUpdater)
 

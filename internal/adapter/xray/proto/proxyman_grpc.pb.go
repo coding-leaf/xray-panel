@@ -19,7 +19,8 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	HandlerService_AlterInbound_FullMethodName = "/xray.app.proxyman.command.HandlerService/AlterInbound"
+	HandlerService_AlterInbound_FullMethodName    = "/xray.app.proxyman.command.HandlerService/AlterInbound"
+	HandlerService_GetInboundUsers_FullMethodName = "/xray.app.proxyman.command.HandlerService/GetInboundUsers"
 )
 
 // HandlerServiceClient is the client API for HandlerService service.
@@ -27,6 +28,7 @@ const (
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 type HandlerServiceClient interface {
 	AlterInbound(ctx context.Context, in *AlterInboundRequest, opts ...grpc.CallOption) (*AlterInboundResponse, error)
+	GetInboundUsers(ctx context.Context, in *GetInboundUserRequest, opts ...grpc.CallOption) (*GetInboundUserResponse, error)
 }
 
 type handlerServiceClient struct {
@@ -47,11 +49,22 @@ func (c *handlerServiceClient) AlterInbound(ctx context.Context, in *AlterInboun
 	return out, nil
 }
 
+func (c *handlerServiceClient) GetInboundUsers(ctx context.Context, in *GetInboundUserRequest, opts ...grpc.CallOption) (*GetInboundUserResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(GetInboundUserResponse)
+	err := c.cc.Invoke(ctx, HandlerService_GetInboundUsers_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // HandlerServiceServer is the server API for HandlerService service.
 // All implementations must embed UnimplementedHandlerServiceServer
 // for forward compatibility.
 type HandlerServiceServer interface {
 	AlterInbound(context.Context, *AlterInboundRequest) (*AlterInboundResponse, error)
+	GetInboundUsers(context.Context, *GetInboundUserRequest) (*GetInboundUserResponse, error)
 	mustEmbedUnimplementedHandlerServiceServer()
 }
 
@@ -64,6 +77,9 @@ type UnimplementedHandlerServiceServer struct{}
 
 func (UnimplementedHandlerServiceServer) AlterInbound(context.Context, *AlterInboundRequest) (*AlterInboundResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method AlterInbound not implemented")
+}
+func (UnimplementedHandlerServiceServer) GetInboundUsers(context.Context, *GetInboundUserRequest) (*GetInboundUserResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method GetInboundUsers not implemented")
 }
 func (UnimplementedHandlerServiceServer) mustEmbedUnimplementedHandlerServiceServer() {}
 func (UnimplementedHandlerServiceServer) testEmbeddedByValue()                        {}
@@ -104,6 +120,24 @@ func _HandlerService_AlterInbound_Handler(srv interface{}, ctx context.Context, 
 	return interceptor(ctx, in, info, handler)
 }
 
+func _HandlerService_GetInboundUsers_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetInboundUserRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(HandlerServiceServer).GetInboundUsers(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: HandlerService_GetInboundUsers_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(HandlerServiceServer).GetInboundUsers(ctx, req.(*GetInboundUserRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // HandlerService_ServiceDesc is the grpc.ServiceDesc for HandlerService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -114,6 +148,10 @@ var HandlerService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "AlterInbound",
 			Handler:    _HandlerService_AlterInbound_Handler,
+		},
+		{
+			MethodName: "GetInboundUsers",
+			Handler:    _HandlerService_GetInboundUsers_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

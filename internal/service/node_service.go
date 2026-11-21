@@ -49,10 +49,11 @@ type RemoteNodeCompiler interface {
 }
 
 type cachedNodeSnapshot struct {
-	ConfigHash string
-	UsersHash  string
-	ConfigJSON string
-	Users      []domain.AgentSyncUser
+	ConfigHash     string
+	FullConfigHash string
+	UsersHash      string
+	ConfigJSON     string
+	Users          []domain.AgentSyncUser
 }
 
 type cachedRemoteLog struct {
@@ -880,6 +881,7 @@ func (s *NodeService) HandleAgentSync(ctx context.Context, nodeID uint, req *dom
 
 	configUnchanged := req.ConfigHash != "" && req.ConfigHash == snap.ConfigHash
 	usersUnchanged := req.UsersHash != "" && req.UsersHash == snap.UsersHash
+	diskConfigStale := req.DiskConfigHash != "" && req.DiskConfigHash != snap.FullConfigHash
 
 	cycleMonth := latestNode.LastResetMonth
 	if cycleMonth <= 0 {
@@ -903,7 +905,7 @@ func (s *NodeService) HandleAgentSync(ctx context.Context, nodeID uint, req *dom
 			CycleMonth:        cycleMonth,
 		},
 	}
-	if !configUnchanged {
+	if !configUnchanged || diskConfigStale {
 		resp.ConfigJSON = snap.ConfigJSON
 	}
 	if !usersUnchanged {
@@ -999,10 +1001,11 @@ func (s *NodeService) getOrBuildSnapshot(ctx context.Context, nodeID uint) (*cac
 	}
 
 	snap := &cachedNodeSnapshot{
-		ConfigHash: sha256HexBytes(structuralBytes),
-		UsersHash:  sha256HexBytes(usersBytes),
-		ConfigJSON: string(fullConfigBytes),
-		Users:      syncUsers,
+		ConfigHash:     sha256HexBytes(structuralBytes),
+		FullConfigHash: sha256HexBytes(fullConfigBytes),
+		UsersHash:      sha256HexBytes(usersBytes),
+		ConfigJSON:     string(fullConfigBytes),
+		Users:          syncUsers,
 	}
 
 	s.mu.Lock()

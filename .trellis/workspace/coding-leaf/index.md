@@ -8,7 +8,7 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 45
+- **Total Sessions**: 46
 - **Last Active**: 2026-11-21
 <!-- @@@/auto:current-status -->
 
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~1041 | Active |
+| `journal-1.md` | ~1063 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 46 | 2026-11-21 | 节点命名收束、双层订阅暴露控制与称呼统一 | `adc3600` | `master` |
 | 45 | 2026-11-21 | 节点弹窗单行一键安装命令体验优化 | `1b025e6` | `master` |
 | 44 | 2026-11-21 | Agent 部署文档、独立脚本与非 root 防坑加固 | `bd6becc` | `master` |
 | 43 | 2026-11-21 | Fix xray-agent gRPC user hot-update drift and establish Master SSOT | `c1e9715` | `master` |

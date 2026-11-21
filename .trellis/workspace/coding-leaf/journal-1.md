@@ -1039,3 +1039,25 @@ Established Master compiled snapshot as single authoritative source of truth via
 ### Status
 
 [OK] **Completed**
+
+
+## Session 46: 节点命名收束、双层订阅暴露控制与称呼统一
+<!-- trellis-session: v=2 fp=67cc33961a1f76eb -->
+
+**Date**: 2026-11-21
+**Task**: 节点命名收束、双层订阅暴露控制与称呼统一
+**Branch**: `master`
+
+### Summary
+
+新增 Node.DirectSubEnabled 与 Inbound.SubExposed 双层正交开关，重构所见即所得统一命名引擎与重名消歧，移除默认冗余 SubRoute，统一全站托管节点/订阅显示名称称呼并补齐 SettingsView 模板实时预览
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `adc3600` | feat(nodes): add dual-layer subscription exposure controls, WYSIWYG naming engine, and UI consolidation |
+
+### Status
+
+[OK] **Completed**

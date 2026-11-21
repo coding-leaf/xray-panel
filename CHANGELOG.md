@@ -4,6 +4,21 @@
 
 ---
 
+## v2.8.0 (2026-11) - 双层订阅暴露控制、所见即所得命名引擎与节点配置收束
+
+- **双层正交订阅暴露开关 (`internal/domain`, `internal/adapter/repository`, `internal/service`)**：
+  - `Node` 新增 `DirectSubEnabled *bool`（`directSubEnabled`，默认 `true` 兼容历史数据），支持将 GCP 等中转落地节点整机锁死为「仅中转落地」，彻底屏蔽于 `/sub`、单节点分享与 Portal 提取之外，且完全不影响 Agent 心跳、中转配置编译（`extractStaticRelayClients`）与 95% 自动流量熔断保护；
+  - `Inbound` 新增 `SubExposed *bool`（`subExposed`，默认 `true` 兼容历史数据），支持单条入站细粒度设为「仅内部中转」，规避 GORM `default:true` 零值覆盖问题。
+- **所见即所得命名引擎与导出统一 (`internal/service/sub_service.go`, `internal/protocol`, `internal/sub`)**：
+  - 彻底移除后端对远端节点硬编码强塞 `[Region || Name] ` 前缀的逻辑，消除 `[**]直连` 混乱命名；`ExportUserSubscription` 与 `GetUserShareInfo` 收口共用 `buildUserNodeConfigs` 统一管线；
+  - 保持默认模板 `{remark}` 所见即所得，新增 `{region}`、`{node}`、`{route}`、`{outbound}` 占位符与空括号/多余分隔符自动归一化，并在导出前新增重名消歧（防 Clash/Sing-box 重名冲突）及 URI Query 元数据防泄露过滤。
+- **全站称呼统一、表单防误触收束与模板预览 (`web/`)**：
+  - 全站统一称呼为「托管节点 / 节点标识（仅后台管理）」与「订阅显示名称」；`InboundTable` 直接展示订阅显示名称与「公开订阅 / 仅内部中转」徽章；
+  - 移除新建 VLESS 入站默认预填的冗余 `🇯🇵 日本原生直连` SubRoute；`InboundFormDrawer` 在 `subExposed === false` 时自动收起外网/分流/用户授权区且保存绝不写入用户表；`UserFormDrawer` 自动剔除内部中转入站；
+  - `SettingsView` 新增 `{region}/{node}/{route}/{outbound}` 占位符变量芯片、快捷预设模板与实时预览。
+
+---
+
 ## v2.7.5 (2026-11) - 节点安装弹窗单行一键命令体验升级与 heredoc 防冲突加固
 
 - **首次用户单行一键安装体验 (`web/src/views/nodes/components/NodeTokenModal.vue`)**：

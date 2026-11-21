@@ -755,14 +755,14 @@ install -m 0755 "$TMP_BIN" /usr/local/bin/xray-agent
 install -d -m 0750 /etc/xray-agent /var/lib/xray-agent
 (
   umask 077
-  cat >/etc/xray-agent/agent.env <<EOF
+  cat >/etc/xray-agent/agent.env <<XRAY_AGENT_ENV_EOF
 MASTER_URL=${MASTER_URL}
 AGENT_TOKEN=${NODE_TOKEN}
-EOF
+XRAY_AGENT_ENV_EOF
 )
 chmod 0600 /etc/xray-agent/agent.env
 
-cat >/etc/systemd/system/xray-agent.service <<EOF
+cat >/etc/systemd/system/xray-agent.service <<XRAY_AGENT_SERVICE_EOF
 [Unit]
 Description=Xray Panel Thin Agent
 After=network-online.target xray.service
@@ -777,7 +777,7 @@ RestartSec=5s
 
 [Install]
 WantedBy=multi-user.target
-EOF
+XRAY_AGENT_SERVICE_EOF
 
 chmod 0644 /etc/systemd/system/xray-agent.service
 systemctl daemon-reload

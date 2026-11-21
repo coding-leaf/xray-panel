@@ -91,12 +91,12 @@
         </FormField>
       </div>
 
-      <!-- Install Script Display -->
+      <!-- One-Line Install Command (Primary) -->
       <div class="space-y-2">
-        <div class="flex items-center justify-between">
-          <span class="text-[11px] font-mono text-muted-foreground uppercase tracking-wider">
-            systemd 部署脚本
-            <span v-if="modalState.token" class="text-emerald-400 normal-case ml-1">
+        <div class="flex flex-wrap items-center justify-between gap-2">
+          <span class="text-[11px] font-mono text-muted-foreground tracking-wide">
+            一键安装命令（推荐，复制后直接粘贴到 SSH 终端回车）
+            <span v-if="modalState.token" class="text-emerald-400 ml-1">
               (已自动内嵌一次性 Token)
             </span>
           </span>
@@ -105,31 +105,65 @@
             variant="secondary"
             size="sm"
             class="h-7 px-2.5 text-[11px]"
-            :disabled="!renderedScript || loadingScript"
-            @click="copyText(renderedScript, '已复制节点安装脚本')"
+            @click="copyText(oneLineCommand, '已复制一键安装命令')"
           >
             <Copy class="w-3 h-3 mr-1.5" />
-            <span>一键复制安装脚本</span>
+            <span>一键复制安装命令</span>
           </Button>
         </div>
 
-        <p class="text-[11px] text-muted-foreground leading-relaxed">
-          GCP 等默认非 root 宿主机请先保存脚本，再使用
-          <code class="text-foreground font-mono">sudo bash install-agent.sh</code>
-          执行。
-        </p>
+        <pre
+          class="p-3.5 rounded-lg bg-neutral-950 border border-border font-mono text-[11px] text-emerald-300 leading-relaxed select-all whitespace-pre-wrap break-all"
+          >{{ oneLineCommand }}</pre>
 
-        <div
-          v-if="scriptError"
-          class="p-3 rounded-md border border-rose-500/30 bg-rose-500/10 text-rose-300 font-mono text-[11px]"
-        >
-          {{ scriptError }}
+        <p class="text-[11px] text-muted-foreground leading-relaxed">
+          适用于 GCP / AWS / Debian / Ubuntu 等非 root 与 root 宿主机（极简容器若无
+          <code class="text-foreground font-mono">sudo</code> 可去掉命令中的
+          <code class="text-foreground font-mono">sudo</code>）。
+        </p>
+      </div>
+
+      <!-- Full Systemd Script (Collapsible / Advanced) -->
+      <div class="border-t border-border pt-3 space-y-2">
+        <div class="flex flex-wrap items-center justify-between gap-2">
+          <button
+            type="button"
+            class="inline-flex items-center gap-1.5 text-[11px] font-mono text-muted-foreground hover:text-foreground transition-colors"
+            :aria-expanded="showFullScript"
+            @click="showFullScript = !showFullScript"
+          >
+            <ChevronDown v-if="showFullScript" class="w-3.5 h-3.5 shrink-0" />
+            <ChevronRight v-else class="w-3.5 h-3.5 shrink-0" />
+            <span>查看完整 systemd 脚本（高级 / 审计）</span>
+          </button>
+
+          <Button
+            v-if="showFullScript"
+            type="button"
+            variant="secondary"
+            size="sm"
+            class="h-7 px-2.5 text-[11px]"
+            :disabled="!renderedScript || loadingScript"
+            @click="copyText(renderedScript, '已复制完整安装脚本')"
+          >
+            <Copy class="w-3 h-3 mr-1.5" />
+            <span>复制完整脚本</span>
+          </Button>
         </div>
 
-        <pre
-          v-else
-          class="p-3.5 rounded-lg bg-neutral-950 border border-border font-mono text-[11px] text-neutral-200 overflow-x-auto max-h-64 leading-relaxed select-all whitespace-pre"
-          >{{ loadingScript ? '# 正在向主控生成部署脚本...' : renderedScript }}</pre>
+        <div v-if="showFullScript" class="space-y-2">
+          <div
+            v-if="scriptError"
+            class="p-3 rounded-md border border-rose-500/30 bg-rose-500/10 text-rose-300 font-mono text-[11px]"
+          >
+            {{ scriptError }}
+          </div>
+
+          <pre
+            v-else
+            class="p-3.5 rounded-lg bg-neutral-950 border border-border font-mono text-[11px] text-neutral-200 overflow-x-auto max-h-64 leading-relaxed select-all whitespace-pre"
+            >{{ loadingScript ? '# 正在向主控生成部署脚本...' : renderedScript }}</pre>
+        </div>
       </div>
     </div>
 
@@ -138,14 +172,13 @@
         我已妥善保存，关闭
       </Button>
       <Button
-        v-if="renderedScript"
         type="button"
         variant="default"
         size="sm"
-        @click="copyText(renderedScript, '已复制完整安装脚本')"
+        @click="copyText(oneLineCommand, '已复制一键安装命令')"
       >
         <Copy class="w-3.5 h-3.5 mr-1.5" />
-        <span>复制安装脚本</span>
+        <span>复制一键安装命令</span>
       </Button>
     </template>
   </Modal>
@@ -153,7 +186,16 @@
 
 <script setup lang="ts">
 import { ref, computed, watch } from 'vue'
-import { AlertTriangle, Copy, Info, KeyRound, RefreshCw, Terminal } from 'lucide-vue-next'
+import {
+  AlertTriangle,
+  ChevronDown,
+  ChevronRight,
+  Copy,
+  Info,
+  KeyRound,
+  RefreshCw,
+  Terminal,
+} from 'lucide-vue-next'
 import Modal from '../../../components/ui/Modal.vue'
 import Button from '../../../components/ui/Button.vue'
 import Input from '../../../components/ui/Input.vue'
@@ -161,6 +203,11 @@ import FormField from '../../../components/ui/FormField.vue'
 import { getNodeInstallScript } from '../../../api/nodes'
 import { copyText } from '../../../utils/clipboard'
 import type { NodeTokenModalState } from '../types'
+
+const INSTALL_AGENT_SCRIPT_URL =
+  'https://raw.githubusercontent.com/coding-leaf/xray-panel/master/deploy/install-agent.sh'
+
+const shellSingleQuote = (val: string) => `'${val.replace(/'/g, `'\\''`)}'`
 
 const props = defineProps<{
   modelValue: boolean
@@ -175,6 +222,7 @@ const masterUrl = ref('')
 const rawScript = ref('')
 const loadingScript = ref(false)
 const scriptError = ref('')
+const showFullScript = ref(false)
 
 const modalTitle = computed(() => {
   if (!props.modalState) return '节点凭据与部署脚本'
@@ -190,9 +238,16 @@ const modalTitle = computed(() => {
 const modalDescription = computed(() => {
   if (!props.modalState) return ''
   if (props.modalState.token) {
-    return '请立即复制一次性明文 Token 或直接执行下方已预填凭据的部署脚本'
+    return '请立即复制一次性明文 Token 或直接复制下方一键安装命令到 SSH 终端执行'
   }
-  return `节点 ID #${props.modalState.nodeId} · 生成 systemd 守护进程安装脚本`
+  return `节点 ID #${props.modalState.nodeId} · 生成一键安装命令与 systemd 守护进程脚本`
+})
+
+const oneLineCommand = computed(() => {
+  const normalizedMasterUrl =
+    masterUrl.value.trim().replace(/\/+$/, '') || 'https://panel.example.com'
+  const tokenValue = props.modalState?.token?.trim() || '<YOUR_NODE_TOKEN>'
+  return `curl -fsSL ${INSTALL_AGENT_SCRIPT_URL} | sudo MASTER_URL=${shellSingleQuote(normalizedMasterUrl)} AGENT_TOKEN=${shellSingleQuote(tokenValue)} bash`
 })
 
 const renderedScript = computed(() => {
@@ -231,6 +286,7 @@ watch(
     } else if (!open) {
       rawScript.value = ''
       scriptError.value = ''
+      showFullScript.value = false
     }
   },
   { immediate: true }

@@ -1255,10 +1255,16 @@ func TestNodeService_RenderInstallScript_EnvFileAndInterval(t *testing.T) {
 		"AGENT_TOKEN=",
 		"--interval 60s",
 		"127.0.0.1:8080",
+		"XRAY_AGENT_ENV_EOF",
+		"XRAY_AGENT_SERVICE_EOF",
 	} {
 		if !strings.Contains(script, mustHave) {
 			t.Errorf("install script missing %q:\n%s", mustHave, script)
 		}
+	}
+
+	if strings.Contains(script, "<<EOF") {
+		t.Fatalf("install script must not use bare <<EOF heredoc delimiter:\n%s", script)
 	}
 
 	if strings.Contains(script, created.Token) {

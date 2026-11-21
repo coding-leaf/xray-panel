@@ -94,30 +94,35 @@ sudo bash deploy/install.sh
 
 如需纳管多台远端节点服务器，可在节点机器部署轻量级独立守护进程 `xray-agent`。
 
-### 方式 A：通过 Master 面板一键脚本部署（推荐）
+### 方式 A：通过 Master 面板一键安装命令部署（推荐）
 
 1. 在 Master 面板进入 **「远端直连节点 → 新增节点」**（或对已有节点执行 **「轮换 Token / 查看安装脚本」**）；
 2. 在弹窗中确认 **Master URL** 为远端节点公网可达的有效 HTTPS 地址（推荐使用具备可信 TLS 证书的反向代理入口，避免填写 `127.0.0.1` 或内网地址）；
-3. 复制已预填一次性 Token 的安装脚本到目标节点保存并运行；在 GCP 等默认非 root 云主机上请使用 `sudo bash` 执行：
+3. 点击 **「复制一键安装命令」**，切到目标节点 SSH 终端直接粘贴回车即可（已自动内嵌 `MASTER_URL` 与一次性 `AGENT_TOKEN`，适配 GCP / AWS / Debian / Ubuntu 等非 root 与 root 宿主机；极简容器若无 `sudo` 可去掉命令中的 `sudo`）：
 
 ```bash
-sudo bash install-agent.sh
+curl -fsSL https://raw.githubusercontent.com/coding-leaf/xray-panel/master/deploy/install-agent.sh | sudo MASTER_URL='https://panel.example.com' AGENT_TOKEN='<YOUR_NODE_TOKEN>' bash
 ```
+
+如需在执行前审计脚本内容或本地保存执行，可在弹窗下方展开 **「查看完整 systemd 脚本（高级 / 审计）」** 复制完整脚本。
 
 脚本会自动识别 `amd64` / `arm64` 架构并从 `AGENT_BIN_URL`（默认 GitHub Releases 最新版）拉取 `xray-agent`，将凭据以 `0600` 权限写入 `/etc/xray-agent/agent.env`，并注册启动 `xray-agent.service`。
 
-### 方式 B：使用独立脚本 `deploy/install-agent.sh`
+### 方式 B：命令行远程拉取或本地运行 `deploy/install-agent.sh`
 
 适用于命令行快速部署、自动化编排或二进制升级：
 
 ```bash
-# 首次安装（必填 MASTER_URL 与 AGENT_TOKEN）
-sudo MASTER_URL="https://panel.example.com" AGENT_TOKEN="<YOUR_NODE_TOKEN>" bash deploy/install-agent.sh
+# 远程拉取一键安装（无需先克隆仓库，必填 MASTER_URL 与 AGENT_TOKEN）
+curl -fsSL https://raw.githubusercontent.com/coding-leaf/xray-panel/master/deploy/install-agent.sh | sudo MASTER_URL='https://panel.example.com' AGENT_TOKEN='<YOUR_NODE_TOKEN>' bash
+
+# 本地仓库直接安装（必填 MASTER_URL 与 AGENT_TOKEN）
+sudo MASTER_URL='https://panel.example.com' AGENT_TOKEN='<YOUR_NODE_TOKEN>' bash deploy/install-agent.sh
 
 # 可选：通过 AGENT_BIN_URL 覆盖默认 GitHub Releases 下载地址
-sudo AGENT_BIN_URL="https://mirror.example.com/xray-agent-linux-amd64" \
-  MASTER_URL="https://panel.example.com" \
-  AGENT_TOKEN="<YOUR_NODE_TOKEN>" \
+sudo AGENT_BIN_URL='https://mirror.example.com/xray-agent-linux-amd64' \
+  MASTER_URL='https://panel.example.com' \
+  AGENT_TOKEN='<YOUR_NODE_TOKEN>' \
   bash deploy/install-agent.sh
 
 # 升级重跑（当 /etc/xray-agent/agent.env 已存在且不传凭据时，自动保留原有配置并仅更新二进制与服务）

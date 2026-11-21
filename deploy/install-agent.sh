@@ -57,6 +57,11 @@ if [[ "${WRITE_ENV}" -eq 1 ]] && [[ ! "${MASTER_URL_INPUT}" =~ ^https?://[^[:spa
   exit 1
 fi
 
+if [[ "${WRITE_ENV}" -eq 1 ]] && [[ "${AGENT_TOKEN_INPUT}" == "<YOUR_NODE_TOKEN>" ]]; then
+  echo -e "${RED}错误：请将 AGENT_TOKEN 替换为节点实际的明文 Token，不能直接使用占位符 <YOUR_NODE_TOKEN>。${PLAIN}" >&2
+  exit 1
+fi
+
 echo -e "${BLUE}======================================================${PLAIN}"
 echo -e "${GREEN}      开始安装 / 升级 Xray Panel Thin Agent           ${PLAIN}"
 echo -e "${BLUE}======================================================${PLAIN}"
@@ -94,10 +99,10 @@ install -d -m 0750 "${CONF_DIR}" "${SPOOL_DIR}"
 if [[ "${WRITE_ENV}" -eq 1 ]]; then
   (
     umask 077
-    cat >"${ENV_FILE}" <<EOF
+    cat >"${ENV_FILE}" <<XRAY_AGENT_ENV_EOF
 MASTER_URL=${MASTER_URL_INPUT%/}
 AGENT_TOKEN=${AGENT_TOKEN_INPUT}
-EOF
+XRAY_AGENT_ENV_EOF
   )
   chmod 0600 "${ENV_FILE}"
   echo -e "${GREEN}  ✓ 已写入权限为 0600 的节点凭据文件 ${ENV_FILE}${PLAIN}"
@@ -107,7 +112,7 @@ else
 fi
 
 echo -e "${GREEN}[3/4] 配置 Systemd 后台服务 ${SERVICE_FILE} ...${PLAIN}"
-cat >"${SERVICE_FILE}" <<EOF
+cat >"${SERVICE_FILE}" <<XRAY_AGENT_SERVICE_EOF
 [Unit]
 Description=Xray Panel Thin Agent
 After=network-online.target xray.service
@@ -122,7 +127,7 @@ RestartSec=5s
 
 [Install]
 WantedBy=multi-user.target
-EOF
+XRAY_AGENT_SERVICE_EOF
 chmod 0644 "${SERVICE_FILE}"
 
 systemctl daemon-reload

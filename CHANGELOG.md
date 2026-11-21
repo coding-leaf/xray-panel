@@ -4,6 +4,19 @@
 
 ---
 
+## v2.7.3 (2026-11) - 远端 Agent 唯一权威配置源、零断流落盘与运行态自愈
+
+- **Master 唯一权威配置源与按需落盘下发 (`internal/domain`, `internal/service`, `internal/agent`)**：
+  - 确立 Master SQLite DB 经 `XrayCompiler` 编译的 `cachedNodeSnapshot` 为全集群唯一权威配置源；新增 `FullConfigHash`（完整 `config.json` SHA-256）与可选心跳字段 `diskConfigHash`，当仅发生用户变更或远端磁盘 `config.json` 发生漂移/缺失时由 Master 直接下发完整 `ConfigJSON`，杜绝 Agent 本地拼改 JSON 导致的静态客户端误删风险，并与旧版 Agent / 旧版 Master 保持 100% 双向滚动兼容。
+- **Agent 零断流校验落盘与重启免重载 (`internal/agent`, `cmd/agent`)**：
+  - `ConfigManager.Persist` 在互斥锁保护下执行 `xray run -test` 校验、`.bak` 备份与原子替换且**不重启 Xray**，彻底修复 gRPC 热更新用户后 `xray.service` 独立重启（或 `geodata_update` 触发重载）导致用户回退丢失的问题。
+  - 新增原子持久化 `{spoolDir}/sync_state.json`，`xray-agent` 自身重启时若磁盘配置与 Xray 运行态均已与 Master 一致，不再触发无意义 Xray 重载。
+- **跨平台 Xray gRPC 运行态实测与自动自愈 (`internal/adapter/xray`, `internal/agent`)**：
+  - 按上游 `XTLS/Xray-core` 线协议扩展 `HandlerService.GetInboundUsers` 与 `StatsService.GetSysStats`（`Uptime`）及 5 种协议账户解码，每轮心跳直接核对 Xray 运行态真实用户与进程 `Uptime`，1 个周期内自动自愈缺失/僵尸/凭证漂移用户并保护 `relay-auto:*@internal`、`*@trojan.local` 静态客户端；遇到旧版 Xray `Unimplemented` 自动优雅降级。
+  - 修复 `UserSyncer.AddUser` 误吞 `handler not found` 错误并污染 `applied` 状态的隐患，缺失 handler 时立即触发重载与结构恢复。
+
+---
+
 ## v2.7.2 (2026-11) - Agent 安装脚本自动拉取与 Release 多架构二进制发布
 
 - **GitHub Release 补齐 `xray-agent` 产物 (`.github/workflows/release.yml`)**：

@@ -8,7 +8,7 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 44
+- **Total Sessions**: 45
 - **Last Active**: 2026-11-21
 <!-- @@@/auto:current-status -->
 
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~1019 | Active |
+| `journal-1.md` | ~1041 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 45 | 2026-11-21 | 节点弹窗单行一键安装命令体验优化 | `1b025e6` | `master` |
 | 44 | 2026-11-21 | Agent 部署文档、独立脚本与非 root 防坑加固 | `bd6becc` | `master` |
 | 43 | 2026-11-21 | Fix xray-agent gRPC user hot-update drift and establish Master SSOT | `c1e9715` | `master` |
 | 42 | 2026-11-20 | Agent 安装脚本自动拉取 GitHub Release 二进制 | `6fdc25b` | `master` |

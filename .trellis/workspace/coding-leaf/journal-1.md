@@ -1017,3 +1017,25 @@ Established Master compiled snapshot as single authoritative source of truth via
 ### Status
 
 [OK] **Completed**
+
+
+## Session 45: 节点弹窗单行一键安装命令体验优化
+<!-- trellis-session: v=2 fp=c12657c225f15bf4 -->
+
+**Date**: 2026-11-21
+**Task**: 节点弹窗单行一键安装命令体验优化
+**Branch**: `master`
+
+### Summary
+
+将 NodeTokenModal 主入口升级为单行可粘贴执行的 curl | sudo bash 命令，折叠完整脚本，消除 heredoc EOF 冲突并在 install-agent.sh 拦截占位符 Token
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `1b025e6` | feat(nodes): upgrade install modal to one-liner command and harden heredoc delimiters |
+
+### Status
+
+[OK] **Completed**

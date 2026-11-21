@@ -995,3 +995,25 @@ Established Master compiled snapshot as single authoritative source of truth via
 ### Status
 
 [OK] **Completed**
+
+
+## Session 44: Agent 部署文档、独立脚本与非 root 防坑加固
+<!-- trellis-session: v=2 fp=97f77a52d1053bcc -->
+
+**Date**: 2026-11-21
+**Task**: Agent 部署文档、独立脚本与非 root 防坑加固
+**Branch**: `master`
+
+### Summary
+
+新增 deploy/install-agent.sh、加固 RenderInstallScript root 校验、补充 NodeTokenModal 提示并完善 README.md 的 Master/Agent 双模式部署文档
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `bd6becc` | feat(deploy): add standalone agent install script, root-check safeguard, and Agent deployment docs |
+
+### Status
+
+[OK] **Completed**

@@ -1,0 +1,5 @@
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "Verify backend tests, vet, and build pass with zero regressions"}
+{"file": ".trellis/spec/backend/logging-guidelines.md", "reason": "Verify no real IPs, domains, or plaintext tokens leaked anywhere in diff"}
+{"file": ".trellis/spec/frontend/quality-guidelines.md", "reason": "Verify frontend typecheck, lint, prettier, and dist build are clean"}
+{"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "Verify shell single-quote escaping, heredoc delimiter safety, and LF line endings in deploy/install-agent.sh"}
+{"file": ".trellis/spec/guides/review-3pass-guide.md", "reason": "3-Pass verification checklist before sign-off"}

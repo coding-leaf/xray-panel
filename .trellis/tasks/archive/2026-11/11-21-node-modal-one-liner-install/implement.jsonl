@@ -1,0 +1,6 @@
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "Backend KISS, security, and unit test standards for RenderInstallScript changes"}
+{"file": ".trellis/spec/backend/logging-guidelines.md", "reason": "Credential handling discipline: never leak plaintext tokens in backend rendered scripts or ExecStart"}
+{"file": ".trellis/spec/frontend/index.md", "reason": "Frontend Vue 3 / Vite / Tailwind build and go:embed dist contract"}
+{"file": ".trellis/spec/frontend/components-and-routing.md", "reason": "Vue SFC component, icon, and Tailwind styling conventions for NodeTokenModal.vue"}
+{"file": ".trellis/spec/frontend/quality-guidelines.md", "reason": "Frontend typecheck, lint, prettier, and build gates"}
+{"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "Preserve RenderInstallScript <-> NodeTokenModal.vue placeholder replacement and deploy/install-agent.sh piping contract"}

@@ -63,7 +63,7 @@
       <div class="rounded-lg border border-border bg-card p-3.5 space-y-2.5">
         <FormField
           label="主控面板地址 (Master URL)"
-          hint="目标 VPS 上 xray-agent 回调主控的地址（需确保远端节点可访问该 HTTPS/HTTP 入口）"
+          hint="远端节点访问主控的公网可达地址（推荐使用证书有效的 HTTPS 地址，避免填写 127.0.0.1 或内网地址）"
         >
           <template #default="{ id, describedBy }">
             <div class="flex items-center gap-2">
@@ -112,6 +112,12 @@
             <span>一键复制安装脚本</span>
           </Button>
         </div>
+
+        <p class="text-[11px] text-muted-foreground leading-relaxed">
+          GCP 等默认非 root 宿主机请先保存脚本，再使用
+          <code class="text-foreground font-mono">sudo bash install-agent.sh</code>
+          执行。
+        </p>
 
         <div
           v-if="scriptError"

@@ -1237,6 +1237,8 @@ func TestNodeService_RenderInstallScript_EnvFileAndInterval(t *testing.T) {
 	}
 
 	for _, mustHave := range []string{
+		"id -u",
+		"sudo bash",
 		"uname -m",
 		"x86_64|amd64",
 		"aarch64|arm64",

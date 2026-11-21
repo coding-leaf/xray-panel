@@ -45,16 +45,20 @@
 
 ## 快速开始
 
-### 方式一：Linux Systemd 一键安装（推荐生产环境）
+### 方式一：Master 单机一键安装（推荐生产环境）
 
-确保系统已安装 Xray-core 并处于运行状态：
+确保系统已安装 Xray-core 并处于运行状态；执行 `deploy/install.sh` 前需先准备好 `panel` 二进制文件（按下方「本地开发与编译」构建产物或从 Release 下载，并置于当前目录 `./panel` 或 `/tmp/panel`）：
 
 ```bash
 # 1. 下载源码并进入目录
 git clone https://github.com/coding-leaf/xray-panel.git
 cd xray-panel
 
-# 2. 执行一键安装脚本
+# 2. 准备 panel 二进制（示例：本地构建，或将已下载的 panel 放到当前目录 / /tmp/panel）
+# cd web && npm install && npm run build && cd ..
+# go build -ldflags="-s -w" -o panel .
+
+# 3. 执行一键安装脚本
 sudo bash deploy/install.sh
 ```
 
@@ -86,6 +90,78 @@ sudo bash deploy/install.sh
 
 ---
 
+## 多节点 Agent 部署（`xray-agent`）
+
+如需纳管多台远端节点服务器，可在节点机器部署轻量级独立守护进程 `xray-agent`。
+
+### 方式 A：通过 Master 面板一键脚本部署（推荐）
+
+1. 在 Master 面板进入 **「远端直连节点 → 新增节点」**（或对已有节点执行 **「轮换 Token / 查看安装脚本」**）；
+2. 在弹窗中确认 **Master URL** 为远端节点公网可达的有效 HTTPS 地址（推荐使用具备可信 TLS 证书的反向代理入口，避免填写 `127.0.0.1` 或内网地址）；
+3. 复制已预填一次性 Token 的安装脚本到目标节点保存并运行；在 GCP 等默认非 root 云主机上请使用 `sudo bash` 执行：
+
+```bash
+sudo bash install-agent.sh
+```
+
+脚本会自动识别 `amd64` / `arm64` 架构并从 `AGENT_BIN_URL`（默认 GitHub Releases 最新版）拉取 `xray-agent`，将凭据以 `0600` 权限写入 `/etc/xray-agent/agent.env`，并注册启动 `xray-agent.service`。
+
+### 方式 B：使用独立脚本 `deploy/install-agent.sh`
+
+适用于命令行快速部署、自动化编排或二进制升级：
+
+```bash
+# 首次安装（必填 MASTER_URL 与 AGENT_TOKEN）
+sudo MASTER_URL="https://panel.example.com" AGENT_TOKEN="<YOUR_NODE_TOKEN>" bash deploy/install-agent.sh
+
+# 可选：通过 AGENT_BIN_URL 覆盖默认 GitHub Releases 下载地址
+sudo AGENT_BIN_URL="https://mirror.example.com/xray-agent-linux-amd64" \
+  MASTER_URL="https://panel.example.com" \
+  AGENT_TOKEN="<YOUR_NODE_TOKEN>" \
+  bash deploy/install-agent.sh
+
+# 升级重跑（当 /etc/xray-agent/agent.env 已存在且不传凭据时，自动保留原有配置并仅更新二进制与服务）
+sudo bash deploy/install-agent.sh
+```
+
+### 云主机（如 GCP）防火墙与最小宿主机前提
+
+- **零 Agent 控制入站端口**：`xray-agent` 仅主动出站轮询 Master（`POST /api/agent/sync`），**无需**在 GCP 或云防火墙开放 `8080`、`9000` 等 Agent 控制入站端口；仅需确保节点可出站访问 Master 入口，并按需放行你的业务代理入站端口（本机 gRPC `127.0.0.1:8080` 仅限回环通信）。
+- **最小宿主机前提**：宿主机需已安装可执行 `xray` 与 `xray.service` 以承接 Master 下发配置与重载。
+
+### `xray-agent` 启动参数与环境变量
+
+参数优先级：CLI 参数 > 环境变量 > 默认值。
+
+| 命令行参数 | 环境变量 | 默认值 | 说明 |
+| :--- | :--- | :--- | :--- |
+| `-master-url` | `MASTER_URL` | `""`（必填） | Master 面板基础访问地址（如 `https://panel.example.com`） |
+| `-token` | `AGENT_TOKEN` | `""`（必填） | 节点 Bearer Token（生产环境建议通过 `agent.env` 注入，避免命令行明文暴露） |
+| `-xray-bin` | `XRAY_BIN` | `xray` | Xray 可执行文件路径 |
+| `-xray-config` | `XRAY_CONFIG` | `/usr/local/etc/xray/config.json` | Xray 配置文件路径 |
+| `-xray-grpc` | `XRAY_GRPC` | `127.0.0.1:8080` | 本机 Xray gRPC API 地址（需与远端编译配置 `127.0.0.1:8080` 一致） |
+| `-xray-service` | `XRAY_SERVICE` | `xray` | Xray 守护进程 systemd 服务名 |
+| `-xray-assets-dir` | `XRAY_ASSETS_DIR` | `/usr/local/share/xray` | `geoip.dat` 与 `geosite.dat` 存放目录 |
+| `-spool-dir` | `SPOOL_DIR` | `/var/lib/xray-agent` | 待确认流量批次与同步状态缓存目录 |
+| `-interval` | `SYNC_INTERVAL` | `60s` | 心跳同步周期（合法正时长，运行时受 Master 配置下发动态调整） |
+| `-log-level` | `LOG_LEVEL` | `info` | 日志输出级别（`debug` / `info` / `warn` / `error`） |
+| `-log-json` | *(无)* | `false` | 是否输出结构化 JSON 日志 |
+
+### 常用运维与排障命令
+
+```bash
+# 查看 Agent 运行状态
+sudo systemctl status xray-agent
+
+# 实时查看 Agent 日志
+sudo journalctl -u xray-agent -f
+
+# 重启 Agent 服务
+sudo systemctl restart xray-agent
+```
+
+---
+
 ## 本地开发与编译
 
 ### 环境要求
@@ -101,9 +177,10 @@ npm run typecheck
 npm run build
 cd ..
 
-# 3. 运行后端测试与编译单二进制
+# 3. 运行后端测试与编译二进制
 go test -v ./...
 go build -ldflags="-s -w" -o panel .
+go build -ldflags="-s -w" -o xray-agent ./cmd/agent
 ```
 
 ---

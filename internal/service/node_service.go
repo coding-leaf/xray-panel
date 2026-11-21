@@ -699,6 +699,11 @@ func (s *NodeService) RenderInstallScript(ctx context.Context, id uint, masterUR
 	script := fmt.Sprintf(`#!/usr/bin/env bash
 set -euo pipefail
 
+if [ "$(id -u)" -ne 0 ]; then
+  echo "Error: please run this script as root (e.g. sudo bash ...)." >&2
+  exit 1
+fi
+
 # Node: %s (ID: %d, TokenPrefix: %s)
 # Note: Compiled remote Xray configs bind the local gRPC API on 127.0.0.1:8080 (matching xray-agent default --xray-grpc).
 MASTER_URL="%s"
